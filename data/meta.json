@@ -1,0 +1,14 @@
+{
+ "west": 5.8,
+ "east": 6.1,
+ "south": 43.0,
+ "north": 43.18,
+ "nx": 610,
+ "ny": 500,
+ "units": "dm",
+ "sources": [
+  "OpenStreetMap (ODbL)",
+  "EMODnet Bathymetry DTM",
+  "AWS Terrain Tiles (SRTM/GMTED)"
+ ]
+}
