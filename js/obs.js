@@ -2,6 +2,7 @@
 
 import { MODELS, gridPoints } from './weather.js';
 import { toXY, rad, deg, norm360, norm180, fmtBrg, cardinal } from './geo.js';
+import { SR } from './voice.js';
 
 const AROME = 'meteofrance_arome_france_hd';
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -106,6 +107,11 @@ export function renderObsCard(el, ctx) {
   const verdict = !ctx.obs.length ? '<p class="small muted">Aucun relevé aujourd’hui. Dès le premier relevé, l’app compare les modèles et retient celui qui colle le mieux.</p>'
     : `<p class="small"><b>Modèle retenu : ${esc(ctx.selectedLabel)}</b>${ctx.modelSel === 'auto' ? ' (choisi par vos relevés)' : ' (forcé)'}${best && rk[1] && rk[1].score > best.score * 1.6 ? ` — nettement meilleur que ${esc(rk[1].label)}` : best && rk[1] ? ` — proche de ${esc(rk[1].label)}, à confirmer par un autre relevé` : ''}.</p>`;
   el.innerHTML = `
+    <div class="voicebar">
+      ${SR ? '<button class="btn acc mic" type="button" data-mic aria-label="Dicter le relevé">🎤</button>' : ''}
+      <input type="text" data-vtext placeholder="Dicter ou taper : « 290 12 », « nord-ouest 15 », « adonne de 10 »" enterkeyhint="done" autocomplete="off">
+      <button class="btn small" type="button" data-vgo>OK</button>
+    </div>
     <div class="obs-grid">
       <div class="dialwrap">${dialSVG(d.dir, ctx.model)}
         <div class="btns center"><button class="btn alt small" data-dd="-10">−10°</button><button class="btn alt small" data-dd="-5">−5°</button><button class="btn alt small" data-dd="5">+5°</button><button class="btn alt small" data-dd="10">+10°</button></div>
@@ -143,6 +149,11 @@ export function renderObsCard(el, ctx) {
   el.querySelectorAll('[data-ds]').forEach((b) => b.addEventListener('click', () => ctx.onDraft({ spd: Math.max(0, Math.min(50, d.spd + +b.dataset.ds)) }, true)));
   el.querySelector('#obsTime').addEventListener('change', (e) => { const [a, b] = e.target.value.split(':').map(Number); if (!isNaN(a)) ctx.onDraft({ h: a + (b || 0) / 60, hManual: true }, true); });
   el.querySelector('#obsAdd').addEventListener('click', ctx.onAdd);
+  const vt = el.querySelector('[data-vtext]');
+  const go = () => { if (vt.value.trim()) { ctx.onVoice([vt.value.trim()]); vt.value = ''; vt.blur(); } };
+  el.querySelector('[data-vgo]').addEventListener('click', go);
+  vt.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
+  el.querySelector('[data-mic]')?.addEventListener('click', (e) => ctx.onMic(e.currentTarget));
   el.querySelectorAll('[data-del]').forEach((b) => b.addEventListener('click', () => ctx.onDelete(+b.dataset.del)));
   el.querySelector('#obsModel').addEventListener('change', (e) => ctx.onModel(e.target.value));
   el.querySelector('#obsNow').addEventListener('change', (e) => ctx.onNowcast(e.target.value === '1'));

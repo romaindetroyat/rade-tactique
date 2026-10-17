@@ -12,10 +12,11 @@ import { renderJ80 } from './j80.js';
 import { modelPoints, modelAt, idwAt, scoreModels, renderObsCard } from './obs.js';
 import { route } from './router.js';
 import { initTips, maybeWelcome, openGuide, openShare, tip } from './help.js';
+import { parseWind, listen, say } from './voice.js';
 import { Recorder, listTracks, getTrack, deleteTrack, saveTrack, analyzeTrack, exportGPX, fromGPX } from './track.js';
 import { shroudsFor } from './tuning.js';
 
-export const APP_VERSION = 'v5 · traces & partage';
+export const APP_VERSION = 'v6 · relevé vocal';
 const $ = (s, r = document) => r.querySelector(s);
 function toast(msg) {
   let t = document.getElementById('toast');
@@ -185,10 +186,41 @@ function renderObs(el) {
       if (rest && gps?.pos) setTimeout(planRest, 300);
       toast(`Relevé enregistré : ${fmtBrg(obsDraft.dir)} ${obsDraft.spd} nd — modèle retenu : ${modelLabel(selectedModel())}`);
     },
+    onVoice: (alts) => voiceObs(alts),
+    onMic: (btn) => {
+      btn.classList.add('rec'); btn.textContent = '…';
+      try {
+        listen({
+          onResult: (alts) => voiceObs(alts),
+          onError: (m) => toast('Micro : ' + m + '. Vous pouvez dicter avec le micro du clavier dans le champ texte.'),
+          onEnd: () => { btn.classList.remove('rec'); btn.textContent = '🎤'; },
+        });
+      } catch (err) { btn.classList.remove('rec'); btn.textContent = '🎤'; toast('Reconnaissance vocale indisponible ici : utilisez le micro du clavier dans le champ texte.'); }
+    },
     onDelete: (i) => { const o = dayObs()[i]; S.obs = S.obs.filter((x) => x !== o); persist(); refreshObs(); updateAll(); },
     onModel: (v) => { S.modelSel = v; persist(); refreshObs(); updateAll(); },
     onNowcast: (v) => { S.nowcast = v; persist(); refreshObs(); updateAll(); },
   });
+}
+// Relevé dicté : interprétation, confirmation 3 s (annulable), puis enregistrement
+let pend = null;
+function voiceObs(alts) {
+  const lastObs = dayObs().slice(-1)[0];
+  const last = lastObs ? { dir: lastObs.dir, spd: lastObs.spd } : obsDraft ? { dir: obsDraft.dir, spd: obsDraft.spd } : null;
+  const tack = gps?.pos?.cog != null && last ? (norm180(gps.pos.cog - last.dir) >= 0 ? 1 : -1) : null;
+  let res = null, heard = alts[0];
+  for (const a of alts) { const r = parseWind(a, last, tack); if (!r.error) { res = r; heard = a; break; } if (!res) res = r; }
+  if (res.error || res.dir == null || res.spd == null) { toast(`« ${heard} » : ${res.error || 'il manque la direction ou la force'}`); say('Pas compris'); return; }
+  obsDraft = { ...(obsDraft || {}), dir: res.dir, spd: res.spd, hManual: false };
+  const b = document.getElementById('voicePend') || Object.assign(document.createElement('div'), { id: 'voicePend' });
+  document.body.appendChild(b);
+  b.innerHTML = `<div><b>${fmtBrg(res.dir)} · ${res.spd} nd</b>${res.notes.length ? ` <span class="small">(${esc(res.notes.join(', '))})</span>` : ''}<div class="small">« ${esc(heard)} » — enregistrement dans 3 s</div></div><button class="btn alt small" id="vpCancel">Annuler</button>`;
+  b.hidden = false;
+  clearTimeout(pend);
+  say(`Relevé ${res.dir}, ${res.spd} nœuds`);
+  pend = setTimeout(() => { b.hidden = true; renderObsAll(); $$('.obs-card #obsAdd')[0]?.click(); }, 3000);
+  $('#vpCancel').onclick = () => { clearTimeout(pend); b.hidden = true; say('Annulé'); renderObsAll(); };
+  renderObsAll();
 }
 function renderObsAll() { $$('.obs-card').forEach((el) => renderObs(el)); }
 
