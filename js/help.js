@@ -84,7 +84,7 @@ export const GUIDE = `
   <li><b>L’heure</b> (curseur en haut) fait défiler la prévision de la journée. <b>⟳</b> télécharge les dernières prévisions.</li>
   <li><b>Briefing</b> : vent attendu, accord entre les modèles, stratégie du jour, effets locaux et réglages J80.</li>
   <li><b>Parcours</b> : choisissez le parcours annoncé par le Comité (et le nombre de tours). Les bouées sont numérotées dans l’ordre de passage. Chaque bord donne l’amure, le côté favorisé et la route optimale (pointillés bleus). <b>▶ Animer le parcours</b> montre un J80 qui le parcourt.</li>
-  <li><b>Relevé de vent</b> (en haut de Parcours ou dans En course) : touchez 🎤 et dites par exemple « 290 12 », « nord-ouest 15 », « adonne de 10 » ou « plus 3 nœuds » ; ou réglez le compas puis « Enregistrer ». L’app retient le modèle météo qui colle le mieux et recale la prévision.</li>
+  <li><b>Relevé de vent</b> (en haut de Parcours ou dans En course) : touchez 🎤 et parlez librement : « ça refuse d’une dizaine de degrés et ça mollit un peu », « mistral 18 nœuds avec des rafales à 24 », « 290 12 » ; ou réglez le compas puis « Enregistrer ». L’app retient le modèle météo qui colle le mieux et recale la prévision.</li>
   <li><b>Départ</b> : placez la ligne (GPS au ras du Comité puis de la bouée), lisez le biais et lancez le chrono au signal d’avertissement.</li>
   <li><b>En course</b> : activez le GPS et l’enregistrement de la trace. Relèvement et distance de la prochaine marque, et « Recalculer la suite » depuis votre position avec le dernier vent relevé.</li>
   <li><b>Traces</b> : après la course, revoyez votre trace, comparez-la à la route optimale et exportez-la (GPX).</li>

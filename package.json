@@ -1,0 +1,9 @@
+{
+  "name": "rade-tactique",
+  "private": true,
+  "type": "module",
+  "description": "Rade Tactique — PWA statique + fonction /api/voice (compréhension des relevés de vent dictés)",
+  "dependencies": {
+    "openai": "^7.36.0"
+  }
+}

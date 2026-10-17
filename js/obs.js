@@ -109,7 +109,7 @@ export function renderObsCard(el, ctx) {
   el.innerHTML = `
     <div class="voicebar">
       ${SR ? '<button class="btn acc mic" type="button" data-mic aria-label="Dicter le relevé">🎤</button>' : ''}
-      <input type="text" data-vtext placeholder="Dicter ou taper : « 290 12 », « nord-ouest 15 », « adonne de 10 »" enterkeyhint="done" autocomplete="off">
+      <input type="text" data-vtext placeholder="Parlez ou tapez librement : « ça refuse un peu, autour de 14 nœuds »" enterkeyhint="done" autocomplete="off">
       <button class="btn small" type="button" data-vgo>OK</button>
     </div>
     <div class="obs-grid">

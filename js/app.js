@@ -16,7 +16,7 @@ import { parseWind, listen, say } from './voice.js';
 import { Recorder, listTracks, getTrack, deleteTrack, saveTrack, analyzeTrack, exportGPX, fromGPX } from './track.js';
 import { shroudsFor } from './tuning.js';
 
-export const APP_VERSION = 'v6 · relevé vocal';
+export const APP_VERSION = 'v7 · langage naturel';
 const $ = (s, r = document) => r.querySelector(s);
 function toast(msg) {
   let t = document.getElementById('toast');
@@ -202,20 +202,51 @@ function renderObs(el) {
     onNowcast: (v) => { S.nowcast = v; persist(); refreshObs(); updateAll(); },
   });
 }
+// Compréhension en langage naturel (fonction /api/voice, OpenAI) ; repli sur l'analyse locale sans réseau
+async function understand(alts, last, tack) {
+  if (navigator.onLine) {
+    try {
+      const ctl = new AbortController(), to = setTimeout(() => ctl.abort(), 9000);
+      const r = await fetch('api/voice', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ alts, last, tack }), signal: ctl.signal });
+      clearTimeout(to);
+      if (r.ok) {
+        const j = await r.json();
+        if (!j.understood) return { error: j.question || 'pas compris', ai: true };
+        let dir = last?.dir ?? null, spd = last?.spd ?? null; const notes = [];
+        const d = j.direction, v = j.speed;
+        if (d.mode === 'absolute' && d.value != null) dir = d.value;
+        else if (d.mode === 'delta' && d.value != null && dir != null) dir += d.value;
+        else if ((d.mode === 'lift' || d.mode === 'header') && dir != null) {
+          if (!tack) return { error: 'amure inconnue (GPS inactif) pour « adonne / refuse » : précisez « tourne à droite / à gauche »', ai: true };
+          const n = (d.value ?? 10) * (d.mode === 'lift' ? 1 : -1); dir -= tack * n;
+        }
+        if (v.mode === 'absolute' && v.value != null) spd = v.value;
+        else if (v.mode === 'delta' && v.value != null && spd != null) spd = Math.max(0, spd + v.value);
+        if (dir == null || spd == null) return { error: 'il manque la direction ou la force', ai: true };
+        if (j.confidence === 'low') notes.push('à vérifier');
+        return { dir: ((Math.round(dir / 5) * 5) % 360 + 360) % 360, spd: Math.round(spd), gust: j.gust, notes, summary: j.summary, ai: true };
+      }
+    } catch { /* hors réseau ou délai dépassé : analyse locale */ }
+  }
+  for (const a of alts) { const r = parseWind(a, last, tack); if (!r.error) return r; }
+  return parseWind(alts[0], last, tack);
+}
+
 // Relevé dicté : interprétation, confirmation 3 s (annulable), puis enregistrement
 let pend = null;
-function voiceObs(alts) {
+async function voiceObs(alts) {
   const lastObs = dayObs().slice(-1)[0];
   const last = lastObs ? { dir: lastObs.dir, spd: lastObs.spd } : obsDraft ? { dir: obsDraft.dir, spd: obsDraft.spd } : null;
   const tack = gps?.pos?.cog != null && last ? (norm180(gps.pos.cog - last.dir) >= 0 ? 1 : -1) : null;
-  let res = null, heard = alts[0];
-  for (const a of alts) { const r = parseWind(a, last, tack); if (!r.error) { res = r; heard = a; break; } if (!res) res = r; }
-  if (res.error || res.dir == null || res.spd == null) { toast(`« ${heard} » : ${res.error || 'il manque la direction ou la force'}`); say('Pas compris'); return; }
-  obsDraft = { ...(obsDraft || {}), dir: res.dir, spd: res.spd, hManual: false };
   const b = document.getElementById('voicePend') || Object.assign(document.createElement('div'), { id: 'voicePend' });
   document.body.appendChild(b);
-  b.innerHTML = `<div><b>${fmtBrg(res.dir)} · ${res.spd} nd</b>${res.notes.length ? ` <span class="small">(${esc(res.notes.join(', '))})</span>` : ''}<div class="small">« ${esc(heard)} » — enregistrement dans 3 s</div></div><button class="btn alt small" id="vpCancel">Annuler</button>`;
-  b.hidden = false;
+  b.innerHTML = `<div><b>…</b><div class="small">« ${esc(alts[0])} » — compréhension…</div></div>`; b.hidden = false;
+  const res = await understand(alts, last, tack);
+  if (res.error || res.dir == null || res.spd == null) {
+    b.hidden = true; toast(`« ${alts[0]} » : ${res.error || 'il manque la direction ou la force'}`); say(res.ai && res.error ? res.error : 'Pas compris'); return;
+  }
+  obsDraft = { ...(obsDraft || {}), dir: res.dir, spd: res.spd, hManual: false };
+  b.innerHTML = `<div><b>${fmtBrg(res.dir)} · ${res.spd} nd</b>${res.gust ? ` <span class="small">rafales ${Math.round(res.gust)}</span>` : ''}${res.notes?.length ? ` <span class="small">(${esc(res.notes.join(', '))})</span>` : ''}<div class="small">« ${esc(alts[0])} »${res.summary ? ` → ${esc(res.summary)}` : ''} — enregistrement dans 3 s</div></div><button class="btn alt small" id="vpCancel">Annuler</button>`;
   clearTimeout(pend);
   say(`Relevé ${res.dir}, ${res.spd} nœuds`);
   pend = setTimeout(() => { b.hidden = true; renderObsAll(); $$('.obs-card #obsAdd')[0]?.click(); }, 3000);
