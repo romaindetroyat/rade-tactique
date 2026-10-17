@@ -170,7 +170,7 @@ export class Scene3D {
     this.waterTex.colorSpace = THREE.SRGBColorSpace; this.waterTex.magFilter = THREE.LinearFilter;
     const g = new THREE.PlaneGeometry(T.x1 - T.x0, T.y1 - T.y0);
     g.rotateX(-Math.PI / 2);
-    this.waterMat = new THREE.MeshBasicMaterial({ map: this.waterTex, transparent: true, opacity: 0.78, depthWrite: false });
+    this.waterMat = new THREE.MeshBasicMaterial({ map: this.waterTex, transparent: true, opacity: 0.93, depthWrite: false });
     const m = new THREE.Mesh(g, this.waterMat);
     m.position.set((T.x0 + T.x1) / 2, 0, -(T.y0 + T.y1) / 2);
     m.renderOrder = 2;
