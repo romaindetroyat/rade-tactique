@@ -4,7 +4,7 @@
 
 import OpenAI from 'openai';
 
-const client = new OpenAI();
+let client = null; // créé à la première requête : sans clé, le constructeur lèverait une erreur au chargement
 const MODEL = process.env.OPENAI_MODEL || 'gpt-5.5';
 
 const SYSTEM = `Tu interprètes ce qu'un régatier dit à voix haute sur un J80 dans la rade de Toulon pour mettre à jour le vent réel observé.
@@ -52,6 +52,7 @@ export default async function handler(req, res) {
   const context = `Dernier vent connu : ${last ? `${Math.round(last.dir)}°, ${Math.round(last.spd)} nœuds` : 'aucun'}. Amure actuelle : ${tack === 1 ? 'bâbord amures' : tack === -1 ? 'tribord amures' : 'inconnue'}.`;
   const user = `${context}\nCe qu'a entendu la reconnaissance vocale (hypothèses, la première est la plus probable) :\n${phrases.map((p, i) => `${i + 1}. « ${p} »`).join('\n')}`;
   try {
+    client ??= new OpenAI();
     const response = await client.responses.create({
       model: MODEL,
       instructions: SYSTEM,
