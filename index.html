@@ -27,6 +27,8 @@
       <button data-src="forecast" class="on">Prévision</button><button data-src="manual">Manuel</button>
     </div>
     <button id="refresh" class="icon" title="Mettre à jour la météo">⟳</button>
+    <button id="shareBtn" class="icon" title="Partager">⤴</button>
+    <button id="helpBtn" class="icon" title="Aide">?</button>
   </header>
 
   <main id="stage">
@@ -70,6 +72,7 @@
       <button data-tab="course">Parcours</button>
       <button data-tab="start">Départ</button>
       <button data-tab="live">En course</button>
+      <button data-tab="tracks">Traces</button>
       <button data-tab="wind">Vent</button>
       <button data-tab="j80">J80</button>
       <button data-tab="ic">IC</button>
@@ -79,6 +82,7 @@
       <section data-tab="course"></section>
       <section data-tab="start"></section>
       <section data-tab="live"></section>
+      <section data-tab="tracks"></section>
       <section data-tab="wind"></section>
       <section data-tab="j80"></section>
       <section data-tab="ic"></section>
@@ -86,6 +90,7 @@
   </aside>
 </div>
 <div id="splash"><div><div class="logo big">⛵</div><b>Rade Tactique</b><small>Préparation du modèle 3D…</small></div></div>
+<script src="vendor/qrcode.js"></script>
 <script type="module" src="js/app.js"></script>
 </body>
 </html>

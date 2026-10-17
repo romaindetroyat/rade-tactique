@@ -55,7 +55,7 @@ export class Scene3D {
     this.scene.add(new THREE.HemisphereLight('#eef6ff', '#5a5040', 1.25));
     const sun = new THREE.DirectionalLight('#fff4e0', 2.2); sun.position.set(-8000, 9000, 6000); this.scene.add(sun);
     this.groups = {};
-    for (const g of ['terrain', 'water', 'coast', 'particles', 'labels', 'marks', 'course', 'routes', 'line', 'boat', 'zones', 'stations', 'pick', 'replay']) {
+    for (const g of ['terrain', 'water', 'coast', 'particles', 'labels', 'marks', 'course', 'routes', 'line', 'boat', 'zones', 'stations', 'pick', 'replay', 'trace']) {
       this.groups[g] = new THREE.Group(); this.scene.add(this.groups[g]);
     }
     this.layers = { wind: true, particles: true, labels: true, routes: true, depth: false };
@@ -538,6 +538,27 @@ export class Scene3D {
       R.wake.userData.points = pts; this.needRibbons = true;
     }
     this.onReplay?.({ t: R.t, T: R.T, playing: R.playing, p: b, x, y, hd });
+  }
+
+  // trace GPS enregistrée, colorée par la vitesse ; repères de virements / empannages
+  setTrace(P, man = []) {
+    const g = this.groups.trace; g.clear();
+    if (!P || P.length < 2) return;
+    const pos = [], col = [], c = new THREE.Color();
+    const vmax = Math.max(6, ...P.map((p) => p.v || 0));
+    for (const p of P) {
+      pos.push(p.x, 18, -p.y);
+      const k = Math.min(1, (p.v || 0) / vmax);
+      c.setHSL(0.66 - 0.66 * k, 0.9, 0.5); col.push(c.r, c.g, c.b);
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+    const line = new THREE.Line(geo, new THREE.LineBasicMaterial({ vertexColors: true, linewidth: 2 }));
+    line.renderOrder = 7; g.add(line);
+    for (const m of man) { const s = makeLabel(m.kind === 'virement' ? 'V' : 'E', { circle: true, bg: m.kind === 'virement' ? '#1673c9' : '#7b3fb0', size: 22 }, 14); s.position.copy(W(m.x, m.y, 30)); g.add(s); }
+    const a = makeLabel('Départ trace', { bg: 'rgba(0,0,0,.7)' }, 12); a.position.copy(W(P[0].x, P[0].y, 40)); g.add(a);
+    this.#sizeSprites();
   }
 
   frame() {

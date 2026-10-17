@@ -3,16 +3,19 @@
 import { Terrain, toXY, toLL, NM, bearingXY, distXY, norm360, norm180, fmtBrg, fmtNm, fmtLat, fmtLon, cardinal } from './geo.js';
 import { WindField, speedColor } from './wind.js';
 import { Scene3D } from './scene3d.js';
-import { MARKS, COURSES, LINE_PRESETS, FORBIDDEN_ZONE, DANGERS, IC } from './courses.js';
+import { MARKS, COURSES, LINE_PRESETS, FORBIDDEN_ZONE, DANGERS } from './courses.js';
+import { eventsState, currentEvent, setCurrent, upsertEvent, removeEvent, pdfText, parseIC, eventForm, readForm } from './events.js';
 import { fetchAll, cached, snapshot, consensus, gridPoints, marineAt, fetchLive, MODELS, WMO, CENTER } from './weather.js';
 import { buildLegs, analyzeLeg, markAdvice, analyzeStart, trendOf, rankCourses, regimeOf, sideName, summarizeTime } from './tactics.js';
 import { optimalAngles, boatSpeed, trimAdvice, spiMinTwa, getPolar, setPolar, resetPolar, parsePolar } from './polar.js';
 import { renderJ80 } from './j80.js';
 import { modelPoints, modelAt, idwAt, scoreModels, renderObsCard } from './obs.js';
 import { route } from './router.js';
+import { initTips, maybeWelcome, openGuide, openShare, tip } from './help.js';
+import { Recorder, listTracks, getTrack, deleteTrack, saveTrack, analyzeTrack, exportGPX, fromGPX } from './track.js';
 import { shroudsFor } from './tuning.js';
 
-export const APP_VERSION = 'v4 · animation';
+export const APP_VERSION = 'v5 · traces & partage';
 const $ = (s, r = document) => r.querySelector(s);
 function toast(msg) {
   let t = document.getElementById('toast');
@@ -34,7 +37,16 @@ const DEF = {
   perf: 1, polar: null, obsOpen: true,
 };
 const S = { ...DEF, ...store.get('rade.state', {}) };
+let IC = currentEvent();
 if (S.day < today()) S.day = today();
+// lien partagé : #p=<parcours>-<classe>-<tours>[-<jour>]
+(() => {
+  const m = /^#p=(\d+)-([GP])-(\d)(?:-(\d{4}-\d{2}-\d{2}))?/.exec(location.hash);
+  if (!m) return;
+  S.courseId = +m[1]; S.cls = m[2]; S.laps = +m[3]; S.lineOverride = null;
+  if (m[4] && m[4] >= today()) S.day = m[4];
+  history.replaceState(null, '', location.pathname);
+})();
 S.calib = null; // remplacé par les relevés (S.obs)
 S.obs = (S.obs || []).filter((o) => o.day >= addDays(today(), -1));
 const persist = () => store.set('rade.state', Object.fromEntries(Object.keys(DEF).map((k) => [k, S[k]])));
@@ -54,12 +66,15 @@ async function init() {
   scene.onPick = onPick;
   scene.onCamera = () => { $('#compass .needle').style.transform = `rotate(${-scene.azimuth()}deg)`; };
   bindUI();
+  initTips();
   data = cached();
   const snap = await snapshot();
   if (snap && (!data || snap.fetched > data.fetched)) data = snap;
   if (data) { series = consensus(data); refreshObs(); }
   updateAll();
   $('#splash').classList.add('gone');
+  maybeWelcome();
+  renderTracks();
   refreshWeather();
   refreshLive();
   setInterval(refreshLive, 5 * 60000);
@@ -167,6 +182,7 @@ function renderObs(el) {
       S.obs.push({ day: S.day, h: obsDraft.h, lat: q.lat, lon: q.lon, dir: obsDraft.dir, spd: obsDraft.spd, t: Date.now() });
       obsDraft.hManual = false;
       persist(); refreshObs(); updateAll();
+      if (rest && gps?.pos) setTimeout(planRest, 300);
       toast(`Relevé enregistré : ${fmtBrg(obsDraft.dir)} ${obsDraft.spd} nd — modèle retenu : ${modelLabel(selectedModel())}`);
     },
     onDelete: (i) => { const o = dayObs()[i]; S.obs = S.obs.filter((x) => x !== o); persist(); refreshObs(); updateAll(); },
@@ -274,6 +290,12 @@ function bindUI() {
   $('#hour').addEventListener('change', () => { persist(); renderBrief(); });
   $('#srcSeg').addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; S.src = b.dataset.src; persist(); updateAll(); });
   $('#refresh').addEventListener('click', () => { refreshWeather(); refreshLive(); });
+  $('#helpBtn').addEventListener('click', openGuide);
+  $('#shareBtn').addEventListener('click', () => {
+    const base = location.origin + location.pathname;
+    const c = COURSES.find((x) => x.id === S.courseId);
+    openShare({ base, courseLink: `${base}#p=${S.courseId}-${S.cls}-${S.laps}-${S.day}`, courseLabel: `${c.title}${c.laps ? ', ' + S.laps + (S.laps > 1 ? ' tours' : ' tour') : ''}, ${S.cls === 'P' ? 'P1–P2' : 'C–R3'}, ${dayName(S.day)}` });
+  });
   $('#tabs').addEventListener('click', (e) => {
     const b = e.target.closest('button'); if (!b) return;
     $$('#tabs button').forEach((x) => x.classList.toggle('on', x === b));
@@ -386,6 +408,12 @@ function stopReplay() { scene.setReplay(null); $('#replayHud').hidden = true; }
 let lastHud = 0;
 function onReplay(st) {
   const now = performance.now(); if (now - lastHud < 100 && st.playing) return; lastHud = now;
+  if (st.p.trace) {
+    $('#rhInfo').innerHTML = `<b>${new Date(st.p.abs).toLocaleTimeString('fr-FR')}</b> · trace ${summarizeTime(st.t)} / ${summarizeTime(st.T)}<br>${(st.p.bsp ?? 0).toFixed(1)} nd · cap ${fmtBrg(st.hd)} · TWA ${Math.abs(st.p.twa ?? 0).toFixed(0)}° ${(st.p.twa ?? 0) >= 0 ? 'bâbord' : 'tribord'} amures${st.p.pct ? ` · ${Math.round(st.p.pct * 100)} % polaire` : ''}`;
+    $('#rhPlay').textContent = st.playing ? '⏸' : '▶';
+    if (document.activeElement !== $('#rhSeek')) $('#rhSeek').value = Math.round((st.t / st.T) * 1000);
+    return;
+  }
   const l = analysis?.legs[st.p.leg]; if (!l) return;
   const clock = S.startTime + st.t / 3600, twa = st.p.twa ?? l.twa;
   $('#rhInfo').innerHTML = `<b>${hhmm(clock)}</b> · course ${summarizeTime(st.t)} / ${summarizeTime(st.T)}<br>Bord ${st.p.leg + 1}/${analysis.legs.length} → ${l.order ? `<b>marque ${l.order}</b> (n°${esc(l.to.name)})` : esc(l.to.name)}${l.side ? ' · ' + sideName(l.side) : ''}<br>${(st.p.bsp ?? 0).toFixed(1)} nd · cap ${fmtBrg(st.hd)} · TWA ${Math.abs(twa).toFixed(0)}° ${twa >= 0 ? 'bâbord' : 'tribord'} amures · ${st.p.spi ? 'spi' : 'foc'}`;
@@ -414,7 +442,7 @@ function renderBrief() {
     ${reg ? `<span class="chip">${esc(reg.name)}</span>` : ''}${rs ? `<span class="chip ${rs.confidence > 70 ? 'good' : rs.confidence > 45 ? 'mid' : 'low'}">Confiance ${rs.confidence} %</span>` : ''}
     ${isRace ? `<div class="small muted" style="margin-top:6px">1er avertissement ${IC.firstWarning} · arrivée limite ${IC.lastFinishSignal} · VHF ${IC.vhf}</div>` : ''}
   </div>`;
-  if (rows.length) html += `<div class="card"><h3>Vent sur la journée <small>point central rade</small></h3>${chartSVG(rows, isRace)}<div class="small muted">Trait plein : AROME HD · pointillé : rafales · bande : écart entre les ${MODELS.length} modèles · flèches : direction (vers où souffle le vent).</div></div>`;
+  if (rows.length) html += `<div class="card"><h3><span>Vent sur la journée ${tip('Trait plein : vent moyen AROME HD au centre de la rade. Pointillés : rafales. Bande bleue : écart entre les 6 modèles (plus elle est large, moins la prévision est sûre). Zone orange : fenêtre de course.')}</span><small>point central rade</small></h3>${chartSVG(rows, isRace)}<div class="small muted">Trait plein : AROME HD · pointillé : rafales · bande : écart entre les ${MODELS.length} modèles · flèches : direction (vers où souffle le vent).</div></div>`;
   // stratégie
   if (analysis) {
     const tips = [];
@@ -431,7 +459,7 @@ function renderBrief() {
         : 'Faites un relevé dès l’arrivée sur zone (onglet Parcours) : l’app retiendra le modèle qui colle.'));
     }
     tips.push(`Parcours ${analysis.course.id} estimé à <b>${summarizeTime(analysis.total * 3600)}</b> pour un J80 (${(analysis.dist / NM).toFixed(1)} Nq route directe).`);
-    html += `<div class="card"><h3>Stratégie du jour</h3><ul class="tips">${tips.map((t) => `<li>${t}</li>`).join('')}</ul></div>`;
+    html += `<div class="card"><h3>Stratégie du jour ${tip('Synthèse automatique : rotation du vent attendue pendant la course, zones les plus ventées, désaccord entre modèles et temps estimé du parcours.')}</h3><ul class="tips">${tips.map((t) => `<li>${t}</li>`).join('')}</ul></div>`;
   }
   if (reg) html += `<div class="card"><h3>Effets locaux — ${esc(reg.name)} <small>connaissance de la rade</small></h3><ul class="tips">${reg.tips.map((t) => `<li>${esc(t)}</li>`).join('')}</ul></div>`;
   if (w?.spd != null) { const ta = trimAdvice(w.spd, w.gust); html += `<div class="card"><h3>Réglages J80 — ${ta.mode}</h3><ul class="tips"><li><b>Gréement</b> : ${ta.rig} Haubans / intermédiaires / bas-haubans (North, jauge Loos B) : <b>${shroudsFor(w.gust ? (w.spd + w.gust) / 2 : w.spd)}</b>.</li><li><b>Voiles</b> : ${ta.sails}</li><li><b>Équipage</b> : ${ta.crew}</li><li><b>Tactique</b> : ${ta.tactic}</li></ul><div class="small muted">Valeurs chiffrées (haubans, points de tir) : onglet J80.</div></div>`; }
@@ -448,7 +476,7 @@ function renderBrief() {
   // parcours probables
   if (w?.dir != null) {
     const rk = rankCourses(S.cls, w.dir, w.spd).slice(0, 4);
-    html += `<div class="card"><h3>Parcours probables <small>1er bord au près</small></h3>${rk.map((r) => `<div class="row" style="display:flex;justify-content:space-between;margin:4px 0"><span><b>${r.c.title}</b> → ${MARKS[r.c.seq[S.cls][0][0]].name}</span><span class="small">${fmtBrg(r.brg)} · TWA ${Math.round(r.twa)}° <button class="btn small alt" data-pick="${r.c.id}">Voir</button></span></div>`).join('')}<div class="small muted">Le comité cherche en général un premier bord de près : simple aide pour se préparer, le parcours est annoncé avant la procédure.</div></div>`;
+    html += `<div class="card"><h3><span>Parcours probables ${tip('Parcours dont le premier bord est au près avec le vent prévu : le Comité choisit souvent ce type de parcours. Simple aide à la préparation.')}</span><small>1er bord au près</small></h3>${rk.map((r) => `<div class="row" style="display:flex;justify-content:space-between;margin:4px 0"><span><b>${r.c.title}</b> → ${MARKS[r.c.seq[S.cls][0][0]].name}</span><span class="small">${fmtBrg(r.brg)} · TWA ${Math.round(r.twa)}° <button class="btn small alt" data-pick="${r.c.id}">Voir</button></span></div>`).join('')}<div class="small muted">Le comité cherche en général un premier bord de près : simple aide pour se préparer, le parcours est annoncé avant la procédure.</div></div>`;
   }
   if (live.length) html += `<div class="card"><h3>Balises en direct <small>OpenWindMap</small></h3>${live.map((s) => `<div class="small">📡 <b>${esc(s.name)}</b> : ${s.dir != null ? fmtBrg(s.dir) + ' ' : ''}${s.spd.toFixed(0)} nd (max ${s.gust.toFixed(0)}) <span class="muted">il y a ${Math.round(s.ageMin)} min</span></div>`).join('')}<div class="small muted" style="margin-top:4px">Autres sources : <a href="https://www.windguru.cz/48529" target="_blank" rel="noopener">Windguru Toulon</a> · <a href="https://meteofrance.com/previsions-meteo-marine/bulletin/cotier" target="_blank" rel="noopener">Bulletin côtier Météo-France</a> · <a href="https://www.windy.com/43.08/5.96?43.03,5.96,11" target="_blank" rel="noopener">Windy</a></div></div>`;
   el.innerHTML = html;
@@ -467,7 +495,8 @@ function chartSVG(rows, isRace) {
   const band = r.map((x) => [xs(hr(x)), ys(Math.max(...x.per.map((p) => p.spd)))]).concat(r.slice().reverse().map((x) => [xs(hr(x)), ys(Math.min(...x.per.map((p) => p.spd)))]));
   const line = (f) => r.filter((x) => f(x) != null).map((x, i) => `${i ? 'L' : 'M'}${xs(hr(x)).toFixed(1)},${ys(f(x)).toFixed(1)}`).join('');
   let s = `<svg class="chart" viewBox="0 0 ${W} ${H}">`;
-  const ws = isRace ? 10.92 : S.startTime, we = isRace ? 16 : S.startTime + 3;
+  const hh = (v) => { const m = /^(\d{1,2}):(\d{2})/.exec(v || ''); return m ? +m[1] + +m[2] / 60 : null; };
+  const ws = isRace && hh(IC.firstWarning) != null ? hh(IC.firstWarning) : S.startTime, we = isRace && hh(IC.lastFinishSignal) != null ? hh(IC.lastFinishSignal) : ws + 3;
   s += `<rect x="${xs(ws)}" y="${y0}" width="${xs(we) - xs(ws)}" height="${y1 - y0}" fill="#ff8c00" opacity=".08"/>`;
   for (let v = 0; v <= vmax; v += vmax > 25 ? 10 : 5) s += `<line x1="${x0}" x2="${x1}" y1="${ys(v)}" y2="${ys(v)}" stroke="#e3e8ee"/><text x="${x0 - 4}" y="${ys(v) + 4}" font-size="10" text-anchor="end" fill="#5d6b7a">${v}</text>`;
   for (let h = h0; h <= h1; h += 3) s += `<text x="${xs(h)}" y="${H - 6}" font-size="10" text-anchor="middle" fill="#5d6b7a">${h}h</text>`;
@@ -484,7 +513,7 @@ function renderCourse() {
   const el = $('section[data-tab=course]');
   const c = COURSES.find((x) => x.id === S.courseId);
   const nObs = dayObs().length;
-  let html = `<details class="card obsbox" ${S.obsOpen !== false ? 'open' : ''}><summary><span>🌬 Relevé de vent sur l’eau</span><small>${S.src === 'manual' ? 'mode manuel' : `${nObs ? nObs + ' relevé(s) · ' : ''}modèle : ${esc(modelLabel(selectedModel()))}`}</small></summary><div class="obs-card"></div></details>
+  let html = `<details class="card obsbox" ${S.obsOpen !== false ? 'open' : ''}><summary><span>🌬 Relevé de vent sur l’eau ${tip('Réglez la direction d’où vient le vent (compas) et sa force mesurée, puis Enregistrer. L’app compare votre relevé aux 6 modèles, garde celui qui colle le mieux et recale la prévision autour de cette heure. Plusieurs relevés dans la journée affinent le choix.')}</span><small>${S.src === 'manual' ? 'mode manuel' : `${nObs ? nObs + ' relevé(s) · ' : ''}modèle : ${esc(modelLabel(selectedModel()))}`}</small></summary><div class="obs-card"></div></details>
   <div class="card"><div class="row2"><div><label class="f">Parcours (cahier CVAT)</label><select id="cSel">${COURSES.map((x) => `<option value="${x.id}" ${x.id === S.courseId ? 'selected' : ''}>${x.title}</option>`).join('')}</select></div>
     <div><label class="f">Classes</label><select id="cCls"><option value="G" ${S.cls === 'G' ? 'selected' : ''}>C–D–L–R1-R3 (grand)</option><option value="P" ${S.cls === 'P' ? 'selected' : ''}>P1–P2 (petit)</option></select></div></div>
     <div class="row3">${c.laps ? `<div><label class="f">Tours</label><input id="cLaps" type="number" min="1" max="5" value="${S.laps}"></div>` : ''}${c.built === 'WL' ? `<div><label class="f">Dist. B (Nq)</label><input id="cWl" type="number" min="0.3" max="2" step="0.1" value="${S.wlNm}"></div>` : ''}
@@ -531,7 +560,7 @@ let timer = { end: null, running: false, iv: null, beeps: new Set() };
 function renderStart() {
   const el = $('section[data-tab=start]');
   const A = analysis;
-  let html = `<div class="card"><h3>Ligne de départ</h3>
+  let html = `<div class="card"><h3>Ligne de départ ${tip('Position théorique de la ligne selon le cahier. Sur l’eau, passez au ras du bateau Comité et de la bouée et « pinguez » pour enregistrer la vraie ligne.')}</h3>
     <label class="f">Position de la ligne</label><select id="lPre">${Object.entries(LINE_PRESETS).map(([k, v]) => `<option value="${k}" ${k === S.linePreset ? 'selected' : ''}>${esc(v.label)}</option>`).join('')}</select>
     <div class="row2"><div><label class="f">Longueur (Nq)</label><input id="lLen" type="number" min="0.04" max="0.4" step="0.01" value="${S.lineLen}"></div>
     <div><label class="f">Orientation</label><select id="lMode"><option value="wind" ${S.lineMode === 'wind' ? 'selected' : ''}>⟂ au vent local</option><option value="axis" ${S.lineMode === 'axis' ? 'selected' : ''}>⟂ au 1er bord</option><option value="fixed" ${S.lineMode === 'fixed' ? 'selected' : ''}>Cap saisi</option></select></div></div>
@@ -540,7 +569,7 @@ function renderStart() {
     <div class="small muted" style="margin-top:6px">Sur l’eau : passez au ras du Comité puis de la bouée et « pinguez » ; ou touchez la carte → « Comité ici / Bouée ici ». Comité à tribord de la ligne (IC 10.2).</div></div>`;
   if (A) {
     const st = A.start;
-    html += `<div class="card"><h3>Analyse de la ligne <small>à ${hhmm(S.startTime)}</small></h3>
+    html += `<div class="card"><h3><span>Analyse de la ligne ${tip('Biais = écart entre la perpendiculaire au vent et la ligne. L’extrémité favorisée est la plus au vent (1er bord au près) ou la plus proche de la marque (1er bord portant). Le routage indique aussi le point de la ligne qui mène le plus vite à la 1re marque.')}</span><small>à ${hhmm(S.startTime)}</small></h3>
       <div class="kpis"><div class="kpi"><b>${Math.abs(st.bias).toFixed(0)}°</b><span>biais</span></div><div class="kpi"><b>${st.favored === 'aucun' ? '=' : st.favored}</b><span>extrémité favorisée</span></div><div class="kpi"><b>${Math.round(st.len)} m</b><span>longueur · ${fmtBrg(st.lineBrg)}</span></div></div>
       <ul class="tips">${st.advice.map((a) => `<li>${esc(a)}</li>`).join('')}</ul>
       ${A.legs[0]?.advice?.length ? `<div class="mark small" style="background:#f2f6fa;border-radius:8px;padding:6px 8px;margin-top:6px"><b>Premier bord</b> : ${esc(A.legs[0].advice.slice(0, 3).join(' '))}</div>` : ''}</div>`;
@@ -610,52 +639,171 @@ function startGps() {
     gps.pos = q;
     scene.setBoat(q, q.cog);
     if (follow) { const t = scene.controls.target, off = scene.camera.position.clone().sub(t); t.set(q.x, 0, -q.y); scene.camera.position.copy(t.clone().add(off)); }
+    if (recorder.active) recorder.add(q);
     autoAdvance();
-    renderLive();
-  }, (e) => { gps.err = e.message; renderLive(); }, { enableHighAccuracy: true, maximumAge: 1000 });
+    renderLiveNav();
+  }, (e) => { gps.err = e.message; renderLiveNav(); }, { enableHighAccuracy: true, maximumAge: 1000 });
   renderLive();
 }
-function stopGps() { if (gps?.watch != null) navigator.geolocation.clearWatch(gps.watch); gps = null; scene.setBoat(null); renderLive(); }
+async function stopGps() {
+  if (recorder.active) { const tr = await recorder.stop(); if (tr?.pts.length > 1) toast(`Trace enregistrée (${tr.pts.length} points)`); renderTracks(); }
+  if (gps?.watch != null) navigator.geolocation.clearWatch(gps.watch); gps = null; scene.setBoat(null); renderLive();
+}
 function autoAdvance() {
   if (!analysis || !gps?.pos) return;
   const l = analysis.legs[nextIdx]; if (!l) return;
   if (distXY(gps.pos, l.to) < 40 && nextIdx < analysis.legs.length - 1) nextIdx++;
 }
+// Onglet « En course » : cadre fixe + zones mises à jour à chaque position GPS
+const recorder = new Recorder();
+let rest = null;
 function renderLive() {
   const el = $('section[data-tab=live]');
-  const A = analysis, p = gps?.pos;
-  let html = `<div class="card"><div class="btns" style="margin:0">${gps ? '<button class="btn alt" id="gOff">Arrêter le GPS</button>' : '<button class="btn acc" id="gOn">▶ Activer le GPS</button>'}<span class="small muted" style="align-self:center">${gps?.err ? 'Erreur : ' + esc(gps.err) : p ? `précision ±${Math.round(p.acc)} m` : gps ? 'Recherche…' : 'Position, vitesse et cap du bateau'}</span></div></div>`;
-  html += `<div class="card timer"><div class="small muted">Chrono</div><div class="clock" id="liveClock" style="font-size:40px">—</div></div>`;
-  if (A) {
-    nextIdx = Math.min(nextIdx, A.legs.length - 1);
-    const l = A.legs[nextIdx];
-    html += `<div class="card"><h3>Prochaine marque</h3><select id="nSel">${A.legs.map((x, i) => `<option value="${i}" ${i === nextIdx ? 'selected' : ''}>${x.order ? 'Marque ' + x.order + ' — ' : ''}${esc((/^\d/.test(x.to.name) ? 'n°' : '') + x.to.name)}${x.side ? ' (' + sideName(x.side) + ')' : ''}</option>`).join('')}</select>`;
-    if (p) {
-      const brg = bearingXY(p, l.to), d = distXY(p, l.to), w = F.sample(p.x, p.y);
-      const twaM = norm180(brg - w.dir), { up, down } = optimalAngles(Math.max(1, w.spd));
-      const vmc = p.sog != null && p.cog != null ? p.sog * Math.cos((p.cog - brg) * Math.PI / 180) : null;
-      const eta = vmc > 0.3 ? d / (vmc * 0.5144) : null;
-      let rec = '';
-      if (Math.abs(twaM) < up.twa) {
-        const stb = norm360(w.dir - up.twa), prt = norm360(w.dir + up.twa);
-        const onStbLay = Math.abs(norm180(bearingXY(p, l.to) - stb)) < 3, onPrtLay = Math.abs(norm180(bearingXY(p, l.to) - prt)) < 3;
-        rec = `Marque au vent : caps ${fmtBrg(stb)} (tribord) / ${fmtBrg(prt)} (bâbord). ${onStbLay ? '<b>Sur la lay-line tribord.</b>' : onPrtLay ? '<b>Sur la lay-line bâbord.</b>' : `Bord rapprochant : ${Math.abs(norm180(brg - stb)) < Math.abs(norm180(brg - prt)) ? 'tribord' : 'bâbord'} amures.`}`;
-      } else if (Math.abs(twaM) > down.twa) rec = `Marque sous le vent : empanner pour rester vers ${Math.round(down.twa)}° de TWA (caps ${fmtBrg(norm360(w.dir + 180 - (180 - down.twa)))} / ${fmtBrg(norm360(w.dir + 180 + (180 - down.twa)))}).`;
-      else rec = `Route directe possible : TWA ${Math.abs(twaM).toFixed(0)}° ${twaM > 0 ? 'bâbord' : 'tribord'} amures — ${Math.abs(twaM) > spiMinTwa(w.spd) ? 'spi' : 'foc'}. Cible ${boatSpeed(w.spd, twaM).toFixed(1)} nd.`;
-      html += `<div class="kpis" style="margin-top:8px"><div class="kpi live"><b class="big">${fmtBrg(brg)}</b><span>relèvement</span></div><div class="kpi"><b class="big" style="font-size:28px">${(d / NM).toFixed(2)}</b><span>Nq</span></div><div class="kpi"><b>${eta ? summarizeTime(eta) : '—'}</b><span>ETA (VMC ${vmc != null ? vmc.toFixed(1) : '—'} nd)</span></div></div>
-        <div class="kpis" style="margin-top:8px"><div class="kpi"><b>${p.sog != null ? p.sog.toFixed(1) : '—'}</b><span>SOG nd</span></div><div class="kpi"><b>${p.cog != null ? fmtBrg(p.cog) : '—'}</b><span>COG</span></div><div class="kpi"><b>${fmtBrg(w.dir)}</b><span>vent modèle ${w.spd.toFixed(0)} nd</span></div></div>
-        <p class="small">${rec}</p>`;
-    } else html += `<p class="small muted">Activez le GPS pour le relèvement, la distance et l’ETA vers la marque.</p>`;
-    html += `<ul class="tips small">${l.advice.map((a) => `<li>${esc(a)}</li>`).join('')}</ul><div class="btns"><button class="btn alt small" id="nPrev">◀ Marque précédente</button><button class="btn small" id="nNext">Marque passée ▶</button></div></div>`;
-    html += `<div class="card"><h3>Vent observé à bord</h3><div class="small muted">Le relevé choisit le modèle du jour et ajuste carte et analyse.</div><div class="btns"><button class="btn small acc" id="goObs">Saisir un relevé</button></div></div>`;
-  }
-  el.innerHTML = html;
-  $('#gOn')?.addEventListener('click', startGps); $('#gOff')?.addEventListener('click', stopGps);
-  $('#nSel')?.addEventListener('change', (e) => { nextIdx = +e.target.value; renderLive(); });
-  $('#nPrev')?.addEventListener('click', () => { nextIdx = Math.max(0, nextIdx - 1); renderLive(); });
-  $('#nNext')?.addEventListener('click', () => { nextIdx = Math.min(analysis.legs.length - 1, nextIdx + 1); renderLive(); });
-  $('#goObs')?.addEventListener('click', () => { openTab('course'); $('.obs-card')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); });
+  el.innerHTML = `<div class="card" id="liveGps"></div>
+    <div class="card"><h3><span>Trace ${tip('Enregistre votre position toutes les 1–2 s pendant la course. L’écran reste allumé pendant l’enregistrement (sur iPhone, le GPS s’arrête si l’écran se verrouille). Les traces se retrouvent dans l’onglet Traces.')}</span></h3><div id="liveRec"></div></div>
+    <div class="card timer"><div class="small muted">Chrono</div><div class="clock" id="liveClock" style="font-size:40px">—</div></div>
+    <div class="card" id="liveNav"></div>
+    <div class="card"><h3><span>Suite du parcours ${tip('Recalcule les bords restants depuis votre position GPS, à l’heure actuelle, avec le modèle retenu par vos relevés et l’ajustement sur le dernier relevé. Fait automatiquement après chaque nouveau relevé si le GPS est actif.')}</span></h3><div id="livePlan"></div></div>
+    <details class="card obsbox" open><summary><span>🌬 Relevé de vent</span><small>sans quitter l’onglet</small></summary><div class="obs-card"></div></details>`;
+  renderLiveNav(); renderPlan(); renderObsAll();
   if (timer.iv) tickTimer();
+}
+function renderLiveNav() {
+  const g = $('#liveGps'), n = $('#liveNav'), r = $('#liveRec'); if (!g) return;
+  const A = analysis, p = gps?.pos;
+  g.innerHTML = `<div class="btns" style="margin:0">${gps ? '<button class="btn alt" id="gOff">Arrêter le GPS</button>' : '<button class="btn acc" id="gOn">▶ Activer le GPS</button>'}<span class="small muted" style="align-self:center">${gps?.err ? 'Erreur : ' + esc(gps.err) : p ? `précision ±${Math.round(p.acc)} m` : gps ? 'Recherche…' : 'Position, vitesse et cap du bateau'}</span></div>`;
+  $('#gOn')?.addEventListener('click', startGps); $('#gOff')?.addEventListener('click', stopGps);
+  const T = recorder.track;
+  r.innerHTML = T ? `<div class="btns" style="margin:0"><button class="btn rec" id="recStop">⏹ Arrêter et enregistrer</button><span class="small" style="align-self:center"><span class="recdot"></span>${T.pts.length} points · ${summarizeTime((Date.now() - T.start) / 1000)}</span></div>`
+    : `<div class="btns" style="margin:0"><button class="btn acc" id="recStart">⏺ Enregistrer ma trace</button></div>`;
+  $('#recStart')?.addEventListener('click', () => {
+    if (!gps) startGps();
+    const c = COURSES.find((x) => x.id === S.courseId);
+    recorder.start({ name: `${dayName(today())} — ${c.title}`, course: { id: S.courseId, cls: S.cls, laps: S.laps, day: S.day, startTime: S.startTime } });
+    toast('Enregistrement lancé : gardez l’app ouverte, écran allumé.'); renderLiveNav();
+  });
+  $('#recStop')?.addEventListener('click', async () => { const tr = await recorder.stop(); toast(tr && tr.pts.length > 1 ? `Trace enregistrée (${tr.pts.length} points) — onglet Traces` : 'Trace trop courte, non enregistrée'); renderLiveNav(); renderTracks(); });
+  if (!A) { n.innerHTML = '<p class="small muted">Choisissez un parcours (onglet Parcours).</p>'; return; }
+  nextIdx = Math.min(nextIdx, A.legs.length - 1);
+  const l = A.legs[nextIdx];
+  let html = `<h3>Prochaine marque</h3><select id="nSel">${A.legs.map((x, i) => `<option value="${i}" ${i === nextIdx ? 'selected' : ''}>${x.order ? 'Marque ' + x.order + ' — ' : ''}${esc((/^\d/.test(x.to.name) ? 'n°' : '') + x.to.name)}${x.side ? ' (' + sideName(x.side) + ')' : ''}</option>`).join('')}</select>`;
+  if (p) {
+    const brg = bearingXY(p, l.to), d = distXY(p, l.to), w = F.sample(p.x, p.y);
+    const twaM = norm180(brg - w.dir), { up, down } = optimalAngles(Math.max(1, w.spd));
+    const vmc = p.sog != null && p.cog != null ? p.sog * Math.cos((p.cog - brg) * Math.PI / 180) : null;
+    const eta = vmc > 0.3 ? d / (vmc * 0.5144) : null;
+    let rec = '';
+    if (Math.abs(twaM) < up.twa) {
+      const stb = norm360(w.dir - up.twa), prt = norm360(w.dir + up.twa);
+      const onStbLay = Math.abs(norm180(brg - stb)) < 3, onPrtLay = Math.abs(norm180(brg - prt)) < 3;
+      rec = `Marque au vent : caps ${fmtBrg(stb)} (tribord) / ${fmtBrg(prt)} (bâbord). ${onStbLay ? '<b>Sur la lay-line tribord.</b>' : onPrtLay ? '<b>Sur la lay-line bâbord.</b>' : `Bord rapprochant : ${Math.abs(norm180(brg - stb)) < Math.abs(norm180(brg - prt)) ? 'tribord' : 'bâbord'} amures.`}`;
+    } else if (Math.abs(twaM) > down.twa) rec = `Marque sous le vent : empanner pour rester vers ${Math.round(down.twa)}° de TWA (caps ${fmtBrg(norm360(w.dir + 180 - (180 - down.twa)))} / ${fmtBrg(norm360(w.dir + 180 + (180 - down.twa)))}).`;
+    else rec = `Route directe possible : TWA ${Math.abs(twaM).toFixed(0)}° ${twaM > 0 ? 'bâbord' : 'tribord'} amures — ${Math.abs(twaM) > spiMinTwa(w.spd) ? 'spi' : 'foc'}. Cible ${boatSpeed(w.spd, twaM).toFixed(1)} nd.`;
+    html += `<div class="kpis" style="margin-top:8px"><div class="kpi live"><b class="big">${fmtBrg(brg)}</b><span>relèvement</span></div><div class="kpi"><b class="big" style="font-size:28px">${(d / NM).toFixed(2)}</b><span>Nq</span></div><div class="kpi"><b>${eta ? summarizeTime(eta) : '—'}</b><span>ETA (VMC ${vmc != null ? vmc.toFixed(1) : '—'} nd)</span></div></div>
+      <div class="kpis" style="margin-top:8px"><div class="kpi"><b>${p.sog != null ? p.sog.toFixed(1) : '—'}</b><span>SOG nd</span></div><div class="kpi"><b>${p.cog != null ? fmtBrg(p.cog) : '—'}</b><span>COG</span></div><div class="kpi"><b>${fmtBrg(w.dir)}</b><span>vent modèle ${w.spd.toFixed(0)} nd</span></div></div>
+      <p class="small">${rec}</p>`;
+  } else html += `<p class="small muted">Activez le GPS pour le relèvement, la distance et l’ETA vers la marque.</p>`;
+  html += `<div class="btns"><button class="btn alt small" id="nPrev">◀ Marque précédente</button><button class="btn small" id="nNext">Marque passée ▶</button></div>`;
+  n.innerHTML = html;
+  $('#nSel').addEventListener('change', (e) => { nextIdx = +e.target.value; renderLiveNav(); });
+  $('#nPrev').addEventListener('click', () => { nextIdx = Math.max(0, nextIdx - 1); renderLiveNav(); });
+  $('#nNext').addEventListener('click', () => { nextIdx = Math.min(analysis.legs.length - 1, nextIdx + 1); renderLiveNav(); if (rest) planRest(); });
+}
+
+// Recalcul des bords restants depuis la position actuelle, à l'heure actuelle
+async function planRest() {
+  if (!analysis) return;
+  const pos = gps?.pos || (obsPos && toXY(obsPos.lat, obsPos.lon));
+  if (!pos) { toast('Activez le GPS (ou touchez la carte → « Relevé de vent ici ») pour situer le bateau.'); return; }
+  const t0 = S.day === today() ? nowHour() : analysis.legs[nextIdx].eta0;
+  const ctx = { terrain: T, forbidden, perf: S.perf, trend: analysis.trend };
+  const legs = []; let t = t0, lastH = -1;
+  for (let i = nextIdx; i < analysis.legs.length; i++) {
+    const src = analysis.legs[i];
+    const leg = { from: i === nextIdx ? { x: pos.x, y: pos.y, name: 'Bateau' } : legs[legs.length - 1].to, to: src.to, side: src.side, mark: src.mark, lap: src.lap };
+    leg.brg = bearingXY(leg.from, leg.to); leg.dist = distXY(leg.from, leg.to);
+    if (S.src === 'forecast' && Math.abs(t - lastH) >= 0.25) { computeField(S.day, t); lastH = t; }
+    const a = analyzeLeg(leg, F, ctx); a.order = src.order; a.eta0 = t; t += a.time / 3600; a.eta1 = t;
+    legs.push(a);
+    await new Promise((r) => setTimeout(r, 0));
+  }
+  rest = { legs, t0, t1: t, model: modelLabel(selectedModel()), obs: dayObs().length };
+  updateDisplayField();
+  scene.setCourse({ legs }, null);
+  renderPlan();
+}
+function renderPlan() {
+  const el = $('#livePlan'); if (!el) return;
+  if (!rest) { el.innerHTML = `<p class="small muted">Plan initial (calculé depuis la ligne de départ à ${hhmm(S.startTime)}).</p><button class="btn acc" id="planGo" style="width:100%">↻ Recalculer la suite depuis ma position</button>`; $('#planGo').onclick = planRest; return; }
+  el.innerHTML = `<p class="small">Recalculé à ${hhmm(rest.t0)} · modèle ${esc(rest.model)}${rest.obs ? ` + ${rest.obs} relevé(s)` : ''} · arrivée estimée <b>${hhmm(rest.t1)}</b></p>
+    ${rest.legs.map((l) => `<div class="small" style="border-top:1px solid var(--line);padding:6px 0">${l.order ? `<span class="ord">${l.order}</span>` : ''}<b>${esc((/^\d/.test(l.to.name) ? 'n°' : '') + l.to.name)}</b> · ${hhmm(l.eta0)}→${hhmm(l.eta1)} · ${esc(l.type.label)} · vent ${fmtBrg(l.wind.dir)} ${l.wind.spd.toFixed(0)} nd<br>${esc(l.advice[1] || l.advice[0] || '')}</div>`).join('')}
+    <div class="btns"><button class="btn acc small" id="planGo">↻ Recalculer</button><button class="btn alt small" id="planReset">Revenir au plan initial</button></div>`;
+  $('#planGo').onclick = planRest;
+  $('#planReset').onclick = () => { rest = null; drawCourse(); renderPlan(); };
+}
+
+// ───────────────────────── TRACES
+let traceView = null;
+function trackWindAt(day) {
+  const cache = new Map();
+  return (x, y, tMs) => {
+    const d = new Date(tMs), h = Math.round((d.getHours() + d.getMinutes() / 60) * 4) / 4;
+    let pts = cache.get(h);
+    if (!pts) { pts = S.src === 'manual' || !data ? [{ x: 0, y: 0, ...S.manual }] : (modelPoints(data, day, h, selectedModel()) || [{ x: 0, y: 0, ...S.manual }]); if (S.nowcast) pts = applyResiduals(pts, day, h); cache.set(h, pts); }
+    return idwAt(pts, x, y);
+  };
+}
+async function renderTracks() {
+  const el = $('section[data-tab=tracks]'); if (!el) return;
+  let list = [];
+  try { list = await listTracks(); } catch { /* IndexedDB indisponible */ }
+  let html = `<div class="card"><h3><span>Mes traces ${tip('Traces enregistrées dans l’onglet En course, ou importées (GPX d’un autre GPS, d’un équipier). Elles restent sur cet appareil ; exportez-les en GPX pour les garder ou les partager.')}</span></h3>
+    ${list.length ? list.map((t) => `<div class="trow"><div><b>${esc(t.name)}</b><div class="small muted">${new Date(t.start).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })} · ${t.n} points</div></div><div class="btns" style="margin:0"><button class="btn small" data-tv="${t.id}">Analyser</button><button class="btn small alt" data-tx="${t.id}">GPX</button><button class="btn small alt" data-td="${t.id}" aria-label="Supprimer">✕</button></div></div>`).join('') : '<p class="small muted">Aucune trace. Lancez « Enregistrer ma trace » dans l’onglet En course.</p>'}
+    <label class="f" for="gpxIn">Importer un fichier GPX</label><input type="file" id="gpxIn" accept=".gpx,application/gpx+xml,application/xml,text/xml"></div><div id="traceDetail"></div>`;
+  el.innerHTML = html;
+  $$('[data-tv]', el).forEach((b) => b.onclick = () => showTrace(b.dataset.tv));
+  $$('[data-tx]', el).forEach((b) => b.onclick = async () => exportGPX(await getTrack(b.dataset.tx)));
+  $$('[data-td]', el).forEach((b) => b.onclick = async () => {
+    if (b.dataset.confirm !== '1') { b.dataset.confirm = '1'; b.textContent = 'Supprimer ?'; return; }
+    await deleteTrack(b.dataset.td); if (traceView?.id === b.dataset.td) { traceView = null; scene.setTrace(null); } renderTracks();
+  });
+  $('#gpxIn').onchange = async (e) => {
+    const f = e.target.files[0]; if (!f) return;
+    try { const tr = fromGPX(await f.text(), f.name); await saveTrack(tr); toast(`Trace importée : ${tr.pts.length} points`); renderTracks(); showTrace(tr.id); } catch (err) { toast('Import impossible : ' + err.message); }
+  };
+  if (traceView) renderTraceDetail();
+}
+async function showTrace(id) {
+  const tr = await getTrack(id); if (!tr) return;
+  const d = new Date(tr.start), day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const sameCourse = analysis && tr.course && tr.course.id === analysis.course.id && tr.course.cls === analysis.cls;
+  const res = analyzeTrack(tr, { windAt: trackWindAt(day), boatSpeed, legs: sameCourse ? analysis.legs.filter((l) => l.order) : null });
+  if (!res) { toast('Trace vide'); return; }
+  traceView = { id, tr, res, sameCourse };
+  scene.setTrace(res.P, res.man);
+  scene.focus(res.P.filter((_, i) => i % 10 === 0));
+  renderTraceDetail();
+}
+function renderTraceDetail() {
+  const el = $('#traceDetail'); if (!el || !traceView) return;
+  const { tr, res, sameCourse } = traceView;
+  const nT = res.man.filter((m) => m.kind === 'virement').length, nE = res.man.length - nT;
+  const sp = res.split.filter((s) => !s.missed);
+  const worst = sp.filter((s) => s.plan && s.t - s.plan > 30).sort((a, b) => (b.t - b.plan) - (a.t - a.plan))[0];
+  el.innerHTML = `<div class="card"><h3><span>${esc(tr.name)}</span><small>${new Date(tr.start).toLocaleTimeString('fr-FR', { timeStyle: 'short' })}</small></h3>
+    <div class="kpis"><div class="kpi"><b>${(res.dist / NM).toFixed(1)}</b><span>Nq parcourus</span></div><div class="kpi"><b>${summarizeTime(res.dur)}</b><span>durée</span></div><div class="kpi"><b>${res.vmean.toFixed(1)}</b><span>nd moyen (max ${res.vmax.toFixed(1)})</span></div></div>
+    <div class="kpis" style="margin-top:8px"><div class="kpi"><b>${nT}</b><span>virements</span></div><div class="kpi"><b>${nE}</b><span>empannages</span></div><div class="kpi"><b>${res.perf ? Math.round(res.perf * 100) + ' %' : '—'}</b><span>de la polaire ${tip('Vitesse mesurée ÷ vitesse cible de la polaire J80 pour le vent du modèle à cet endroit et cette heure. Indicatif : le vent réel peut différer du modèle.')}</span></div></div>
+    <div class="btns"><button class="btn acc" id="trPlay">▶ Rejouer la trace</button><button class="btn alt" id="trGpx">Exporter GPX</button><button class="btn alt" id="trHide">Masquer</button></div>
+    ${sameCourse ? (sp.length ? `<h3 style="margin-top:12px">Bord par bord ${tip('Temps réel entre deux marques comparé au temps du routage optimal (même vent modèle). Un écart positif = temps perdu.')}</h3><table class="t"><tr><th>Marque</th><th>Réel</th><th>Optimal</th><th>Écart</th><th>Polaire</th></tr>${res.split.map((s) => s.missed ? `<tr><td>${s.leg.order} · ${esc(s.leg.to.name)}</td><td colspan="4" class="muted">non détectée</td></tr>` : `<tr><td>${s.leg.order} · ${esc(s.leg.to.name)}</td><td>${summarizeTime(s.t)}</td><td>${summarizeTime(s.plan)}</td><td style="color:${s.t > s.plan ? 'var(--bad)' : 'var(--ok)'}">${s.t > s.plan ? '+' : '−'}${summarizeTime(Math.abs(s.t - s.plan))}</td><td>${s.pct ? Math.round(s.pct * 100) + ' %' : '—'}</td></tr>`).join('')}</table>${worst ? `<p class="small">Bord le plus coûteux : vers <b>${esc(worst.leg.to.name)}</b> (${summarizeTime(worst.t - worst.plan)} de plus que l’optimal). Rejouez-le en comparant à la route bleue.</p>` : ''}` : '<p class="small muted">Aucune marque du parcours détectée sur cette trace (passage à plus de 250 m).</p>')
+      : '<p class="small muted">Pour le découpage bord par bord, sélectionnez dans l’onglet Parcours le parcours couru (même numéro et même classe).</p>'}
+    <p class="small muted">Couleur de la trace : du bleu (lent) au rouge (rapide). V = virement, E = empannage.</p></div>`;
+  $('#trPlay').onclick = () => {
+    const t0 = res.P[0].t;
+    scene.setReplay(res.P.map((p) => ({ x: p.x, y: p.y, t: (p.t - t0) / 1000, hd: p.hd, twa: p.twa, bsp: p.v, spi: Math.abs(p.twa) > 110, trace: true, pct: p.pct, abs: p.t })));
+    $('#replayHud').hidden = false; scene.replayControl('speed', +$('#rhSpeed').value);
+  };
+  $('#trGpx').onclick = () => exportGPX(tr);
+  $('#trHide').onclick = () => { traceView = null; scene.setTrace(null); el.innerHTML = ''; };
 }
 
 // ───────────────────────── VENT
@@ -673,6 +821,13 @@ function renderWind() {
     <label class="f">Rafales : <b id="mGL">${m.gust} nd</b></label><input id="mG" type="range" min="1" max="50" step="1" value="${m.gust}">
     <div class="btns"><button class="btn ${S.src === 'manual' ? 'alt' : 'acc'}" id="mUse">${S.src === 'manual' ? 'Revenir aux prévisions' : 'Utiliser ce vent'}</button></div></div>
   <div class="card"><h3>Vent relevé sur l’eau <small>choix du modèle</small></h3><div class="obs-card"></div></div>
+  <div class="card"><h3>Actualiser le vent pendant la course</h3><ol class="guide small">
+    <li><b>Avant de partir</b> : ⟳ en haut pour télécharger les dernières prévisions (6 modèles, AROME HD sur 24 points de la zone).</li>
+    <li><b>Sur zone</b> : faites un <b>relevé</b> (onglet Parcours ou En course) : direction d’où vient le vent au compas, force moyenne. Idéalement bateau arrêté face au vent, ou girouette + compas, en dehors des dévents.</li>
+    <li>L’app <b>compare le relevé aux 6 modèles</b> et retient celui qui colle le mieux ; plus il y a de relevés, plus le choix est sûr (les plus récents comptent davantage).</li>
+    <li>Elle <b>recale ensuite la prévision</b> sur votre mesure : l’écart (rotation et force) s’applique pleinement à l’heure du relevé puis s’estompe en 2 à 3 h, pour laisser revenir la tendance du modèle (ex. une rotation prévue l’après-midi reste prise en compte).</li>
+    <li><b>Pour la suite du parcours</b> : onglet En course → « Recalculer la suite depuis ma position ». Chaque bord restant est routé avec le vent prévu <i>à l’heure où vous le courrez</i>, effets du relief compris. Après chaque nouveau relevé, si le GPS est actif, ce recalcul se fait tout seul.</li>
+    <li>Un relevé toutes les 20–30 min, ou dès qu’une bascule nette apparaît, suffit. Supprimez un relevé douteux (✕) : tout se recalcule.</li></ol></div>
   <div class="card"><h3>Effets locaux du relief</h3><label class="f">Intensité : <b id="fxL">${Math.round(S.localFx * 100)} %</b></label><input id="fx" type="range" min="0" max="1.5" step="0.1" value="${S.localFx}">
     <div class="small muted">0 % = vent prévu seul ; 100 % = corrections normales ; au-delà = effets accentués (situation stable, vent de terre).</div></div>
   <div class="card"><h3>Comment est calculé le vent ?</h3><ul class="tips small">
@@ -710,16 +865,56 @@ function renderJ80Tab() {
 }
 
 // ───────────────────────── IC
+let icDraft = null;
 function renderIC() {
   const el = $('section[data-tab=ic]');
-  el.innerHTML = `<div class="card"><h3>${esc(IC.event)} <small>${esc(dayName(IC.date))}</small></h3>
-    <div class="kpis"><div class="kpi"><b>${IC.firstWarning}</b><span>1er avertissement</span></div><div class="kpi"><b>${IC.lastFinishSignal}</b><span>limite arrivée du 1er</span></div><div class="kpi"><b>VHF ${IC.vhf}</b><span>veille dès H−30’</span></div></div>
-    <p class="small">Comité : <a href="tel:+33634433673">${esc(IC.committee)}</a><br>Zone : ${esc(IC.zone)}<br>Avis : <a href="https://chat.whatsapp.com/J2W7onZ86t9AnqJJliPUSU" target="_blank" rel="noopener">WhatsApp « CVAT Tableau Officiel »</a></p></div>
-  <div class="card"><h3>Pavillons de classe</h3><table class="t">${IC.classes.map((c) => `<tr><td>${esc(c[0])}</td><td>${esc(c[1])}</td></tr>`).join('')}</table><div class="small muted" style="margin-top:6px">Groupes de classement : ${IC.groups.map(esc).join(' · ')}</div></div>
-  <div class="card"><h3>Points clés</h3><ul class="tips small">${IC.keyRules.map((r) => `<li>${esc(r)}</li>`).join('')}</ul></div>
-  <div class="card"><h3>Marques <small>positions utilisées</small></h3><table class="t"><tr><th>N°</th><th>Marque</th><th>Position</th></tr>${Object.entries(MARKS).map(([k, m]) => `<tr><td><b>${k}</b></td><td>${esc(m.name)}<div class="small muted">${esc(m.note)}</div></td><td class="small">${fmtLat(m.lat)}<br>${fmtLon(m.lon)}<br><span class="muted">${esc(m.src)}</span></td></tr>`).join('')}</table>
+  IC = currentEvent();
+  const st = eventsState();
+  const tel = /(0[1-9](?:[ .-]?\d{2}){4})/.exec(IC.committee || '')?.[1];
+  let html = `<div class="card"><h3><span>Régate ${tip('Chaque régate a sa fiche, remplie depuis ses Instructions de Course. La régate choisie fixe le jour 🏁, l’heure de départ par défaut et les points clés affichés.')}</span></h3>
+    <div class="row2"><div><select id="evSel">${st.list.map((e) => `<option value="${esc(e.id)}" ${e.id === st.current ? 'selected' : ''}>${esc(e.event)}${e.date ? ' — ' + esc(e.date) : ''}</option>`).join('')}</select></div>
+    <div class="btns" style="margin:0"><label class="btn acc small" for="icFile" style="cursor:pointer">＋ Importer des IC (PDF)</label><button class="btn alt small" id="evEdit">Modifier</button></div></div>
+    <input type="file" id="icFile" accept="application/pdf,.pdf,.txt,text/plain" hidden>
+    <div class="small muted" id="icMsg" style="margin-top:6px">L’app lit le PDF des IC, propose la fiche (date, heures, VHF, Comité, zone, points clés) : vérifiez puis enregistrez.</div></div>`;
+  if (icDraft) html += eventForm(icDraft);
+  html += `<div class="card"><h3>${esc(IC.event)} <small>${IC.date ? esc(dayName(IC.date)) : 'date à préciser'}</small></h3>
+    <div class="kpis"><div class="kpi"><b>${esc(IC.firstWarning || '—')}</b><span>1er avertissement</span></div><div class="kpi"><b>${esc(IC.lastFinishSignal || '—')}</b><span>limite arrivée du 1er</span></div><div class="kpi"><b>VHF ${esc(IC.vhf ?? '—')}</b><span>canal de course</span></div></div>
+    <p class="small">${IC.committee ? `Comité : ${tel ? `<a href="tel:${tel.replace(/\D/g, '')}">${esc(IC.committee)}</a>` : esc(IC.committee)}<br>` : ''}${IC.zone ? `Zone : ${esc(IC.zone)}<br>` : ''}${IC.id === 'snpm-2026' ? 'Avis : <a href="https://chat.whatsapp.com/J2W7onZ86t9AnqJJliPUSU" target="_blank" rel="noopener">WhatsApp « CVAT Tableau Officiel »</a>' : ''}</p>
+    ${IC.firstWarning && IC.date ? `<button class="btn small alt" id="evUse">Caler le départ sur ces IC (${esc(dayName(IC.date))}, ${esc(IC.firstWarning)} + 5 min)</button>` : ''}</div>
+  <div class="card"><h3>Pavillons de classe <small>habituels CVAT</small></h3><table class="t">${IC.classes.map((c) => `<tr><td>${esc(c[0])}</td><td>${esc(c[1])}</td></tr>`).join('')}</table></div>
+  <div class="card"><h3>Points clés</h3><ul class="tips small">${(IC.keyRules || []).map((r) => `<li>${esc(r)}</li>`).join('') || '<li>Aucun point clé enregistré.</li>'}</ul>
+    ${IC.text ? `<details><summary class="small">Texte complet des IC</summary><pre class="ictext">${esc(IC.text)}</pre></details>` : ''}
+    ${st.list.length > 1 ? `<button class="btn small alt" id="evDel" style="margin-top:8px">Supprimer cette régate</button>` : ''}</div>
+  <div class="card"><h3>Marques <small>cahier de parcours CVAT</small></h3><table class="t"><tr><th>N°</th><th>Marque</th><th>Position</th></tr>${Object.entries(MARKS).map(([k, m]) => `<tr><td><b>${k}</b></td><td>${esc(m.name)}<div class="small muted">${esc(m.note)}</div></td><td class="small">${fmtLat(m.lat)}<br>${fmtLon(m.lon)}<br><span class="muted">${esc(m.src)}</span></td></tr>`).join('')}</table>
     <div class="small muted" style="margin-top:6px">« approx » = position relevée sur les cartes du cahier ou sur OpenStreetMap : vérifier sur zone, le Comité fait foi.</div></div>
   <div class="card"><h3>Dangers</h3><ul class="tips small"><li><b>Zone interdite</b> de la presqu’île de Saint-Mandrier (zone Marine nationale, rouge sur la carte).</li>${DANGERS.map((d) => `<li><b>${esc(d.name)}</b> (${fmtLat(d.lat)} ${fmtLon(d.lon)}) : ${esc(d.note)}</li>`).join('')}</ul></div>`;
+  el.innerHTML = html;
+  $('#evSel').onchange = (e) => { setCurrent(e.target.value); icDraft = null; IC = currentEvent(); renderIC(); renderDaySeg(); renderBrief(); };
+  $('#evEdit').onclick = () => { icDraft = { ...IC }; renderIC(); };
+  $('#evDel')?.addEventListener('click', (e) => { if (e.target.dataset.c !== '1') { e.target.dataset.c = '1'; e.target.textContent = 'Confirmer la suppression'; return; } removeEvent(IC.id); renderIC(); renderDaySeg(); renderBrief(); });
+  $('#evUse')?.addEventListener('click', () => {
+    const [h, m] = IC.firstWarning.split(':').map(Number);
+    S.startTime = h + (m + 5) / 60; S.hour = Math.floor(S.startTime * 4) / 4;
+    if (IC.date >= today()) S.day = IC.date;
+    persist(); updateAll(); toast(`Départ calé à ${hhmm(S.startTime)} le ${dayName(S.day)}`);
+  });
+  $('#icFile').onchange = async (e) => {
+    const f = e.target.files[0]; if (!f) return;
+    $('#icMsg').textContent = 'Lecture des IC…';
+    try {
+      const text = /\.pdf$/i.test(f.name) || f.type === 'application/pdf' ? await pdfText(f) : await f.text();
+      icDraft = { ...parseIC(text, f.name), id: 'ev' + Date.now(), source: f.name };
+      renderIC(); $('#evForm')?.scrollIntoView({ behavior: 'smooth' });
+    } catch (err) { $('#icMsg').textContent = 'Lecture impossible : ' + err.message + '. Vous pouvez saisir la fiche à la main (Modifier).'; }
+  };
+  if (icDraft) {
+    $('#evSave').onclick = () => {
+      const ev = readForm(icDraft); upsertEvent(ev); icDraft = null; IC = currentEvent();
+      if (ev.firstWarning && ev.date && ev.date >= today() && ev.date <= addDays(today(), 2)) { const [h, m] = ev.firstWarning.split(':').map(Number); S.startTime = h + (m + 5) / 60; S.day = ev.date; persist(); }
+      toast(`Régate enregistrée : ${ev.event}`); updateAll();
+    };
+    $('#evCancel').onclick = () => { icDraft = null; renderIC(); };
+  }
 }
 
 init().catch((e) => {
