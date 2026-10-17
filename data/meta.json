@@ -3,12 +3,16 @@
  "east": 6.1,
  "south": 43.0,
  "north": 43.18,
- "nx": 610,
- "ny": 500,
+ "nx": 814,
+ "ny": 667,
  "units": "dm",
  "sources": [
   "OpenStreetMap (ODbL)",
   "EMODnet Bathymetry DTM",
   "AWS Terrain Tiles (SRTM/GMTED)"
- ]
+ ],
+ "basemap": {
+  "width": 4096,
+  "height": 3343
+ }
 }

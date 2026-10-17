@@ -8,6 +8,7 @@ import { fetchAll, cached, snapshot, consensus, gridPoints, marineAt, fetchLive,
 import { buildLegs, analyzeLeg, markAdvice, analyzeStart, trendOf, rankCourses, regimeOf, sideName, summarizeTime } from './tactics.js';
 import { optimalAngles, boatSpeed, trimAdvice, spiMinTwa, getPolar, setPolar, resetPolar, parsePolar } from './polar.js';
 import { renderJ80 } from './j80.js';
+import { modelPoints, modelAt, idwAt, scoreModels, renderObsCard } from './obs.js';
 import { shroudsFor } from './tuning.js';
 
 const $ = (s, r = document) => r.querySelector(s);
@@ -26,12 +27,14 @@ const addDays = (s, n) => { const d = new Date(s + 'T12:00:00'); d.setDate(d.get
 const dayName = (s) => new Date(s + 'T12:00:00').toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
 
 const DEF = {
-  day: today(), hour: 11, src: 'forecast', manual: { dir: 315, spd: 15, gust: 20 }, calib: null, localFx: 1,
+  day: today(), hour: 11, src: 'forecast', manual: { dir: 315, spd: 15, gust: 20 }, calib: null, localFx: 1, obs: [], modelSel: 'auto', nowcast: true,
   courseId: 3, cls: 'G', laps: 2, wlNm: 0.8, startTime: 11, linePreset: 'vignettes', lineLen: 0.12, lineMode: 'wind', lineBrg: 0, lineOverride: null,
-  perf: 1, polar: null,
+  perf: 1, polar: null, obsOpen: true,
 };
 const S = { ...DEF, ...store.get('rade.state', {}) };
 if (S.day < today()) S.day = today();
+S.calib = null; // remplacé par les relevés (S.obs)
+S.obs = (S.obs || []).filter((o) => o.day >= addDays(today(), -1));
 const persist = () => store.set('rade.state', Object.fromEntries(Object.keys(DEF).map((k) => [k, S[k]])));
 
 let T, F, scene, data = null, series = [], live = [], analysis = null, selLeg = null, gps = null, follow = false, nextIdx = 0;
@@ -52,7 +55,7 @@ async function init() {
   data = cached();
   const snap = await snapshot();
   if (snap && (!data || snap.fetched > data.fetched)) data = snap;
-  if (data) series = consensus(data);
+  if (data) { series = consensus(data); refreshObs(); }
   updateAll();
   $('#splash').classList.add('gone');
   refreshWeather();
@@ -64,7 +67,7 @@ async function init() {
 async function refreshWeather() {
   const b = $('#refresh'); b.classList.add('spin');
   try {
-    data = await fetchAll(); series = consensus(data);
+    data = await fetchAll(); series = consensus(data); refreshObs();
     status();
     updateAll();
   } catch (e) {
@@ -92,22 +95,76 @@ function baseAt(day, hour) {
   if (S.src === 'manual' || !data) {
     pts = [{ x: 0, y: 0, ...S.manual }];
   } else {
-    const i0 = seriesIndex(day, hour);
-    if (i0 < 0) pts = [{ x: 0, y: 0, ...S.manual }];
-    else {
-      const t = hour - Math.floor(hour), i1 = Math.min(series.length - 1, i0 + 1);
-      const g0 = gridPoints(data, i0), g1 = gridPoints(data, i1);
-      if (g0.length && g1.length === g0.length) {
-        pts = g0.map((p, k) => blend(p, g1[k], t));
-      } else {
-        const a = series[i0], b = series[i1];
-        pts = [blend({ x: 0, y: 0, dir: a.dir ?? a.ensDir, spd: a.spd ?? a.ensSpd, gust: a.gust }, { x: 0, y: 0, dir: b.dir ?? b.ensDir, spd: b.spd ?? b.ensSpd, gust: b.gust }, t)];
-      }
-    }
+    pts = modelPoints(data, day, hour, selectedModel());
+    if (!pts) pts = [{ x: 0, y: 0, ...S.manual }];
+    else if (S.nowcast) pts = applyResiduals(pts, day, hour);
   }
-  if (S.calib) pts = pts.map((p) => ({ ...p, dir: norm360(p.dir + S.calib.ddir), spd: p.spd * S.calib.ratio, gust: (p.gust ?? p.spd * 1.3) * S.calib.ratio }));
   return { points: pts };
 }
+
+// ───────────────────────── relevés de vent : modèle du jour et ajustement
+const AROME_ID = 'meteofrance_arome_france_hd';
+let ranking = [], resid = [];
+const dayObs = () => S.obs.filter((o) => o.day === S.day).sort((a, b) => a.h - b.h);
+function selectedModel() { return S.modelSel !== 'auto' ? S.modelSel : ranking[0]?.id || AROME_ID; }
+const modelLabel = (id) => MODELS.find((m) => m.id === id)?.label || id;
+
+// Recalcule le classement des modèles puis, pour le modèle retenu, l'écart résiduel à chaque relevé
+function refreshObs() {
+  ranking = data ? scoreModels(data, dayObs()) : [];
+  resid = [];
+  if (!data) return;
+  const sel = selectedModel();
+  for (const o of dayObs()) {
+    const pts = modelPoints(data, o.day, o.h, sel);
+    if (!pts) continue;
+    F.compute({ points: pts }, { localEffects: S.localFx });
+    const p = toXY(o.lat, o.lon), w = F.sample(p.x, p.y);
+    o.fit = { dir: w.dir, spd: w.spd };
+    resid.push({ h: o.h, dd: norm180(o.dir - w.dir), rr: Math.max(0.3, Math.min(3, o.spd / Math.max(0.8, w.spd))) });
+  }
+}
+// L'écart mesuré s'applique pleinement à l'heure du relevé, puis s'estompe (≈ 2 h 30)
+function applyResiduals(pts, day, hour) {
+  if (day !== S.day || !resid.length) return pts;
+  let sw = 0, sd = 0, sr = 0, wmax = 0;
+  for (const r of resid) { const w = Math.exp(-Math.abs(hour - r.h) / 2.5); sw += w; sd += w * r.dd; sr += w * (r.rr - 1); wmax = Math.max(wmax, w); }
+  const dd = (sd / sw) * wmax, k = 1 + (sr / sw) * wmax;
+  return pts.map((p) => ({ ...p, dir: norm360(p.dir + dd), spd: p.spd * k, gust: (p.gust ?? p.spd * 1.3) * k }));
+}
+
+let obsDraft = null, obsPos = null;
+function obsPosition() {
+  if (gps?.pos) return { lat: gps.pos.lat, lon: gps.pos.lon, label: 'ma position GPS' };
+  if (obsPos) return { ...obsPos, label: 'point choisi sur la carte' };
+  if (analysis) { const ll = toLL(analysis.line.c.x, analysis.line.c.y); return { ...ll, label: 'zone de départ (activez le GPS ou touchez la carte pour préciser)' }; }
+  return { lat: CENTER.lat, lon: CENTER.lon, label: 'centre de la rade' };
+}
+function nowHour() { const d = new Date(); return d.getHours() + d.getMinutes() / 60; }
+function renderObs(el) {
+  const pos = obsPosition(), p = toXY(pos.lat, pos.lon);
+  const h = obsDraft?.hManual ? obsDraft.h : (S.day === today() ? nowHour() : S.hour);
+  let model = null;
+  if (data && S.src === 'forecast') { const pts = modelPoints(data, S.day, h, selectedModel()); if (pts) model = idwAt(pts, p.x, p.y); }
+  if (!obsDraft) obsDraft = { dir: model ? Math.round(model.dir / 5) * 5 % 360 : S.manual.dir, spd: model ? Math.round(model.spd) : S.manual.spd };
+  obsDraft.h = h;
+  renderObsCard(el, {
+    draft: obsDraft, obs: dayObs(), ranking, selected: selectedModel(), selectedLabel: modelLabel(selectedModel()), modelSel: S.modelSel, nowcast: S.nowcast, model, posLabel: pos.label,
+    onDraft: (patch, rerender) => { Object.assign(obsDraft, patch); if (rerender) renderObsAll(); },
+    onAdd: () => {
+      const q = obsPosition();
+      S.obs.push({ day: S.day, h: obsDraft.h, lat: q.lat, lon: q.lon, dir: obsDraft.dir, spd: obsDraft.spd, t: Date.now() });
+      obsDraft.hManual = false;
+      persist(); refreshObs(); updateAll();
+      toast(`Relevé enregistré : ${fmtBrg(obsDraft.dir)} ${obsDraft.spd} nd — modèle retenu : ${modelLabel(selectedModel())}`);
+    },
+    onDelete: (i) => { const o = dayObs()[i]; S.obs = S.obs.filter((x) => x !== o); persist(); refreshObs(); updateAll(); },
+    onModel: (v) => { S.modelSel = v; persist(); refreshObs(); updateAll(); },
+    onNowcast: (v) => { S.nowcast = v; persist(); refreshObs(); updateAll(); },
+  });
+}
+function renderObsAll() { $$('.obs-card').forEach((el) => renderObs(el)); }
+
 function blend(a, b, t) {
   const ux = (1 - t) * a.spd * Math.sin(a.dir * Math.PI / 180) + t * b.spd * Math.sin(b.dir * Math.PI / 180);
   const uy = (1 - t) * a.spd * Math.cos(a.dir * Math.PI / 180) + t * b.spd * Math.cos(b.dir * Math.PI / 180);
@@ -131,7 +188,7 @@ function updateDisplayField() {
   computeField(S.day, S.hour);
   scene.setField(F);
   const c = F.sample(toXY(43.088, 5.962).x, toXY(43.088, 5.962).y);
-  $('#windBadge').innerHTML = `${arrow(c.dir)} <b>${c.spd.toFixed(0)}</b> nd · ${cardinal(c.dir)} ${fmtBrg(c.dir)}<br><span class="small">rafales ${c.gust.toFixed(0)} nd · ${hhmm(S.hour)}${S.src === 'manual' ? ' · manuel' : ''}${S.calib ? ' · recalé' : ''}</span>`;
+  $('#windBadge').innerHTML = `${arrow(c.dir)} <b>${c.spd.toFixed(0)}</b> nd · ${cardinal(c.dir)} ${fmtBrg(c.dir)}<br><span class="small">rafales ${c.gust.toFixed(0)} nd · ${hhmm(S.hour)}${S.src === 'manual' ? ' · manuel' : ''}${S.src === 'forecast' && data ? ' · ' + modelLabel(selectedModel()) : ''}${S.src === 'forecast' && S.nowcast && resid.length ? ' + relevés' : ''}</span>`;
   renderLegend();
 }
 function scheduleAnalysis() { clearTimeout(anaTimer); anaTimer = setTimeout(runAnalysis, 120); }
@@ -159,6 +216,8 @@ async function runAnalysis() {
     await new Promise((r) => setTimeout(r, 0));
   }
   if (token !== anaToken) return;
+  let ord = 0;
+  legs.forEach((l) => { if (l.mark !== 'GATE' && l.mark !== 'FINISH') l.order = ++ord; });
   analysis = { course, cls, legs, line: B.line, points: B.points, start, total: t - S.startTime, dist: legs.reduce((s, l) => s + l.dist, 0), trend };
   updateDisplayField();
   drawCourse();
@@ -167,10 +226,15 @@ async function runAnalysis() {
 
 function drawCourse() {
   if (!analysis) return;
+  // marques du parcours, avec leurs numéros d'ordre de passage
   const used = new Map();
-  analysis.legs.forEach((l) => { if (MARKS[l.mark] && !used.has(l.mark)) used.set(l.mark, { side: l.side }); });
+  analysis.legs.forEach((l) => {
+    if (!l.order) return;
+    const u = used.get(l.mark) || { side: l.side, orders: [] };
+    u.orders.push(l.order); used.set(l.mark, u);
+  });
   const marks = { ...MARKS };
-  for (const k of ['A', 'B', 'C', 'D']) if (analysis.points[k]) { const ll = toLL(analysis.points[k].x, analysis.points[k].y); marks[k] = { name: analysis.points[k].name, ...ll, color: '#f5c400' }; if (!used.has(k)) analysis.legs.forEach((l) => { if (l.mark === k && !used.has(k)) used.set(k, { side: l.side }); }); }
+  for (const k of ['A', 'B', 'C', 'D']) if (analysis.points[k]) { const ll = toLL(analysis.points[k].x, analysis.points[k].y); marks[k] = { name: analysis.points[k].name, ...ll, color: '#f5c400' }; }
   scene.setMarks(marks, used);
   scene.setLine(analysis.line);
   scene.setCourse(analysis, selLeg);
@@ -240,7 +304,7 @@ function onPick(p, screen) {
     <div class="row"><span>Rafales</span><b>${w.gust.toFixed(0)} nd</b></div>
     <div class="row"><span>Dévent relief</span><b>${Math.round(w.shelter * 100)} %</b></div>
     <div class="row"><span>Oscillations</span><b>±${F.shiftAmplitude(w.spd, w.shelter)}°</b></div>${legInfo}`}
-    <div class="acts">${land ? '' : `<button class="btn small alt" data-a="cb">Comité ici</button><button class="btn small alt" data-a="pin">Bouée ici</button><button class="btn small alt" data-a="obs">Vent observé ici…</button>`}<button class="btn small" data-a="close">✕</button></div>`;
+    <div class="acts">${land ? '' : `<button class="btn small alt" data-a="cb">Comité ici</button><button class="btn small alt" data-a="pin">Bouée ici</button><button class="btn small alt" data-a="obs">Relevé de vent ici…</button>`}<button class="btn small" data-a="close">✕</button></div>`;
   const vw = $('#stage').clientWidth;
   pop.style.left = Math.min(vw - 230, Math.max(8, screen.clientX + 12)) + 'px';
   pop.style.top = Math.max(8, screen.clientY - 20) + 'px';
@@ -249,7 +313,7 @@ function onPick(p, screen) {
     const a = e.target.dataset.a; if (!a) return;
     if (a === 'close') { pop.hidden = true; scene.clearPick(); return; }
     if (a === 'cb' || a === 'pin') setLineEnd(a, p);
-    if (a === 'obs') { pop.hidden = true; openTab('wind'); $('#obsLat').value = p.lat.toFixed(5); $('#obsLon').value = p.lon.toFixed(5); $('#obsDir').focus(); return; }
+    if (a === 'obs') { pop.hidden = true; obsPos = { lat: p.lat, lon: p.lon }; openTab('course'); renderObsAll(); $('.obs-card')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
     pop.hidden = true; scene.clearPick();
   };
 }
@@ -273,7 +337,7 @@ function renderBrief() {
   let html = '';
   if (!data) html += `<div class="notice">Pas encore de prévision chargée${navigator.onLine ? ' — téléchargement en cours…' : ' (hors ligne). Le mode « Manuel » reste disponible.'}</div>`;
   if (S.src === 'manual') html += `<div class="notice">Mode <b>vent manuel</b> : ${fmtBrg(S.manual.dir)} ${S.manual.spd} nd. Les prévisions sont ignorées pour la carte et l’analyse.</div>`;
-  if (S.calib) html += `<div class="notice">Vent recalé sur une observation : ${S.calib.ddir > 0 ? '+' : ''}${S.calib.ddir.toFixed(0)}°, ×${S.calib.ratio.toFixed(2)}. <button class="btn small alt" id="uncal">Annuler</button></div>`;
+  if (S.src === 'forecast' && dayObs().length) html += `<div class="notice">${dayObs().length} relevé(s) aujourd’hui · modèle retenu : <b>${esc(modelLabel(selectedModel()))}</b>${S.nowcast ? ', ajusté sur vos relevés' : ''}. <button class="btn small alt" id="goObs2">Relevés</button></div>`;
   const w = rs ? { dir: rs.dir, spd: rs.spd, gust: rs.gust } : S.manual;
   const reg = w?.dir != null ? regimeOf(w.dir, w.spd) : null;
   html += `<div class="card hero">
@@ -291,7 +355,13 @@ function renderBrief() {
     else if (S.src === 'forecast') tips.push('Direction assez stable dans la fenêtre de course : jouer les oscillations et la pression.');
     const spots = Object.entries(MARKS).map(([k, m]) => { const p = toXY(m.lat, m.lon); return { k, m, w: F.sample(p.x, p.y) }; }).sort((a, b) => b.w.spd - a.w.spd);
     tips.push(`Zones les plus ventées (modèle, heure affichée) : ${spots.slice(0, 3).map((s) => `${s.k} ${s.m.name} ${s.w.spd.toFixed(0)} nd`).join(', ')}. Plus faibles : ${spots.slice(-2).map((s) => `${s.k} ${s.m.name} ${s.w.spd.toFixed(0)} nd`).join(', ')}.`);
-    if (rs && rs.spreadDir > 40) tips.push(`<b>Modèles en désaccord</b> (jusqu’à ${Math.round(rs.spreadDir)}° d’écart) : situation incertaine, observer le plan d’eau et recaler le vent (onglet Vent) dès l’arrivée sur zone.`);
+    if (rs && rs.spreadDir > 30) {
+      const far = rs.per.reduce((acc, p) => { for (const q of rs.per) { const d = Math.abs(norm180(p.dir - q.dir)); if (d > acc.d) acc = { d, a: p, b: q }; } return acc; }, { d: 0 });
+      const best = ranking[0];
+      tips.push(`<b>Modèles en désaccord</b> : ${esc(far.a.label)} donne ${fmtBrg(far.a.dir)} ${far.a.spd.toFixed(0)} nd, ${esc(far.b.label)} ${fmtBrg(far.b.dir)} ${far.b.spd.toFixed(0)} nd. ` + (best
+        ? `Vos relevés tranchent pour <b>${esc(best.label)}</b> (écart moyen ${Math.round(best.ddir)}° et ${Math.abs(best.dspd).toFixed(1)} nd)${ranking[1] ? `, devant ${esc(ranking[1].label)} (${Math.round(ranking[1].ddir)}°)` : ''}.`
+        : 'Faites un relevé dès l’arrivée sur zone (onglet Parcours) : l’app retiendra le modèle qui colle.'));
+    }
     tips.push(`Parcours ${analysis.course.id} estimé à <b>${summarizeTime(analysis.total * 3600)}</b> pour un J80 (${(analysis.dist / NM).toFixed(1)} Nq route directe).`);
     html += `<div class="card"><h3>Stratégie du jour</h3><ul class="tips">${tips.map((t) => `<li>${t}</li>`).join('')}</ul></div>`;
   }
@@ -301,7 +371,8 @@ function renderBrief() {
   const ih = seriesIndex(S.day, S.hour);
   if (ih >= 0) {
     const r = series[ih];
-    html += `<div class="card"><h3>Modèles à ${hhmm(Math.floor(S.hour))} <small>au centre de la rade</small></h3><table class="t"><tr><th>Modèle</th><th>Dir.</th><th>Vent</th><th>Rafales</th></tr>${r.per.map((p) => `<tr><td>${esc(p.label)}</td><td>${arrow(p.dir)} ${fmtBrg(p.dir)}</td><td>${p.spd.toFixed(0)} nd</td><td>${p.gust != null ? p.gust.toFixed(0) : '—'}</td></tr>`).join('')}</table>
+    html += `<div class="card"><h3>Modèles à ${hhmm(Math.floor(S.hour))} <small>au centre de la rade</small></h3><table class="t"><tr><th>Modèle</th><th>Dir.</th><th>Vent</th><th>Raf.</th><th>Écart relevés</th></tr>${r.per.map((p) => { const rk = ranking.find((x) => x.id === p.id); const sel = S.src === 'forecast' && p.id === selectedModel(); return `<tr${sel ? ' class="sel"' : ''}><td>${sel ? '✔ ' : ''}${esc(p.label)}</td><td>${arrow(p.dir)} ${fmtBrg(p.dir)}</td><td>${p.spd.toFixed(0)} nd</td><td>${p.gust != null ? p.gust.toFixed(0) : '—'}</td><td>${rk ? `${Math.round(rk.ddir)}° · ${rk.dspd > 0 ? '+' : ''}${rk.dspd.toFixed(1)} nd` : '—'}</td></tr>`; }).join('')}</table>
+    <div class="small muted" style="margin-top:4px">✔ = modèle utilisé pour la carte et l’analyse${S.modelSel === 'auto' ? (ranking.length ? ' (le plus proche de vos relevés)' : ' (AROME HD par défaut, en attendant un relevé)') : ' (choisi manuellement)'}.</div>
     <div class="small muted" style="margin-top:6px">${r.temp != null ? `${r.temp.toFixed(0)} °C · ` : ''}${WMO[r.code] ?? ''}${r.cloud != null ? ` · nuages ${r.cloud} %` : ''}${r.rain ? ` · pluie ${r.rain} mm` : ''}${r.pmsl ? ` · ${r.pmsl.toFixed(0)} hPa` : ''}</div></div>`;
     const m = marineAt(data, r.time);
     if (m) html += `<div class="card"><h3>État de la mer <small>large de Cépet</small></h3><div class="kpis"><div class="kpi"><b>${m.hs?.toFixed(1) ?? '—'} m</b><span>houle+mer ${m.dir != null ? cardinal(m.dir) : ''}</span></div><div class="kpi"><b>${m.per?.toFixed(0) ?? '—'} s</b><span>période</span></div><div class="kpi"><b>${m.cur != null ? m.cur.toFixed(1) : '—'} nd</b><span>courant ${m.curDir != null ? '→ ' + fmtBrg(m.curDir) : ''}</span></div></div><div class="small muted" style="margin-top:6px">Eau ${m.sst?.toFixed(0) ?? '—'} °C. Courant de surface modélisé (Copernicus) : faible en rade, à vérifier sur les bouées.</div></div>`;
@@ -313,7 +384,7 @@ function renderBrief() {
   }
   if (live.length) html += `<div class="card"><h3>Balises en direct <small>OpenWindMap</small></h3>${live.map((s) => `<div class="small">📡 <b>${esc(s.name)}</b> : ${s.dir != null ? fmtBrg(s.dir) + ' ' : ''}${s.spd.toFixed(0)} nd (max ${s.gust.toFixed(0)}) <span class="muted">il y a ${Math.round(s.ageMin)} min</span></div>`).join('')}<div class="small muted" style="margin-top:4px">Autres sources : <a href="https://www.windguru.cz/48529" target="_blank" rel="noopener">Windguru Toulon</a> · <a href="https://meteofrance.com/previsions-meteo-marine/bulletin/cotier" target="_blank" rel="noopener">Bulletin côtier Météo-France</a> · <a href="https://www.windy.com/43.08/5.96?43.03,5.96,11" target="_blank" rel="noopener">Windy</a></div></div>`;
   el.innerHTML = html;
-  $('#uncal')?.addEventListener('click', () => { S.calib = null; persist(); updateAll(); });
+  $('#goObs2')?.addEventListener('click', () => openTab('course'));
   $$('[data-pick]', el).forEach((b) => b.addEventListener('click', () => { S.courseId = +b.dataset.pick; persist(); scheduleAnalysis(); openTab('course'); }));
 }
 
@@ -344,7 +415,9 @@ function chartSVG(rows, isRace) {
 function renderCourse() {
   const el = $('section[data-tab=course]');
   const c = COURSES.find((x) => x.id === S.courseId);
-  let html = `<div class="card"><div class="row2"><div><label class="f">Parcours (cahier CVAT)</label><select id="cSel">${COURSES.map((x) => `<option value="${x.id}" ${x.id === S.courseId ? 'selected' : ''}>${x.title}</option>`).join('')}</select></div>
+  const nObs = dayObs().length;
+  let html = `<details class="card obsbox" ${S.obsOpen !== false ? 'open' : ''}><summary><span>🌬 Relevé de vent sur l’eau</span><small>${S.src === 'manual' ? 'mode manuel' : `${nObs ? nObs + ' relevé(s) · ' : ''}modèle : ${esc(modelLabel(selectedModel()))}`}</small></summary><div class="obs-card"></div></details>
+  <div class="card"><div class="row2"><div><label class="f">Parcours (cahier CVAT)</label><select id="cSel">${COURSES.map((x) => `<option value="${x.id}" ${x.id === S.courseId ? 'selected' : ''}>${x.title}</option>`).join('')}</select></div>
     <div><label class="f">Classes</label><select id="cCls"><option value="G" ${S.cls === 'G' ? 'selected' : ''}>C–D–L–R1-R3 (grand)</option><option value="P" ${S.cls === 'P' ? 'selected' : ''}>P1–P2 (petit)</option></select></div></div>
     <div class="row3">${c.laps ? `<div><label class="f">Tours</label><input id="cLaps" type="number" min="1" max="5" value="${S.laps}"></div>` : ''}${c.built === 'WL' ? `<div><label class="f">Dist. B (Nq)</label><input id="cWl" type="number" min="0.3" max="2" step="0.1" value="${S.wlNm}"></div>` : ''}
     <div><label class="f">Heure de départ</label><input id="cStart" type="text" inputmode="numeric" value="${hhmm(S.startTime)}"></div></div>
@@ -358,7 +431,7 @@ function renderCourse() {
       const chip = l.type.id === 'pres' ? 'pres' : l.type.sail.startsWith('Spi') ? 'spi' : 'reach';
       const ma = markAdvice(l, A.legs[i + 1]);
       return `<div class="leg ${selLeg === i ? 'sel' : ''}" data-i="${i}">
-        <div class="hd"><span>${i + 1}. → ${esc(l.to.name)}${l.lap ? ` <span class="muted small">tour ${l.lap}</span>` : ''}</span>${l.side ? `<span class="chip ${l.side === 'b' ? 'port' : 'stbd'}">${sideName(l.side)}</span>` : ''}</div>
+        <div class="hd"><span>${l.order ? `<span class="ord">${l.order}</span> ` : ''}${esc((/^\d/.test(l.to.name) ? 'n°' : '') + l.to.name)}${l.lap ? ` <span class="muted small">tour ${l.lap}</span>` : ''}</span>${l.side ? `<span class="chip ${l.side === 'b' ? 'port' : 'stbd'}">${sideName(l.side)}</span>` : ''}</div>
         <div class="meta">${fmtBrg(l.brg)} · ${fmtNm(l.dist)} · vent ${fmtBrg(l.wind.dir)} ${l.wind.spd.toFixed(0)} nd (raf. ${l.wind.gust.toFixed(0)}) · TWA ${Math.abs(l.twa).toFixed(0)}° · ${hhmm(l.eta0)}→${hhmm(l.eta1)} (${summarizeTime(l.time)})</div>
         <span class="chip ${chip}">${l.type.label}</span><span class="chip">${l.type.sail}</span>
         <ul class="tips">${l.advice.map((a) => `<li>${esc(a)}</li>`).join('')}</ul>
@@ -368,6 +441,8 @@ function renderCourse() {
     html += `<div class="card small muted">Route optimale (pointillés bleus) : routage par isochrones sur le champ de vent local avec la polaire J80 (pénalité ~9 s par virement, ~6 s par empannage), évitement de la terre et de la zone interdite. Touchez un bord pour l’afficher seul avec ses lay-lines.</div>`;
   }
   el.innerHTML = html;
+  renderObsAll();
+  $('.obsbox', el).addEventListener('toggle', (e) => { S.obsOpen = e.target.open; persist(); });
   $('#cSel').onchange = (e) => { S.courseId = +e.target.value; selLeg = null; S.lineOverride = null; persist(); scheduleAnalysis(); renderCourse(); };
   $('#cCls').onchange = (e) => { S.cls = e.target.value; persist(); scheduleAnalysis(); };
   if ($('#cLaps')) $('#cLaps').onchange = (e) => { S.laps = Math.max(1, Math.min(5, +e.target.value || 1)); persist(); scheduleAnalysis(); };
@@ -484,7 +559,7 @@ function renderLive() {
   if (A) {
     nextIdx = Math.min(nextIdx, A.legs.length - 1);
     const l = A.legs[nextIdx];
-    html += `<div class="card"><h3>Prochaine marque</h3><select id="nSel">${A.legs.map((x, i) => `<option value="${i}" ${i === nextIdx ? 'selected' : ''}>${i + 1}. ${esc(x.to.name)}${x.side ? ' (' + sideName(x.side) + ')' : ''}</option>`).join('')}</select>`;
+    html += `<div class="card"><h3>Prochaine marque</h3><select id="nSel">${A.legs.map((x, i) => `<option value="${i}" ${i === nextIdx ? 'selected' : ''}>${x.order ? 'Marque ' + x.order + ' — ' : ''}${esc((/^\d/.test(x.to.name) ? 'n°' : '') + x.to.name)}${x.side ? ' (' + sideName(x.side) + ')' : ''}</option>`).join('')}</select>`;
     if (p) {
       const brg = bearingXY(p, l.to), d = distXY(p, l.to), w = F.sample(p.x, p.y);
       const twaM = norm180(brg - w.dir), { up, down } = optimalAngles(Math.max(1, w.spd));
@@ -502,14 +577,14 @@ function renderLive() {
         <p class="small">${rec}</p>`;
     } else html += `<p class="small muted">Activez le GPS pour le relèvement, la distance et l’ETA vers la marque.</p>`;
     html += `<ul class="tips small">${l.advice.map((a) => `<li>${esc(a)}</li>`).join('')}</ul><div class="btns"><button class="btn alt small" id="nPrev">◀ Marque précédente</button><button class="btn small" id="nNext">Marque passée ▶</button></div></div>`;
-    html += `<div class="card"><h3>Vent observé à bord</h3><div class="small muted">Entrez le vent réel mesuré (girouette/compas) pour recaler toute la carte et l’analyse.</div><div class="btns"><button class="btn small" id="goObs">Saisir le vent observé</button></div></div>`;
+    html += `<div class="card"><h3>Vent observé à bord</h3><div class="small muted">Le relevé choisit le modèle du jour et ajuste carte et analyse.</div><div class="btns"><button class="btn small acc" id="goObs">Saisir un relevé</button></div></div>`;
   }
   el.innerHTML = html;
   $('#gOn')?.addEventListener('click', startGps); $('#gOff')?.addEventListener('click', stopGps);
   $('#nSel')?.addEventListener('change', (e) => { nextIdx = +e.target.value; renderLive(); });
   $('#nPrev')?.addEventListener('click', () => { nextIdx = Math.max(0, nextIdx - 1); renderLive(); });
   $('#nNext')?.addEventListener('click', () => { nextIdx = Math.min(analysis.legs.length - 1, nextIdx + 1); renderLive(); });
-  $('#goObs')?.addEventListener('click', () => { openTab('wind'); if (gps?.pos) { $('#obsLat').value = gps.pos.lat.toFixed(5); $('#obsLon').value = gps.pos.lon.toFixed(5); } });
+  $('#goObs')?.addEventListener('click', () => { openTab('course'); $('.obs-card')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); });
   if (timer.iv) tickTimer();
 }
 
@@ -527,11 +602,7 @@ function renderWind() {
     <label class="f">Vent moyen : <b id="mSpdL">${m.spd} nd</b></label><input id="mSpd" type="range" min="1" max="40" step="1" value="${m.spd}">
     <label class="f">Rafales : <b id="mGL">${m.gust} nd</b></label><input id="mG" type="range" min="1" max="50" step="1" value="${m.gust}">
     <div class="btns"><button class="btn ${S.src === 'manual' ? 'alt' : 'acc'}" id="mUse">${S.src === 'manual' ? 'Revenir aux prévisions' : 'Utiliser ce vent'}</button></div></div>
-  <div class="card"><h3>Recaler sur le vent observé</h3>
-    <div class="small muted">Le modèle est décalé (rotation et facteur de force) pour coller à votre mesure ; les effets locaux sont conservés.</div>
-    <div class="row2"><div><label class="f">Direction observée (°)</label><input id="obsDir" type="number" min="0" max="359" inputmode="numeric" placeholder="ex. 290"></div><div><label class="f">Vent observé (nd)</label><input id="obsSpd" type="number" min="0" max="60" inputmode="decimal" placeholder="ex. 12"></div></div>
-    <div class="row2"><div><label class="f">Latitude</label><input id="obsLat" type="text" value="${CENTER.lat}"></div><div><label class="f">Longitude</label><input id="obsLon" type="text" value="${CENTER.lon}"></div></div>
-    <div class="btns"><button class="btn acc" id="obsGo">Recaler</button>${S.calib ? '<button class="btn alt" id="obsClr">Annuler le recalage</button>' : ''}</div></div>
+  <div class="card"><h3>Vent relevé sur l’eau <small>choix du modèle</small></h3><div class="obs-card"></div></div>
   <div class="card"><h3>Effets locaux du relief</h3><label class="f">Intensité : <b id="fxL">${Math.round(S.localFx * 100)} %</b></label><input id="fx" type="range" min="0" max="1.5" step="0.1" value="${S.localFx}">
     <div class="small muted">0 % = vent prévu seul ; 100 % = corrections normales ; au-delà = effets accentués (situation stable, vent de terre).</div></div>
   <div class="card"><h3>Comment est calculé le vent ?</h3><ul class="tips small">
@@ -548,16 +619,8 @@ function renderWind() {
   $$('[data-p]', el).forEach((b) => b.onclick = () => { const p = PRESETS[+b.dataset.p]; S.manual = { dir: p[1], spd: p[2], gust: p[3] }; S.src = 'manual'; persist(); updateAll(); });
   $('#mUse').onclick = () => { S.src = S.src === 'manual' ? 'forecast' : 'manual'; persist(); updateAll(); };
   $('#fx').oninput = (e) => { S.localFx = +e.target.value; $('#fxL').textContent = `${Math.round(S.localFx * 100)} %`; };
-  $('#fx').onchange = () => { persist(); updateDisplayField(); scheduleAnalysis(); };
-  $('#obsGo').onclick = () => {
-    const d = +$('#obsDir').value, s = +$('#obsSpd').value, lat = parseFloat($('#obsLat').value), lon = parseFloat($('#obsLon').value);
-    if (!(d >= 0 && d < 360) || !(s > 0) || isNaN(lat) || isNaN(lon)) return toast('Saisir direction (0–359) et force du vent observé');
-    S.calib = null; computeField(S.day, S.hour);
-    const p = toXY(lat, lon), w = F.sample(p.x, p.y);
-    S.calib = { ddir: norm180(d - w.dir), ratio: Math.max(0.2, Math.min(4, s / Math.max(0.5, w.spd))) };
-    persist(); updateAll();
-  };
-  $('#obsClr')?.addEventListener('click', () => { S.calib = null; persist(); updateAll(); });
+  $('#fx').onchange = () => { persist(); refreshObs(); updateDisplayField(); scheduleAnalysis(); };
+  renderObsAll();
 }
 
 // ───────────────────────── J80

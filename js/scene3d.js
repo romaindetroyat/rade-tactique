@@ -105,45 +105,39 @@ export class Scene3D {
   // ───────── relief
   buildTerrain() {
     const T = this.t, step = Math.min(window.innerWidth, window.innerHeight) < 700 ? 2 : 1;
-    const nx = Math.floor(T.nx / step), ny = Math.floor(T.ny / step);
-    const pos = new Float32Array(nx * ny * 3), col = new Float32Array(nx * ny * 3);
-    const cLand = [hexColor('#c9c19a'), hexColor('#8d9b62'), hexColor('#6f7f4c'), hexColor('#a99d80'), hexColor('#e2dccd')];
-    const cUrb = hexColor('#d7cfc2'), cSea0 = hexColor('#7cc6bd'), cSea1 = hexColor('#2c7da0'), cSea2 = hexColor('#0b2a4a');
-    const tmp = new THREE.Color();
+    const nx = Math.floor((T.nx - 1) / step) + 1, ny = Math.floor((T.ny - 1) / step) + 1;
+    const pos = new Float32Array(nx * ny * 3), uv = new Float32Array(nx * ny * 2);
+    const W = T.x1 - T.x0, H = T.y1 - T.y0;
     for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
-      const si = i * step, sj = j * step, id = sj * T.nx + si, k = (j * nx + i) * 3;
+      const si = i * step, sj = j * step, id = sj * T.nx + si, k = (j * nx + i) * 3, q = (j * nx + i) * 2;
       const x = T.x0 + (si + 0.5) * T.dx, y = T.y1 - (sj + 0.5) * T.dy;
-      let h = T.h[id]; const c = T.cover[id];
+      const h = T.h[id], c = T.cover[id];
       pos[k] = x; pos[k + 2] = -y;
-      if (c === 0) {
-        const d = Math.min(1, -h / 90);
-        tmp.copy(cSea0).lerp(cSea1, Math.min(1, d * 1.8)); if (d > 0.5) tmp.lerp(cSea2, (d - 0.5) * 2);
-        pos[k + 1] = Math.max(h, -400) * this.exag * 0.5 - 6;
-      } else if (c === 3) { tmp.set('#e8e4da'); pos[k + 1] = 6 * this.exag; }
-      else {
-        const e = h / 600;
-        const stops = [0, 0.08, 0.35, 0.7, 1];
-        let s = 0; while (s < stops.length - 2 && e > stops[s + 1]) s++;
-        tmp.copy(cLand[s]).lerp(cLand[s + 1], Math.min(1, (e - stops[s]) / (stops[s + 1] - stops[s])));
-        if (c === 2) tmp.lerp(cUrb, 0.65);
-        const n = Math.sin(x * 0.013) * Math.cos(y * 0.011) * 0.04;
-        tmp.offsetHSL(0, 0, n);
-        pos[k + 1] = Math.max(h, 2) * this.exag;
-      }
-      col[k] = tmp.r; col[k + 1] = tmp.g; col[k + 2] = tmp.b;
+      pos[k + 1] = c === 0 ? Math.max(h, -400) * this.exag * 0.5 - 6 : c === 3 ? 6 * this.exag : Math.max(h, 2) * this.exag;
+      uv[q] = (x - T.x0) / W; uv[q + 1] = (y - T.y0) / H;
     }
-    const idx = [];
+    const idx = new Uint32Array((nx - 1) * (ny - 1) * 6);
+    let n = 0;
     for (let j = 0; j < ny - 1; j++) for (let i = 0; i < nx - 1; i++) {
       const a = j * nx + i, b = a + 1, c = a + nx, d = c + 1;
-      idx.push(a, c, b, b, c, d);
+      idx[n++] = a; idx[n++] = c; idx[n++] = b; idx[n++] = b; idx[n++] = c; idx[n++] = d;
     }
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-    g.setAttribute('color', new THREE.BufferAttribute(col, 3));
-    g.setIndex(idx);
+    g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+    g.setIndex(new THREE.BufferAttribute(idx, 1));
     g.computeVertexNormals();
     this.groups.terrain.clear();
-    const mesh = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ vertexColors: true }));
+    if (!this.terrainMat) {
+      // fond de carte HD (≈ 6 m/pixel) : côte OSM nette, ombrage du relief, fonds marins
+      this.terrainMat = new THREE.MeshLambertMaterial({ color: '#b9b49a' });
+      new THREE.TextureLoader().load('data/basemap.jpg', (tex) => {
+        tex.colorSpace = THREE.SRGBColorSpace;
+        tex.anisotropy = Math.min(8, this.renderer.capabilities.getMaxAnisotropy());
+        this.terrainMat.map = tex; this.terrainMat.color.set('#ffffff'); this.terrainMat.needsUpdate = true;
+      });
+    }
+    const mesh = new THREE.Mesh(g, this.terrainMat);
     this.groups.terrain.add(mesh);
     this.terrainMesh = mesh;
   }
@@ -159,7 +153,7 @@ export class Scene3D {
       }
     }
     const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
-    this.groups.coast.add(new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: '#fdfbf5', transparent: true, opacity: 0.85 })));
+    this.groups.coast.add(new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: '#fdfbf5', transparent: true, opacity: 0.35 })));
   }
 
   // ───────── surface de l’eau colorée par la force du vent
@@ -170,25 +164,41 @@ export class Scene3D {
     this.waterTex.colorSpace = THREE.SRGBColorSpace; this.waterTex.magFilter = THREE.LinearFilter;
     const g = new THREE.PlaneGeometry(T.x1 - T.x0, T.y1 - T.y0);
     g.rotateX(-Math.PI / 2);
-    this.waterMat = new THREE.MeshBasicMaterial({ map: this.waterTex, transparent: true, opacity: 0.93, depthWrite: false });
+    this.seaMask = new THREE.TextureLoader().load('data/seamask.png', () => { this.waterMat.needsUpdate = true; this.plainMat.needsUpdate = true; });
+    this.waterMat = new THREE.MeshBasicMaterial({ map: this.waterTex, alphaMap: this.seaMask, transparent: true, opacity: 0.9, depthWrite: false });
     const m = new THREE.Mesh(g, this.waterMat);
     m.position.set((T.x0 + T.x1) / 2, 0, -(T.y0 + T.y1) / 2);
     m.renderOrder = 2;
     this.groups.water.add(m);
     this.waterMesh = m;
     // calque « eau simple » quand la carte du vent est masquée
-    this.plainMat = new THREE.MeshBasicMaterial({ color: '#3b8fc0', transparent: true, opacity: 0.35, depthWrite: false });
+    this.plainMat = new THREE.MeshBasicMaterial({ color: '#3b8fc0', alphaMap: this.seaMask, transparent: true, opacity: 0.3, depthWrite: false });
   }
 
   setField(field) {
     this.field = field;
     const T = this.t, c = this.waterCanvas, nx = field.nx, ny = field.ny;
-    c.width = nx; c.height = ny;
+    if (c.width !== nx || c.height !== ny) {
+      // la taille d'une texture WebGL est figée à son premier envoi : on la recrée à la bonne taille
+      c.width = nx; c.height = ny;
+      this.waterTex.dispose();
+      this.waterTex = new THREE.CanvasTexture(c);
+      this.waterTex.colorSpace = THREE.SRGBColorSpace; this.waterTex.magFilter = THREE.LinearFilter;
+      this.waterMat.map = this.waterTex; this.waterMat.needsUpdate = true;
+    }
     const ctx = c.getContext('2d'), img = ctx.createImageData(nx, ny);
     for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
       const id = j * nx + i, k = id * 4;
-      if (field.land[id]) { img.data[k + 3] = 0; continue; }
-      const [r, g, b] = speedColor(field.spd[id]);
+      let v = field.spd[id];
+      if (field.land[id]) {
+        v = null;
+        for (let r = 1; r <= 4 && v == null; r++) for (let dj = -r; dj <= r && v == null; dj++) for (let di = -r; di <= r; di++) {
+          const ii = i + di, jj = j + dj;
+          if (ii >= 0 && jj >= 0 && ii < nx && jj < ny && !field.land[jj * nx + ii]) { v = field.spd[jj * nx + ii]; break; }
+        }
+        if (v == null) { img.data[k + 3] = 0; continue; }
+      }
+      const [r, g, b] = speedColor(v);
       img.data[k] = r; img.data[k + 1] = g; img.data[k + 2] = b; img.data[k + 3] = 255;
     }
     ctx.putImageData(img, 0, 0);
@@ -288,11 +298,16 @@ export class Scene3D {
       const p = toXY(m.lat, m.lon);
       const a = active.get(String(id));
       const ring = a ? (a.side === 'b' ? '#ff4d4d' : a.side === 't' ? '#2ecc71' : '#ffffff') : null;
-      const s = makeLabel(String(id), { circle: true, bg: m.color === '#1f9d55' ? '#1f9d55' : m.color === '#e03131' ? '#d63031' : '#f5c400', fg: m.color === '#f5c400' ? '#222' : '#fff', size: 26, border: ring || '#fff' }, a ? 30 : 22);
+      const bg = m.color === '#1f9d55' ? '#1f9d55' : m.color === '#e03131' ? '#d63031' : '#f5c400', fg = m.color === '#f5c400' ? '#222' : '#fff';
+      // dans le parcours : numéro d'ordre de passage (1, 2, 3…) ; hors parcours : numéro CVAT en grisé
+      const txt = a?.orders?.length ? a.orders.join('·') : String(id);
+      const s = a ? makeLabel(txt, { circle: a.orders.length < 2, bg, fg, size: 26, border: ring }, 30)
+        : makeLabel(String(id), { circle: true, bg: 'rgba(120,135,150,.75)', fg: '#fff', size: 22 }, 17);
       s.position.copy(W(p.x, p.y, 70));
       s.userData.mark = id;
       g.add(s);
-      const name = makeLabel(m.name + (a?.side ? (a.side === 'b' ? ' · bâbord' : ' · tribord') : ''), { bg: 'rgba(12,24,38,.7)', size: 22 }, a ? 16 : 13);
+      const nm = a ? `${/^\d+$/.test(id) ? 'n°' + id + ' ' : ''}${m.name}${a.side ? (a.side === 'b' ? ' · bâbord' : ' · tribord') : ''}` : m.name;
+      const name = makeLabel(nm, { bg: a ? 'rgba(12,24,38,.78)' : 'rgba(12,24,38,.45)', size: 22 }, a ? 15 : 11);
       name.position.copy(W(p.x, p.y, 70)); name.center.set(-0.12, 1.25);
       g.add(name);
       const pole = new THREE.Mesh(new THREE.CylinderGeometry(6, 10, 70, 8), new THREE.MeshLambertMaterial({ color: m.color }));

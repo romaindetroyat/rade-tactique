@@ -1,4 +1,6 @@
+
 :root {
+  --dialBg: #eef3f8; --dialTick: #8a9aab; --dialTxt: #11202f; --dialModel: #5d6b7a;
   --bg: #0c2236; --bg2: #12304a; --card: #ffffff; --ink: #11202f; --mute: #5d6b7a; --line: #e3e8ee;
   --accent: #ff8c00; --blue: #1673c9; --ok: #1f9d55; --warn: #e8a400; --bad: #d63031;
   --port: #d63031; --stbd: #1f9d55; --panelW: 420px; --topH: 58px;
@@ -139,3 +141,23 @@ a { color: var(--blue); }
 }
 
 #toast { position: fixed; left: 50%; bottom: calc(24px + var(--safeB)); transform: translateX(-50%); background: var(--bg); color: #fff; padding: 10px 14px; border-radius: 12px; z-index: 60; font-size: 14px; box-shadow: 0 6px 20px rgba(0,0,0,.35); max-width: 90vw; }
+.ord { display: inline-grid; place-items: center; min-width: 24px; height: 24px; padding: 0 6px; border-radius: 12px; background: var(--bg); color: #fff; font-size: 13px; margin-right: 4px; }
+
+/* relevé de vent */
+details.obsbox > summary { display: flex; justify-content: space-between; align-items: center; gap: 8px; list-style: none; font-size: 15px; }
+details.obsbox > summary::-webkit-details-marker { display: none; }
+details.obsbox > summary small { color: var(--mute); font-weight: 500; font-size: 12px; text-align: right; }
+details.obsbox[open] > summary { margin-bottom: 8px; }
+.obs-grid { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 12px; align-items: start; }
+.dialwrap { min-width: 0; }
+.dial { width: 100%; max-width: 230px; display: block; margin: 0 auto; touch-action: none; cursor: pointer; user-select: none; }
+.dial:focus-visible { outline: 3px solid var(--accent); border-radius: 50%; }
+.btns.center { justify-content: center; margin-top: 4px; }
+.stepper { display: grid; grid-template-columns: 52px 1fr 52px; align-items: center; gap: 6px; }
+.stepper .btn { height: 52px; font-size: 26px; padding: 0; }
+.stepper b { text-align: center; font-size: 30px; font-variant-numeric: tabular-nums; }
+.stepper b small { font-size: 14px; color: var(--mute); }
+input[type=time] { width: 100%; padding: 9px 10px; border: 1px solid #cdd6df; border-radius: 10px; font: inherit; }
+table.t tr.sel td { background: #fff3e0; font-weight: 600; }
+.bar { display: block; height: 8px; border-radius: 4px; background: linear-gradient(90deg, var(--ok) var(--w), #e3e8ee var(--w)); min-width: 60px; }
+@media (max-width: 420px) { .obs-grid { grid-template-columns: 1fr; } .dial { max-width: 210px; } }

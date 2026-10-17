@@ -16,8 +16,8 @@ from PIL import Image, ImageDraw
 
 DATA, OUT = sys.argv[1], sys.argv[2]
 W0, E0, S0, N0 = 5.80, 6.10, 43.00, 43.18
-NX, NY = 610, 500            # grille finale (~40 m)
-FX, FY = 1830, 1500          # grille fine pour le masque terre/mer (~13 m)
+NX, NY = 814, 667            # grille finale (~30 m)
+FX, FY = 2442, 2001          # grille fine pour le masque terre/mer (~10 m)
 
 o = json.load(open(os.path.join(DATA, 'osm_extract.json')))
 
@@ -132,7 +132,7 @@ while q:
         jj, ii = j + dj, i + di
         if 0 <= jj < NY and 0 <= ii < NX and dist[jj, ii] > dist[j, i] + 1:
             dist[jj, ii] = dist[j, i] + 1; q.append((jj, ii))
-cell = 40.0
+cell = 30.0
 for j in range(NY):
     for i in range(NX):
         if sea_m[j, i]:
