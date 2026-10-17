@@ -55,7 +55,7 @@ export class Scene3D {
     this.scene.add(new THREE.HemisphereLight('#eef6ff', '#5a5040', 1.25));
     const sun = new THREE.DirectionalLight('#fff4e0', 2.2); sun.position.set(-8000, 9000, 6000); this.scene.add(sun);
     this.groups = {};
-    for (const g of ['terrain', 'water', 'coast', 'particles', 'labels', 'marks', 'course', 'routes', 'line', 'boat', 'zones', 'stations', 'pick']) {
+    for (const g of ['terrain', 'water', 'coast', 'particles', 'labels', 'marks', 'course', 'routes', 'line', 'boat', 'zones', 'stations', 'pick', 'replay']) {
       this.groups[g] = new THREE.Group(); this.scene.add(this.groups[g]);
     }
     this.layers = { wind: true, particles: true, labels: true, routes: true, depth: false };
@@ -467,10 +467,84 @@ export class Scene3D {
   }
   clearPick() { this.groups.pick.clear(); }
 
+
+  // ───────── animation : un J80 parcourt la route optimale en accéléré
+  #makeBoat() {
+    const g = new THREE.Group();
+    const hullShape = new THREE.Shape();
+    hullShape.moveTo(0, -4); hullShape.quadraticCurveTo(1.35, -1.2, 1.25, 2.6); hullShape.lineTo(1.0, 4);
+    hullShape.lineTo(-1.0, 4); hullShape.lineTo(-1.25, 2.6); hullShape.quadraticCurveTo(-1.35, -1.2, 0, -4);
+    const hull = new THREE.Mesh(new THREE.ExtrudeGeometry(hullShape, { depth: 0.9, bevelEnabled: false }), new THREE.MeshLambertMaterial({ color: '#f4f6f8' }));
+    hull.rotation.x = Math.PI / 2; hull.position.y = 0.9; g.add(hull);
+    const deck = new THREE.Mesh(new THREE.ShapeGeometry(hullShape), new THREE.MeshBasicMaterial({ color: '#d63031', side: THREE.DoubleSide }));
+    deck.rotation.x = Math.PI / 2; deck.position.y = 0.95; deck.scale.set(0.82, 0.82, 1); g.add(deck);
+    const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 9, 6), new THREE.MeshLambertMaterial({ color: '#333' }));
+    mast.position.set(0, 5.4, -0.6); g.add(mast);
+    const sailMat = new THREE.MeshLambertMaterial({ color: '#ffffff', side: THREE.DoubleSide, transparent: true, opacity: 0.95 });
+    const main = new THREE.Mesh(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 1.4, 0), new THREE.Vector3(0, 9.8, 0), new THREE.Vector3(0, 1.4, 3.6)]), sailMat);
+    main.geometry.computeVertexNormals();
+    const boom = new THREE.Group(); boom.position.set(0, 0, -0.6); boom.add(main); g.add(boom);
+    const jib = new THREE.Mesh(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 1.3, 0), new THREE.Vector3(0, 8.6, 3.5), new THREE.Vector3(0, 1.3, 3.0)]), sailMat);
+    jib.geometry.computeVertexNormals();
+    const jibG = new THREE.Group(); jibG.position.set(0, 0, -4); jibG.add(jib); g.add(jibG);
+    const spi = new THREE.Mesh(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 1.6, -1.5), new THREE.Vector3(0, 9.4, 3.8), new THREE.Vector3(0, 1.6, 4.4)]), new THREE.MeshLambertMaterial({ color: '#ff8c00', side: THREE.DoubleSide }));
+    spi.geometry.computeVertexNormals();
+    const spiG = new THREE.Group(); spiG.position.set(0, 0, -5.5); spiG.add(spi); g.add(spiG);
+    g.userData = { boom, jibG, spiG };
+    return g;
+  }
+
+  setReplay(track) {
+    const g = this.groups.replay; this.#clearRibbons(g);
+    this.replay = null;
+    if (!track || track.length < 2) return;
+    const boat = this.#makeBoat();
+    g.add(boat);
+    const T = track[track.length - 1].t;
+    this.replay = { track, T, t: 0, playing: true, rate: T / 45, boat, wakeAt: -1, follow: false, i: 0 };
+    this.replay.wake = this.#ribbon([track[0], track[0]], '#ff2d55', 3, { y: 16, opacity: 0.95 });
+    g.add(this.replay.wake);
+  }
+  replayControl(cmd, v) {
+    const R = this.replay; if (!R) return;
+    if (cmd === 'toggle') { if (R.t >= R.T) R.t = 0; R.playing = !R.playing; }
+    if (cmd === 'seek') { R.t = Math.max(0, Math.min(R.T, v)); R.i = 0; R.wakeAt = -1; }
+    if (cmd === 'speed') R.rate = (R.T / 45) * v;
+    if (cmd === 'follow') R.follow = v;
+  }
+  #stepReplay(dt) {
+    const R = this.replay; if (!R) return;
+    if (R.playing) { R.t += dt * R.rate; if (R.t >= R.T) { R.t = R.T; R.playing = false; } }
+    const tr = R.track;
+    if (tr[R.i].t > R.t) R.i = 0;
+    while (R.i < tr.length - 2 && tr[R.i + 1].t <= R.t) R.i++;
+    const a = tr[R.i], b = tr[R.i + 1], f = b.t > a.t ? Math.min(1, (R.t - a.t) / (b.t - a.t)) : 1;
+    const x = a.x + (b.x - a.x) * f, y = a.y + (b.y - a.y) * f;
+    const hd = b.hd ?? Math.atan2(b.x - a.x, b.y - a.y) * 180 / Math.PI;
+    const twa = b.twa ?? 0, spi = !!b.spi;
+    const dist = this.camera.position.distanceTo(this.controls.target), sc = Math.max(1, dist / 240);
+    R.boat.position.set(x, 2, -y); R.boat.rotation.y = -hd * Math.PI / 180; R.boat.scale.setScalar(sc);
+    // voiles : bôme sous le vent, ouverte selon l'angle au vent
+    const lee = twa >= 0 ? 1 : -1, open = Math.min(80, Math.max(8, (Math.abs(twa) - 30) * 0.6)) * Math.PI / 180;
+    R.boat.userData.boom.rotation.y = lee * open;
+    R.boat.userData.jibG.rotation.y = lee * open * 0.6;
+    R.boat.userData.spiG.visible = spi; R.boat.userData.jibG.visible = !spi;
+    R.boat.userData.spiG.rotation.y = lee * Math.min(70, Math.abs(twa) - 80) * Math.PI / 180;
+    R.boat.rotation.z = -lee * Math.min(0.35, (b.bsp || 0) / 30) * (Math.abs(twa) < 100 ? 1 : 0.4);
+    if (R.follow) { const off = this.camera.position.clone().sub(this.controls.target); this.controls.target.set(x, 0, -y); this.camera.position.copy(this.controls.target.clone().add(off)); }
+    if (Math.abs(R.t - R.wakeAt) > R.T / 300 || !R.playing) {
+      R.wakeAt = R.t;
+      const pts = tr.slice(0, R.i + 1).map((p) => ({ x: p.x, y: p.y })); pts.push({ x, y });
+      R.wake.userData.points = pts; this.needRibbons = true;
+    }
+    this.onReplay?.({ t: R.t, T: R.T, playing: R.playing, p: b, x, y, hd });
+  }
+
   frame() {
     const dt = Math.min(0.05, this.clock.getDelta());
     this.controls.update();
     if (this.layers.particles) this.#stepParticles(dt);
+    this.#stepReplay(dt);
     if (this.needRibbons) { this.needRibbons = false; this.#updateRibbons(); }
     // orientation des flèches selon l’azimut caméra (vue de dessus approximative)
     const az = (this.azimuth() * Math.PI) / 180;

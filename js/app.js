@@ -9,9 +9,10 @@ import { buildLegs, analyzeLeg, markAdvice, analyzeStart, trendOf, rankCourses, 
 import { optimalAngles, boatSpeed, trimAdvice, spiMinTwa, getPolar, setPolar, resetPolar, parsePolar } from './polar.js';
 import { renderJ80 } from './j80.js';
 import { modelPoints, modelAt, idwAt, scoreModels, renderObsCard } from './obs.js';
+import { route } from './router.js';
 import { shroudsFor } from './tuning.js';
 
-export const APP_VERSION = 'v3 · côtes HD';
+export const APP_VERSION = 'v4 · animation';
 const $ = (s, r = document) => r.querySelector(s);
 function toast(msg) {
   let t = document.getElementById('toast');
@@ -216,6 +217,22 @@ async function runAnalysis() {
   const trend = S.src === 'forecast' && data ? trendOf(series, Math.max(0, seriesIndex(S.day, S.startTime)), Math.max(0, seriesIndex(S.day, S.startTime + 4))) : 0;
   const ctx = { terrain: T, forbidden, perf: S.perf, trend };
   const start = analyzeStart(B.line, F, { ...B.legs[0] }, ctx);
+  // le premier bord part du point de la ligne qui mène le plus vite à la 1re marque
+  const L0 = B.line, first = B.legs[0], cands = [];
+  for (const f of [0, 0.25, 0.5, 0.75, 1]) {
+    const p = { x: L0.pin.x + (L0.cb.x - L0.pin.x) * f, y: L0.pin.y + (L0.cb.y - L0.pin.y) * f };
+    const r = route(p, first.to, F, { terrain: T, forbidden, perf: S.perf });
+    if (r) cands.push({ f, p, time: r.time });
+  }
+  if (cands.length) {
+    const best = cands.reduce((a, b) => (b.time < a.time ? b : a)), mid = cands.find((c) => c.f === 0.5) || best;
+    first.from = { ...best.p, name: 'Départ' };
+    first.brg = bearingXY(first.from, first.to); first.dist = distXY(first.from, first.to);
+    const where = best.f >= 0.9 ? 'au ras du Comité' : best.f >= 0.6 ? 'dans le tiers Comité' : best.f <= 0.1 ? 'au ras de la bouée' : best.f <= 0.4 ? 'dans le tiers bouée' : 'au milieu de la ligne';
+    const gain = mid.time - best.time;
+    start.startPoint = { ...best.p, f: best.f, gain };
+    start.advice.unshift(`Routage : départ le plus rapide ${where}${gain >= 3 ? ` (≈ ${Math.round(gain)} s gagnées sur un départ au milieu)` : ' (écart faible le long de la ligne)'}. La route optimale part de ce point (◆ orange).`);
+  }
   const legs = []; let t = S.startTime, lastH = S.startTime;
   for (const leg of B.legs) {
     if (token !== anaToken) return;
@@ -232,6 +249,7 @@ async function runAnalysis() {
   updateDisplayField();
   drawCourse();
   renderCourse(); renderStart(); renderLive(); renderBrief(); renderJ80Tab();
+  if (autoReplay) { autoReplay = false; startReplay(); } else if (scene.replay) { const R = scene.replay, f = R.t / R.T, was = R.playing; startReplay(false); scene.replayControl('seek', f * scene.replay.T); if (!was) scene.replayControl('toggle'); }
 }
 
 function drawCourse() {
@@ -246,7 +264,7 @@ function drawCourse() {
   const marks = { ...MARKS };
   for (const k of ['A', 'B', 'C', 'D']) if (analysis.points[k]) { const ll = toLL(analysis.points[k].x, analysis.points[k].y); marks[k] = { name: analysis.points[k].name, ...ll, color: '#f5c400' }; }
   scene.setMarks(marks, used);
-  scene.setLine(analysis.line);
+  scene.setLine(analysis.line, analysis.start.startPoint ? [{ ...analysis.start.startPoint, name: '◆ Départ conseillé' }] : []);
   scene.setCourse(analysis, selLeg);
 }
 
@@ -274,6 +292,12 @@ function bindUI() {
   $('#layersMenu').addEventListener('change', (e) => { const l = e.target.dataset.layer; if (l) scene.setLayer(l, e.target.checked); });
   $('#exag').addEventListener('change', (e) => scene.setExaggeration(+e.target.value));
   $('#compass').addEventListener('click', () => { scene.home({ x: scene.controls.target.x, y: -scene.controls.target.z }, scene.camera.position.distanceTo(scene.controls.target), 0.75, 0); });
+  scene.onReplay = onReplay;
+  $('#rhPlay').addEventListener('click', () => scene.replayControl('toggle'));
+  $('#rhSeek').addEventListener('input', (e) => { const R = scene.replay; if (R) scene.replayControl('seek', (+e.target.value / 1000) * R.T); });
+  $('#rhSpeed').addEventListener('change', (e) => scene.replayControl('speed', +e.target.value));
+  $('#rhFollow').addEventListener('click', (e) => { e.currentTarget.classList.toggle('on'); scene.replayControl('follow', e.currentTarget.classList.contains('on')); });
+  $('#rhClose').addEventListener('click', stopReplay);
   bindSheet();
 }
 
@@ -335,7 +359,41 @@ function setLineEnd(which, ll) {
 }
 function openTab(t) { $(`#tabs button[data-tab=${t}]`).click(); }
 
-// ───────────────────────── BRIEFING
+// ───────────────────────── animation du parcours
+let replayLegStarts = [], autoReplay = false;
+function buildTrack(A) {
+  const tr = []; let t0 = 0;
+  replayLegStarts = [];
+  A.legs.forEach((l, i) => {
+    replayLegStarts.push(t0);
+    const spi = l.type.sail.startsWith('Spi');
+    const path = l.route?.path?.length > 1 ? l.route.path : [{ x: l.from.x, y: l.from.y, t: 0 }, { x: l.to.x, y: l.to.y, t: l.time, hd: l.brg, twa: l.twa, bsp: l.dist / Math.max(1, l.time) / 0.5144 }];
+    path.forEach((p, k) => { if (k === 0 && tr.length) return; tr.push({ x: p.x, y: p.y, t: t0 + p.t, hd: p.hd, twa: p.twa, bsp: p.bsp, leg: i, spi }); });
+    t0 += l.time;
+  });
+  return tr;
+}
+function startReplay(focus = true) {
+  if (!analysis) return;
+  scene.setReplay(buildTrack(analysis));
+  $('#replayHud').hidden = false;
+  $('#rhPlay').textContent = '⏸';
+  scene.replayControl('speed', +$('#rhSpeed').value);
+  scene.replayControl('follow', $('#rhFollow').classList.contains('on'));
+  if (focus) scene.focus(analysis.legs.flatMap((l) => [l.from, l.to]));
+}
+function stopReplay() { scene.setReplay(null); $('#replayHud').hidden = true; }
+let lastHud = 0;
+function onReplay(st) {
+  const now = performance.now(); if (now - lastHud < 100 && st.playing) return; lastHud = now;
+  const l = analysis?.legs[st.p.leg]; if (!l) return;
+  const clock = S.startTime + st.t / 3600, twa = st.p.twa ?? l.twa;
+  $('#rhInfo').innerHTML = `<b>${hhmm(clock)}</b> · course ${summarizeTime(st.t)} / ${summarizeTime(st.T)}<br>Bord ${st.p.leg + 1}/${analysis.legs.length} → ${l.order ? `<b>marque ${l.order}</b> (n°${esc(l.to.name)})` : esc(l.to.name)}${l.side ? ' · ' + sideName(l.side) : ''}<br>${(st.p.bsp ?? 0).toFixed(1)} nd · cap ${fmtBrg(st.hd)} · TWA ${Math.abs(twa).toFixed(0)}° ${twa >= 0 ? 'bâbord' : 'tribord'} amures · ${st.p.spi ? 'spi' : 'foc'}`;
+  $('#rhPlay').textContent = st.playing ? '⏸' : '▶';
+  if (document.activeElement !== $('#rhSeek')) $('#rhSeek').value = Math.round((st.t / st.T) * 1000);
+}
+
+
 function dayRows() { return series.map((r, i) => ({ ...r, i })).filter((r) => r.time.startsWith(S.day)); }
 
 function renderBrief() {
@@ -395,7 +453,7 @@ function renderBrief() {
   if (live.length) html += `<div class="card"><h3>Balises en direct <small>OpenWindMap</small></h3>${live.map((s) => `<div class="small">📡 <b>${esc(s.name)}</b> : ${s.dir != null ? fmtBrg(s.dir) + ' ' : ''}${s.spd.toFixed(0)} nd (max ${s.gust.toFixed(0)}) <span class="muted">il y a ${Math.round(s.ageMin)} min</span></div>`).join('')}<div class="small muted" style="margin-top:4px">Autres sources : <a href="https://www.windguru.cz/48529" target="_blank" rel="noopener">Windguru Toulon</a> · <a href="https://meteofrance.com/previsions-meteo-marine/bulletin/cotier" target="_blank" rel="noopener">Bulletin côtier Météo-France</a> · <a href="https://www.windy.com/43.08/5.96?43.03,5.96,11" target="_blank" rel="noopener">Windy</a></div></div>`;
   el.innerHTML = html;
   $('#goObs2')?.addEventListener('click', () => openTab('course'));
-  $$('[data-pick]', el).forEach((b) => b.addEventListener('click', () => { S.courseId = +b.dataset.pick; persist(); scheduleAnalysis(); openTab('course'); }));
+  $$('[data-pick]', el).forEach((b) => b.addEventListener('click', () => { S.courseId = +b.dataset.pick; autoReplay = true; persist(); scheduleAnalysis(); openTab('course'); }));
 }
 
 function chartSVG(rows, isRace) {
@@ -436,7 +494,7 @@ function renderCourse() {
   else {
     const A = analysis, man = A.legs.reduce((s, l) => s + (l.route?.maneuvers || 0), 0);
     html += `<div class="card"><div class="kpis"><div class="kpi"><b>${(A.dist / NM).toFixed(1)}</b><span>Nq route directe${c.nm ? ` (cahier : ${c.nm[A.cls]})` : c.lapNm ? ` (${c.lapNm} Nq/tour)` : ''}</span></div><div class="kpi"><b>${summarizeTime(A.total * 3600)}</b><span>temps J80 estimé</span></div><div class="kpi"><b>${man}</b><span>virements / empannages</span></div></div>
-      <div class="small muted" style="margin-top:6px">Arrivée estimée ≈ ${hhmm(S.startTime + A.total)}. Chaque bord est calculé avec le vent prévu à l’heure où vous le courez.</div></div>`;
+      <div class="small muted" style="margin-top:6px">Arrivée estimée ≈ ${hhmm(S.startTime + A.total)}. Chaque bord est calculé avec le vent prévu à l’heure où vous le courez, depuis le meilleur point de la ligne de départ.</div><button class="btn acc" id="playCourse" style="width:100%;margin-top:8px">▶ Animer le parcours</button></div>`;
     html += `<div class="legs">` + A.legs.map((l, i) => {
       const chip = l.type.id === 'pres' ? 'pres' : l.type.sail.startsWith('Spi') ? 'spi' : 'reach';
       const ma = markAdvice(l, A.legs[i + 1]);
@@ -453,8 +511,9 @@ function renderCourse() {
   el.innerHTML = html;
   renderObsAll();
   $('.obsbox', el).addEventListener('toggle', (e) => { S.obsOpen = e.target.open; persist(); });
-  $('#cSel').onchange = (e) => { S.courseId = +e.target.value; selLeg = null; S.lineOverride = null; persist(); scheduleAnalysis(); renderCourse(); };
-  $('#cCls').onchange = (e) => { S.cls = e.target.value; persist(); scheduleAnalysis(); };
+  $('#cSel').onchange = (e) => { S.courseId = +e.target.value; selLeg = null; S.lineOverride = null; autoReplay = true; persist(); scheduleAnalysis(); renderCourse(); };
+  $('#cCls').onchange = (e) => { S.cls = e.target.value; autoReplay = true; persist(); scheduleAnalysis(); };
+  $('#playCourse')?.addEventListener('click', () => startReplay());
   if ($('#cLaps')) $('#cLaps').onchange = (e) => { S.laps = Math.max(1, Math.min(5, +e.target.value || 1)); persist(); scheduleAnalysis(); };
   if ($('#cWl')) $('#cWl').onchange = (e) => { S.wlNm = +e.target.value || 0.8; persist(); scheduleAnalysis(); };
   $('#cStart').onchange = (e) => { const m = /^(\d{1,2})[:h ]?(\d{2})?$/.exec(e.target.value.trim()); if (m) { S.startTime = +m[1] + (+m[2] || 0) / 60; S.hour = Math.floor(S.startTime * 4) / 4; persist(); updateAll(); } };
@@ -462,6 +521,7 @@ function renderCourse() {
     const i = +d.dataset.i; selLeg = selLeg === i ? null : i;
     scene.setCourse(analysis, selLeg);
     $$('.leg', el).forEach((x) => x.classList.toggle('sel', +x.dataset.i === selLeg));
+    if (selLeg != null && scene.replay) scene.replayControl('seek', replayLegStarts[i] ?? 0);
     if (selLeg != null) { const l = analysis.legs[i]; scene.focus([l.from, l.to], 1.6); S.hour = Math.min(21, Math.floor(l.eta0 * 4) / 4); $('#hour').value = S.hour; $('#hourLbl').textContent = hhmm(S.hour); updateDisplayField(); }
   }));
 }

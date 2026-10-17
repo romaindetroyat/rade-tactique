@@ -51,6 +51,16 @@
     </div>
     <div id="legend"></div>
     <div id="pickPop" hidden></div>
+    <div id="replayHud" hidden>
+      <div class="rh-info" id="rhInfo"></div>
+      <div class="rh-ctl">
+        <button id="rhPlay" aria-label="Lecture / pause">⏸</button>
+        <input id="rhSeek" type="range" min="0" max="1000" value="0" aria-label="Position dans le parcours">
+        <select id="rhSpeed" aria-label="Vitesse"><option value="0.5">×½</option><option value="1" selected>×1</option><option value="2">×2</option><option value="4">×4</option></select>
+        <button id="rhFollow" aria-label="Suivre le bateau">◎</button>
+        <button id="rhClose" aria-label="Fermer l'animation">✕</button>
+      </div>
+    </div>
   </main>
 
   <aside id="panel">
