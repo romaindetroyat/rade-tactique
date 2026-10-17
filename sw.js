@@ -1,6 +1,6 @@
 // Service worker : l’application et le modèle 3D sont disponibles hors réseau.
 // Les prévisions (Open-Meteo, balises) passent toujours par le réseau ; l’app garde sa propre copie.
-const VERSION = 'rade-v7';
+const VERSION = 'rade-v8';
 const SHELL = [
   './', 'index.html', 'styles.css', 'manifest.webmanifest',
   'js/app.js', 'js/geo.js', 'js/wind.js', 'js/scene3d.js', 'js/courses.js', 'js/weather.js', 'js/tactics.js', 'js/polar.js', 'js/router.js', 'js/j80.js', 'js/tuning.js', 'js/polar-orc.js', 'js/obs.js', 'js/help.js', 'js/track.js', 'js/events.js', 'js/voice.js',

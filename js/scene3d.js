@@ -66,6 +66,7 @@ export class Scene3D {
     this.buildPlaceLabels();
     this.resize();
     window.addEventListener('resize', () => this.resize());
+    const pn = document.getElementById('panel'); if (pn && 'ResizeObserver' in window) new ResizeObserver(() => this.updateInsets()).observe(pn);
     if (this.camera.aspect < 1) this.home({ x: 900, y: -5200 }, 30000, 0.5); else this.home();
     this.clock = new THREE.Clock();
     this.controls.addEventListener('change', () => { this.needRibbons = true; this.onCamera?.(); });
@@ -76,8 +77,7 @@ export class Scene3D {
   resize() {
     const w = this.el.clientWidth || 1, h = this.el.clientHeight || 1;
     this.renderer.setSize(w, h, false);
-    this.camera.aspect = w / h; this.camera.updateProjectionMatrix();
-    this.needRibbons = true;
+    this.camera.aspect = w / h; this.updateInsets();
   }
 
   home(target = { x: 300, y: 600 }, dist = 13500, tilt = 0.85, az = 0) {
@@ -89,15 +89,41 @@ export class Scene3D {
   }
   topView() { const t = this.controls.target; const d = this.camera.position.distanceTo(t); this.camera.position.set(t.x, d, t.z + 1); this.controls.update(); }
   tiltView() { const t = this.controls.target; const d = this.camera.position.distanceTo(t); this.camera.position.set(t.x, d * 0.62, t.z + d * 0.78); this.controls.update(); }
+  // zone de la carte réellement visible : sur téléphone, le panneau du bas et le badge du vent en haut
+  // recouvrent une partie de la scène, et la colonne de boutons le bord droit
+  visibleRect() {
+    const Wd = this.el.clientWidth || 1, H = this.el.clientHeight || 1, sr = this.el.getBoundingClientRect();
+    const box = (id) => { const e = document.getElementById(id); if (!e || e.hidden || !e.getClientRects().length) return null; return e.getBoundingClientRect(); };
+    const r = { l: 0, r: Wd, t: 0, b: H, W: Wd, H };
+    const pr = box('panel');
+    if (!(pr && pr.left <= sr.left + 10 && pr.right >= sr.right - 10 && pr.top < sr.bottom)) return r; // ordinateur : panneau à côté
+    r.b = Math.min(H, pr.top - sr.top);
+    const hud = box('hud'); if (hud) r.t = Math.max(0, hud.bottom - sr.top + 4);
+    const mb = box('mapBtns'); if (mb && mb.left - sr.left > Wd / 2) r.r = Math.min(r.r, mb.left - sr.left - 4);
+    if (r.b - r.t < 140) r.t = Math.max(0, r.b - 140);
+    return r;
+  }
+  // place le centre optique de la caméra au milieu de la zone visible (cible des rotations et des cadrages)
+  updateInsets() {
+    const v = this.visibleRect(), dx = (v.l + v.r) / 2 - v.W / 2, dy = (v.t + v.b) / 2 - v.H / 2;
+    if (Math.abs(dx) < 1 && Math.abs(dy) < 1) this.camera.clearViewOffset();
+    else this.camera.setViewOffset(v.W, v.H, -dx, -dy, v.W, v.H);
+    this.camera.updateProjectionMatrix();
+    this.vis = v; this.needRibbons = true;
+  }
   focus(pts, pad = 1.35) {
     if (!pts.length) return;
     let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9;
     pts.forEach((p) => { x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x); y0 = Math.min(y0, p.y); y1 = Math.max(y1, p.y); });
-    const span = Math.max(x1 - x0, (y1 - y0) * this.camera.aspect, 800) * pad;
-    const dist = span / (2 * Math.tan((this.camera.fov * Math.PI) / 360)) / Math.max(1, this.camera.aspect) * 1.1;
+    this.updateInsets();
+    const v = this.vis, tanH = Math.tan((this.camera.fov * Math.PI) / 360);
     const t = this.controls.target, off = this.camera.position.clone().sub(t).normalize();
+    const cosTilt = Math.max(0.35, off.y);
+    // distance pour faire tenir la boîte dans la zone visible (vue de dessus approchée)
+    const bw = Math.max(x1 - x0, 400) * pad, bh = Math.max(y1 - y0, 400) * pad;
+    const dist = Math.max(900, (bw / 2 / (tanH * this.camera.aspect)) * (v.W / (v.r - v.l)), ((bh * cosTilt) / 2 / tanH) * (v.H / (v.b - v.t)));
     t.copy(W((x0 + x1) / 2, (y0 + y1) / 2, 0));
-    this.camera.position.copy(t.clone().add(off.multiplyScalar(Math.max(900, dist))));
+    this.camera.position.copy(t.clone().add(off.multiplyScalar(dist)));
     this.controls.update();
   }
   azimuth() { const v = this.camera.position.clone().sub(this.controls.target); return (Math.atan2(v.x, v.z) * 180) / Math.PI; }
@@ -382,20 +408,43 @@ export class Scene3D {
     analysis.legs.forEach((leg, i) => {
       const sel = selectedLeg === i;
       const col = leg.type.id === 'pres' ? '#ffffff' : leg.type.sail.startsWith('Spi') ? '#ffd166' : '#ffe9b0';
-      gc.add(this.#ribbon([leg.from, leg.to], sel ? '#ff9f1c' : col, sel ? 5 : 3, { opacity: sel ? 1 : 0.85, y: 12 }));
+      const dim = selectedLeg != null && !sel;
+      gc.add(this.#ribbon([leg.from, leg.to], sel ? '#ff9f1c' : col, sel ? 4 : 3, { opacity: sel ? 0.9 : dim ? 0.3 : 0.85, y: 12 }));
       // flèche au milieu du bord
       const m = { x: (leg.from.x + leg.to.x) / 2, y: (leg.from.y + leg.to.y) / 2 };
       const s = makeLabel('➤', { bg: 'rgba(0,0,0,0)', fg: sel ? '#ff9f1c' : '#fff', size: 30 }, 16);
       s.material.rotation = -((leg.brg - 90) * Math.PI) / 180 + (this.azimuthRad ?? 0);
       s.userData.brg = leg.brg; s.userData.arrow = true;
       s.position.copy(W(m.x, m.y, 30)); gc.add(s);
-      if (leg.route && (selectedLeg == null || sel)) {
-        const pts = leg.route.path.map((p) => ({ x: p.x, y: p.y }));
-        gr.add(this.#ribbon(pts, sel ? '#00e5ff' : '#7ae7ff', sel ? 3.5 : 2, { dash: 9, y: 14, opacity: 0.95 }));
-      }
+      if (leg.route && selectedLeg == null) {
+        gr.add(this.#ribbon(leg.route.path.map((p) => ({ x: p.x, y: p.y })), '#7ae7ff', 2, { dash: 9, y: 14, opacity: 0.95 }));
+      } else if (leg.route && sel) this.#selectedRoute(leg, gr);
       if (sel && leg.type.id === 'pres') this.#laylines(leg, gr);
     });
     this.needRibbons = true;
+  }
+  // route conseillée du bord sélectionné : trait plein cerné de sombre, virements/empannages et cap de chaque bordée
+  #selectedRoute(leg, g) {
+    const path = leg.route.path, pts = path.map((p) => ({ x: p.x, y: p.y }));
+    g.add(this.#ribbon(pts, '#03263b', 10, { y: 14, opacity: 0.55, order: 7 }));
+    g.add(this.#ribbon(pts, '#00e5ff', 5, { y: 15, opacity: 1, order: 8 }));
+    const man = leg.type.id === 'pres' ? 'virement' : 'empannage';
+    // bordées : suites de segments sur la même amure (path[i].tack vaut pour le segment i−1 → i)
+    const runs = [];
+    for (let i = 1; i < path.length; i++) {
+      const r = runs[runs.length - 1];
+      if (r && r.tack === path[i].tack) r.e = i; else runs.push({ s: i, e: i, tack: path[i].tack, hd: path[i].hd });
+    }
+    runs.forEach((r, k) => {
+      const a = path[r.s - 1], b = path[r.e];
+      if (k > 0) { const m = makeLabel(`↻ ${man} ${k}`, { bg: 'rgba(3,38,59,.9)' }, 12); m.position.copy(W(a.x, a.y, 45)); g.add(m); }
+      if (r.hd != null && Math.hypot(b.x - a.x, b.y - a.y) > 150) {
+        const hd = String(Math.round(((r.hd % 360) + 360) % 360)).padStart(3, '0');
+        const lb = makeLabel(`${hd}° ${r.tack > 0 ? 'bâbord' : 'tribord'}`, { bg: r.tack > 0 ? 'rgba(200,40,40,.9)' : 'rgba(20,140,70,.9)' }, 13);
+        lb.position.copy(W((a.x + b.x) / 2, (a.y + b.y) / 2, 60)); g.add(lb);
+      }
+    });
+    this.#sizeSprites();
   }
   #laylines(leg, g) {
     const F = this.field; if (!F) return;

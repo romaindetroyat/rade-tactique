@@ -16,7 +16,7 @@ import { parseWind, listen, say } from './voice.js';
 import { Recorder, listTracks, getTrack, deleteTrack, saveTrack, analyzeTrack, exportGPX, fromGPX } from './track.js';
 import { shroudsFor } from './tuning.js';
 
-export const APP_VERSION = 'v7 · langage naturel';
+export const APP_VERSION = 'v8 · route du bord';
 const $ = (s, r = document) => r.querySelector(s);
 function toast(msg) {
   let t = document.getElementById('toast');
@@ -614,7 +614,7 @@ function renderCourse() {
     scene.setCourse(analysis, selLeg);
     $$('.leg', el).forEach((x) => x.classList.toggle('sel', +x.dataset.i === selLeg));
     if (selLeg != null && scene.replay) scene.replayControl('seek', replayLegStarts[i] ?? 0);
-    if (selLeg != null) { const l = analysis.legs[i]; scene.focus([l.from, l.to], 1.6); S.hour = Math.min(21, Math.floor(l.eta0 * 4) / 4); $('#hour').value = S.hour; $('#hourLbl').textContent = hhmm(S.hour); updateDisplayField(); }
+    if (selLeg != null) { const l = analysis.legs[i]; scene.focus([l.from, l.to, ...(l.route?.path ?? [])], 1.35); S.hour = Math.min(21, Math.floor(l.eta0 * 4) / 4); $('#hour').value = S.hour; $('#hourLbl').textContent = hhmm(S.hour); updateDisplayField(); }
   }));
 }
 
