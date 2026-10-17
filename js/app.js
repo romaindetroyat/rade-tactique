@@ -11,6 +11,7 @@ import { renderJ80 } from './j80.js';
 import { modelPoints, modelAt, idwAt, scoreModels, renderObsCard } from './obs.js';
 import { shroudsFor } from './tuning.js';
 
+export const APP_VERSION = 'v3 · côtes HD';
 const $ = (s, r = document) => r.querySelector(s);
 function toast(msg) {
   let t = document.getElementById('toast');
@@ -61,7 +62,16 @@ async function init() {
   refreshWeather();
   refreshLive();
   setInterval(refreshLive, 5 * 60000);
-  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+  if ('serviceWorker' in navigator) {
+    // mise à jour sans intervention : nouvelle version détectée → rechargement unique
+    const had = !!navigator.serviceWorker.controller;
+    let reloaded = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => { if (had && !reloaded) { reloaded = true; location.reload(); } });
+    navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then((reg) => {
+      reg.update().catch(() => {});
+      document.addEventListener('visibilitychange', () => { if (!document.hidden) reg.update().catch(() => {}); });
+    }).catch(() => {});
+  }
 }
 
 async function refreshWeather() {
@@ -84,7 +94,7 @@ function status(msg) {
   if (!data) { el.textContent = 'Pas de prévision'; return; }
   const ago = Math.round((Date.now() - data.fetched) / 60000);
   const when = ago < 1 ? 'à l’instant' : ago < 120 ? `il y a ${ago} min` : `le ${new Date(data.fetched).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })}`;
-  el.textContent = `${S.src === 'manual' ? 'Vent manuel' : 'AROME HD + 5 modèles'} · ${data.snapshot ? 'instantané ' : 'màj '}${when}`;
+  el.textContent = `${APP_VERSION} · ${S.src === 'manual' ? 'vent manuel' : `prévisions ${data.snapshot ? 'embarquées' : 'màj'} ${when}`}`;
 }
 
 // ───────────────────────── vent de base
