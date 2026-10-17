@@ -1,11 +1,11 @@
 // Compréhension d'un relevé de vent dicté en langage naturel (Vercel, fonction Node).
 // Le modèle OpenAI traduit la phrase en intention structurée ; l'app fait les calculs (amure, bascules) et l'enregistrement.
-// Variables d'environnement sur Vercel : OPENAI_API_KEY (obligatoire), OPENAI_MODEL (facultatif, défaut gpt-5.5).
+// Variables d'environnement sur Vercel : OPENAI_API_KEY (obligatoire), OPENAI_MODEL (facultatif, défaut gpt-5.4-mini).
 
 import OpenAI from 'openai';
 
 let client = null; // créé à la première requête : sans clé, le constructeur lèverait une erreur au chargement
-const MODEL = process.env.OPENAI_MODEL || 'gpt-5.5';
+const MODEL = process.env.OPENAI_MODEL || 'gpt-5.4-mini';
 
 const SYSTEM = `Tu interprètes ce qu'un régatier dit à voix haute sur un J80 dans la rade de Toulon pour mettre à jour le vent réel observé.
 La phrase vient d'une reconnaissance vocale : elle peut contenir des fautes, des mots mal reconnus, des nombres écrits en lettres ou mal découpés.
