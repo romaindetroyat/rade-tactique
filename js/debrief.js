@@ -278,7 +278,7 @@ export async function narrative(an, ans) {
     epreuve: ans.event, classement: ans.place ? `${ans.place}${ans.fleet ? ' / ' + ans.fleet : ''}` : null, parcours: ans.course.title, reduit: ans.reduced,
     depart: { heure: hms(an.tStart), faux_departs: ans.falseStarts, note: ans.startNote },
     observations: ans.notes,
-    bords: an.legs.map((L) => ({ nom: L.name, debut: hm(L.ta), fin: hm(L.tb), vent: `${fmtBrg(L.wind.dir)} ${L.wind.spd} nd (${L.wind.src})`, type: L.plan.type.label,
+    bords: an.legs.map((L) => ({ nom: L.name, debut: hm(L.ta), fin: hm(L.tb), vent: `${fmtBrg(L.wind.dir)} ${String(L.wind.spd).replace(".", ",")} nd (${L.wind.src})`, type: L.plan.type.label,
       reel: { duree_min: +(L.st.dur / 60).toFixed(1), distance_nq: +(L.st.dist / 1852).toFixed(2), directe_nq: +(L.st.direct / 1852).toFixed(2), manoeuvres: L.st.man, part_droite: Math.round(L.st.right * 100), ecart_max_m: Math.round(L.st.maxOff), part_sous_2nd: Math.round(L.st.slow * 100) },
       conseil: { duree_min: L.planTime ? +(L.planTime / 60).toFixed(1) : null, manoeuvres: L.plan.route?.maneuvers, part_droite: L.plan.route ? Math.round(L.plan.route.rightShare * 100) : null, ecart_max_m: L.plan.route ? Math.round(L.plan.route.maxOff) : null, conseils: L.plan.advice, effets_de_site: (L.plan.site || []).map((s) => s.text) },
       verdict_auto: L.verdict[1], remarques_auto: L.notes })),
