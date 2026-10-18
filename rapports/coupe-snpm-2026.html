@@ -144,12 +144,28 @@ ul.list { margin: 0; padding-left: 20px; display: grid; gap: 8px; max-width: 74c
   </section>
 
   <section>
-    <h2>5 · Les écarts <small>stratégie de l’app face à la course réelle</small></h2>
+    <h2>5 · Vitesse face à la polaire J80 <small>vitesse fond GPS, médiane de chaque bord</small></h2>
+    <div class="tbl"><table class="wide">
+      <tr><th>Bord</th><th>Allure</th><th>Vent (AROME)</th><th>Vous</th><th>Polaire</th><th>% de la polaire (vent −1 nd / +1 nd)</th></tr>
+      <tr><td>Départ → 7</td><td>Près, TWA 45°</td><td class="n">7,6 nd</td><td class="n">5,2 nd</td><td class="n">5,3 nd</td><td class="n"><b>97 %</b> (106 / 92)</td></tr>
+      <tr><td>7 → Houlographe</td><td>Portant, TWA 146°</td><td class="n">7,1 nd</td><td class="n">5,0 nd</td><td class="n">5,0 nd</td><td class="n"><b>104 %</b> (118 / 94)</td></tr>
+      <tr><td>Houlographe → arrivée</td><td>Près, TWA 47°</td><td class="n">5,9 nd</td><td class="n">3,3 nd</td><td class="n">4,5 nd</td><td class="n"><b>74 %</b> (91 / 67)</td></tr>
+    </table></div>
+    <ul class="list">
+      <li><b>Les deux premiers bords sont à la polaire</b>, au près comme au portant : un très bon niveau de vitesse en J80.</li>
+      <li><b>Les angles sont justes.</b> Au près, 45° du vent pour un optimum de 44° ; angle de virement de 92° sur la trace pour 88° à la polaire, l’écart correspond à la dérive. Au portant, 146° pour un optimum de 148–150° ; empannages un peu serrés (73° contre 60–65°), normal par petit temps.</li>
+      <li><b>Le dernier bord est incertain.</b> AROME surestimait sans doute le vent dans la pétole : avec 1 nd de moins, vous êtes à 91 %. La perte vient surtout des phases presque arrêtées (14 % du bord sous 2 nd) et des 11 virements, pas de la vitesse pure.</li>
+    </ul>
+    <p class="note">La force du vent vient de la prévision AROME heure par heure (point 43,09 N 5,96 E), la direction de vos changements d’amure. Un relevé de force pendant la course rendra cette mesure plus sûre.</p>
+  </section>
+
+  <section>
+    <h2>6 · Les écarts <small>stratégie de l’app face à la course réelle</small></h2>
     <div class="tbl"><table class="wide" id="gapTbl"></table></div>
   </section>
 
   <section>
-    <h2>6 · À retenir</h2>
+    <h2>7 · À retenir</h2>
     <ul class="list">
       <li><b>Le départ a fait la différence.</b> Lire la bascule gauche dans la dernière minute et partir bâbord à la bouée : c’est le schéma à reproduire. Dans l’app, un relevé de vent à H−1 recalcule le biais de la ligne.</li>
       <li><b>Sortir du vent dérangé.</b> Gênés par des bateaux au vent, abattre de quelques degrés pour descendre vers un couloir d’air propre à droite, ou virer pour se dégager, plutôt que de rester dans leur dévent tout un bord. Sur le bord vers la 7, c’était aussi le côté de la pression.</li>
@@ -162,7 +178,7 @@ ul.list { margin: 0; padding-left: 20px; display: grid; gap: 8px; max-width: 74c
   </section>
 
   <section>
-    <h2>7 · Ce qui a changé dans l’app</h2>
+    <h2>8 · Ce qui a changé dans l’app</h2>
     <ul class="list">
       <li><b>Positions des marques.</b> La 7 et la Houlographe sont recalées sur votre trace (à 50 m près).</li>
       <li><b>Vent freiné près des côtes.</b> Le modèle réduit désormais le vent sur 1 à 2 km des côtes, davantage par petit temps, et ralentit le vent qui bute sur une côte haute. Sur votre bord 7 → Houlographe, il donne maintenant 21 % de vent en moins près de GR2 qu’au large.</li>
