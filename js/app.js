@@ -16,7 +16,7 @@ import { parseWind, listen, say } from './voice.js';
 import { Recorder, listTracks, getTrack, deleteTrack, saveTrack, analyzeTrack, exportGPX, fromGPX } from './track.js';
 import { shroudsFor } from './tuning.js';
 
-export const APP_VERSION = 'v12 · marques 3 et 7';
+export const APP_VERSION = 'v13 · marques 6 et 7';
 const $ = (s, r = document) => r.querySelector(s);
 function toast(msg) {
   let t = document.getElementById('toast');
