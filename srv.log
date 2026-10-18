@@ -151,3 +151,6 @@ Serving HTTP on 0.0.0.0 port 8766 (http://0.0.0.0:8766/) ...
 127.0.0.1 - - [18/Oct/2026 18:09:04] code 501, message Unsupported method ('POST')
 127.0.0.1 - - [18/Oct/2026 18:09:04] "POST /api/debrief HTTP/1.1" 501 -
 127.0.0.1 - - [18/Oct/2026 18:09:04] "GET /data/basemap.jpg HTTP/1.1" 304 -
+127.0.0.1 - - [18/Oct/2026 18:12:10] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [18/Oct/2026 18:12:11] "GET /guide.html HTTP/1.1" 200 -
+127.0.0.1 - - [18/Oct/2026 18:12:11] "GET /icons/logo.png HTTP/1.1" 200 -

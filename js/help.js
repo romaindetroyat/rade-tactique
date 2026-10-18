@@ -89,6 +89,7 @@ export const GUIDE = `
   <li><b>En course</b> : activez le GPS et l’enregistrement de la trace. Relèvement et distance de la prochaine marque, et « Recalculer la suite » depuis votre position avec le dernier vent relevé.</li>
   <li><b>Traces</b> : après la course, revoyez votre trace, comparez-la à la route optimale et exportez-la (GPX).</li>
 </ol>
+<p class="small"><a href="guide.html" target="_blank" rel="noopener"><b>📖 Guide complet de l’équipage</b></a> : toutes les fonctions, du départ au débrief.</p>
 <p class="small"><b>Installer l’app</b> : sur iPhone, ouvrez le lien dans Safari puis Partager → « Sur l’écran d’accueil ». Sur Android, menu ⋮ → « Installer l’application ».</p>
 <p class="small muted">Le vent local est un modèle simplifié pour la tactique : il donne les tendances (pression, bascules, dévents). Il ne remplace pas l’observation du plan d’eau. Les positions marquées « approx » sont à vérifier sur zone ; le Comité fait foi.</p>`;
 

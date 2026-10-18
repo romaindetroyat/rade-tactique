@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Guide Rade Tactique</title>
+<meta name="description" content="Mode d’emploi de Rade Tactique pour l’équipage : préparer la régate, le départ, la course et le débrief.">
+<link rel="icon" href="icons/favicon-32.png" sizes="32x32">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<style>
+/* Mise en page : mode d'emploi en quatre temps (avant, départ, course, après), sommaire collant, fiches par fonction */
+:root {
+  --bg: #f4f7f9; --surface: #ffffff; --ink: #0f2230; --muted: #566a78; --line: #d5dfe6;
+  --sea: #0b6e8c; --accent: #e8590c; --good: #23864a; --chip: #e6eef3; --tip: #fff6e6; --tipline: #f0c78a;
+}
+@media (prefers-color-scheme: dark) { :root {
+  --bg: #0a1820; --surface: #10222d; --ink: #e6eff4; --muted: #95aab7; --line: #24404f;
+  --sea: #4cc3e0; --accent: #ff8a3d; --good: #51cf66; --chip: #19323f; --tip: #2a2412; --tipline: #6b5420; color-scheme: dark } }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 17px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif; }
+header.hero { background: #0b2231; color: #fff; padding: calc(env(safe-area-inset-top, 0px) + 28px) max(18px, env(safe-area-inset-right, 0px)) 28px max(18px, env(safe-area-inset-left, 0px)); }
+.hero .in { max-width: 920px; margin: 0 auto; display: grid; grid-template-columns: auto 1fr; gap: 18px; align-items: center; }
+.hero img { width: 76px; height: 76px; border-radius: 18px; box-shadow: 0 4px 16px rgba(0,0,0,.4); }
+.hero h1 { margin: 0; font-size: clamp(28px, 6vw, 42px); line-height: 1.05; }
+.hero p { margin: 6px 0 0; color: #b9cfdc; }
+.hero a.open { display: inline-block; margin-top: 12px; background: #ff8a1c; color: #000; font-weight: 800; text-decoration: none; padding: 12px 18px; border-radius: 12px; }
+nav.toc { position: sticky; top: 0; z-index: 5; background: var(--surface); border-bottom: 1px solid var(--line); overflow-x: auto; white-space: nowrap; padding: 0 max(12px, env(safe-area-inset-right, 0px)) 0 max(12px, env(safe-area-inset-left, 0px)); }
+nav.toc a { display: inline-block; padding: 13px 12px; color: var(--muted); text-decoration: none; font-weight: 700; font-size: 15px; border-bottom: 3px solid transparent; }
+nav.toc a:hover, nav.toc a:focus { color: var(--ink); border-color: var(--accent); }
+main { max-width: 920px; margin: 0 auto; padding: 8px max(18px, env(safe-area-inset-right, 0px)) 60px max(18px, env(safe-area-inset-left, 0px)); }
+section { padding-top: 26px; scroll-margin-top: 54px; }
+h2 { font-size: 27px; margin: 0 0 4px; display: flex; gap: 12px; align-items: baseline; }
+h2 .n { font-size: 15px; color: #fff; background: var(--sea); border-radius: 999px; padding: 2px 10px; }
+h2 + .lead { color: var(--muted); margin: 0 0 14px; }
+h3 { font-size: 19px; margin: 0 0 6px; }
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); gap: 12px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; min-width: 0; }
+.card ol, .card ul { margin: 6px 0 0; padding-left: 20px; display: grid; gap: 5px; }
+.card p { margin: 6px 0 0; }
+.where { display: inline-block; font-size: 13px; font-weight: 700; color: var(--sea); background: var(--chip); border-radius: 999px; padding: 1px 10px; margin-bottom: 6px; }
+.k { display: inline-block; font: 700 14px ui-monospace, Menlo, monospace; background: var(--chip); border: 1px solid var(--line); border-radius: 6px; padding: 0 6px; white-space: nowrap; }
+.tip { background: var(--tip); border: 1px solid var(--tipline); border-radius: 12px; padding: 12px 16px; margin-top: 12px; }
+.tip b:first-child { color: var(--accent); }
+.wide { grid-column: 1 / -1; }
+table { border-collapse: collapse; width: 100%; font-size: 15.5px; }
+.tbl { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; }
+th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { background: var(--chip); font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+tr:last-child td { border-bottom: 0; }
+.screen { background: #050f15; color: #fff; border-radius: 16px; padding: 14px; display: grid; gap: 8px; max-width: 360px; margin: 10px auto 0; font-variant-numeric: tabular-nums; }
+.screen .c { text-align: center; font-size: 54px; font-weight: 900; color: #ff8a1c; line-height: 1; }
+.screen .f { background: #12402a; color: #3ddc84; text-align: center; border-radius: 10px; padding: 6px; font-weight: 800; }
+.screen .t { background: #0f212c; border-radius: 10px; padding: 6px 10px; display: flex; justify-content: space-between; align-items: baseline; }
+.screen .t b { font-size: 30px; } .screen .t span { font-size: 11px; color: #a9bdca; text-transform: uppercase; letter-spacing: .1em; }
+.screen .b { display: grid; grid-template-columns: 1fr 1.15fr 1fr; gap: 6px; }
+.screen .b div { border: 2px solid #ff8a1c; border-radius: 10px; text-align: center; padding: 10px 2px; font-weight: 800; font-size: 14px; }
+.screen .b div:nth-child(2) { background: #ff8a1c; color: #000; }
+.caption { text-align: center; font-size: 14px; color: var(--muted); margin-top: 6px; }
+footer { color: var(--muted); font-size: 14px; text-align: center; padding: 20px; }
+a { color: var(--sea); }
+</style>
+</head>
+<body>
+<header class="hero"><div class="in">
+  <img src="icons/logo.png" alt="">
+  <div><h1>Rade Tactique</h1><p>Le mode d’emploi de l’équipage : préparer la régate, réussir le départ, courir et débriefer, dans la rade de Toulon en J80.</p>
+  <a class="open" href="./">Ouvrir l’app</a></div>
+</div></header>
+
+<nav class="toc" aria-label="Sommaire">
+  <a href="#installer">Installer</a><a href="#avant">Avant la régate</a><a href="#depart">Le départ</a><a href="#course">En course</a><a href="#apres">Après la course</a><a href="#onglets">Les onglets</a><a href="#reglages">Réglages iPhone</a><a href="#questions">Questions</a>
+</nav>
+
+<main>
+<section id="installer">
+  <h2><span class="n">0</span> Installer l’app</h2>
+  <p class="lead">Une seule fois, cinq secondes. L’app s’ouvre ensuite en plein écran, comme une vraie app, et se met à jour toute seule.</p>
+  <div class="cards">
+    <div class="card"><h3>Sur iPhone</h3><ol><li>Ouvrez <b>rade-tactique.vercel.app</b> dans <b>Safari</b>.</li><li>Bouton <b>Partager</b> (carré avec une flèche) → <b>Sur l’écran d’accueil</b>.</li><li>Lancez l’app depuis l’icône.</li></ol></div>
+    <div class="card"><h3>Sur Android</h3><ol><li>Ouvrez le lien dans <b>Chrome</b>.</li><li>Menu <b>⋮</b> → <b>Installer l’application</b>.</li></ol><p>Sur ordinateur, le lien s’ouvre dans n’importe quel navigateur.</p></div>
+    <div class="card"><h3>Vérifier la version</h3><p>Le numéro de version s’affiche sous le titre de l’app. Après une mise à jour, l’app se recharge seule au lancement suivant.</p></div>
+  </div>
+  <div class="tip"><b>Astuce.</b> Les petits <span class="k">ⓘ</span> partout dans l’app expliquent chaque chiffre : touchez-les. Le bouton <span class="k">?</span> en haut rouvre le guide de démarrage.</div>
+</section>
+
+<section id="avant">
+  <h2><span class="n">1</span> Avant la régate</h2>
+  <p class="lead">La veille ou le matin, à terre : la météo, le parcours probable et la stratégie.</p>
+  <div class="cards">
+    <div class="card"><span class="where">En haut de l’écran</span><h3>Choisir le jour et l’heure</h3><ul><li><b>Auj. / Demain / jour suivant</b> : 🏁 marque le jour de régate.</li><li>Le <b>curseur d’heure</b> fait défiler la prévision dans la journée.</li><li><span class="k">⟳</span> télécharge les dernières prévisions : à faire avant de partir et en arrivant sur zone.</li><li><b>Prévision / Manuel</b> : « Manuel » permet d’imposer un vent pour étudier n’importe quelle situation.</li></ul></div>
+    <div class="card"><span class="where">Onglet Briefing</span><h3>Lire le briefing</h3><ul><li>Vent attendu, rafales, <b>indice de confiance</b> (accord entre 6 modèles météo).</li><li><b>Stratégie du jour</b> : rotation attendue, zones ventées, désaccord des modèles.</li><li><b>Effets de site du relief</b> : dévents, accélérations, vent freiné près des côtes.</li><li>Réglages J80 conseillés pour la force du vent.</li></ul></div>
+    <div class="card"><span class="where">La carte</span><h3>Explorer la rade en 3D</h3><ul><li>Un doigt : déplacer. Deux doigts : zoomer et tourner.</li><li>La <b>couleur de l’eau</b> = force du vent ; les filets blancs = direction.</li><li><b>Touchez l’eau</b> pour lire le vent en un point.</li><li>Boutons : <span class="k">2D</span> <span class="k">3D</span> <span class="k">⌖</span> cadrer le parcours, <span class="k">◎</span> suivre le bateau, <span class="k">☰</span> calques.</li></ul></div>
+    <div class="card"><span class="where">Onglet Parcours</span><h3>Préparer le parcours</h3><ol><li>Choisissez le <b>numéro de parcours</b> annoncé par le Comité, la classe et le nombre de tours.</li><li>Les bouées sont numérotées <b>dans l’ordre de passage</b>.</li><li>Chaque bord donne l’allure, l’amure, le <b>côté favorisé</b> et ses effets de site.</li><li><b>Touchez un bord</b> : sa route conseillée s’affiche en trait plein avec les caps et les virements.</li><li><span class="k">▶ Animer le parcours</span> : un J80 parcourt la route optimale.</li></ol></div>
+    <div class="card"><span class="where">Onglet IC</span><h3>Les instructions de course</h3><ul><li>Horaires, VHF, Comité, zone, règles clés.</li><li><b>＋ Importer des IC (PDF)</b> d’une nouvelle régate : l’app en extrait l’essentiel, à vérifier dans le formulaire.</li><li>Plusieurs épreuves peuvent être enregistrées.</li></ul></div>
+    <div class="card"><span class="where">Bouton ⤴</span><h3>Partager</h3><p>Lien de l’app ou du parcours du jour, QR code à scanner au ponton, envoi direct par WhatsApp ou Messages.</p></div>
+  </div>
+</section>
+
+<section id="depart">
+  <h2><span class="n">2</span> Le départ : le mode départ plein écran</h2>
+  <p class="lead">Onglet <b>Départ</b> → <b>⛵ Mode départ plein écran</b>. Tout tient sur un seul écran, en très gros, utilisable avec des doigts mouillés.</p>
+  <div class="cards">
+    <div class="card">
+      <div class="screen" aria-hidden="true">
+        <div class="c">0:46</div>
+        <div class="f">◀ BOUÉE +37 m · 14° · 24 s</div>
+        <div class="t"><span>Ligne</span><b>43 m</b></div>
+        <div class="t"><span>À brûler</span><b>27 s</b></div>
+        <div class="b"><div>BOUÉE</div><div>SYNCHRO</div><div>COMITÉ</div></div>
+      </div>
+      <p class="caption">L’écran du mode départ, dernière minute.</p>
+    </div>
+    <div class="card"><h3>1 · Définir la ligne</h3><ol><li>Passez au ras du <b>bateau Comité</b> et <b>maintenez</b> le bouton <span class="k">COMITÉ</span> 0,7 s, jusqu’à ce que la jauge se remplisse.</li><li>Même chose à la <b>bouée</b> avec <span class="k">BOUÉE</span>.</li><li>Un bandeau <b>Annuler</b> reste 8 s si vous vous êtes trompés.</li></ol><p>Un appui bref ne fait rien : impossible de pinguer par erreur.</p></div>
+    <div class="card"><h3>2 · Relever le vent sur la ligne</h3><p>Dans <span class="k">⚙</span> :</p><ul><li><b>Le plus fiable</b> : faites un bord de près de chaque côté et touchez <b>Près tribord</b> puis <b>Près bâbord</b> pendant que vous êtes en route.</li><li>Ou bateau bout au vent, téléphone pointé vers l’étrave : <b>Compas</b> (deux touches).</li><li>Ajustez avec <span class="k">−5°</span> <span class="k">+5°</span>.</li></ul></div>
+    <div class="card"><h3>3 · Le chrono</h3><ul><li>Au signal d’avertissement (5 min), touchez <span class="k">DÉPART 5’</span>.</li><li>À chaque signal suivant, touchez <span class="k">SYNCHRO</span> <b>ou n’importe où sur le chrono</b> : il s’arrondit à la minute.</li><li><span class="k">−1 min</span> <span class="k">+1 min</span> pour corriger.</li><li>Annonces vocales : 4 min, 1 min, 30 s, puis 10 à 1.</li></ul></div>
+    <div class="card"><h3>4 · Lire l’écran</h3><ul><li><b>Bandeau vert</b> : l’extrémité favorisée, avec l’avantage en mètres et en secondes.</li><li><b>Ligne</b> : distance de l’étrave à la ligne. En rouge « AU-DESSUS ! » si vous êtes au-dessus dans la dernière minute.</li><li><b>À brûler</b> : le temps à perdre avant de lancer, relance du J80 comprise. Vert « LANCEZ ! » au bon moment, rouge si vous serez en retard.</li><li>Dans les 20 dernières secondes à brûler, des <b>bips de plus en plus rapprochés</b>, puis « Lance ! » : gardez les yeux sur l’eau.</li></ul></div>
+    <div class="card"><h3>5 · Après le coup de canon</h3><p>15 s après le signal, l’écran passe en <b>mode course</b> : distance et cap de la première marque, et la case <b>Bascule</b> (« +8° ADONNE » en vert, « −6° REFUSE » en rouge) par rapport au vent relevé au départ.</p></div>
+    <div class="card"><h3>Embruns et doigts mouillés</h3><ul><li><span class="k">🔒</span> <b>verrouille</b> l’écran : les touches simples sont ignorées, seuls les appuis maintenus agissent (pings, synchro). Maintenez 🔒 pour déverrouiller.</li><li><span class="k">⚙</span> → <b>Plein soleil</b> : fond blanc, chiffres noirs.</li><li>Onglet <b>Ligne</b> : le schéma de la ligne, du bateau et du vent.</li><li>Réglez dans ⚙ la distance <b>GPS → étrave</b> selon l’endroit où est le téléphone.</li></ul></div>
+  </div>
+</section>
+
+<section id="course">
+  <h2><span class="n">3</span> En course</h2>
+  <p class="lead">Onglet <b>En course</b> : le GPS, la prochaine marque, le vent relevé et la suite recalculée.</p>
+  <div class="cards">
+    <div class="card"><span class="where">Onglet En course</span><h3>GPS et prochaine marque</h3><ul><li>Activez le <b>GPS</b> : relèvement, distance et temps estimé jusqu’à la prochaine marque.</li><li>L’app passe seule à la marque suivante quand vous la contournez.</li><li><b>Recalculer la suite depuis ma position</b> : la stratégie des bords restants depuis votre position, avec le dernier vent relevé.</li></ul></div>
+    <div class="card"><span class="where">Parcours ou En course</span><h3>Relever le vent… en parlant</h3><ol><li>Touchez <span class="k">🎤</span> et parlez normalement : « ça refuse d’une dizaine de degrés et ça mollit », « mistral 18 nœuds, rafales à 24 », « 290 12 ».</li><li>L’app répète ce qu’elle a compris et enregistre au bout de 3 s. Touchez <b>Annuler</b> si c’est faux.</li><li>On peut aussi taper la phrase, ou régler le compas et toucher <b>Enregistrer</b>.</li></ol><p>« Adonne / refuse » se calcule avec l’amure donnée par le GPS : activez-le.</p></div>
+    <div class="card"><h3>Pourquoi relever le vent ?</h3><p>Chaque relevé est comparé aux 6 modèles météo : l’app garde <b>celui qui colle le mieux</b> ce jour-là, recale la prévision sur vos observations et recalcule les bords suivants. Faites un relevé dès que vos caps de près ne correspondent plus au vent affiché (plus de 10° d’écart).</p></div>
+    <div class="card"><h3>Enregistrer la trace</h3><ul><li>Dans <b>En course</b> : <b>Enregistrer ma trace</b>. L’écran doit rester allumé (verrouillage automatique sur « Jamais »).</li><li>Si le téléphone doit rester verrouillé, enregistrez avec <b>Open GPX Tracker</b> et importez le GPX après la course.</li></ul></div>
+  </div>
+</section>
+
+<section id="apres">
+  <h2><span class="n">4</span> Après la course : traces et débrief</h2>
+  <p class="lead">Onglet <b>Traces</b> : revoir la course et obtenir un rapport complet à partager.</p>
+  <div class="cards">
+    <div class="card"><h3>Importer une trace GPX</h3><ol><li>Dans Open GPX Tracker : ouvrez la trace → <b>Partager</b> → <b>Enregistrer dans Fichiers</b>.</li><li>Dans Rade Tactique : <b>Traces</b> → <b>⤓ Importer un fichier GPX</b> → choisissez le fichier.</li></ol><p>La trace apparaît avec ses statistiques : distance, vitesses, virements, % de la polaire.</p></div>
+    <div class="card"><h3>📝 Débrief de course</h3><ol><li>Ouvrez la trace → <b>Débrief de course</b>.</li><li>L’app a déjà trouvé le parcours, les marques, le départ et les rappels : <b>vérifiez</b>.</li><li>Indiquez le <b>vent au départ</b> (pré-rempli avec votre relevé), vos observations sur l’eau et le classement.</li><li>Si un bord est ambigu, elle demande « au près ou au portant ? ».</li></ol></div>
+    <div class="card"><h3>Le rapport</h3><ul><li>Le parcours et la carte de la trace, colorée par vitesse, avec les routes conseillées.</li><li>Le vent réel bord par bord face à la prévision.</li><li>La stratégie de l’app avec ce vent, ce que vous avez fait, les écarts.</li><li><b>Vitesse face à la polaire J80</b> par allure, et angles de virement et d’empannage.</li><li>Les leçons à retenir, rédigées à partir des chiffres et de vos observations.</li></ul><p><b>Partager le rapport</b> l’envoie en fichier à l’équipage. Il reste enregistré avec la trace (<b>📄 Voir le débrief</b>).</p></div>
+    <div class="card"><h3>Revoir la trace</h3><ul><li><span class="k">▶ Rejouer la trace</span> : le bateau refait la course sur la carte 3D.</li><li>Avec le bon parcours sélectionné : découpage bord par bord, temps réel face au temps optimal.</li><li><b>Exporter GPX</b> pour la garder ou l’envoyer.</li></ul></div>
+  </div>
+</section>
+
+<section id="onglets">
+  <h2><span class="n">5</span> Les onglets en un coup d’œil</h2>
+  <div class="tbl"><table>
+    <tr><th>Onglet</th><th>À quoi il sert</th><th>Quand</th></tr>
+    <tr><td><b>Briefing</b></td><td>Vent du jour, accord des modèles, stratégie, effets de site, réglages J80</td><td>La veille, le matin</td></tr>
+    <tr><td><b>Parcours</b></td><td>Parcours du cahier CVAT, routes conseillées bord par bord, relevés de vent, animation</td><td>Au ponton, sur zone</td></tr>
+    <tr><td><b>Départ</b></td><td>Ligne, biais, extrémité favorisée, chrono, <b>mode départ plein écran</b></td><td>Procédure de départ</td></tr>
+    <tr><td><b>En course</b></td><td>GPS, prochaine marque, recalcul de la suite, enregistrement de la trace</td><td>Pendant la course</td></tr>
+    <tr><td><b>Traces</b></td><td>Traces enregistrées ou importées, rejouer, export GPX, <b>débrief de course</b></td><td>Après la course</td></tr>
+    <tr><td><b>Vent</b></td><td>Vent manuel, relevés, intensité des effets du relief, explications du modèle</td><td>Pour étudier un scénario</td></tr>
+    <tr><td><b>J80</b></td><td>Polaires ORC, vitesses cibles, guides de réglage (mât, haubans, points de tire), import d’une polaire perso</td><td>À terre, au réglage</td></tr>
+    <tr><td><b>IC</b></td><td>Instructions de course, horaires, VHF, marques, dangers, import d’un PDF d’IC</td><td>Avant chaque épreuve</td></tr>
+  </table></div>
+</section>
+
+<section id="reglages">
+  <h2><span class="n">6</span> Réglages iPhone pour le jour J</h2>
+  <div class="cards">
+    <div class="card"><h3>Écran toujours allumé</h3><p>Réglages → Luminosité et affichage → <b>Verrouillage automatique : Jamais</b>. Pensez à le remettre après.</p></div>
+    <div class="card"><h3>Le son des bips et de la voix</h3><p>Le <b>mode silencieux</b> (interrupteur sur le côté) coupe les bips sur iPhone : désactivez-le pendant le départ, volume au maximum.</p></div>
+    <div class="card"><h3>Accès guidé</h3><p>Réglages → Accessibilité → <b>Accès guidé</b>. Triple-clic sur le bouton latéral : l’iPhone reste bloqué sur l’app, et l’on peut désactiver le tactile sur une zone.</p></div>
+    <div class="card"><h3>Batterie</h3><p>GPS et écran allumé consomment 30 à 50 % en deux heures : <b>batterie externe</b> et pochette étanche fixée dans le cockpit.</p></div>
+  </div>
+</section>
+
+<section id="questions">
+  <h2><span class="n">7</span> Questions fréquentes</h2>
+  <div class="cards">
+    <div class="card"><h3>Ça marche sans réseau ?</h3><p>Oui pour la carte, le parcours, le départ et la trace : l’app garde la dernière prévision téléchargée. Il faut du réseau pour mettre à jour la météo, comprendre une phrase dictée librement (sinon l’app comprend les formules simples comme « 290 12 ») et rédiger le débrief (sinon version automatique).</p></div>
+    <div class="card"><h3>Le vent de l’app est-il exact ?</h3><p>C’est un modèle de tendances : prévision météo, puis corrections du relief (dévents, accélérations, vent freiné près des côtes). Il ne remplace pas l’observation du plan d’eau, et vos relevés le recalent.</p></div>
+    <div class="card"><h3>Les marques sont-elles bien placées ?</h3><p>Les positions viennent du cahier CVAT, d’OpenStreetMap et des traces de course. Certaines sont marquées « approx » : le Comité fait foi.</p></div>
+    <div class="card"><h3>Mes traces sont-elles partagées ?</h3><p>Non : elles restent sur votre téléphone. Exportez-les en GPX pour les garder ou les envoyer.</p></div>
+  </div>
+</section>
+</main>
+<footer>Rade Tactique · rade de Toulon · J80 · <a href="./">Ouvrir l’app</a></footer>
+</body>
+</html>
