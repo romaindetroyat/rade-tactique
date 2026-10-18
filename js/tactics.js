@@ -167,8 +167,15 @@ export function siteEffects(field, samples, leg = null) {
   const out = [];
   if (acc && acc.r >= 0.08) out.push({ kind: 'acc', p: acc.p, text: `Accélération ${where(acc.p)} : ${acc.w.spd.toFixed(0)} nd au lieu de ${acc.w.baseSpd.toFixed(0)} (+${Math.round(acc.r * 100)} %), le vent contourne le relief ou s’engouffre entre deux reliefs.` });
   if (lee && (lee.r <= -0.12 || lee.w.shelter >= 0.3)) {
-    const src = shelterSource(field, lee.p, lee.w.baseDir);
-    out.push({ kind: 'lee', p: lee.p, text: `Dévent ${where(lee.p)}${src?.name && src.h >= 30 ? ` (masqué par ${src.name}, relief de ${Math.round(src.h)} m au vent)` : ''} : ${lee.w.spd.toFixed(0)} nd au lieu de ${lee.w.baseSpd.toFixed(0)} (${Math.round(lee.r * 100)} %), vent irrégulier et rafaleux.` });
+    const nums = `${lee.w.spd.toFixed(0)} nd au lieu de ${lee.w.baseSpd.toFixed(0)} (${Math.round(lee.r * 100)} %)`;
+    if (lee.w.shelter >= 0.25) {
+      const src = shelterSource(field, lee.p, lee.w.baseDir);
+      out.push({ kind: 'lee', p: lee.p, text: `Dévent ${where(lee.p)}${src?.name && src.h >= 30 ? ` (masqué par ${src.name}, relief de ${Math.round(src.h)} m au vent)` : ''} : ${nums}, vent irrégulier et rafaleux.` });
+    } else if ((lee.w.block ?? 0) >= 0.2) {
+      out.push({ kind: 'block', p: lee.p, text: `Vent ralenti ${where(lee.p)} : ${nums}, il vient buter sur la côte haute sous le vent. Plus de pression en restant au large.` });
+    } else {
+      out.push({ kind: 'coast', p: lee.p, text: `Vent freiné par la côte ${where(lee.p)} : ${nums}. La terre freine le vent sur 1 à 2 km, surtout par petit temps : plus de pression au large.` });
+    }
   }
   if (rot && Math.abs(rot.dd) >= 5) out.push({ kind: 'rot', p: rot.p, text: `Vent dévié ${where(rot.p)} : ${fmtBrg(rot.w.dir)} au lieu de ${fmtBrg(rot.w.baseDir)}, ${Math.abs(rot.dd).toFixed(0)}° ${rot.dd > 0 ? 'à droite' : 'à gauche'}, le vent longe la côte ou contourne le relief.` });
   return out;
@@ -199,7 +206,9 @@ function sideSample(field, leg) {
   const res = { left: { spd: 0, dir: [] }, right: { spd: 0, dir: [] }, center: { spd: 0 } };
   for (const f of [0.3, 0.55, 0.8]) {
     const p = { x: leg.from.x + (leg.to.x - leg.from.x) * f, y: leg.from.y + (leg.to.y - leg.from.y) * f };
-    const R = fromBearing(p, leg.brg + 90, off), Lp = fromBearing(p, leg.brg - 90, off);
+    // point d’échantillonnage de chaque côté, rapproché de la route s’il tombe à terre
+    const onWater = (sgn) => { for (const k of [1, 0.6, 0.35, 0.15]) { const q = fromBearing(p, leg.brg + sgn * 90, off * k); if (!field.t.isLand?.(q.x, q.y) && field.sample(q.x, q.y).shelter < 0.9) return q; } return p; };
+    const R = onWater(1), Lp = onWater(-1);
     const r = field.sample(R.x, R.y), l = field.sample(Lp.x, Lp.y), c = field.sample(p.x, p.y);
     res.right.spd += r.spd / 3; res.left.spd += l.spd / 3; res.center.spd += c.spd / 3;
     res.right.dir.push(r.dir); res.left.dir.push(l.dir);
@@ -222,7 +231,7 @@ export function analyzeLeg(leg, field, ctx) {
   const time = r ? r.time : leg.dist / (Math.max(1, boatSpeed(spd, twa)) * 0.5144);
   const sides = sideSample(field, leg);
   const dP = sides.right.spd - sides.left.spd; // >0 : plus de vent à droite
-  const dS = norm180(sides.right.dir - sides.left.dir); // >0 : vent plus à droite (adonné tribord) côté droit
+  const dS = Math.max(-25, Math.min(25, norm180(sides.right.dir - sides.left.dir))); // >0 : vent plus à droite (adonné tribord) côté droit
   const shiftAmp = field.shiftAmplitude(spd, shelter);
   const { up, down } = optimalAngles(Math.max(spd, 1));
   const advice = [];

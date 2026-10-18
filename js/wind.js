@@ -5,7 +5,10 @@
 //  1. Contournement : écoulement 2D « poreux » (Darcy) — la terre haute fait obstacle,
 //     le vent accélère aux caps et dans les passes, et se dévie le long des côtes.
 //  2. Déventement : sous le vent d’un relief, perte de vitesse et rafales plus marquées.
-//  3. Frottement : près d’une côte au vent, le vent est « reculé » (rotation à gauche) de quelques degrés.
+//  3. Frottement : près d’une côte au vent, le vent est « reculé » (rotation à gauche) de quelques degrés,
+//     et près de toute côte il perd de la force sur 1 à 2 km, surtout par petit temps.
+//  4. Blocage : quand le vent vient de la mer et bute sur une côte haute, il ralentit en amont du relief
+//     (plus de vent au large que le long de la côte, observé le 18/10/2026 devant Saint-Mandrier).
 // C’est un modèle heuristique, rapide, destiné à la tactique ; pas une simulation CFD.
 
 import { rad, deg, norm360, norm180 } from './geo.js';
@@ -33,7 +36,7 @@ export class WindField {
     this.kits = new Map();
     this.u = new Float32Array(n); this.v = new Float32Array(n);
     this.spd = new Float32Array(n); this.dir = new Float32Array(n); this.gust = new Float32Array(n);
-    this.shelter = new Float32Array(n);
+    this.shelter = new Float32Array(n); this.block = new Float32Array(n);
     this.bu = new Float32Array(n); this.bv = new Float32Array(n); // vent de base, sans effets de site
   }
 
@@ -80,7 +83,7 @@ export class WindField {
         P[id] += w * (target - P[id]);
       }
     }
-    const fac = new Float32Array(n), dev = new Float32Array(n), shel = new Float32Array(n);
+    const fac = new Float32Array(n), dev = new Float32Array(n), shel = new Float32Array(n), blk = new Float32Array(n);
     const speeds = [];
     for (let j = 1; j < ny - 1; j++) for (let i = 1; i < nx - 1; i++) {
       const id = j * nx + i;
@@ -106,8 +109,15 @@ export class WindField {
         if (h > 2) s = Math.max(s, h / (h + 0.1 * d));
       }
       shel[id] = s;
+      // blocage : relief situé sous le vent du point (le vent va buter dessus)
+      let b = 0;
+      for (let d = 100; d <= 3000; d += d < 1000 ? 100 : 250) {
+        const h = this.t.height(x - sx * d, y - sy * d);
+        if (h > 2) b = Math.max(b, h / (h + 0.12 * d));
+      }
+      blk[id] = b;
     }
-    const kitObj = { fac, dev, shel };
+    const kitObj = { fac, dev, shel, blk };
     this.kits.set(key, kitObj);
     return kitObj;
   }
@@ -129,7 +139,7 @@ export class WindField {
       }
       const bs = Math.hypot(wu, wv) / ws, bd = norm360(deg(Math.atan2(wu, wv))), bg = wg / ws;
       if (this.land[id]) {
-        this.spd[id] = bs * 0.5; this.dir[id] = bd; this.gust[id] = bg * 0.6; this.shelter[id] = 1;
+        this.spd[id] = bs * 0.5; this.dir[id] = bd; this.gust[id] = bg * 0.6; this.shelter[id] = 1; this.block[id] = 0;
         this.u[id] = 0; this.v[id] = 0; this.bu[id] = 0; this.bv[id] = 0; continue;
       }
       // interpolation entre deux kits de 5°
@@ -138,16 +148,21 @@ export class WindField {
       const fac = k0.fac[id] * (1 - t) + k1.fac[id] * t;
       const dev = k0.dev[id] * (1 - t) + k1.dev[id] * t;
       const sh = k0.shel[id] * (1 - t) + k1.shel[id] * t;
+      const bk = k0.blk[id] * (1 - t) + k1.blk[id] * t;
       // les points AROME contiennent déjà l’effet des grands reliefs : on atténue
       const wFac = pts.length > 1 ? 0.6 : 1;
       let f = 1 + (fac - 1) * wFac * strength;
       f *= 1 - 0.5 * sh * strength;
-      // frottement côtier : vent reculé près d’une côte au vent
+      // blocage en amont d’une côte haute et frottement près de toute côte
       const dl = this.distLand[id];
+      f *= 1 - 0.3 * bk * strength;
+      // la terre freine le vent sur 1 à 2 km, davantage par petit temps (couche d’air plus stable)
+      const fr = 0.15 + 0.15 * Math.min(1, Math.max(0, (10 - bs) / 6));
+      f *= 1 - fr * Math.exp(-dl / 1200) * strength;
       const coastBack = dl < 1500 ? -7 * (1 - dl / 1500) * Math.min(1, sh * 3) : 0;
       const d = norm360(bd + (dev * wFac + coastBack) * strength);
       const s = Math.max(0, bs * f);
-      this.spd[id] = s; this.dir[id] = d; this.shelter[id] = sh;
+      this.spd[id] = s; this.dir[id] = d; this.shelter[id] = sh; this.block[id] = bk;
       const gf = bs > 0.5 ? Math.max(1.1, bg / bs) : 1.3;
       this.gust[id] = s * (gf + 0.35 * sh * strength);
       this.u[id] = -s * Math.sin(rad(d)); this.v[id] = -s * Math.cos(rad(d)); // vecteur « vers »
@@ -165,7 +180,7 @@ export class WindField {
     const L = (A) => A[id] * (1 - tx) * (1 - ty) + A[id + 1] * tx * (1 - ty) + A[id + n] * (1 - tx) * ty + A[id + n + 1] * tx * ty;
     const u = L(this.u), v = L(this.v);
     const spd = Math.hypot(u, v), bu = L(this.bu), bv = L(this.bv);
-    return { spd, dir: norm360(deg(Math.atan2(-u, -v))), gust: L(this.gust), shelter: L(this.shelter), u, v,
+    return { spd, dir: norm360(deg(Math.atan2(-u, -v))), gust: L(this.gust), shelter: L(this.shelter), block: L(this.block), u, v,
       baseSpd: Math.hypot(bu, bv), baseDir: norm360(deg(Math.atan2(-bu, -bv))) };
   }
 
