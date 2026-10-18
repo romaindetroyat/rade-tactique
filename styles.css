@@ -201,3 +201,6 @@ pre.ictext { white-space: pre-wrap; font-size: 11.5px; max-height: 320px; overfl
 .voicebar .mic { width: 52px; height: 46px; font-size: 22px; padding: 0; flex: none; }
 #voicePend { position: fixed; left: 50%; top: calc(70px + var(--safeT)); transform: translateX(-50%); z-index: 75; background: var(--bg); color: #fff; padding: 10px 12px; border-radius: 14px; display: flex; gap: 12px; align-items: center; box-shadow: 0 8px 24px rgba(0,0,0,.4); max-width: calc(100vw - 24px); }
 #voicePend b { font-size: 20px; }
+
+.leg .site { margin-top: 6px; padding: 6px 8px; border-left: 3px solid #2aa198; background: rgba(42,161,152,.08); border-radius: 6px; font-size: 13px; }
+.leg .site ul { margin: 4px 0 0; }

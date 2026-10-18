@@ -4,6 +4,7 @@ import * as THREE from '../vendor/three.module.min.js';
 import { OrbitControls } from '../vendor/OrbitControls.js';
 import { toXY, toLL } from './geo.js';
 import { speedColor } from './wind.js';
+import { PLACES } from './courses.js';
 
 const W = (x, y, h = 0) => new THREE.Vector3(x, h, -y);
 
@@ -292,13 +293,7 @@ export class Scene3D {
   // ───────── étiquettes de lieux
   buildPlaceLabels() {
     const g = this.groups.labels; g.clear();
-    const places = [
-      ['Toulon', 43.1225, 5.930, 1], ['La Seyne-sur-Mer', 43.1000, 5.878, 1], ['Saint-Mandrier', 43.0770, 5.927, 1], ['Le Mourillon', 43.1075, 5.944, 2],
-      ['Cap Cépet', 43.0676, 5.9465, 2], ['Cap Brun', 43.1020, 5.972, 2], ['Le Pradet', 43.1060, 6.020, 1], ['Carqueiranne', 43.0950, 6.073, 1],
-      ['Les Sablettes', 43.0790, 5.893, 2], ['Tamaris', 43.0930, 5.900, 2], ['Mont Faron 584 m', 43.1497, 5.951, 3], ['Mont Coudon 702 m', 43.1609, 6.008, 3],
-      ['Cap Sicié', 43.0460, 5.859, 2], ['Les Deux Frères', 43.0640, 5.8705, 2], ['Petite Rade', 43.1080, 5.912, 4], ['Grande Rade', 43.0930, 5.972, 4],
-      ['Baie de la Garonne', 43.0915, 6.016, 4], ['Anse des Sablettes', 43.0730, 5.887, 4], ['Pointe Sainte-Marguerite', 43.1036, 5.992, 2], ['La Colle Noire', 43.0898, 6.0475, 3],
-    ];
+    const places = PLACES;
     for (const [name, lat, lon, kind] of places) {
       const p = toXY(lat, lon), h = Math.max(0, this.t.height(p.x, p.y)) * this.exag;
       const s = makeLabel(name, kind === 4 ? { bg: 'rgba(255,255,255,0)', fg: '#0d3b66', font: 600, size: 26 } : kind === 3 ? { bg: 'rgba(80,60,30,.75)' } : {}, kind === 4 ? 18 : 17);

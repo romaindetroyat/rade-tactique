@@ -1,6 +1,6 @@
 // Analyse tactique : parcours → bords, ligne de départ, conseils par bord, stratégie du jour.
 
-import { MARKS, COURSES, LINE_PRESETS } from './courses.js';
+import { MARKS, COURSES, LINE_PRESETS, PLACES } from './courses.js';
 import { toXY, toLL, NM, bearingXY, distXY, fromBearing, norm180, norm360, fmtBrg, fmtNm, cardinal } from './geo.js';
 import { boatSpeed, optimalAngles, spiMinTwa } from './polar.js';
 import { route, tackName } from './router.js';
@@ -120,6 +120,70 @@ export function buildLegs(course, cls, opts) {
   return { legs, line: L, points: pts };
 }
 
+// ───────────────────────── Effets de site (relief)
+// Le champ de vent garde le vent « de base » (prévision ou saisie, sans relief) : l’écart entre les deux
+// mesure l’effet du relief en chaque point. On en tire les accélérations, les dévents et les déviations
+// les plus marqués d’une zone, localisés par le lieu nommé le plus proche.
+let placesXY = null;
+const placeNear = (p, maxD = 3500, kinds = null) => {
+  placesXY ??= PLACES.map(([name, lat, lon, kind]) => ({ name, kind, ...toXY(lat, lon) }));
+  let best = null, bd = maxD;
+  for (const q of placesXY) { if (kinds && !kinds.includes(q.kind)) continue; const d = distXY(p, q); if (d < bd) { bd = d; best = q; } }
+  return best?.name ?? null;
+};
+// relief responsable d’un dévent : point le plus « masquant » en remontant au vent
+function shelterSource(field, p, windFrom) {
+  const sx = Math.sin(windFrom * Math.PI / 180), sy = Math.cos(windFrom * Math.PI / 180);
+  let best = null, bs = 0;
+  for (let d = 150; d <= 5000; d += 150) {
+    const q = { x: p.x + sx * d, y: p.y + sy * d }, h = field.t.height(q.x, q.y);
+    if (h > 2) { const s = h / (h + 0.1 * d); if (s > bs) { bs = s; best = { ...q, h }; } }
+  }
+  return best && { name: placeNear(best, 4000, [1, 2, 3]), h: best.h };
+}
+
+// samples : points de mer à examiner ; leg (facultatif) : situe chaque effet à droite / à gauche de la route directe
+export function siteEffects(field, samples, leg = null) {
+  let acc = null, lee = null, rot = null;
+  for (const p of samples) {
+    if (field.t.isLand?.(p.x, p.y)) continue;
+    const w = field.sample(p.x, p.y);
+    if (w.baseSpd < 2.5) continue;
+    const r = w.spd / w.baseSpd - 1, dd = norm180(w.dir - w.baseDir), lees = -r + 0.4 * w.shelter;
+    if (!acc || r > acc.r) acc = { r, p, w };
+    if (!lee || lees > lee.s) lee = { s: lees, r, p, w };
+    if (!rot || Math.abs(dd) > Math.abs(rot.dd)) rot = { dd, p, w };
+  }
+  const where = (p) => {
+    const n = placeNear(p);
+    let side = '';
+    if (leg) {
+      const L = Math.hypot(leg.to.x - leg.from.x, leg.to.y - leg.from.y) || 1;
+      const cross = ((leg.to.x - leg.from.x) * (p.y - leg.from.y) - (leg.to.y - leg.from.y) * (p.x - leg.from.x)) / L;
+      if (Math.abs(cross) > 120) side = cross < 0 ? ', à droite de la route directe' : ', à gauche de la route directe';
+    }
+    return (n ? `vers ${n}` : 'au milieu du plan d’eau') + side;
+  };
+  const out = [];
+  if (acc && acc.r >= 0.08) out.push({ kind: 'acc', p: acc.p, text: `Accélération ${where(acc.p)} : ${acc.w.spd.toFixed(0)} nd au lieu de ${acc.w.baseSpd.toFixed(0)} (+${Math.round(acc.r * 100)} %), le vent contourne le relief ou s’engouffre entre deux reliefs.` });
+  if (lee && (lee.r <= -0.12 || lee.w.shelter >= 0.3)) {
+    const src = shelterSource(field, lee.p, lee.w.baseDir);
+    out.push({ kind: 'lee', p: lee.p, text: `Dévent ${where(lee.p)}${src?.name && src.h >= 30 ? ` (masqué par ${src.name}, relief de ${Math.round(src.h)} m au vent)` : ''} : ${lee.w.spd.toFixed(0)} nd au lieu de ${lee.w.baseSpd.toFixed(0)} (${Math.round(lee.r * 100)} %), vent irrégulier et rafaleux.` });
+  }
+  if (rot && Math.abs(rot.dd) >= 5) out.push({ kind: 'rot', p: rot.p, text: `Vent dévié ${where(rot.p)} : ${fmtBrg(rot.w.dir)} au lieu de ${fmtBrg(rot.w.baseDir)}, ${Math.abs(rot.dd).toFixed(0)}° ${rot.dd > 0 ? 'à droite' : 'à gauche'}, le vent longe la côte ou contourne le relief.` });
+  return out;
+}
+
+// points d’échantillonnage d’un bord : couloir de part et d’autre de la route directe, plus la route conseillée
+export function legSamples(leg, routePath = []) {
+  const off = Math.min(0.35 * leg.dist, 900), pts = [];
+  for (let k = 0; k <= 10; k++) {
+    const f = k / 10, c = { x: leg.from.x + (leg.to.x - leg.from.x) * f, y: leg.from.y + (leg.to.y - leg.from.y) * f };
+    for (const o of [-1, -0.5, 0, 0.5, 1]) pts.push(fromBearing(c, leg.brg + 90, o * off));
+  }
+  return pts.concat(routePath.map((p) => ({ x: p.x, y: p.y })));
+}
+
 // ───────────────────────── Analyse d’un bord
 const legType = (twa, tws) => {
   const a = Math.abs(twa), { up, down } = optimalAngles(tws);
@@ -197,7 +261,8 @@ export function analyzeLeg(leg, field, ctx) {
     if (Math.abs(dP) >= 0.5) advice.push(`${dP > 0 ? 'Plus de pression à droite' : 'Plus de pression à gauche'} : faire la route du côté du vent fort si l’écart est durable.`);
   }
   if (shelter > 0.25) advice.push(`Zone partiellement déventée par le relief (indice ${Math.round(shelter * 100)} %) : vent irrégulier, rafales jusqu’à ${gust.toFixed(0)} nd, bascules ±${shiftAmp}°.`);
-  return { ...leg, wind: { dir, spd, gust, shelter }, twa, type, route: r, time, sides: { dP, dS }, shiftAmp, advice };
+  const site = siteEffects(field, legSamples(leg, r?.path), leg);
+  return { ...leg, wind: { dir, spd, gust, shelter }, twa, type, route: r, time, sides: { dP, dS }, shiftAmp, advice, site };
 }
 
 // Conseils de passage de marque (entre le bord i et le bord i+1)

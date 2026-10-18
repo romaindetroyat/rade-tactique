@@ -16,7 +16,7 @@ import { parseWind, listen, say } from './voice.js';
 import { Recorder, listTracks, getTrack, deleteTrack, saveTrack, analyzeTrack, exportGPX, fromGPX } from './track.js';
 import { shroudsFor } from './tuning.js';
 
-export const APP_VERSION = 'v9 · nouveau logo';
+export const APP_VERSION = 'v10 · effets de site';
 const $ = (s, r = document) => r.querySelector(s);
 function toast(msg) {
   let t = document.getElementById('toast');
@@ -524,6 +524,14 @@ function renderBrief() {
     tips.push(`Parcours ${analysis.course.id} estimé à <b>${summarizeTime(analysis.total * 3600)}</b> pour un J80 (${(analysis.dist / NM).toFixed(1)} Nq route directe).`);
     html += `<div class="card"><h3>Stratégie du jour ${tip('Synthèse automatique : rotation du vent attendue pendant la course, zones les plus ventées, désaccord entre modèles et temps estimé du parcours.')}</h3><ul class="tips">${tips.map((t) => `<li>${t}</li>`).join('')}</ul></div>`;
   }
+  if (analysis) {
+    const seen = new Set(), rows = [];
+    for (const l of analysis.legs) for (const x of l.site || []) {
+      const key = x.kind + x.text.split(' : ')[0]; if (seen.has(key)) continue; seen.add(key);
+      rows.push(`<li><b>${l.order ? `Bord vers la marque ${l.order}` : esc(l.to.name)}</b> (${hhmm(l.eta0)}) — ${esc(x.text)}</li>`);
+    }
+    html += `<div class="card"><h3>Effets de site du relief ${tip('Calculés par le modèle de vent local à partir du relief de la rade (accélérations, dévents, vent dévié le long des côtes), à l’heure où chaque bord est couru. Ils sont intégrés au routage et au choix du côté.')}<small>sur le parcours ${analysis.course.id}</small></h3>${rows.length ? `<ul class="tips">${rows.slice(0, 6).join('')}</ul>` : '<p class="small muted">Pas d’effet de site marqué sur ce parcours avec ce vent : le plan d’eau est homogène.</p>'}<div class="small muted">Intensité réglable dans l’onglet Vent (« Effets locaux du relief »).</div></div>`;
+  }
   if (reg) html += `<div class="card"><h3>Effets locaux — ${esc(reg.name)} <small>connaissance de la rade</small></h3><ul class="tips">${reg.tips.map((t) => `<li>${esc(t)}</li>`).join('')}</ul></div>`;
   if (w?.spd != null) { const ta = trimAdvice(w.spd, w.gust); html += `<div class="card"><h3>Réglages J80 — ${ta.mode}</h3><ul class="tips"><li><b>Gréement</b> : ${ta.rig} Haubans / intermédiaires / bas-haubans (North, jauge Loos B) : <b>${shroudsFor(w.gust ? (w.spd + w.gust) / 2 : w.spd)}</b>.</li><li><b>Voiles</b> : ${ta.sails}</li><li><b>Équipage</b> : ${ta.crew}</li><li><b>Tactique</b> : ${ta.tactic}</li></ul><div class="small muted">Valeurs chiffrées (haubans, points de tir) : onglet J80.</div></div>`; }
   // modèles à l'heure affichée
@@ -595,6 +603,7 @@ function renderCourse() {
         <div class="meta">${fmtBrg(l.brg)} · ${fmtNm(l.dist)} · vent ${fmtBrg(l.wind.dir)} ${l.wind.spd.toFixed(0)} nd (raf. ${l.wind.gust.toFixed(0)}) · TWA ${Math.abs(l.twa).toFixed(0)}° · ${hhmm(l.eta0)}→${hhmm(l.eta1)} (${summarizeTime(l.time)})</div>
         <span class="chip ${chip}">${l.type.label}</span><span class="chip">${l.type.sail}</span>
         <ul class="tips">${l.advice.map((a) => `<li>${esc(a)}</li>`).join('')}</ul>
+        ${l.site?.length ? `<div class="site"><b>Effets de site ${tip('Écart entre le vent prévu sans relief et le vent local recalculé avec le relief (contournement, dévents, côtes). Ces écarts sont déjà pris en compte dans la route conseillée et le côté favorisé.')}</b><ul class="tips">${l.site.map((x) => `<li>${esc(x.text)}</li>`).join('')}</ul></div>` : ''}
         ${ma.length ? `<div class="mark">${ma.map(esc).join('<br>')}</div>` : ''}
       </div>`;
     }).join('') + '</div>';

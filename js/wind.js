@@ -34,6 +34,7 @@ export class WindField {
     this.u = new Float32Array(n); this.v = new Float32Array(n);
     this.spd = new Float32Array(n); this.dir = new Float32Array(n); this.gust = new Float32Array(n);
     this.shelter = new Float32Array(n);
+    this.bu = new Float32Array(n); this.bv = new Float32Array(n); // vent de base, sans effets de site
   }
 
   #distanceToLand() {
@@ -129,7 +130,7 @@ export class WindField {
       const bs = Math.hypot(wu, wv) / ws, bd = norm360(deg(Math.atan2(wu, wv))), bg = wg / ws;
       if (this.land[id]) {
         this.spd[id] = bs * 0.5; this.dir[id] = bd; this.gust[id] = bg * 0.6; this.shelter[id] = 1;
-        this.u[id] = 0; this.v[id] = 0; continue;
+        this.u[id] = 0; this.v[id] = 0; this.bu[id] = 0; this.bv[id] = 0; continue;
       }
       // interpolation entre deux kits de 5°
       const a = norm360(bd) / 5, a0 = Math.floor(a) * 5, t = a - Math.floor(a);
@@ -150,6 +151,7 @@ export class WindField {
       const gf = bs > 0.5 ? Math.max(1.1, bg / bs) : 1.3;
       this.gust[id] = s * (gf + 0.35 * sh * strength);
       this.u[id] = -s * Math.sin(rad(d)); this.v[id] = -s * Math.cos(rad(d)); // vecteur « vers »
+      this.bu[id] = -bs * Math.sin(rad(bd)); this.bv[id] = -bs * Math.cos(rad(bd));
     }
     this.base = base;
     return this;
@@ -162,8 +164,9 @@ export class WindField {
     const n = this.nx, id = j * n + i;
     const L = (A) => A[id] * (1 - tx) * (1 - ty) + A[id + 1] * tx * (1 - ty) + A[id + n] * (1 - tx) * ty + A[id + n + 1] * tx * ty;
     const u = L(this.u), v = L(this.v);
-    const spd = Math.hypot(u, v);
-    return { spd, dir: norm360(deg(Math.atan2(-u, -v))), gust: L(this.gust), shelter: L(this.shelter), u, v };
+    const spd = Math.hypot(u, v), bu = L(this.bu), bv = L(this.bv);
+    return { spd, dir: norm360(deg(Math.atan2(-u, -v))), gust: L(this.gust), shelter: L(this.shelter), u, v,
+      baseSpd: Math.hypot(bu, bv), baseDir: norm360(deg(Math.atan2(-bu, -bv))) };
   }
 
   // Amplitude des oscillations attendues (°) : plus forte par petit temps et sous le vent des reliefs

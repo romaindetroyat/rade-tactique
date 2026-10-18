@@ -3,6 +3,16 @@
 // Positions : coordonnées données par le CVAT quand elles existent,
 // sinon positions OpenStreetMap / relevées sur les cartes du cahier (« approx »).
 
+// Lieux nommés de la rade (étiquettes de la carte et localisation des effets de site) : [nom, lat, lon, type]
+// type : 1 ville, 2 cap ou pointe, 3 sommet, 4 plan d'eau
+export const PLACES = [
+  ['Toulon', 43.1225, 5.930, 1], ['La Seyne-sur-Mer', 43.1000, 5.878, 1], ['Saint-Mandrier', 43.0770, 5.927, 1], ['Le Mourillon', 43.1075, 5.944, 2],
+  ['Cap Cépet', 43.0676, 5.9465, 2], ['Cap Brun', 43.1020, 5.972, 2], ['Le Pradet', 43.1060, 6.020, 1], ['Carqueiranne', 43.0950, 6.073, 1],
+  ['Les Sablettes', 43.0790, 5.893, 2], ['Tamaris', 43.0930, 5.900, 2], ['Mont Faron 584 m', 43.1497, 5.951, 3], ['Mont Coudon 702 m', 43.1609, 6.008, 3],
+  ['Cap Sicié', 43.0460, 5.859, 2], ['Les Deux Frères', 43.0640, 5.8705, 2], ['Petite Rade', 43.1080, 5.912, 4], ['Grande Rade', 43.0930, 5.972, 4],
+  ['Baie de la Garonne', 43.0915, 6.016, 4], ['Anse des Sablettes', 43.0730, 5.887, 4], ['Pointe Sainte-Marguerite', 43.1036, 5.992, 2], ['La Colle Noire', 43.0898, 6.0475, 3]
+];
+
 export const MARKS = {
   1: { name: 'Grande Jetée', lat: 43.097417, lon: 5.934150, kind: 'gonflable', color: '#f5c400',
        note: 'Bouée gonflable mouillée ~0,4 Nq dans l’Est de la Grande Jetée (43°05.845N 005°56.049E, fonds 12 m).', src: 'CVAT' },
