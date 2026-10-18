@@ -1,9 +1,9 @@
 // Service worker : l’application et le modèle 3D sont disponibles hors réseau.
 // Les prévisions (Open-Meteo, balises) passent toujours par le réseau ; l’app garde sa propre copie.
-const VERSION = 'rade-v15';
+const VERSION = 'rade-v16';
 const SHELL = [
   './', 'index.html', 'styles.css', 'manifest.webmanifest',
-  'js/app.js', 'js/geo.js', 'js/wind.js', 'js/scene3d.js', 'js/courses.js', 'js/weather.js', 'js/tactics.js', 'js/polar.js', 'js/router.js', 'js/j80.js', 'js/tuning.js', 'js/polar-orc.js', 'js/obs.js', 'js/help.js', 'js/track.js', 'js/events.js', 'js/voice.js', 'js/startmode.js',
+  'js/app.js', 'js/geo.js', 'js/wind.js', 'js/scene3d.js', 'js/courses.js', 'js/weather.js', 'js/tactics.js', 'js/polar.js', 'js/router.js', 'js/j80.js', 'js/tuning.js', 'js/polar-orc.js', 'js/obs.js', 'js/help.js', 'js/track.js', 'js/events.js', 'js/voice.js', 'js/startmode.js', 'js/debrief.js',
   'vendor/three.module.min.js', 'vendor/OrbitControls.js', 'vendor/qrcode.js',
   'data/meta.json', 'data/terrain.bin', 'data/cover.bin', 'data/coast.json', 'data/basemap.jpg', 'data/seamask.png', 'data/j80.pol', 'data/wx-snapshot.json',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png', 'icons/logo.png', 'icons/favicon-32.png',

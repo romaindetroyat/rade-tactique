@@ -16,8 +16,9 @@ import { parseWind, listen, say } from './voice.js';
 import { Recorder, listTracks, getTrack, deleteTrack, saveTrack, analyzeTrack, exportGPX, fromGPX } from './track.js';
 import { shroudsFor } from './tuning.js';
 import { createStartMode } from './startmode.js';
+import { detect as dbDetect, ask as dbAsk, askModes as dbAskModes, analyze as dbAnalyze, narrative as dbNarrative, buildReport as dbBuild, shareReport as dbShare } from './debrief.js';
 
-export const APP_VERSION = 'v15 · mode départ';
+export const APP_VERSION = 'v16 · débrief de course';
 const $ = (s, r = document) => r.querySelector(s);
 function toast(msg) {
   let t = document.getElementById('toast');
@@ -839,6 +840,52 @@ function trackWindAt(day) {
     return idwAt(pts, x, y);
   };
 }
+// ───────────────────────── débrief de course
+function forecastAt(tMs) {
+  const d = new Date(tMs), key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}T${String(d.getHours()).padStart(2, '0')}:00`;
+  const r = series.find((x) => x.time === key); return r?.dir != null ? { dir: r.dir, spd: r.spd } : null;
+}
+function busy(msg) {
+  let m = document.getElementById('modal'); if (!m) { m = document.createElement('div'); m.id = 'modal'; document.body.appendChild(m); }
+  m.className = 'debrief'; m.hidden = false; m.innerHTML = `<div class="modal-card"><h2>Débrief de course</h2><p>${esc(msg)}</p></div>`;
+}
+async function runDebrief(tr) {
+  const api = {
+    F, ctx: { terrain: T, forbidden, perf: S.perf ?? 1 }, localFx: S.localFx ?? 1, forecastAt, toast, meta: T.meta, eventName: IC?.event || '',
+    // relevé saisi ce jour-là le plus proche du départ, sinon la prévision
+    windGuess: (t) => {
+      const near = (S.obs || []).filter((o) => o.t && Math.abs(o.t - t) < 3 * 3600e3).sort((a, b) => Math.abs(a.t - t) - Math.abs(b.t - t))[0];
+      if (near) return { dir: Math.round(near.dir), src: `votre relevé de ${new Date(near.t).toLocaleTimeString('fr-FR', { timeStyle: 'short' })}` };
+      const f = forecastAt(t); return f ? { dir: Math.round(f.dir), src: 'la prévision' } : null;
+    },
+    restoreField: () => updateDisplayField(),
+  };
+  let det;
+  try { det = dbDetect(tr); } catch (e) { toast('Débrief impossible : ' + e.message); return; }
+  const ans = await dbAsk(det, tr, api); if (!ans) return;
+  busy('Analyse de la trace et calcul des routes conseillées…');
+  await new Promise((r) => setTimeout(r, 30));
+  let an = dbAnalyze(det, ans, api);
+  const modes = await dbAskModes(an, api);
+  if (modes) { ans.legModes = modes; busy('Recalcul avec vos réponses…'); await new Promise((r) => setTimeout(r, 30)); an = dbAnalyze(det, ans, api); }
+  busy(navigator.onLine ? 'Rédaction de l’analyse…' : 'Rédaction de l’analyse (hors réseau : version automatique)…');
+  const nar = await dbNarrative(an, ans);
+  const html = await dbBuild(an, ans, nar, det, api);
+  tr.report = { html, t: Date.now(), name: `${ans.event || 'Débrief'} ${new Date(an.tStart).toLocaleDateString('fr-FR')}` };
+  await saveTrack(tr);
+  if (traceView?.id === tr.id) traceView.tr = tr;
+  showReport(tr); renderTraceDetail();
+}
+function showReport(tr) {
+  const rep = tr.report; if (!rep) return;
+  let m = document.getElementById('modal'); if (!m) { m = document.createElement('div'); m.id = 'modal'; document.body.appendChild(m); }
+  m.className = 'report'; m.hidden = false;
+  m.innerHTML = `<div class="modal-card report-card"><div class="btns" style="margin:0 0 8px"><button class="btn acc" id="rpShare">Partager le rapport</button><button class="btn alt" id="rpOpen">Plein écran</button><button class="btn alt" id="rpClose">Fermer</button></div><iframe id="rpFrame" title="Rapport de course"></iframe></div>`;
+  m.querySelector('#rpFrame').srcdoc = rep.html;
+  m.querySelector('#rpClose').onclick = () => { m.hidden = true; };
+  m.querySelector('#rpShare').onclick = () => dbShare(rep.html, rep.name);
+  m.querySelector('#rpOpen').onclick = () => { const u = URL.createObjectURL(new Blob([rep.html], { type: 'text/html' })); const a = document.createElement('a'); a.href = u; a.target = '_blank'; a.rel = 'noopener'; document.body.appendChild(a); a.click(); a.remove(); };
+}
 async function renderTracks() {
   const el = $('section[data-tab=tracks]'); if (!el) return;
   let list = [];
@@ -886,7 +933,8 @@ function renderTraceDetail() {
   el.innerHTML = `<div class="card"><h3><span>${esc(tr.name)}</span><small>${new Date(tr.start).toLocaleTimeString('fr-FR', { timeStyle: 'short' })}</small></h3>
     <div class="kpis"><div class="kpi"><b>${(res.dist / NM).toFixed(1)}</b><span>Nq parcourus</span></div><div class="kpi"><b>${summarizeTime(res.dur)}</b><span>durée</span></div><div class="kpi"><b>${res.vmean.toFixed(1)}</b><span>nd moyen (max ${res.vmax.toFixed(1)})</span></div></div>
     <div class="kpis" style="margin-top:8px"><div class="kpi"><b>${nT}</b><span>virements</span></div><div class="kpi"><b>${nE}</b><span>empannages</span></div><div class="kpi"><b>${res.perf ? Math.round(res.perf * 100) + ' %' : '—'}</b><span>de la polaire ${tip('Vitesse mesurée ÷ vitesse cible de la polaire J80 pour le vent du modèle à cet endroit et cette heure. Indicatif : le vent réel peut différer du modèle.')}</span></div></div>
-    <div class="btns"><button class="btn acc" id="trPlay">▶ Rejouer la trace</button><button class="btn alt" id="trGpx">Exporter GPX</button><button class="btn alt" id="trHide">Masquer</button></div>
+    <button class="btn acc" id="trDebrief" style="width:100%;margin-top:8px">📝 ${tr.report ? 'Refaire le débrief de course' : 'Débrief de course'}</button>${tr.report ? '<button class="btn" id="trReport" style="width:100%;margin-top:6px">📄 Voir le débrief</button>' : ''}
+    <div class="btns"><button class="btn alt" id="trPlay">▶ Rejouer la trace</button><button class="btn alt" id="trGpx">Exporter GPX</button><button class="btn alt" id="trHide">Masquer</button></div>
     ${sameCourse ? (sp.length ? `<h3 style="margin-top:12px">Bord par bord ${tip('Temps réel entre deux marques comparé au temps du routage optimal (même vent modèle). Un écart positif = temps perdu.')}</h3><table class="t"><tr><th>Marque</th><th>Réel</th><th>Optimal</th><th>Écart</th><th>Polaire</th></tr>${res.split.map((s) => s.missed ? `<tr><td>${s.leg.order} · ${esc(s.leg.to.name)}</td><td colspan="4" class="muted">non détectée</td></tr>` : `<tr><td>${s.leg.order} · ${esc(s.leg.to.name)}</td><td>${summarizeTime(s.t)}</td><td>${summarizeTime(s.plan)}</td><td style="color:${s.t > s.plan ? 'var(--bad)' : 'var(--ok)'}">${s.t > s.plan ? '+' : '−'}${summarizeTime(Math.abs(s.t - s.plan))}</td><td>${s.pct ? Math.round(s.pct * 100) + ' %' : '—'}</td></tr>`).join('')}</table>${worst ? `<p class="small">Bord le plus coûteux : vers <b>${esc(worst.leg.to.name)}</b> (${summarizeTime(worst.t - worst.plan)} de plus que l’optimal). Rejouez-le en comparant à la route bleue.</p>` : ''}` : '<p class="small muted">Aucune marque du parcours détectée sur cette trace (passage à plus de 250 m).</p>')
       : '<p class="small muted">Pour le découpage bord par bord, sélectionnez dans l’onglet Parcours le parcours couru (même numéro et même classe).</p>'}
     <p class="small muted">Couleur de la trace : du bleu (lent) au rouge (rapide). V = virement, E = empannage.</p></div>`;
@@ -896,6 +944,8 @@ function renderTraceDetail() {
     $('#replayHud').hidden = false; scene.replayControl('speed', +$('#rhSpeed').value);
   };
   $('#trGpx').onclick = () => exportGPX(tr);
+  $('#trDebrief').onclick = () => runDebrief(tr);
+  $('#trReport')?.addEventListener('click', () => showReport(tr));
   $('#trHide').onclick = () => { traceView = null; scene.setTrace(null); el.innerHTML = ''; };
 }
 
