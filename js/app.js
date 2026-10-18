@@ -16,7 +16,7 @@ import { parseWind, listen, say } from './voice.js';
 import { Recorder, listTracks, getTrack, deleteTrack, saveTrack, analyzeTrack, exportGPX, fromGPX } from './track.js';
 import { shroudsFor } from './tuning.js';
 
-export const APP_VERSION = 'v10 · effets de site';
+export const APP_VERSION = 'v11 · import GPX';
 const $ = (s, r = document) => r.querySelector(s);
 function toast(msg) {
   let t = document.getElementById('toast');
@@ -831,7 +831,8 @@ async function renderTracks() {
   try { list = await listTracks(); } catch { /* IndexedDB indisponible */ }
   let html = `<div class="card"><h3><span>Mes traces ${tip('Traces enregistrées dans l’onglet En course, ou importées (GPX d’un autre GPS, d’un équipier). Elles restent sur cet appareil ; exportez-les en GPX pour les garder ou les partager.')}</span></h3>
     ${list.length ? list.map((t) => `<div class="trow"><div><b>${esc(t.name)}</b><div class="small muted">${new Date(t.start).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })} · ${t.n} points</div></div><div class="btns" style="margin:0"><button class="btn small" data-tv="${t.id}">Analyser</button><button class="btn small alt" data-tx="${t.id}">GPX</button><button class="btn small alt" data-td="${t.id}" aria-label="Supprimer">✕</button></div></div>`).join('') : '<p class="small muted">Aucune trace. Lancez « Enregistrer ma trace » dans l’onglet En course.</p>'}
-    <label class="f" for="gpxIn">Importer un fichier GPX</label><input type="file" id="gpxIn" accept=".gpx,application/gpx+xml,application/xml,text/xml"></div><div id="traceDetail"></div>`;
+    <button class="btn alt" id="gpxBtn" style="width:100%;margin-top:8px">⤓ Importer un fichier GPX</button><input type="file" id="gpxIn" multiple hidden>
+    <div class="small muted" style="margin-top:4px">Depuis Open GPX Tracker ou une autre app : enregistrez la trace dans Fichiers (Partager → « Enregistrer dans Fichiers »), puis choisissez-la ici.</div></div><div id="traceDetail"></div>`;
   el.innerHTML = html;
   $$('[data-tv]', el).forEach((b) => b.onclick = () => showTrace(b.dataset.tv));
   $$('[data-tx]', el).forEach((b) => b.onclick = async () => exportGPX(await getTrack(b.dataset.tx)));
@@ -839,9 +840,15 @@ async function renderTracks() {
     if (b.dataset.confirm !== '1') { b.dataset.confirm = '1'; b.textContent = 'Supprimer ?'; return; }
     await deleteTrack(b.dataset.td); if (traceView?.id === b.dataset.td) { traceView = null; scene.setTrace(null); } renderTracks();
   });
+  // pas de filtre « accept » : sur iPhone, l’extension .gpx n’est pas reconnue et les fichiers apparaîtraient grisés
+  $('#gpxBtn').onclick = () => $('#gpxIn').click();
   $('#gpxIn').onchange = async (e) => {
-    const f = e.target.files[0]; if (!f) return;
-    try { const tr = fromGPX(await f.text(), f.name); await saveTrack(tr); toast(`Trace importée : ${tr.pts.length} points`); renderTracks(); showTrace(tr.id); } catch (err) { toast('Import impossible : ' + err.message); }
+    const files = [...e.target.files]; e.target.value = ''; if (!files.length) return;
+    let last = null, ok = 0;
+    for (const f of files) {
+      try { const tr = fromGPX(await f.text(), f.name); await saveTrack(tr); last = tr; ok++; } catch (err) { toast(`Import impossible (${f.name}) : ${err.message}`); }
+    }
+    if (last) { toast(ok > 1 ? `${ok} traces importées` : `Trace importée : ${last.pts.length} points`); renderTracks(); showTrace(last.id); }
   };
   if (traceView) renderTraceDetail();
 }

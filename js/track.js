@@ -113,13 +113,18 @@ export function toGPX(tr) {
   return `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="Rade Tactique" xmlns="http://www.topografix.com/GPX/1/1">\n<metadata><name>${tr.name.replace(/[<&]/g, '')}</name><time>${new Date(tr.start).toISOString()}</time></metadata>\n<trk><name>${tr.name.replace(/[<&]/g, '')}</name><trkseg>\n${pts}\n</trkseg></trk>\n</gpx>\n`;
 }
 export function fromGPX(text, name) {
-  const doc = new DOMParser().parseFromString(text, 'application/xml');
-  const pts = [...doc.getElementsByTagName('trkpt')].map((e) => {
-    const t = Date.parse(e.getElementsByTagName('time')[0]?.textContent || '');
-    return [t, +e.getAttribute('lat'), +e.getAttribute('lon'), null, null, 5];
-  }).filter((p) => !isNaN(p[0]) && !isNaN(p[1]));
-  if (pts.length < 2) throw new Error('aucun point horodaté dans ce fichier');
-  return { id: 'tr' + pts[0][0] + Math.round(Math.random() * 1000), name: name.replace(/\.gpx$/i, ''), start: pts[0][0], course: null, pts, imported: true };
+  const doc = new DOMParser().parseFromString(text.replace(/^\uFEFF/, ''), 'application/xml');
+  if (doc.getElementsByTagName('parsererror').length || !doc.getElementsByTagName('gpx').length) throw new Error('ce fichier n’est pas un GPX lisible');
+  // points de trace, sinon points de route ou waypoints horodatés (selon l’app qui a exporté)
+  let els = [...doc.getElementsByTagName('trkpt')];
+  if (els.length < 2) els = [...doc.getElementsByTagName('rtept'), ...doc.getElementsByTagName('wpt')];
+  const all = els.map((e) => [Date.parse(e.getElementsByTagName('time')[0]?.textContent?.trim() || ''), +e.getAttribute('lat'), +e.getAttribute('lon'), null, null, 5]);
+  const pos = all.filter((p) => isFinite(p[1]) && isFinite(p[2]) && (p[1] || p[2]));
+  if (pos.length < 2) throw new Error('aucun point de trace dans ce fichier');
+  const pts = pos.filter((p) => !isNaN(p[0])).sort((x, y) => x[0] - y[0]).filter((p, i, A) => !i || p[0] > A[i - 1][0]);
+  if (pts.length < 2) throw new Error('les points ne sont pas horodatés : réexportez la trace avec l’heure de chaque point');
+  const trkName = doc.querySelector('trk > name')?.textContent?.trim();
+  return { id: 'tr' + pts[0][0] + Math.round(Math.random() * 1000), name: trkName || name.replace(/\.(gpx|xml|txt)$/i, ''), start: pts[0][0], course: null, pts, imported: true };
 }
 export async function exportGPX(tr) {
   const file = new File([toGPX(tr)], `${tr.name.replace(/[^\w\- ]+/g, '_')}.gpx`, { type: 'application/gpx+xml' });
