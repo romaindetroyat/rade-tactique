@@ -66,10 +66,27 @@ export function createStartMode(api) {
       const up = optimalAngles(Math.max(2, w.spd)).up, bsp = boatSpeed(w.spd, up.twa) * 0.5144;
       const best = Math.max(...[-1, 1].map((s) => Math.cos(((w.dir + s * up.twa) - L.up) * Math.PI / 180)));
       out.ttlFull = best > 0.05 ? out.d / (bsp * best) : null;
+      // temps pour la ligne en lançant maintenant au près : relance du J80 (≈ 0,25 m/s²) depuis la vitesse actuelle
+      if (best > 0.05) {
+        const V = bsp * best, v0 = Math.min(V, Math.max(0, (q.sog ?? 0) * 0.5144 * best)), a = 0.25 * best;
+        const da = (V * V - v0 * v0) / (2 * a);
+        out.ttlLaunch = out.d <= da ? (-v0 + Math.sqrt(v0 * v0 + 2 * a * out.d)) / a : (V - v0) / a + (out.d - da) / V;
+      }
+    }
+    // après le départ : marque suivante et bascules par rapport au vent de référence
+    const fm = api.firstMark?.();
+    if (fm) { out.mk = { d: distXY(b, fm), brg: bearingXY(b, fm), name: fm.name }; }
+    if (w && q.cog != null && q.sog > 1.5) {
+      const twa = norm180(q.cog - w.dir), up = optimalAngles(Math.max(2, w.spd)).up.twa;
+      if (Math.abs(twa) < 70) {
+        const stb = twa < 0, expected = stb ? w.dir - up : w.dir + up, delta = norm180(q.cog - expected);
+        out.shift = stb ? delta : -delta; // > 0 : adonne
+      }
     }
     const rem = api.timer.end ? (api.timer.end - Date.now()) / 1000 : null;
     out.rem = rem;
-    if (rem != null && rem > 0 && out.ttl != null) out.burn = rem - out.ttl;
+    const ttlB = out.ttlLaunch ?? out.ttl;
+    if (rem != null && rem > 0 && ttlB != null) out.burn = rem - ttlB;
     return out;
   }
 
@@ -96,16 +113,17 @@ export function createStartMode(api) {
         <button class="sm-x" data-a="close" aria-label="Fermer le mode départ">✕</button>
         <div class="sm-views"><button data-a="vnum" class="on">Chiffres</button><button data-a="vline">Ligne</button></div>
         <span class="sm-gps" id="smGps">GPS…</span>
+        <button class="sm-lock" data-a="lock" id="smLock" aria-label="Verrouiller l’écran">🔓</button>
         <button class="sm-gear" data-a="gear" aria-label="Réglages">⚙</button>
       </div>
       <div class="sm-main">
-        <div class="sm-clockbox"><div class="sm-clock" id="smClock">5:00</div><div class="sm-phase" id="smPhase">Touchez DÉPART 5’ au signal</div></div>
+        <div class="sm-clockbox" data-a="clock" data-lockhold="clock"><div class="sm-clock" id="smClock">5:00</div><div class="sm-phase" id="smPhase">Touchez DÉPART 5’ au signal</div></div>
         <div class="sm-fav" id="smFav"><span class="l"></span><b></b><span class="r"></span></div>
         <div class="sm-num" id="smNumView">
           <div class="sm-big" id="smDist"><span>Ligne</span><b>—</b><small></small></div>
           <div class="sm-big" id="smBurn"><span>À brûler</span><b>—</b><small></small></div>
           <div class="sm-row">
-            <div class="sm-mini" id="smTtl"><span>Temps ligne</span><b>—</b></div>
+            <div class="sm-mini" id="smTtl"><span>Lancé, ligne en</span><b>—</b></div>
             <div class="sm-mini" id="smSog"><span>Vitesse</span><b>—</b></div>
             <div class="sm-mini" id="smCog"><span>Cap</span><b>—</b></div>
           </div>
@@ -116,7 +134,7 @@ export function createStartMode(api) {
         <div class="sm-adj"><button data-a="m1">−1 min</button><button data-a="sync">Arrondir</button><button data-a="p1">+1 min</button></div>
         <div class="sm-acts">
           <button class="sm-ping" data-hold="ppin"><span class="fill"></span><b>BOUÉE</b><small>maintenir pour pinguer</small></button>
-          <button class="sm-go" data-a="go" id="smGo"><b>DÉPART 5’</b><small>au signal</small></button>
+          <button class="sm-go" data-a="go" data-lockhold="go" id="smGo"><b>DÉPART 5’</b><small>au signal</small></button>
           <button class="sm-ping" data-hold="pcb"><span class="fill"></span><b>COMITÉ</b><small>maintenir pour pinguer</small></button>
         </div>
       </div>
@@ -132,12 +150,29 @@ export function createStartMode(api) {
           <div class="sm-sheet-sec"><span>Bateau et affichage</span>
             <div class="sm-stepper"><span>GPS → étrave</span><button data-a="bm">−</button><b id="smBowV">5 m</b><button data-a="bp">+</button></div>
             <div class="sm-grid2"><button data-a="voice" id="smVoice">Voix</button><button data-a="sun" id="smSun">Plein soleil</button></div>
+            <div class="sm-grid2"><button data-a="bips" id="smBips">Bips</button><button data-a="help" id="smHelpBtn">Aide</button></div>
             <small class="sm-hint" id="smPinged"></small></div>
         </div>
       </div>`;
     document.body.appendChild(root);
     if (api.S.startSun) root.classList.add('sun');
-    root.addEventListener('click', (e) => { const a = e.target.closest('[data-a]')?.dataset.a; if (a) act(a); });
+    root.addEventListener('click', (e) => {
+      const a = e.target.closest('[data-a]')?.dataset.a; if (!a) return;
+      if (locked && a !== 'lock') return; // écran verrouillé : seuls les appuis maintenus agissent
+      if (locked && a === 'lock') return;  // déverrouillage par appui maintenu
+      act(a);
+    });
+    // écran verrouillé : synchro et déverrouillage par appui maintenu (0,6 s)
+    root.querySelectorAll('[data-lockhold], #smLock').forEach((b) => {
+      let tm = null;
+      b.addEventListener('pointerdown', (e) => {
+        if (!locked) return;
+        try { b.setPointerCapture(e.pointerId); } catch { /* sans capture */ }
+        b.classList.add('holding');
+        tm = setTimeout(() => { b.classList.remove('holding'); tm = null; if (b.id === 'smLock') { locked = false; root.classList.remove('locked'); updateToggles(); api.beep(900, 0.08); } else act(b.dataset.lockhold); }, 600);
+      });
+      ['pointerup', 'pointercancel'].forEach((ev) => b.addEventListener(ev, () => { if (tm) { clearTimeout(tm); tm = null; b.classList.remove('holding'); } }));
+    });
     // ping par appui maintenu (0,7 s) : évite les fausses manœuvres avec des doigts mouillés
     root.querySelectorAll('[data-hold]').forEach((b) => {
       let tm = null;
@@ -149,11 +184,15 @@ export function createStartMode(api) {
     });
     updateToggles();
   }
-  let view = 'num';
+  let view = 'num', locked = false;
   function setT(sec) { api.audioInit(); api.timer.end = Date.now() + sec * 1000; api.timer.beeps.clear(); api.startTimer(); st.crossed = null; st.ocs = false; lastSaid = null; }
   function act(a) {
     const T = api.timer, $ = (s) => root.querySelector(s);
     if (a === 'close') return close();
+    if (a === 'lock') { locked = true; root.classList.add('locked'); $('#smSheet').hidden = true; updateToggles(); api.toast?.('Écran verrouillé : maintenir 🔒 pour déverrouiller'); return; }
+    if (a === 'clock') { if (T.end && T.end > Date.now() - 600000) { const r = (T.end - Date.now()) / 1000; T.end = Date.now() + Math.round(r / 60) * 60000; api.beep(1000, 0.1); } return; }
+    if (a === 'bips') { api.S.startBips = !(api.S.startBips ?? true); api.persist(); updateToggles(); return; }
+    if (a === 'help') { $('#smSheet').hidden = true; return api.help?.(); }
     if (a === 'go') { if (!T.end || T.end < Date.now() - 600000) setT(300); else { const r = (T.end - Date.now()) / 1000; T.end = Date.now() + Math.round(r / 60) * 60000; api.beep(1000, 0.1); } }
     else if (a === 't5' || a === 't4' || a === 't1') { setT(a === 't5' ? 300 : a === 't4' ? 240 : 60); $('#smSheet').hidden = true; }
     else if (a === 'sync' && T.end) { const r = (T.end - Date.now()) / 1000; T.end = Date.now() + Math.round(r / 60) * 60000; api.beep(1000, 0.1); }
@@ -174,6 +213,8 @@ export function createStartMode(api) {
     if (!root) return;
     root.querySelector('#smVoice').textContent = (api.S.startVoice ?? true) ? '🔊 Voix activée' : '🔇 Voix coupée';
     root.querySelector('#smSun').textContent = api.S.startSun ? '☀ Plein soleil' : '🌙 Écran sombre';
+    root.querySelector('#smBips').textContent = (api.S.startBips ?? true) ? '📶 Bips à brûler' : '🔕 Sans bips';
+    root.querySelector('#smLock').textContent = locked ? '🔒' : '🔓';
     root.querySelector('#smBowV').textContent = `${String(api.S.bowOffset ?? 5).replace('.', ',')} m`;
   }
   function setWind(dir, src) { api.S.startWind = { dir: Math.round(norm360(dir)), spd: wind()?.spd, src, t: Date.now() }; api.persist(); }
@@ -230,7 +271,7 @@ export function createStartMode(api) {
     const m = metrics(), $ = (s) => root.querySelector(s);
     const g = api.gps();
     const acc = g?.pos?.acc;
-    $('#smGps').textContent = g?.pos ? `GPS ±${Math.round(acc ?? 0)} m` : g?.err ? 'GPS indisponible' : 'GPS…';
+    $('#smGps').textContent = g?.pos ? `±${Math.round(acc ?? 0)} m` : g?.err ? 'GPS ✕' : 'GPS…';
     $('#smGps').className = 'sm-gps ' + (!g?.pos ? 'bad' : acc > 15 ? 'warn' : 'good');
     // chrono et bouton principal
     const r = m.rem, go = $('#smGo');
@@ -247,6 +288,8 @@ export function createStartMode(api) {
       go.innerHTML = e < 600 ? '<b>SYNCHRO</b><small>arrondir</small>' : '<b>DÉPART 5’</b><small>nouvelle procédure</small>';
     }
     root.classList.toggle('sm-last', r != null && r > 0 && r <= 60);
+    const race = r != null && r <= -15;
+    root.classList.toggle('sm-race', race);
     root.classList.toggle('sm-gun', r != null && r <= 0 && r > -10);
     // distance à la ligne
     const big = (id, val, sub, cls) => { const t = $(id); t.querySelector('b').textContent = val; t.querySelector('small').textContent = sub ?? ''; t.className = 'sm-big ' + (cls || ''); };
@@ -262,8 +305,24 @@ export function createStartMode(api) {
     } else big('#smDist', '—', m.L ? 'en attente du GPS' : 'pinguez Comité et bouée', '');
     if (m.burn != null) big('#smBurn', m.burn >= 0 ? fmtS(m.burn) : `−${fmtS(m.burn)}`, m.burn >= 0 ? (m.burn < 6 ? 'LANCEZ !' : 'à perdre avant de lancer') : 'EN RETARD', m.burn < 0 ? 'bad' : m.burn < 6 ? 'good' : '');
     else big('#smBurn', '—', r == null ? 'chrono arrêté' : r <= 0 ? 'départ donné' : m.away ? 'route opposée à la ligne' : 'en route vers la ligne', '');
+    // en course (15 s après le signal) : marque suivante et bascules à la place de la ligne et du temps à brûler
+    const lab = (id, t) => { $(id).querySelector('span').textContent = t; };
+    if (race) {
+      lab('#smDist', m.mk ? `Marque ${m.mk.name}` : 'Marque suivante');
+      if (m.mk) big('#smDist', m.mk.d >= 1852 ? `${(m.mk.d / 1852).toFixed(1).replace('.', ',')} Nq` : `${Math.round(m.mk.d)} m`, `au ${fmtBrg(m.mk.brg)}`, '');
+      lab('#smBurn', 'Bascule');
+      if (m.shift != null) big('#smBurn', `${m.shift >= 0 ? '+' : '−'}${Math.abs(Math.round(m.shift))}°`, Math.abs(m.shift) < 4 ? 'dans l’axe' : m.shift > 0 ? 'ADONNE' : 'REFUSE', Math.abs(m.shift) < 4 ? '' : m.shift > 0 ? 'good' : 'bad');
+      else big('#smBurn', '—', 'au près seulement', '');
+    } else { lab('#smDist', 'Ligne'); lab('#smBurn', 'À brûler'); }
+    // bips de plus en plus rapprochés quand le temps à brûler approche de zéro, puis « Lance ! »
+    if ((api.S.startBips ?? true) && r != null && r > 0 && m.burn != null && !race) {
+      const now = performance.now();
+      if (m.burn > 5) st.launched = false;
+      if (m.burn <= 1 && !st.launched) { st.launched = true; api.beep(1400, 0.5); if (api.S.startVoice ?? true) api.say('Lance !'); }
+      else if (m.burn > 1 && m.burn <= 20 && now >= (st.nextClick ?? 0)) { api.beep(1600, 0.04); st.nextClick = now + Math.max(250, m.burn * 120); }
+    }
     const mini = (id, v) => { $(id).querySelector('b').textContent = v; };
-    mini('#smTtl', m.ttl != null ? fmtS(m.ttl) : m.ttlFull != null ? `~${fmtS(m.ttlFull)}` : '—');
+    mini('#smTtl', m.ttlLaunch != null ? fmtS(m.ttlLaunch) : m.ttl != null ? fmtS(m.ttl) : '—');
     mini('#smSog', m.q?.sog != null ? `${m.q.sog.toFixed(1).replace('.', ',')}` : '—');
     mini('#smCog', m.q?.cog != null ? fmtBrg(m.q.cog) : '—');
     // extrémité favorisée : bandeau du côté concerné (bouée à gauche, Comité à droite, comme vu au vent)

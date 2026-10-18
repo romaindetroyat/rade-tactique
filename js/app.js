@@ -18,7 +18,7 @@ import { shroudsFor } from './tuning.js';
 import { createStartMode } from './startmode.js';
 import { detect as dbDetect, ask as dbAsk, askModes as dbAskModes, analyze as dbAnalyze, narrative as dbNarrative, buildReport as dbBuild, shareReport as dbShare } from './debrief.js';
 
-export const APP_VERSION = 'v17 · mode départ plein écran';
+export const APP_VERSION = 'v18 · départ : phases, bips, relance';
 const $ = (s, r = document) => r.querySelector(s);
 function toast(msg) {
   let t = document.getElementById('toast');
@@ -633,7 +633,8 @@ function renderCourse() {
 let timer = { end: null, running: false, iv: null, beeps: new Set() };
 const startMode = createStartMode({
   S, persist, timer, beep: (...x) => beep(...x), audioInit: () => audioInit(), startTimer: () => startTimer(), startGps: () => startGps(), gps: () => gps, say, toast,
-  setLineEnd: (w, ll) => setLineEnd(w, ll), reanalyse: () => scheduleAnalysis(),
+  setLineEnd: (w, ll) => setLineEnd(w, ll), reanalyse: () => scheduleAnalysis(), help: () => openGuide(),
+  firstMark: () => { const l = analysis?.legs?.[0]; return l ? { x: l.to.x, y: l.to.y, name: l.order ? String(l.order) : (l.to.name || '').split(' ')[0] } : null; },
   line: () => S.lineOverride?.cb && S.lineOverride?.pin ? S.lineOverride : analysis ? { cb: toLL(analysis.line.cb.x, analysis.line.cb.y), pin: toLL(analysis.line.pin.x, analysis.line.pin.y) } : null,
   windAt: (p) => {
     const o = dayObs().slice(-1)[0];
