@@ -204,3 +204,47 @@ pre.ictext { white-space: pre-wrap; font-size: 11.5px; max-height: 320px; overfl
 
 .leg .site { margin-top: 6px; padding: 6px 8px; border-left: 3px solid #2aa198; background: rgba(42,161,152,.08); border-radius: 6px; font-size: 13px; }
 .leg .site ul { margin: 4px 0 0; }
+
+/* ───────── mode départ plein écran : grands chiffres, gros boutons, lisible au soleil et avec des doigts mouillés */
+.startmode-btn { width: 100%; display: grid; gap: 2px; text-align: center; padding: 14px; font-size: 18px; margin-bottom: 10px; }
+.startmode-btn small { font-size: 12px; font-weight: 400; opacity: .9; }
+#startMode { --sm-bg: #07141c; --sm-fg: #f4f8fa; --sm-mut: #9db3c1; --sm-tile: #10222e; --sm-acc: #ff8a1c; --sm-good: #3ddc84; --sm-bad: #ff4d4d; --sm-warn: #ffd24d; --sm-line: #ffffff; --sm-over: rgba(255, 77, 77, .10);
+  position: fixed; inset: 0; z-index: 60; background: var(--sm-bg); color: var(--sm-fg); overflow-y: auto; -webkit-overflow-scrolling: touch;
+  padding: calc(env(safe-area-inset-top, 0px) + 8px) max(12px, env(safe-area-inset-right, 0px)) calc(env(safe-area-inset-bottom, 0px) + 14px) max(12px, env(safe-area-inset-left, 0px));
+  display: grid; gap: 10px; align-content: start; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+#startMode[hidden] { display: none; }
+body.startmode-open { overflow: hidden; }
+#startMode button { font: inherit; color: inherit; background: var(--sm-tile); border: 1px solid #2a4556; border-radius: 12px; padding: 12px 10px; font-weight: 600; touch-action: manipulation; }
+#startMode button:active { background: #1d3a4b; }
+.sm-top { display: flex; align-items: center; gap: 10px; }
+.sm-top b { flex: 1; font-size: 18px; letter-spacing: .04em; text-transform: uppercase; }
+#startMode .sm-x { width: 46px; height: 46px; padding: 0; font-size: 20px; }
+#startMode .sm-chip { padding: 8px 10px; font-size: 14px; }
+.sm-gps { font-size: 13px; color: var(--sm-mut); font-variant-numeric: tabular-nums; }
+.sm-clockrow { text-align: center; }
+.sm-clock { font-size: clamp(64px, 22vw, 150px); font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+#startMode.sm-last .sm-clock { color: var(--sm-acc); }
+.sm-phase { font-size: 17px; color: var(--sm-mut); margin-top: 4px; }
+.sm-tbtns { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }
+.sm-tbtns button { padding: 12px 2px !important; font-size: 15px; }
+.sm-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.sm-tile { background: var(--sm-tile); border-radius: 14px; padding: 10px 12px; display: grid; gap: 2px; border: 2px solid transparent; }
+.sm-tile span { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--sm-mut); }
+.sm-tile b { font-size: clamp(30px, 9vw, 52px); font-weight: 800; line-height: 1.05; font-variant-numeric: tabular-nums; }
+.sm-tile small { font-size: 12.5px; color: var(--sm-mut); }
+.sm-tile.bad { border-color: var(--sm-bad); } .sm-tile.bad b { color: var(--sm-bad); }
+.sm-tile.warn b { color: var(--sm-warn); } .sm-tile.good b { color: var(--sm-good); }
+#smCanvas { width: 100%; height: 34vh; min-height: 200px; background: var(--sm-tile); border-radius: 14px; display: block; }
+.sm-bias { font-size: 17px; text-align: center; } .sm-bias .fav { color: var(--sm-good); font-size: 20px; }
+.sm-wind { display: grid; gap: 6px; font-size: 15px; }
+.sm-wbtns { display: flex; flex-wrap: wrap; gap: 6px; } .sm-wbtns button { flex: 1 1 auto; padding: 10px 8px !important; font-size: 14px; }
+.sm-hint { color: var(--sm-mut); font-size: 12.5px; }
+.sm-pings { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+#startMode .sm-ping { padding: 18px 8px; font-size: 19px; background: #173447; border-color: var(--sm-acc); }
+.sm-foot { display: flex; flex-wrap: wrap; gap: 8px 14px; justify-content: space-between; font-size: 13px; color: var(--sm-mut); }
+.sm-foot input { width: 64px; font-size: 16px; padding: 6px; border-radius: 8px; border: 1px solid #2a4556; background: var(--sm-tile); color: var(--sm-fg); }
+@media (orientation: landscape) and (min-width: 700px) {
+  #startMode { grid-template-columns: 1fr 1fr; column-gap: 16px; }
+  .sm-top, .sm-foot { grid-column: 1 / -1; }
+  #smCanvas { height: 46vh; grid-row: span 3; }
+}

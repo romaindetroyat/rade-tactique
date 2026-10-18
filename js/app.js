@@ -15,8 +15,9 @@ import { initTips, maybeWelcome, openGuide, openShare, tip } from './help.js';
 import { parseWind, listen, say } from './voice.js';
 import { Recorder, listTracks, getTrack, deleteTrack, saveTrack, analyzeTrack, exportGPX, fromGPX } from './track.js';
 import { shroudsFor } from './tuning.js';
+import { createStartMode } from './startmode.js';
 
-export const APP_VERSION = 'v14 · vent freiné près des côtes';
+export const APP_VERSION = 'v15 · mode départ';
 const $ = (s, r = document) => r.querySelector(s);
 function toast(msg) {
   let t = document.getElementById('toast');
@@ -629,10 +630,21 @@ function renderCourse() {
 
 // ───────────────────────── DÉPART
 let timer = { end: null, running: false, iv: null, beeps: new Set() };
+const startMode = createStartMode({
+  S, persist, timer, beep: (...x) => beep(...x), audioInit: () => audioInit(), startTimer: () => startTimer(), startGps: () => startGps(), gps: () => gps, say, toast,
+  setLineEnd: (w, ll) => setLineEnd(w, ll),
+  line: () => S.lineOverride?.cb && S.lineOverride?.pin ? S.lineOverride : analysis ? { cb: toLL(analysis.line.cb.x, analysis.line.cb.y), pin: toLL(analysis.line.pin.x, analysis.line.pin.y) } : null,
+  windAt: (p) => {
+    const o = dayObs().slice(-1)[0];
+    if (o && Date.now() - (o.t ?? 0) < 2 * 3600e3) return { dir: o.dir, spd: o.spd, src: 'dernier relevé' };
+    const w = F.sample(p.x, p.y); return { dir: w.dir, spd: w.spd, src: S.src === 'manual' ? 'vent manuel' : 'prévision' };
+  },
+});
 function renderStart() {
   const el = $('section[data-tab=start]');
   const A = analysis;
-  let html = `<div class="card"><h3>Ligne de départ ${tip('Position théorique de la ligne selon le cahier. Sur l’eau, passez au ras du bateau Comité et de la bouée et « pinguez » pour enregistrer la vraie ligne.')}</h3>
+  let html = `<button class="btn acc startmode-btn" id="smOpen">⛵ Mode départ plein écran <small>ping Comité / bouée · distance à la ligne · temps à brûler · côté favorisé</small></button>
+    <div class="card"><h3>Ligne de départ ${tip('Position théorique de la ligne selon le cahier. Sur l’eau, passez au ras du bateau Comité et de la bouée et « pinguez » pour enregistrer la vraie ligne.')}</h3>
     <label class="f">Position de la ligne</label><select id="lPre">${Object.entries(LINE_PRESETS).map(([k, v]) => `<option value="${k}" ${k === S.linePreset ? 'selected' : ''}>${esc(v.label)}</option>`).join('')}</select>
     <div class="row2"><div><label class="f">Longueur (Nq)</label><input id="lLen" type="number" min="0.04" max="0.4" step="0.01" value="${S.lineLen}"></div>
     <div><label class="f">Orientation</label><select id="lMode"><option value="wind" ${S.lineMode === 'wind' ? 'selected' : ''}>⟂ au vent local</option><option value="axis" ${S.lineMode === 'axis' ? 'selected' : ''}>⟂ au 1er bord</option><option value="fixed" ${S.lineMode === 'fixed' ? 'selected' : ''}>Cap saisi</option></select></div></div>
@@ -658,6 +670,7 @@ function renderStart() {
   $('#lMode').onchange = (e) => { S.lineMode = e.target.value; S.lineOverride = null; persist(); scheduleAnalysis(); renderStart(); };
   if ($('#lBrg')) $('#lBrg').onchange = (e) => { S.lineBrg = norm360(+e.target.value || 0); persist(); scheduleAnalysis(); };
   $('#lReset')?.addEventListener('click', () => { S.lineOverride = null; persist(); scheduleAnalysis(); });
+  $('#smOpen').onclick = () => startMode.open();
   $('#pingCb').onclick = () => pingLine('cb');
   $('#pingPin').onclick = () => pingLine('pin');
   const setT = (sec) => { audioInit(); timer.end = Date.now() + sec * 1000; timer.beeps.clear(); startTimer(); };
@@ -705,9 +718,10 @@ function startGps() {
   gps.watch = navigator.geolocation.watchPosition((p) => {
     const q = { ...toXY(p.coords.latitude, p.coords.longitude), t: p.timestamp, acc: p.coords.accuracy, lat: p.coords.latitude, lon: p.coords.longitude };
     gps.hist.push(q); gps.hist = gps.hist.filter((h) => q.t - h.t < 20000);
-    const o = gps.hist[0], dt = (q.t - o.t) / 1000;
-    if (dt > 3 && distXY(o, q) > 3) { q.sog = distXY(o, q) / dt / 0.5144; q.cog = bearingXY(o, q); }
-    else if (p.coords.speed != null) { q.sog = p.coords.speed / 0.5144; q.cog = p.coords.heading; }
+    // vitesse et cap : ceux du GPS quand il les donne (iPhone), sinon calculés sur les 6 dernières secondes
+    const o = gps.hist.find((h) => q.t - h.t <= 6000) || gps.hist[0], dt = (q.t - o.t) / 1000;
+    if (p.coords.speed != null && p.coords.speed >= 0) { q.sog = p.coords.speed / 0.5144; q.cog = p.coords.heading >= 0 ? p.coords.heading : (dt > 2 && distXY(o, q) > 2 ? bearingXY(o, q) : null); }
+    else if (dt > 2 && distXY(o, q) > 2) { q.sog = distXY(o, q) / dt / 0.5144; q.cog = bearingXY(o, q); }
     gps.pos = q;
     scene.setBoat(q, q.cog);
     if (follow) { const t = scene.controls.target, off = scene.camera.position.clone().sub(t); t.set(q.x, 0, -q.y); scene.camera.position.copy(t.clone().add(off)); }
