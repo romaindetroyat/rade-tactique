@@ -18,7 +18,7 @@ import { shroudsFor } from './tuning.js';
 import { createStartMode } from './startmode.js';
 import { detect as dbDetect, ask as dbAsk, askModes as dbAskModes, analyze as dbAnalyze, narrative as dbNarrative, buildReport as dbBuild, shareReport as dbShare } from './debrief.js';
 
-export const APP_VERSION = 'v18 · départ : phases, bips, relance';
+export const APP_VERSION = 'v19 · débrief : polaires';
 const $ = (s, r = document) => r.querySelector(s);
 function toast(msg) {
   let t = document.getElementById('toast');
@@ -859,7 +859,7 @@ async function runDebrief(tr) {
       if (near) return { dir: Math.round(near.dir), src: `votre relevé de ${new Date(near.t).toLocaleTimeString('fr-FR', { timeStyle: 'short' })}` };
       const f = forecastAt(t); return f ? { dir: Math.round(f.dir), src: 'la prévision' } : null;
     },
-    restoreField: () => updateDisplayField(),
+    restoreField: () => updateDisplayField(), obs: S.obs || [],
   };
   let det;
   try { det = dbDetect(tr); } catch (e) { toast('Débrief impossible : ' + e.message); return; }

@@ -17,6 +17,7 @@ Règles :
 - Ton direct et concret, vocabulaire de régate (bâbord/tribord amures, refusante, adonnante, lay-line, pression, molle). Phrases courtes. Pas de flatterie.
 - resume.bien / resume.coute / resume.meteo : une à trois phrases chacun.
 - bords : un élément par bord, dans l'ordre reçu ; verdict "good" (conforme ou mieux), "warn" (écart), "bad" (perte nette) ; titre de 1 à 3 mots ; texte de 2 à 4 phrases qui compare la route conseillée et la route suivie.
+- Chaque bord peut contenir « polaire » : pourcentage de la polaire J80 par allure (avec la sensibilité à ±1 nd de vent) et angles de virement ou d'empannage mesurés. Commente-les dans le texte du bord quand ils sont significatifs (moins de 90 % ou plus de 105 %), en rappelant que la force du vent vient d'un relevé ou de la prévision.
 - retenir : 3 à 5 leçons concrètes et réutilisables.`;
 
 const SCHEMA = {

@@ -161,8 +161,8 @@ export function analyze(det, ans, api) {
     const forced = ans.legModes?.[i];
     const prev = legs.length ? legs[legs.length - 1].wind.dir : ref0;
     if (oneTack && !forced) {
-      const up = optimalAngles(8).up.twa, c = [norm360(hd0 - up), norm360(hd0 + up)].sort((a, b) => Math.abs(norm180(a - prev)) - Math.abs(norm180(b - prev)))[0];
-      dir = Math.abs(norm180(c - prev)) < 25 ? c : prev; src = Math.abs(norm180(c - prev)) < 25 ? 'votre cap au près' : 'vent de référence';
+      // un seul bord ne permet pas de mesurer le vent (le cap dépend de l'angle choisi) : on garde la référence
+      dir = prev; src = legs.length ? 'bord précédent' : 'vent au départ';
     } else if (inLeg.length) {
       const mid = circMean(inLeg.map((w) => w.mid));
       if (forced === 'pres') { dir = Math.abs(norm180(mid - brg)) < 90 ? mid : norm360(mid + 180); src = 'vos bords de près'; }
@@ -201,6 +201,39 @@ export function analyze(det, ans, api) {
     if (st.slow > 0.08) { v.push(`${Math.round(st.slow * 100)} % du bord sous 2 nd.`); score += 1; }
     L.verdict = score >= 3 ? ['bad', 'À travailler'] : score >= 1 ? ['warn', 'Écart'] : ['good', 'Conforme'];
     L.notes = v;
+  }
+  // ── vitesse face à la polaire : force du vent indépendante de la vitesse du bateau (relevés, sinon prévision)
+  const twsAt = (t) => {
+    const o = (api.obs || []).filter((x) => x.t && x.spd != null && Math.abs(x.t - t) < 30 * 60000).sort((a, b) => Math.abs(a.t - t) - Math.abs(b.t - t))[0];
+    if (o) return { v: o.spd, src: 'vos relevés' };
+    const h0 = Math.floor(t / 3600000) * 3600000, a = api.forecastAt(h0), b = api.forecastAt(h0 + 3600000);
+    if (a?.spd != null && b?.spd != null) return { v: a.spd + (b.spd - a.spd) * (t - h0) / 3600000, src: 'la prévision' };
+    if (a?.spd != null || b?.spd != null) return { v: (a ?? b).spd, src: 'la prévision' };
+    return null;
+  };
+  for (const L of legs) {
+    const S = P.filter((p) => p.t >= L.ta && p.t <= L.tb && p.v > 1.5);
+    const cats = {};
+    let src = null;
+    for (const p of S) {
+      const tw = twsAt(p.t); if (!tw) continue; src = tw.src;
+      const twa = Math.abs(norm180(p.hd - L.wind.dir)), k = twa < 60 ? 'près' : twa < 110 ? 'travers' : 'portant';
+      (cats[k] ??= []).push({ v: p.v, twa, tws: tw.v });
+    }
+    const med = (a) => { const x = [...a].sort((p, q) => p - q); return x[Math.floor(x.length / 2)]; };
+    L.polar = Object.entries(cats).filter(([, a]) => a.length >= 60 && a.length >= 0.1 * S.length).map(([k, a]) => {
+      const pct = (d) => Math.round(med(a.map((x) => { const tg = boatSpeed(Math.max(2, x.tws + d), x.twa); return tg > 0.8 ? x.v / tg : NaN; }).filter((r) => isFinite(r))) * 100);
+      const tws = med(a.map((x) => x.tws)), twa = med(a.map((x) => x.twa));
+      return { allure: k, n: a.length, twa: Math.round(twa), tws: +tws.toFixed(1), v: +med(a.map((x) => x.v)).toFixed(1), tgt: +boatSpeed(tws, twa).toFixed(1), pct: pct(0), pctLo: pct(-1), pctHi: pct(1) };
+    });
+    L.polarSrc = src;
+    // angles de virement / d'empannage mesurés (routes fond) face à la polaire
+    const inL = W.filter((w) => w.t - 240000 >= L.ta && w.t + 240000 <= L.tb);
+    if (inL.length) {
+      const sep = inL.reduce((s, w) => s + w.sep, 0) / inL.length, o = optimalAngles(Math.max(3, L.wind.spd));
+      const up = L.plan.type.id === 'pres';
+      L.angles = { mesure: Math.round(sep), polaire: Math.round(up ? 2 * o.up.twa : 2 * (180 - o.down.twa)), kind: up ? 'virement' : 'empannage' };
+    }
   }
   return { tStart, tFin, legs, W, launches: det.launches, startP };
 }
@@ -281,6 +314,7 @@ export async function narrative(an, ans) {
     bords: an.legs.map((L) => ({ nom: L.name, debut: hm(L.ta), fin: hm(L.tb), vent: `${fmtBrg(L.wind.dir)} ${String(L.wind.spd).replace(".", ",")} nd (${L.wind.src})`, type: L.plan.type.label,
       reel: { duree_min: +(L.st.dur / 60).toFixed(1), distance_nq: +(L.st.dist / 1852).toFixed(2), directe_nq: +(L.st.direct / 1852).toFixed(2), manoeuvres: L.st.man, part_droite: Math.round(L.st.right * 100), ecart_max_m: Math.round(L.st.maxOff), part_sous_2nd: Math.round(L.st.slow * 100) },
       conseil: { duree_min: L.planTime ? +(L.planTime / 60).toFixed(1) : null, manoeuvres: L.plan.route?.maneuvers, part_droite: L.plan.route ? Math.round(L.plan.route.rightShare * 100) : null, ecart_max_m: L.plan.route ? Math.round(L.plan.route.maxOff) : null, conseils: L.plan.advice, effets_de_site: (L.plan.site || []).map((s) => s.text) },
+      polaire: { source_vent: L.polarSrc, allures: (L.polar || []).map((x) => ({ allure: x.allure, twa: x.twa, vent_nd: x.tws, vitesse_nd: x.v, polaire_nd: x.tgt, pourcentage: x.pct, si_vent_moins_1nd: x.pctLo, si_vent_plus_1nd: x.pctHi })), angles: L.angles || null },
       verdict_auto: L.verdict[1], remarques_auto: L.notes })),
   };
   if (navigator.onLine) {
@@ -323,6 +357,17 @@ async function mapImage(an, P, meta) {
   const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
   cv.getContext('2d').drawImage(img, px(Wl), py(N), sw, sh, 0, 0, w, h);
   return { bbox: [Wl, E, S, N], url: cv.toDataURL('image/jpeg', 0.72), w, h };
+}
+
+function polarSection(an) {
+  const rows = an.legs.flatMap((L) => (L.polar || []).map((x) => `<tr><td>${esc(L.name)}</td><td>${esc(x.allure)}, TWA ${x.twa}°</td><td class="n">${String(x.tws).replace('.', ',')} nd</td><td class="n">${String(x.v).replace('.', ',')} nd</td><td class="n">${String(x.tgt).replace('.', ',')} nd</td><td class="n"><b>${x.pct} %</b> <span style="color:var(--muted)">(${x.pctLo} / ${x.pctHi})</span></td></tr>`));
+  const ang = an.legs.filter((L) => L.angles).map((L) => `<li>${esc(L.name)} : angle ${L.angles.kind === 'virement' ? 'de virement' : 'd’empannage'} mesuré <b>${L.angles.mesure}°</b> (routes fond), polaire ${L.angles.polaire}°. ${L.angles.kind === 'virement' ? (L.angles.mesure - L.angles.polaire > 12 ? 'Vous serriez moins le vent que la polaire, ou la dérive était forte.' : 'Cap au près conforme, dérive comprise.') : (L.angles.mesure - L.angles.polaire > 15 ? 'Empannages plus serrés que l’optimum : normal par petit temps, à surveiller dans la brise.' : 'Angles au portant conformes.')}</li>`).join('');
+  if (!rows.length && !ang) return '<section><h2>5 · Vitesse face à la polaire J80</h2><p class="note">Pas de force de vent indépendante (ni relevé, ni prévision pour ce jour) : la comparaison à la polaire n’est pas possible. Un relevé de force pendant la course la rend possible.</p></section>';
+  const src = [...new Set(an.legs.map((L) => L.polarSrc).filter(Boolean))].join(' et ');
+  return `<section><h2>5 · Vitesse face à la polaire J80</h2>
+<div class="tbl"><table class="wide"><tr><th>Bord</th><th>Allure</th><th>Vent</th><th>Vous</th><th>Polaire</th><th>% polaire (vent −1 / +1 nd)</th></tr>${rows.join('')}</table></div>
+${ang ? `<ul class="list">${ang}</ul>` : ''}
+<p class="note">Vitesse fond GPS comparée à la polaire ORC du J80, médiane de chaque allure. Force du vent tirée de ${esc(src || 'la prévision')}, direction de vos changements d’amure. Entre parenthèses : le résultat si le vent avait 1 nd de moins ou de plus, pour juger de la sensibilité. Les moments arrêtés (moins de 1,5 nd) sont exclus.</p></section>`;
 }
 
 export async function buildReport(an, ans, nar, det, api) {
@@ -400,8 +445,9 @@ td.n{font-family:ui-monospace,Menlo,monospace;font-size:13px;white-space:nowrap}
 <p class="note">Le vent est déduit de la trace : la direction vient de l’angle entre vos deux amures, la force de votre vitesse comparée à la polaire J80. Les temps « conseil » servent à comparer des choix de route, pas à juger la vitesse.</p></section>
 <section><h2>3 · La stratégie de l’app avec ce vent</h2><div class="legs">${stratCards}</div></section>
 <section><h2>4 · Ce que vous avez fait</h2><div class="steps">${steps.map(([t, x]) => `<div class="step"><span class="t">${t}</span><p>${x}</p></div>`).join('')}</div>${ans.notes ? `<p><b>Sur l’eau :</b> ${esc(ans.notes)}</p>` : ''}</section>
-<section><h2>5 · Les écarts</h2><div class="tbl"><table class="wide"><tr><th>Bord</th><th>Route conseillée</th><th>Votre route</th><th>Temps réel / conseil</th><th>Lecture</th></tr>${gapRows}</table></div></section>
-<section><h2>6 · À retenir</h2><ul class="list">${(nar.retenir || []).map((x) => `<li>${esc(x)}</li>`).join('')}</ul></section>
+${polarSection(an)}
+<section><h2>6 · Les écarts</h2><div class="tbl"><table class="wide"><tr><th>Bord</th><th>Route conseillée</th><th>Votre route</th><th>Temps réel / conseil</th><th>Lecture</th></tr>${gapRows}</table></div></section>
+<section><h2>7 · À retenir</h2><ul class="list">${(nar.retenir || []).map((x) => `<li>${esc(x)}</li>`).join('')}</ul></section>
 <p class="note">Rapport généré par Rade Tactique${nar.ai ? ', rédaction assistée' : ''} le ${new Date().toLocaleDateString('fr-FR')}.</p>
 </div></body></html>`;
   return html;
