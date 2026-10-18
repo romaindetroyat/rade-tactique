@@ -73,69 +73,121 @@ export function createStartMode(api) {
     return out;
   }
 
-  // ───────── affichage
+  // ───────── affichage : un seul écran, trois chiffres géants, gros boutons en bas
   function open() {
     api.audioInit(); api.startGps();
     if (!root) build();
     root.hidden = false; document.body.classList.add('startmode-open');
+    try { document.documentElement.requestFullscreen?.({ navigationUI: 'hide' }).catch(() => {}); } catch { /* plein écran non disponible (iPhone : installer l’app sur l’écran d’accueil) */ }
     try { navigator.wakeLock?.request('screen').then((l) => { lock = l; }).catch(() => {}); } catch { /* sans verrou d’écran */ }
     loop();
   }
   function close() {
     if (root) root.hidden = true; document.body.classList.remove('startmode-open');
     cancelAnimationFrame(raf); raf = null;
+    try { if (document.fullscreenElement) document.exitFullscreen?.(); } catch { /* déjà sorti */ }
     try { lock?.release(); } catch { /* déjà libéré */ } lock = null;
     stopCompass();
   }
   function build() {
     root = document.createElement('div'); root.id = 'startMode'; root.hidden = true;
     root.innerHTML = `
-      <div class="sm-top"><button class="sm-x" data-a="close" aria-label="Fermer">✕</button><b>Mode départ</b><button class="sm-chip" data-a="voice" id="smVoice"></button><span class="sm-gps" id="smGps">GPS…</span></div>
-      <div class="sm-clockrow"><div class="sm-clock" id="smClock">5:00</div><div class="sm-phase" id="smPhase">Lancez le chrono au signal</div></div>
-      <div class="sm-tbtns"><button data-a="t5">Top 5’</button><button data-a="t4">Top 4’</button><button data-a="t1">Top 1’</button><button data-a="sync">Arrondir</button><button data-a="m1">−1’</button><button data-a="p1">+1’</button></div>
-      <div class="sm-tiles">
-        <div class="sm-tile" id="smDist"><span>Distance à la ligne</span><b>—</b><small>étrave</small></div>
-        <div class="sm-tile" id="smBurn"><span>À brûler</span><b>—</b><small>chrono − temps pour la ligne</small></div>
-        <div class="sm-tile" id="smTtl"><span>Temps pour la ligne</span><b>—</b><small>route et vitesse actuelles</small></div>
-        <div class="sm-tile" id="smSog"><span>Vitesse · cap</span><b>—</b><small>—</small></div>
+      <div class="sm-top">
+        <button class="sm-x" data-a="close" aria-label="Fermer le mode départ">✕</button>
+        <div class="sm-views"><button data-a="vnum" class="on">Chiffres</button><button data-a="vline">Ligne</button></div>
+        <span class="sm-gps" id="smGps">GPS…</span>
+        <button class="sm-gear" data-a="gear" aria-label="Réglages">⚙</button>
       </div>
-      <canvas id="smCanvas" aria-label="Ligne de départ et position du bateau"></canvas>
-      <div class="sm-bias" id="smBias">Pinguez le Comité et la bouée pour définir la ligne.</div>
-      <div class="sm-wind"><span id="smWind">Vent : —</span>
-        <div class="sm-wbtns"><button data-a="wm">−5°</button><button data-a="wp">+5°</button><button data-a="cs">Près tribord</button><button data-a="cp">Près bâbord</button><button data-a="cmp">Bout au vent (compas)</button></div>
-        <small class="sm-hint" id="smWindHint">Pour le vent sur la ligne : faites un bord de près de chaque côté et touchez « Près tribord » puis « Près bâbord » en route, ou mettez-vous bout au vent avec le téléphone pointé vers l’étrave.</small></div>
-      <div class="sm-pings"><button class="sm-ping" data-a="pcb">📍 Ping Comité</button><button class="sm-ping" data-a="ppin">📍 Ping bouée</button></div>
-      <div class="sm-foot"><label>GPS → étrave <input type="number" id="smBow" min="0" max="12" step="0.5" inputmode="decimal"> m</label><span id="smPinged"></span></div>`;
+      <div class="sm-main">
+        <div class="sm-clockbox"><div class="sm-clock" id="smClock">5:00</div><div class="sm-phase" id="smPhase">Touchez DÉPART 5’ au signal</div></div>
+        <div class="sm-fav" id="smFav"><span class="l"></span><b></b><span class="r"></span></div>
+        <div class="sm-num" id="smNumView">
+          <div class="sm-big" id="smDist"><span>Ligne</span><b>—</b><small></small></div>
+          <div class="sm-big" id="smBurn"><span>À brûler</span><b>—</b><small></small></div>
+          <div class="sm-row">
+            <div class="sm-mini" id="smTtl"><span>Temps ligne</span><b>—</b></div>
+            <div class="sm-mini" id="smSog"><span>Vitesse</span><b>—</b></div>
+            <div class="sm-mini" id="smCog"><span>Cap</span><b>—</b></div>
+          </div>
+        </div>
+        <div class="sm-lineview" id="smLineView" hidden><canvas id="smCanvas" aria-label="Ligne de départ et position du bateau"></canvas><div class="sm-linemeta" id="smLineMeta"></div></div>
+      </div>
+      <div class="sm-bottom">
+        <div class="sm-adj"><button data-a="m1">−1 min</button><button data-a="sync">Arrondir</button><button data-a="p1">+1 min</button></div>
+        <div class="sm-acts">
+          <button class="sm-ping" data-hold="ppin"><span class="fill"></span><b>BOUÉE</b><small>maintenir pour pinguer</small></button>
+          <button class="sm-go" data-a="go" id="smGo"><b>DÉPART 5’</b><small>au signal</small></button>
+          <button class="sm-ping" data-hold="pcb"><span class="fill"></span><b>COMITÉ</b><small>maintenir pour pinguer</small></button>
+        </div>
+      </div>
+      <div class="sm-undo" id="smUndo" hidden><span></span><button data-a="undo">Annuler</button></div>
+      <div class="sm-sheet" id="smSheet" hidden>
+        <div class="sm-sheet-card">
+          <div class="sm-sheet-hd"><b>Réglages du départ</b><button data-a="gear" aria-label="Fermer">✕</button></div>
+          <div class="sm-sheet-sec"><span>Vent sur la ligne</span><b id="smWind">—</b>
+            <div class="sm-grid2"><button data-a="cs">Près tribord<small>en route au près</small></button><button data-a="cp">Près bâbord<small>en route au près</small></button></div>
+            <div class="sm-grid3"><button data-a="wm">−5°</button><button data-a="cmp">Compas<small>bout au vent</small></button><button data-a="wp">+5°</button></div>
+            <small class="sm-hint">Le plus fiable : un bord de près de chaque côté, en touchant « Près tribord » puis « Près bâbord ». Compas : bateau bout au vent, téléphone pointé vers l’étrave, touchez deux fois.</small></div>
+          <div class="sm-sheet-sec"><span>Chrono</span><div class="sm-grid3"><button data-a="t5">5 min</button><button data-a="t4">4 min</button><button data-a="t1">1 min</button></div><button data-a="stop" class="sm-wide">Arrêter le chrono</button></div>
+          <div class="sm-sheet-sec"><span>Bateau et affichage</span>
+            <div class="sm-stepper"><span>GPS → étrave</span><button data-a="bm">−</button><b id="smBowV">5 m</b><button data-a="bp">+</button></div>
+            <div class="sm-grid2"><button data-a="voice" id="smVoice">Voix</button><button data-a="sun" id="smSun">Plein soleil</button></div>
+            <small class="sm-hint" id="smPinged"></small></div>
+        </div>
+      </div>`;
     document.body.appendChild(root);
-    root.querySelector('#smBow').value = api.S.bowOffset ?? 5;
-    root.querySelector('#smBow').onchange = (e) => { api.S.bowOffset = Math.max(0, Math.min(12, +e.target.value || 0)); api.persist(); };
+    if (api.S.startSun) root.classList.add('sun');
     root.addEventListener('click', (e) => { const a = e.target.closest('[data-a]')?.dataset.a; if (a) act(a); });
-    updateVoice();
+    // ping par appui maintenu (0,7 s) : évite les fausses manœuvres avec des doigts mouillés
+    root.querySelectorAll('[data-hold]').forEach((b) => {
+      let tm = null;
+      // le doigt reste « attaché » au bouton pendant l'appui : un léger glissement ne l'annule pas
+      const startHold = (e) => { e.preventDefault(); try { b.setPointerCapture(e.pointerId); } catch { /* capture indisponible */ } b.classList.add('holding'); tm = setTimeout(() => { b.classList.remove('holding'); tm = null; ping(b.dataset.hold === 'pcb' ? 'cb' : 'pin'); }, 700); };
+      const cancel = () => { if (tm) { clearTimeout(tm); tm = null; b.classList.remove('holding'); } };
+      b.addEventListener('pointerdown', startHold); ['pointerup', 'pointercancel'].forEach((ev) => b.addEventListener(ev, cancel));
+      b.addEventListener('contextmenu', (e) => e.preventDefault());
+    });
+    updateToggles();
   }
+  let view = 'num';
   function setT(sec) { api.audioInit(); api.timer.end = Date.now() + sec * 1000; api.timer.beeps.clear(); api.startTimer(); st.crossed = null; st.ocs = false; lastSaid = null; }
   function act(a) {
-    const T = api.timer;
+    const T = api.timer, $ = (s) => root.querySelector(s);
     if (a === 'close') return close();
-    if (a === 't5') setT(300); else if (a === 't4') setT(240); else if (a === 't1') setT(60);
-    else if (a === 'sync' && T.end) { const r = (T.end - Date.now()) / 1000; T.end = Date.now() + Math.round(r / 60) * 60000; }
+    if (a === 'go') { if (!T.end || T.end < Date.now() - 600000) setT(300); else { const r = (T.end - Date.now()) / 1000; T.end = Date.now() + Math.round(r / 60) * 60000; api.beep(1000, 0.1); } }
+    else if (a === 't5' || a === 't4' || a === 't1') { setT(a === 't5' ? 300 : a === 't4' ? 240 : 60); $('#smSheet').hidden = true; }
+    else if (a === 'sync' && T.end) { const r = (T.end - Date.now()) / 1000; T.end = Date.now() + Math.round(r / 60) * 60000; api.beep(1000, 0.1); }
     else if (a === 'm1' && T.end) T.end -= 60000; else if (a === 'p1' && T.end) T.end += 60000;
-    else if (a === 'pcb' || a === 'ppin') ping(a === 'pcb' ? 'cb' : 'pin');
+    else if (a === 'stop') { T.end = null; $('#smSheet').hidden = true; }
+    else if (a === 'vnum' || a === 'vline') { view = a === 'vnum' ? 'num' : 'line'; $('#smNumView').hidden = view !== 'num'; $('#smLineView').hidden = view !== 'line'; root.querySelectorAll('.sm-views button').forEach((b) => b.classList.toggle('on', b.dataset.a === a)); }
+    else if (a === 'gear') $('#smSheet').hidden = !$('#smSheet').hidden;
     else if (a === 'wm' || a === 'wp') { const w = wind(); if (w) setWind(norm360(w.dir + (a === 'wp' ? 5 : -5)), 'ajusté'); }
     else if (a === 'cs' || a === 'cp') tackHeading(a === 'cs' ? 'stb' : 'port');
     else if (a === 'cmp') compassWind();
-    else if (a === 'voice') { api.S.startVoice = !(api.S.startVoice ?? true); api.persist(); updateVoice(); }
+    else if (a === 'bm' || a === 'bp') { api.S.bowOffset = Math.max(0, Math.min(12, (api.S.bowOffset ?? 5) + (a === 'bp' ? 0.5 : -0.5))); api.persist(); }
+    else if (a === 'voice') { api.S.startVoice = !(api.S.startVoice ?? true); api.persist(); }
+    else if (a === 'sun') { api.S.startSun = !api.S.startSun; api.persist(); root.classList.toggle('sun', !!api.S.startSun); }
+    else if (a === 'undo' && undo) { api.S.lineOverride = undo.prev; api.persist(); api.reanalyse?.(); undo = null; $('#smUndo').hidden = true; api.toast('Ping annulé'); }
+    updateToggles();
   }
-  function updateVoice() { const b = root?.querySelector('#smVoice'); if (b) b.textContent = (api.S.startVoice ?? true) ? '🔊 voix' : '🔇 voix'; }
+  function updateToggles() {
+    if (!root) return;
+    root.querySelector('#smVoice').textContent = (api.S.startVoice ?? true) ? '🔊 Voix activée' : '🔇 Voix coupée';
+    root.querySelector('#smSun').textContent = api.S.startSun ? '☀ Plein soleil' : '🌙 Écran sombre';
+    root.querySelector('#smBowV').textContent = `${String(api.S.bowOffset ?? 5).replace('.', ',')} m`;
+  }
   function setWind(dir, src) { api.S.startWind = { dir: Math.round(norm360(dir)), spd: wind()?.spd, src, t: Date.now() }; api.persist(); }
-
+  let undo = null, undoTm = null;
   function ping(which) {
     const g = api.gps(), q = g?.pos;
     const done = (p, acc) => {
       const ll = toLL(p.x, p.y);
+      undo = { prev: api.S.lineOverride ? JSON.parse(JSON.stringify(api.S.lineOverride)) : null };
       api.setLineEnd(which, ll);
       const L = api.S.lineOverride; if (L) { L.pinged = { ...(L.pinged || {}), [which]: Date.now() }; api.persist(); }
-      api.toast(`${which === 'cb' ? 'Comité' : 'Bouée'} enregistré${which === 'cb' ? '' : 'e'} (± ${Math.round(acc ?? 5)} m)`);
       api.beep(1200, 0.15);
+      const u = root.querySelector('#smUndo'); u.querySelector('span').textContent = `${which === 'cb' ? 'Comité' : 'Bouée'} pingué${which === 'cb' ? '' : 'e'} (± ${Math.round(acc ?? 5)} m)`; u.hidden = false;
+      clearTimeout(undoTm); undoTm = setTimeout(() => { u.hidden = true; undo = null; }, 8000);
     };
     if (q && Date.now() - q.t < 4000) return done(bow(q), q.acc);
     if (!navigator.geolocation) return api.toast('GPS indisponible');
@@ -177,50 +229,59 @@ export function createStartMode(api) {
     if (!root || root.hidden) return;
     const m = metrics(), $ = (s) => root.querySelector(s);
     const g = api.gps();
-    $('#smGps').textContent = g?.pos ? `GPS ± ${Math.round(g.pos.acc ?? 0)} m` : g?.err ? 'GPS : ' + g.err : 'GPS…';
-    // chrono
-    const r = m.rem;
-    if (r == null) { $('#smClock').textContent = '5:00'; $('#smPhase').textContent = 'Lancez le chrono au signal d’avertissement'; }
+    const acc = g?.pos?.acc;
+    $('#smGps').textContent = g?.pos ? `GPS ±${Math.round(acc ?? 0)} m` : g?.err ? 'GPS indisponible' : 'GPS…';
+    $('#smGps').className = 'sm-gps ' + (!g?.pos ? 'bad' : acc > 15 ? 'warn' : 'good');
+    // chrono et bouton principal
+    const r = m.rem, go = $('#smGo');
+    if (r == null) { $('#smClock').textContent = '5:00'; $('#smPhase').textContent = 'Touchez DÉPART 5’ au signal'; go.innerHTML = '<b>DÉPART 5’</b><small>au signal</small>'; }
     else if (r > 0) {
       const s = Math.ceil(r);
       $('#smClock').textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
       $('#smPhase').textContent = s > 240 ? 'Avertissement' : s > 60 ? 'Préparatoire' : 'Dernière minute';
+      go.innerHTML = '<b>SYNCHRO</b><small>arrondir au signal</small>';
       speak(s);
     } else {
       const e = -r; $('#smClock').textContent = `+${Math.floor(e / 60)}:${String(Math.floor(e % 60)).padStart(2, '0')}`;
       $('#smPhase').textContent = st.crossed ? `Parti à +${st.crossed.dt.toFixed(0)} s, ${st.crossed.where}` : 'PARTEZ !';
+      go.innerHTML = e < 600 ? '<b>SYNCHRO</b><small>arrondir</small>' : '<b>DÉPART 5’</b><small>nouvelle procédure</small>';
     }
     root.classList.toggle('sm-last', r != null && r > 0 && r <= 60);
-    // tuiles
-    const tile = (id, val, sub, cls) => { const t = $(id); t.querySelector('b').textContent = val; if (sub != null) t.querySelector('small').textContent = sub; t.className = 'sm-tile ' + (cls || ''); };
+    root.classList.toggle('sm-gun', r != null && r <= 0 && r > -10);
+    // distance à la ligne
+    const big = (id, val, sub, cls) => { const t = $(id); t.querySelector('b').textContent = val; t.querySelector('small').textContent = sub ?? ''; t.className = 'sm-big ' + (cls || ''); };
     if (m.d != null) {
       const over = m.d < 0;
-      tile('#smDist', `${over ? '−' : ''}${Math.abs(m.d) < 100 ? Math.abs(m.d).toFixed(0) : Math.round(Math.abs(m.d))} m`, over ? 'AU-DESSUS DE LA LIGNE' : `bouée ${Math.round(m.dPin)} m · Comité ${Math.round(m.dCb)} m`, over ? 'bad' : m.d < 20 ? 'warn' : '');
+      big('#smDist', `${over ? '−' : ''}${Math.round(Math.abs(m.d))} m`, over ? 'AU-DESSUS !' : `bouée ${Math.round(m.dPin)} m\nComité ${Math.round(m.dCb)} m`, over ? 'bad' : m.d < 15 ? 'warn' : '');
       if (over && r != null && r > 0 && r < 60 && !st.ocs) { st.ocs = true; api.beep(300, 0.6); if (api.S.startVoice ?? true) api.say('Au-dessus de la ligne'); }
       if (!over) st.ocs = false;
-      // départ franchi après le signal
       if (r != null && r <= 0 && !st.crossed && over && m.along > -0.3 && m.along < 1.3) {
         const where = m.along < 0.25 ? 'côté bouée' : m.along > 0.75 ? 'côté Comité' : 'au milieu de la ligne';
         st.crossed = { dt: -r, where }; api.beep(1500, 0.3);
       }
-    } else tile('#smDist', '—', m.L ? 'en attente du GPS' : 'ligne non définie', '');
-    if (m.ttl != null) tile('#smTtl', fmtS(m.ttl), m.ttlFull != null ? `au près plein pot : ${fmtS(m.ttlFull)}` : 'route et vitesse actuelles', '');
-    else tile('#smTtl', m.away ? 's’éloigne' : '—', m.ttlFull != null ? `au près plein pot : ${fmtS(m.ttlFull)}` : 'route et vitesse actuelles', '');
-    if (m.burn != null) tile('#smBurn', m.burn >= 0 ? fmtS(m.burn) : `retard ${fmtS(m.burn)}`, m.burn >= 0 ? 'temps à perdre avant de lancer' : 'vous arriverez après le signal', m.burn < 0 ? 'bad' : m.burn < 8 ? 'good' : '');
-    else tile('#smBurn', '—', r == null ? 'lancez le chrono' : r <= 0 ? 'départ donné' : 'route vers la ligne nécessaire', '');
-    const q = m.q;
-    tile('#smSog', q?.sog != null ? `${q.sog.toFixed(1)} nd` : '—', q?.cog != null ? `cap fond ${fmtBrg(q.cog)}` : '—', '');
-    // biais
-    const bias = $('#smBias');
-    if (!m.L) bias.innerHTML = 'Pinguez le Comité et la bouée pour définir la ligne.';
-    else if (!m.w) bias.innerHTML = `Ligne ${Math.round(m.L.len)} m · ${fmtBrg(m.L.brg)} (bouée → Comité). Relevez le vent pour l’extrémité favorisée.`;
-    else bias.innerHTML = m.fav
-      ? `<b class="fav">${m.fav} favorisé${m.fav === 'Bouée' ? 'e' : ''}</b> de ${Math.abs(m.bias).toFixed(0)}° · <b>${Math.round(m.adv)} m</b> (${(m.adv / J80).toFixed(1).replace('.', ',')} longueurs, ≈ ${Math.round(m.advS)} s) · ligne ${Math.round(m.L.len)} m`
-      : `<b class="fav">Ligne équilibrée</b> (biais ${Math.abs(m.bias).toFixed(0)}°) · ligne ${Math.round(m.L.len)} m`;
-    $('#smWind').textContent = m.w ? `Vent ${fmtBrg(m.w.dir)} ${cardinal(m.w.dir)} · ${Math.round(m.w.spd)} nd · ${m.w.src}` : 'Vent : —';
+    } else big('#smDist', '—', m.L ? 'en attente du GPS' : 'pinguez Comité et bouée', '');
+    if (m.burn != null) big('#smBurn', m.burn >= 0 ? fmtS(m.burn) : `−${fmtS(m.burn)}`, m.burn >= 0 ? (m.burn < 6 ? 'LANCEZ !' : 'à perdre avant de lancer') : 'EN RETARD', m.burn < 0 ? 'bad' : m.burn < 6 ? 'good' : '');
+    else big('#smBurn', '—', r == null ? 'chrono arrêté' : r <= 0 ? 'départ donné' : m.away ? 'route opposée à la ligne' : 'en route vers la ligne', '');
+    const mini = (id, v) => { $(id).querySelector('b').textContent = v; };
+    mini('#smTtl', m.ttl != null ? fmtS(m.ttl) : m.ttlFull != null ? `~${fmtS(m.ttlFull)}` : '—');
+    mini('#smSog', m.q?.sog != null ? `${m.q.sog.toFixed(1).replace('.', ',')}` : '—');
+    mini('#smCog', m.q?.cog != null ? fmtBrg(m.q.cog) : '—');
+    // extrémité favorisée : bandeau du côté concerné (bouée à gauche, Comité à droite, comme vu au vent)
+    const fav = $('#smFav');
+    if (!m.L) { fav.className = 'sm-fav'; fav.querySelector('b').textContent = 'Ligne non pinguée'; fav.querySelector('.l').textContent = ''; fav.querySelector('.r').textContent = ''; }
+    else if (!m.w) { fav.className = 'sm-fav'; fav.querySelector('b').textContent = 'Vent à relever (⚙)'; }
+    else if (!m.fav) { fav.className = 'sm-fav even'; fav.querySelector('b').textContent = `Ligne équilibrée · ${Math.abs(m.bias).toFixed(0)}°`; fav.querySelector('.l').textContent = ''; fav.querySelector('.r').textContent = ''; }
+    else {
+      const txt = `${m.fav.toUpperCase()} +${Math.round(m.adv)} m`;
+      fav.className = 'sm-fav ' + (m.fav === 'Bouée' ? 'pin' : 'cb');
+      fav.querySelector('.l').textContent = m.fav === 'Bouée' ? '◀' : '';
+      fav.querySelector('.r').textContent = m.fav === 'Comité' ? '▶' : '';
+      fav.querySelector('b').textContent = `${txt} · ${Math.abs(m.bias).toFixed(0)}° · ${Math.round(m.advS)} s`;
+    }
+    $('#smWind').textContent = m.w ? `${fmtBrg(m.w.dir)} ${cardinal(m.w.dir)} · ${Math.round(m.w.spd)} nd · ${m.w.src}` : '—';
     const pg = m.L?.pinged || {};
-    $('#smPinged').textContent = `${pg.cb ? 'Comité pingué ✓' : 'Comité : position théorique'} · ${pg.pin ? 'bouée pinguée ✓' : 'bouée : position théorique'}`;
-    draw(m);
+    $('#smPinged').textContent = `${pg.cb ? 'Comité pingué ✓' : 'Comité : position théorique'} · ${pg.pin ? 'bouée pinguée ✓' : 'bouée : position théorique'}${m.L ? ` · ligne ${Math.round(m.L.len)} m au ${fmtBrg(m.L.brg)}` : ''}`;
+    if (view === 'line') { $('#smLineMeta').textContent = m.L ? `Ligne ${Math.round(m.L.len)} m · ${pg.cb ? 'Comité ✓' : 'Comité théorique'} · ${pg.pin ? 'bouée ✓' : 'bouée théorique'}` : ''; draw(m); }
   }
   function speak(s) {
     if (!(api.S.startVoice ?? true) || s === lastSaid) return;

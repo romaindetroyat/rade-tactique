@@ -18,7 +18,7 @@ import { shroudsFor } from './tuning.js';
 import { createStartMode } from './startmode.js';
 import { detect as dbDetect, ask as dbAsk, askModes as dbAskModes, analyze as dbAnalyze, narrative as dbNarrative, buildReport as dbBuild, shareReport as dbShare } from './debrief.js';
 
-export const APP_VERSION = 'v16 · débrief de course';
+export const APP_VERSION = 'v17 · mode départ plein écran';
 const $ = (s, r = document) => r.querySelector(s);
 function toast(msg) {
   let t = document.getElementById('toast');
@@ -633,7 +633,7 @@ function renderCourse() {
 let timer = { end: null, running: false, iv: null, beeps: new Set() };
 const startMode = createStartMode({
   S, persist, timer, beep: (...x) => beep(...x), audioInit: () => audioInit(), startTimer: () => startTimer(), startGps: () => startGps(), gps: () => gps, say, toast,
-  setLineEnd: (w, ll) => setLineEnd(w, ll),
+  setLineEnd: (w, ll) => setLineEnd(w, ll), reanalyse: () => scheduleAnalysis(),
   line: () => S.lineOverride?.cb && S.lineOverride?.pin ? S.lineOverride : analysis ? { cb: toLL(analysis.line.cb.x, analysis.line.cb.y), pin: toLL(analysis.line.pin.x, analysis.line.pin.y) } : null,
   windAt: (p) => {
     const o = dayObs().slice(-1)[0];
