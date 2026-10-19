@@ -7,6 +7,7 @@ import { parseHTML } from 'linkedom';
 import { ROOT } from './helpers/setup.mjs';
 import { parseIC } from '../js/events.js';
 import { createRegatta } from '../js/regates.js';
+import * as ICR from '../js/icread.js';        // checksFor lu par espace de noms : le fichier se charge même quand elle manque
 import {
   FIELDS, NOT_READ, reviewFromParse, reviewFromRegatta, setValue, setKeep, canValidate, applyReview, reviewHTML, chipOf, validatedHTML,
 } from '../js/icread.js';
@@ -229,4 +230,87 @@ test('garde statique : app.js valide par applyReview sur un geste, n’utilise p
   assert.ok(ic.includes('reviewFromParse('), 'l’import produit une relecture');
   assert.ok(!/saveReg\(|upsertRegatta\(|applyReview\(/.test(ic), 'l’import ne doit rien écrire : seule « Valider les IC » écrit');
   assert.ok(/#icValidate/.test(app) && /#icCancel/.test(app));
+});
+
+// ───────────────────────── vraisemblance par champ (D-02)
+
+const NOW = Date.parse('2026-10-19T08:30:00Z');
+const verif = (rv, opts = {}) => ICR.checksFor(rv, { now: NOW, ...opts });
+
+test('checksFor : une puce par champ ; les IC lues sont plausibles, le dernier jour vide est permis', () => {
+  const c = verif(relecture());
+  assert.deepEqual(Object.keys(c), FIELDS.map((f) => f.key), 'une puce par champ, dans l’ordre');
+  for (const k of ['event', 'dateStart', 'dateEnd', 'firstWarning', 'lastFinishSignal', 'vhf', 'committee', 'zone']) assert.equal(c[k].level, 'ok', `${k} : ${c[k].msg}`);
+});
+
+test('checksFor : une valeur vide est « non lu dans le texte » (en alerte), sauf le dernier jour qui est facultatif', () => {
+  const rv = reviewFromParse(parseIC('Texte sans rien de reconnaissable à lire ici.', 'x.pdf'), { source: 'x.pdf' });
+  const c = verif(rv);
+  for (const k of ['dateStart', 'firstWarning', 'lastFinishSignal', 'vhf', 'committee', 'zone']) { assert.equal(c[k].level, 'warn', k); assert.equal(c[k].msg, NOT_READ, k); }
+  assert.equal(c.dateEnd.level, 'ok');
+  // en saisie à la main, rien n’a été « lu » : la mention change
+  assert.equal(verif(reviewFromRegatta(regate())).vhf.msg, 'valeur vide');
+});
+
+test('checksFor : la VHF saisie en texte est convertie en entier (« 72 » plausible, « 7 2 » impossible)', () => {
+  let rv = relecture();
+  assert.equal(verif(setValue(rv, 'vhf', '72')).vhf.level, 'ok');
+  assert.equal(verif(setValue(rv, 'vhf', ' 72 ')).vhf.level, 'ok');
+  assert.equal(verif(setValue(rv, 'vhf', '7 2')).vhf.level, 'bad');
+  assert.equal(verif(setValue(rv, 'vhf', '72.5')).vhf.level, 'bad');
+  assert.equal(verif(setValue(rv, 'vhf', 'soixante-douze')).vhf.level, 'bad');
+  assert.equal(verif(setValue(rv, 'vhf', '99')).vhf.level, 'bad');
+  assert.equal(verif(setValue(rv, 'vhf', '16')).vhf.level, 'warn');
+  assert.equal(verif(setValue(rv, 'vhf', '45')).vhf.level, 'warn');
+});
+
+test('checksFor : heures impossibles ou inhabituelles, ordre des heures, dates', () => {
+  const rv = relecture();
+  assert.equal(verif(setValue(rv, 'firstWarning', '25:00')).firstWarning.level, 'bad');
+  assert.equal(verif(setValue(rv, 'firstWarning', '03:30')).firstWarning.level, 'warn');
+  const avant = verif(setValue(rv, 'lastFinishSignal', '09:00'));
+  assert.equal(avant.lastFinishSignal.level, 'warn'); assert.match(avant.lastFinishSignal.msg, /avant le premier signal/);
+  assert.equal(verif(setValue(setValue(rv, 'firstWarning', '25:00'), 'lastFinishSignal', '09:00')).lastFinishSignal.level, 'ok', 'une heure invalide : pas de comparaison');
+  assert.equal(verif(setValue(rv, 'dateStart', '2026-02-30')).dateStart.level, 'bad');
+  assert.equal(verif(setValue(rv, 'dateStart', '2027-12-01')).dateStart.level, 'warn');
+  assert.equal(verif(setValue(rv, 'dateEnd', '2026-10-30')).dateEnd.level, 'warn', 'plus de 6 jours après le premier jour');
+  assert.equal(verif(setValue(rv, 'dateEnd', '2026-10-17')).dateEnd.level, 'warn', 'antérieur : ignoré');
+  assert.equal(verif(setValue(rv, 'dateEnd', '2026-10-19')).dateEnd.level, 'ok');
+  assert.equal(verif(setValue(rv, 'dateEnd', '2026-13-01')).dateEnd.level, 'bad');
+  assert.equal(verif(setValue(rv, 'event', 'x'.repeat(100))).event.level, 'warn', 'nom trop long : raccourci à l’enregistrement');
+});
+
+test('checksFor + canValidate : une valeur impossible bloque la validation jusqu’à sa correction ou son vidage ; une valeur inhabituelle ne bloque rien', () => {
+  let rv = setValue(relecture(), 'vhf', '99');
+  assert.equal(canValidate(rv, verif(rv)), false);
+  rv = setValue(rv, 'vhf', '72'); assert.equal(canValidate(rv, verif(rv)), true);
+  rv = setValue(rv, 'vhf', '7 2'); assert.equal(canValidate(rv, verif(rv)), false);
+  rv = setValue(rv, 'vhf', ''); assert.equal(canValidate(rv, verif(rv)), true, 'vidée');
+  rv = setValue(rv, 'firstWarning', '03:30'); assert.equal(canValidate(rv, verif(rv)), true, '03:30 : inhabituel seulement');
+  rv = setValue(rv, 'firstWarning', '25:00'); assert.equal(canValidate(rv, verif(rv)), false);
+  rv = setValue(rv, 'firstWarning', ''); assert.equal(canValidate(rv, verif(rv)), true);
+  // l’impossible n’entre jamais dans la régate même si la garde est contournée : seules les valeurs plausibles de forme sont écrites
+  const r = applyReview(regate(), setValue(relecture(), 'vhf', '99'), { by: 'T', at: 1 });
+  assert.equal(r.ic.fields.vhf, 99, 'applyReview ne juge pas : la garde est canValidate sur le geste');
+});
+
+test('vue avec puces : rouge et bouton désactivé pour une valeur impossible, orange pour une inhabituelle, vert sinon', () => {
+  let rv = setValue(relecture(), 'vhf', '99'); rv = setValue(rv, 'firstWarning', '03:30');
+  const { document } = parseHTML(`<div>${reviewHTML(rv, verif(rv))}</div>`);
+  assert.match(document.querySelector('[data-chip=vhf]').className, /\blow\b/);
+  assert.match(document.querySelector('[data-chip=vhf]').textContent, /^✕ canal VHF impossible/);
+  assert.match(document.querySelector('[data-chip=firstWarning]').className, /\bmid\b/);
+  assert.match(document.querySelector('[data-chip=lastFinishSignal]').className, /\bgood\b/);
+  assert.equal(document.querySelector('#icValidate').hasAttribute('disabled'), true);
+  assert.ok(!document.querySelector('#icBlock').hasAttribute('hidden'));
+  rv = setValue(rv, 'vhf', '72');
+  const ok = parseHTML(`<div>${reviewHTML(rv, verif(rv))}</div>`).document;
+  assert.equal(ok.querySelector('#icValidate').hasAttribute('disabled'), false);
+  assert.ok(ok.querySelector('#icBlock').hasAttribute('hidden'));
+});
+
+test('garde statique : app.js calcule les contrôles à l’ouverture de la relecture et à chaque saisie, avec le terrain quand il est chargé', () => {
+  const app = readFileSync(ROOT + 'js/app.js', 'utf8');
+  assert.ok((app.match(/checksFor\(/g) || []).length >= 1, 'checksFor( absent de js/app.js');
+  assert.ok(/isLand/.test(app.slice(app.indexOf('checksFor('))), 'isLand fourni dès que le terrain est chargé');
 });
