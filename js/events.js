@@ -34,10 +34,14 @@ export function removeEvent(id) {
 function loadScript(src) {
   return new Promise((ok, ko) => { const s = document.createElement('script'); s.src = src; s.onload = ok; s.onerror = () => ko(new Error('chargement de ' + src)); document.head.appendChild(s); });
 }
+// Le pdf.js vendorisé (3.11.174) est touché par CVE-2024-4367 : une police piégée dans un PDF peut faire exécuter du code.
+// isEvalSupported: false ferme les deux points d’exécution de la bibliothèque sans changer le texte extrait.
+// Tout appel à getDocument( doit passer ces options (une garde de tests/pdf.test.mjs le vérifie).
+export const PDF_OPTIONS = Object.freeze({ isEvalSupported: false });
 export async function pdfText(file) {
   if (!window.pdfjsLib) await loadScript('vendor/pdf.min.js');
   window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'vendor/pdf.worker.min.js';
-  const doc = await window.pdfjsLib.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
+  const doc = await window.pdfjsLib.getDocument({ ...PDF_OPTIONS, data: new Uint8Array(await file.arrayBuffer()) }).promise;
   let out = '';
   for (let p = 1; p <= doc.numPages; p++) {
     const c = await (await doc.getPage(p)).getTextContent();
