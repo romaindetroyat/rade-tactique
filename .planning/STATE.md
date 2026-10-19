@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 3
 current_phase_name: Ouvrir une régate
 status: executing
-stopped_at: Completed 03-05-PLAN.md
-last_updated: "2026-10-19T22:27:47.325Z"
+stopped_at: Completed 03-06-PLAN.md
+last_updated: "2026-10-19T22:45:50.546Z"
 last_activity: 2026-10-19
 last_activity_desc: Phase 3 execution started
-state_head: f2f8994368120600236492753d4ffe9a4fe6f853
+state_head: 7685be77923ef39464fa08bcf02174c7ae967e40
 progress:
   total_phases: 4
   completed_phases: 2
   total_plans: 16
-  completed_plans: 14
+  completed_plans: 15
   percent: 50
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-10-19)
 ## Current Position
 
 Phase: 3 (Ouvrir une régate) — EXECUTING
-Plan: 6 of 7
+Plan: 7 of 7
 Status: Ready to execute
 Last activity: 2026-10-19 — Phase 3 execution started
 
@@ -69,6 +69,7 @@ Progress: [█████░░░░░] 50%
 | Phase 03 P03 | 25 min | 2 tasks | 9 files |
 | Phase 03 P04 | 22 min | 3 tasks | 13 files |
 | Phase 03 P05 | 58 min | 2 tasks | 12 files |
+| Phase 03 P06 | 30 min | 2 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -113,6 +114,9 @@ Décisions récentes qui orientent le travail en cours :
 - [Phase 03]: [03-04] La fiche de régate ne lit que r.traces (références et résumés), jamais la liste complète des traces ; résumé et rapport posés sur la référence à l’ouverture de la trace et à la fin du débrief
 - [Phase 03]: [03-05] Le gel du vent est refait sans attendre 10 min quand l'heure du signal change (manche ajoutée ou heure corrigée)
 - [Phase 03]: [03-05] js/events.js ne garde que la lecture du PDF et des IC ; l'ancien formulaire et rade.events.v1 en écriture ont disparu (scénario depuis-ic)
+- [Phase 03]: 03-06 : une règle particulière lue par l'IA est montrée avec le texte de son extrait (celui du PDF), pas avec la reformulation du modèle ; seule une valeur prouvée est affichée
+- [Phase 03]: 03-06 : un 401/403 d'OpenAI (clé refusée) est renvoyé en 502 par api/ic.js, car la page lit 401 comme un refus d'accès à l'app
+- [Phase 03]: 03-06 : IA_IC (js/icread.js) masque « Lire avec l'IA » sans toucher au reste ; décision après l'essai réel sur l'aperçu v29 (plan 07)
 
 ### Pending Todos
 
@@ -137,6 +141,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-10-19T22:27:47.146Z
-Stopped at: Completed 03-05-PLAN.md
+Last session: 2026-10-19T22:45:44.662Z
+Stopped at: Completed 03-06-PLAN.md
 Resume file: None
