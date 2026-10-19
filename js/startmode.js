@@ -11,8 +11,8 @@ const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<
 const fmtS = (s) => { const a = Math.abs(Math.round(s)); return a >= 60 ? `${Math.floor(a / 60)}:${String(a % 60).padStart(2, '0')}` : `${a} s`; };
 
 export function createStartMode(api) {
-  // api : { S, persist, line(), windAt(p), timer, beep, audioInit, audioRelease, testSound, chronoAlert, fixAlert, startGps, gps(), say, setLineEnd, toast }
-  let root = null, lock = null, raf = null, compass = null, compassOn = false, lastSaid = null;
+  // api : { S, persist, line(), windAt(p), timer, wake, beep, audioInit, audioRelease, testSound, chronoAlert, fixAlert, startGps, gps(), say, setLineEnd, toast }
+  let root = null, raf = null, compass = null, compassOn = false, lastSaid = null;
   const st = { crossed: null, ocs: false };
 
   const line = () => {
@@ -96,14 +96,14 @@ export function createStartMode(api) {
     if (!root) build();
     root.hidden = false; document.body.classList.add('startmode-open');
     try { document.documentElement.requestFullscreen?.({ navigationUI: 'hide' }).catch(() => {}); } catch { /* plein écran non disponible (iPhone : installer l’app sur l’écran d’accueil) */ }
-    try { navigator.wakeLock?.request('screen').then((l) => { lock = l; }).catch(() => {}); } catch { /* sans verrou d’écran */ }
+    api.wake.want('startmode');      // verrou d’écran partagé (js/wakelock.js) : redemandé au retour de visibilité, sur geste et toutes les 15 s
     loop();
   }
   function close() {
     if (root) root.hidden = true; document.body.classList.remove('startmode-open');
     cancelAnimationFrame(raf); raf = null;
     try { if (document.fullscreenElement) document.exitFullscreen?.(); } catch { /* déjà sorti */ }
-    try { lock?.release(); } catch { /* déjà libéré */ } lock = null;
+    api.wake.drop('startmode');
     if (api.timer.end == null) api.audioRelease?.();     // session audio « playback » remise à « auto » quand plus rien n’en a besoin
     stopCompass();
   }

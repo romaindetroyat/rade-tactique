@@ -26,16 +26,14 @@ export async function listTracks() {
 // ───────────────────────── enregistrement
 // point : [t (ms), lat, lon, sog (nd), cog (°), précision (m)]
 export class Recorder {
-  constructor() { this.track = null; this.lock = null; this.lastSave = 0; }
+  // wake : verrou d’écran partagé (js/wakelock.js, raison « recording ») ; report(où, erreur) : journal de diagnostic (FIAB-07)
+  constructor({ wake = null, report = () => {} } = {}) { this.track = null; this.lastSave = 0; this.wake = wake; this.report = report; }
   get active() { return !!this.track; }
   start(meta) {
     const now = Date.now();
     this.track = { id: 'tr' + now, name: meta.name, start: now, course: meta.course, pts: [] };
-    this.#wake();
-    this.onVis = () => { if (!document.hidden && this.track) this.#wake(); };
-    document.addEventListener('visibilitychange', this.onVis);
+    this.wake?.want('recording');
   }
-  async #wake() { try { this.lock = await navigator.wakeLock?.request('screen'); } catch { this.lock = null; } }
   add(q) {
     const T = this.track; if (!T) return;
     const last = T.pts[T.pts.length - 1];
@@ -45,13 +43,14 @@ export class Recorder {
     }
     if (q.acc > 60) return; // position trop imprécise
     T.pts.push([q.t, +q.lat.toFixed(6), +q.lon.toFixed(6), q.sog != null ? +q.sog.toFixed(2) : null, q.cog != null ? Math.round(q.cog) : null, Math.round(q.acc)]);
-    if (Date.now() - this.lastSave > 20000) { this.lastSave = Date.now(); saveTrack(T).catch(() => {}); }
+    if (Date.now() - this.lastSave > 20000) { this.lastSave = Date.now(); saveTrack(T).catch((e) => this.report('trace', e)); }
   }
   async stop() {
     const T = this.track; this.track = null;
-    document.removeEventListener('visibilitychange', this.onVis);
-    try { await this.lock?.release(); } catch { /* déjà relâché */ }
-    if (T && T.pts.length > 1) await saveTrack(T);
+    this.wake?.drop('recording');
+    if (T && T.pts.length > 1) {
+      try { await saveTrack(T); } catch (e) { this.report('trace', e); throw e; }     // consigné, puis relancé : l’appelant reçoit l’échec comme avant
+    }
     return T;
   }
 }

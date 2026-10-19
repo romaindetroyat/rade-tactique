@@ -18,6 +18,7 @@ import { shroudsFor } from './tuning.js';
 import { createStartMode } from './startmode.js';
 import { initUpdates } from './swupdate.js';
 import { createBeeper, audioAlive, milestones, KEY } from './beeper.js';
+import { createWakeLock } from './wakelock.js';
 import { isActive, isRaceDay, lockState } from './racelock.js';
 import { detect as dbDetect, ask as dbAsk, askModes as dbAskModes, analyze as dbAnalyze, narrative as dbNarrative, buildReport as dbBuild, shareReport as dbShare } from './debrief.js';
 
@@ -87,10 +88,14 @@ async function init() {
   maybeWelcome();
   // réactivation au toucher : le contexte audio ne naît ou ne revient que d’un geste (relance d’iOS, écran verrouillé, appel)
   const reveil = () => {
+    const w = wake.state(); if (w.wanted && !w.held) wake.retry();            // le verrou d’écran se redemande aussi sur geste
     if (timer.end == null && !startMode.isOpen()) return;
     if (!actx || actx.state !== 'running' || snd.alive === false) audioInit();
   };
   document.addEventListener('pointerdown', reveil, true); document.addEventListener('pointerup', reveil, true);
+  const redemande = () => { const w = wake.state(); if (w.wanted && !w.held) wake.retry(); };
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) redemande(); });
+  setInterval(redemande, 15000);
   renderTracks();
   refreshWeather();
   refreshLive();
@@ -677,6 +682,16 @@ function hideUpdateBar() { const el = document.getElementById('updbar'); if (el)
 // ───────────────────────── DÉPART
 // timer.end est un accesseur : tout site d’appel (Top, ±1 min, Arrondir, Synchro, Stop) replanifie les bips sans autre geste
 // et mémorise l’heure de fin pour qu’un rechargement ou une relance d’iOS ne perde pas le chrono.
+// Un seul verrou d’écran pour le mode départ, le chrono, la trace et le GPS (js/wakelock.js) ; perdu ou refusé alors qu’il est demandé : alerte et conseil (D-05)
+const wake = createWakeLock({ report: (w, m) => onWakeEvent(w, m) });
+const WAKE_ADVICE = 'Écran non maintenu : réglez Verrouillage automatique sur « Jamais » pendant la course';
+let wakeToastAt = 0;
+function onWakeEvent() {
+  const st = wake.state();
+  if (document.visibilityState === 'hidden' || !st.wanted || st.held) return;      // masquer la page libère le verrou : ce n’est pas une perte à signaler
+  if (Date.now() - wakeToastAt < 60000) return;
+  wakeToastAt = Date.now(); toast(WAKE_ADVICE);
+}
 const timer = { running: false, iv: null };
 let timerEnd = null;
 Object.defineProperty(timer, 'end', {
@@ -684,12 +699,12 @@ Object.defineProperty(timer, 'end', {
   get: () => timerEnd,
   set(v) {
     timerEnd = v ?? null;
-    if (timerEnd == null) { beeper?.disarm(); releaseAudioIfIdle(); } else { beeper?.arm(timerEnd); flashKick(); }
+    if (timerEnd == null) { beeper?.disarm(); releaseAudioIfIdle(); wake.drop('timer'); } else { beeper?.arm(timerEnd); flashKick(); wake.want('timer'); }
     store.set('rade.timer.v1', { end: timerEnd });
   },
 });
 const startMode = createStartMode({
-  S, persist, timer, beep: (...x) => beep(...x), audioInit: () => audioInit(), startTimer: () => startTimer(), startGps: () => startGps(), gps: () => gps, say, toast,
+  S, persist, timer, wake, beep: (...x) => beep(...x), audioInit: () => audioInit(), startTimer: () => startTimer(), startGps: () => startGps(), gps: () => gps, say, toast,
   setLineEnd: (w, ll) => setLineEnd(w, ll), reanalyse: () => scheduleAnalysis(), help: () => openGuide(),
   audioRelease: () => audioRelease(), testSound: () => testSound(), chronoAlert: () => chronoAlert(), fixAlert: (a) => fixAlert(a),
   firstMark: () => { const l = analysis?.legs?.[0]; return l ? { x: l.to.x, y: l.to.y, name: l.order ? String(l.order) : (l.to.name || '').split(' ')[0] } : null; },
@@ -812,25 +827,32 @@ function askHeard() {
   }
   el.hidden = false;
 }
-// Ligne d’alerte du chrono (onglet Départ et mode départ) : null ou { text, act } ; act : 'sound' | 'test' (| 'wake' : tâche 3)
+// Ligne d’alerte du chrono (onglet Départ et mode départ) : null ou { text, act } ; act : 'sound' | 'test' | 'wake'.
+// Priorité : son coupé, puis écran demandé mais non tenu, puis son non testé / non entendu.
 function chronoAlert() {
   if (timer.end == null && !startMode.isOpen()) return null;
   sampleSound(Date.now());
-  const s = soundState();
+  const s = soundState(), w = wake.state();
   if (s.state !== 'running' || s.alive === false) return { text: '🔇 Son coupé — touchez pour réactiver', act: 'sound' };
+  if (w.wanted && !w.held) {
+    return w.supported
+      ? { text: '🔆 Écran non maintenu — touchez pour réessayer · sinon Réglages › Affichage et luminosité › Verrouillage automatique › Jamais', act: 'wake' }
+      : { text: '🔆 Maintien de l’écran indisponible : Verrouillage automatique sur « Jamais » pendant la course', act: 'wake' };
+  }
   if (s.tested === false) return { text: '🔇 Bips non entendus au test — le flash visuel reste actif', act: 'test' };
   if (s.tested === null) return { text: '🔈 Son non testé', act: 'test' };
   return null;
 }
-function fixAlert(act) {
+async function fixAlert(act) {
   if (act === 'sound') return audioInit();
   if (act === 'test') return testSound();
+  if (act === 'wake') { await wake.retry(); if (!wake.state().held) toast(WAKE_ADVICE); }
 }
 function renderChronoAlert() {
   const el = document.getElementById('tSnd'); if (!el) return;
   const a = chronoAlert();
   el.hidden = !a;
-  if (a) { if (el.textContent !== a.text) el.textContent = a.text; el.dataset.act = a.act; el.classList.toggle('bad', a.act === 'sound'); }
+  if (a) { if (el.textContent !== a.text) el.textContent = a.text; el.dataset.act = a.act; el.classList.toggle('bad', a.act !== 'test'); }
 }
 // Flash plein écran sur les bips clés (minutes et signal), doublure visuelle des bips ; jamais en retard de plus de 400 ms, jamais rouge
 const flash = { raf: null, seen: new Set() };
@@ -890,11 +912,12 @@ function startGps() {
     autoAdvance();
     renderLiveNav();
   }, (e) => { gps.err = e.message; renderLiveNav(); }, { enableHighAccuracy: true, maximumAge: 1000 });
+  wake.want('gps');
   renderLive();
 }
 async function stopGps() {
   if (recorder.active) { const tr = await recorder.stop(); if (tr?.pts.length > 1) toast(`Trace enregistrée (${tr.pts.length} points)`); renderTracks(); }
-  if (gps?.watch != null) navigator.geolocation.clearWatch(gps.watch); gps = null; scene.setBoat(null); renderLive();
+  if (gps?.watch != null) navigator.geolocation.clearWatch(gps.watch); gps = null; wake.drop('gps'); scene.setBoat(null); renderLive();
 }
 function autoAdvance() {
   if (!analysis || !gps?.pos) return;
@@ -902,7 +925,7 @@ function autoAdvance() {
   if (distXY(gps.pos, l.to) < 40 && nextIdx < analysis.legs.length - 1) nextIdx++;
 }
 // Onglet « En course » : cadre fixe + zones mises à jour à chaque position GPS
-const recorder = new Recorder();
+const recorder = new Recorder({ wake });
 let rest = null;
 function renderLive() {
   const el = $('section[data-tab=live]');
