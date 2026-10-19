@@ -123,7 +123,7 @@ a { color: var(--sea); }
       <li><b>Quand on vire, on n’a plus aucun droit</b> jusqu’à être revenu au près (règle 13).</li>
       <li><b>Le prioritaire ne fait pas de piège :</b> s’il change de route, il laisse à l’autre la place de s’écarter (règles 15 et 16). <b>Et tout le monde évite le contact</b> (règle 14).</li>
       <li><b>À la bouée, tout se décide à l’entrée de la zone (3 longueurs, 24 m en J80)</b> : le bateau intérieur engagé, ou le premier entré, a droit à la place (règle 18).</li>
-      <li><b>Au départ, regardez le pavillon préparatoire</b> : P on peut replonger ; I il faut faire le tour par une extrémité ; Z 20 % de pénalité ; U ou noir : disqualifié (règle 30).</li>
+      <li><b>Au départ, regardez le pavillon préparatoire</b> : P on peut replonger ; I, si l’on est au-dessus de la ligne dans la dernière minute, il faut revenir par une extrémité ; Z, U ou noir, il ne faut pas être dans le triangle : 20 % de pénalité, ou disqualifié (règle 30).</li>
       <li><b>Une faute ? Un tour tout de suite</b> (un virement + un empannage, IC CVAT). Toucher une bouée : un tour aussi (règles 31 et 44).</li>
     </ol>
   </div>
@@ -154,7 +154,7 @@ a { color: var(--sea); }
       <dl class="voc">
         <dt>Tribord / bâbord amures</dt><dd>Le vent arrive par la droite (tribord) ou par la gauche (bâbord) du bateau. <small>Au portant, c’est le côté opposé à la bôme.</small></dd>
         <dt>Au vent / sous le vent</dt><dd>Des deux bateaux côte à côte, celui « au vent » est le plus près du vent, l’autre est « sous le vent ».</dd>
-        <dt>Engagés</dt><dd>Aucun des deux n’est entièrement derrière l’autre : on trace une ligne perpendiculaire au bateau de devant, au ras de son tableau arrière ; si l’étrave de l’autre la dépasse, ils sont engagés.</dd>
+        <dt>Engagés</dt><dd>Aucun des deux n’est entièrement derrière l’autre : on trace une ligne perpendiculaire au bateau de devant, au ras de son point le plus en arrière ; si l’avant de l’autre la dépasse, ils sont engagés. <small>Coque <b>et équipement en position normale</b> : en J80, le bout-dehors sorti compte.</small></dd>
         <dt>Se maintenir à l’écart</dt><dd>Laisser l’autre faire sa route sans avoir à manœuvrer pour vous éviter.</dd>
         <dt>Place</dt><dd>L’espace dont un bateau a besoin pour manœuvrer correctement, en bon marin, dans les conditions du moment.</dd>
         <dt>Route normale</dt><dd>La route qu’on suivrait pour finir au plus vite s’il n’y avait pas l’autre bateau.</dd>
@@ -178,7 +178,7 @@ a { color: var(--sea); }
       </table></div>
     </div>
     <div class="card wide">
-      <h3>Le triangle de la dernière minute <span class="r">règle 30</span></h3>
+      <h3>La ligne, ses prolongements et le triangle <span class="r">règle 30</span></h3>
       <figure>
         <svg viewBox="0 0 340 270" role="img" aria-label="Triangle formé par la ligne de départ et la première marque">
           <rect width="340" height="270" rx="12" fill="#dcecf4"/>
@@ -198,7 +198,7 @@ a { color: var(--sea); }
           <path d="M140,188 C110,206 50,196 40,212 C34,226 80,238 112,224" fill="none" stroke="#e03131" stroke-width="2" stroke-dasharray="5 4" marker-end="url(#aR)"/>
           <use href="#bS" fill="#1f9d55" transform="translate(230,222) rotate(-45)"/>
         </svg>
-        <figcaption>Le bateau rouge est dans le triangle pendant la dernière minute. Sous pavillon I, il doit ressortir en contournant une extrémité (pointillés rouges) avant de prendre le départ.</figcaption>
+        <figcaption>Le bateau rouge est passé au-dessus de la ligne pendant la dernière minute. <b>Sous I</b>, il doit revenir sous la ligne en traversant un prolongement, c’est-à-dire en contournant une extrémité (pointillés rouges). <b>Sous Z, U ou noir</b>, la faute est d’avoir été dans le triangle orange, même sans franchir la ligne.</figcaption>
       </figure>
     </div>
     <div class="card wide">
@@ -208,7 +208,7 @@ a { color: var(--sea); }
         <tr><td class="flag"><svg viewBox="0 0 48 32" aria-label="Pavillon P"><rect width="48" height="32" fill="#1c4aa1"/><rect x="16" y="10.5" width="16" height="11" fill="#fff"/></svg></td>
           <td><b>P</b><br><small>la règle de base</small></td><td><span class="v ok">On peut replonger.</span> Si une partie de la coque est au-delà de la ligne au signal de départ, il suffit de revenir entièrement côté pré-départ puis de repartir (pavillon X de rappel individuel). Sinon : OCS.</td><td>Rien n’est retenu.</td></tr>
         <tr><td class="flag"><svg viewBox="0 0 48 32" aria-label="Pavillon I"><rect width="48" height="32" fill="#ffd43b"/><circle cx="24" cy="16" r="9" fill="#111"/></svg></td>
-          <td><b>I</b><br><small>règle du « tour par les bouts »</small></td><td><span class="v ko">On ne replonge plus.</span> Si la coque est dans le triangle pendant la dernière minute, il faut ressortir en passant au-delà d’une extrémité de la ligne (extension) avant de prendre le départ. Sinon : OCS.</td><td>Rien n’est retenu.</td></tr>
+          <td><b>I</b><br><small>règle du « tour par les bouts »</small></td><td><span class="v ko">On ne replonge plus.</span> Si une partie de la coque est au-dessus de la ligne ou de ses prolongements pendant la dernière minute, il faut revenir en traversant un prolongement (donc contourner une extrémité) avant de prendre le départ. Sinon : OCS.</td><td>Rien n’est retenu.</td></tr>
         <tr><td class="flag"><svg viewBox="0 0 48 32" aria-label="Pavillon Z"><polygon points="0,0 48,0 24,16" fill="#ffd43b"/><polygon points="48,0 48,32 24,16" fill="#1c4aa1"/><polygon points="48,32 0,32 24,16" fill="#e03131"/><polygon points="0,32 0,0 24,16" fill="#111"/></svg></td>
           <td><b>Z</b><br><small>pénalité de 20 %</small></td><td><span class="v ko">Pénalité de 20 % des points (ZFD)</span>, sans instruction, si la coque est dans le triangle pendant la dernière minute, même si on revient.</td><td><b>Retenue</b>, et 20 % de plus si on recommence (sauf report ou annulation avant le signal de départ).</td></tr>
         <tr><td class="flag"><svg viewBox="0 0 48 32" aria-label="Pavillon U"><rect width="48" height="32" fill="#fff"/><rect width="24" height="16" fill="#e03131"/><rect x="24" y="16" width="24" height="16" fill="#e03131"/></svg></td>
@@ -220,19 +220,20 @@ a { color: var(--sea); }
         <tr><td class="flag"><svg viewBox="0 0 48 32" aria-label="Premier substitut"><polygon points="0,0 48,16 0,32" fill="#ffd43b" stroke="#1c4aa1" stroke-width="6" stroke-linejoin="round"/></svg></td>
           <td><b>1er substitut</b><br><small>rappel général</small></td><td colspan="2">Hissé avec 2 sons : tout le monde revient, la procédure reprend. Le nouvel avertissement est donné 1 minute après l’affalé.</td></tr>
       </table></div>
-      <p class="small" style="color:var(--muted)">« Dans le triangle » : n’importe quelle partie de la coque, pendant la dernière minute. Le triangle est formé par les deux extrémités de la ligne et la première marque.</p>
+      <p class="small" style="color:var(--muted)">Pour Z, U et noir, « dans le triangle » veut dire n’importe quelle partie de la coque, pendant la dernière minute ; le triangle est formé par les deux extrémités de la ligne et la première marque. Le Comité peut aussi hisser Z et I ensemble : les deux règles s’appliquent. Un bateau qui revient vers la ligne après le signal de départ (OCS ou pavillon I) doit s’écarter de tous ceux qui ne le font pas (règle 21.1).</p>
       <div class="ref">
-        <blockquote class="en"><span class="lg">EN</span>« If flag I has been displayed, and any part of a boat’s hull is in the triangle formed by the ends of the starting line and the first mark during the last minute before her starting signal, she shall then sail across an extension to the pre-start side before starting. » — RRS 30.1</blockquote>
+        <blockquote class="en"><span class="lg">EN</span>« If flag I has been displayed, and any part of a boat’s hull is on the course side of the starting line or one of its extensions during the last minute before her starting signal, she shall sail across an extension so that her hull is completely on the pre-start side before she starts. » — RRS 30.1</blockquote>
+        <blockquote class="en"><span class="lg">EN</span>« If flag U has been displayed, no part of a boat’s hull shall be in the triangle formed by the ends of the starting line and the first mark during the last minute before her starting signal. If a boat breaks this rule and is identified, she shall be disqualified without a hearing, but not if the race is restarted or resailed. » — RRS 30.3</blockquote>
         <blockquote class="plain"><span class="lg">FR</span>En clair : pavillon I, il faut revenir en contournant une extrémité de la ligne. Texte officiel : RCV 30.1 (Pénalité I), 30.2 (Z), 30.3 (U), 30.4 (noir), 29.1 (rappel individuel), 29.2 (rappel général).</blockquote>
       </div>
     </div>
     <div class="card">
       <h3>Priorités avant le départ</h3>
-      <p>Les règles de priorité s’appliquent <b>dès le signal préparatoire</b> : tribord/bâbord, au vent/sous le vent, tout fonctionne comme en course. Le bateau qui arrive par derrière sous le vent ne peut pas lofer au-dessus du près s’il s’est engagé à moins de deux longueurs (règle 17).</p>
+      <p>Les règles de priorité s’appliquent <b>dès le signal préparatoire</b> : tribord/bâbord, au vent/sous le vent, tout fonctionne comme en course. Attention : avant le signal de départ, aucun bateau n’a de « route normale » (définition). Le bateau qui arrive par derrière et s’engage sous le vent à moins de deux longueurs (règle 17) doit donc se garder de lofer.</p>
     </div>
     <div class="card">
       <h3>Le Comité est une bouée</h3>
-      <p>Le bateau Comité est une marque de départ : pas de place à la marque pour le bateau qui veut s’y glisser au départ (la règle 18 ne s’applique pas à une marque de départ entourée d’eau navigable, à l’approche de la ligne pour partir). Le « bateau au vent » qui veut passer entre le Comité et un bateau sous le vent n’a aucun droit.</p>
+      <p>Le bateau Comité est une marque de départ : pas de place à la marque pour le bateau qui veut s’y glisser au départ. Les règles 18 à 20 ne s’appliquent pas à une marque de départ entourée d’eau navigable, depuis l’approche pour partir jusqu’à ce qu’on l’ait laissée derrière soi (préambule de la section C). Le « bateau au vent » qui veut passer entre le Comité et un bateau sous le vent n’a aucun droit.</p>
     </div>
   </div>
 </section>
@@ -341,6 +342,7 @@ a { color: var(--sea); }
         <li>Le virement commence quand l’étrave passe le lit du vent et finit quand le bateau est au près sur le nouveau bord.</li>
         <li>Pendant ce temps, il s’écarte de tout le monde, même d’un bateau qu’il avait à rattraper.</li>
         <li>Une fois au près, il devient prioritaire selon 10, 11 ou 12, mais il doit d’abord laisser la place à l’autre de s’écarter (règle 15).</li>
+        <li>Si les deux virent en même temps, c’est celui qui est à bâbord de l’autre, ou derrière, qui s’écarte.</li>
       </ul>
       <div class="ref">
         <blockquote><span class="lg">FR</span>« Après avoir dépassé la position bout au vent, un bateau doit se maintenir à l’écart des autres bateaux jusqu’à ce qu’il soit au près. » — RCV 13</blockquote>
@@ -351,13 +353,13 @@ a { color: var(--sea); }
     <div class="card">
       <h3>Les règles de bon sens <span class="r">règles 14, 15, 16</span></h3>
       <ul>
-        <li><b>Éviter le contact (14)</b> : tout le monde, prioritaire compris, doit éviter le contact si c’est raisonnablement possible. Le prioritaire n’est pénalisé que s’il y a dommage ou blessure.</li>
+        <li><b>Éviter le contact (14)</b> : tout le monde, prioritaire compris, doit éviter le contact si c’est raisonnablement possible, et ne pas provoquer de contact entre d’autres bateaux, ni avec un objet (le Comité par exemple). Le prioritaire n’a pas à agir tant qu’il n’est pas clair que l’autre ne s’écarte pas, et il est exonéré s’il n’y a ni dommage ni blessure (règle 43.1(c)).</li>
         <li><b>Acquérir la priorité (15)</b> : celui qui devient prioritaire (en virant, en s’engageant sous le vent…) laisse d’abord à l’autre la place de s’écarter. Pas de piège.</li>
-        <li><b>Changer de route (16)</b> : le prioritaire peut changer de cap, mais en laissant à l’autre la place de s’écarter. Au près, un tribord ne peut pas abattre sur un bâbord qui passe derrière lui pour le coincer.</li>
+        <li><b>Changer de route (16)</b> : le prioritaire peut changer de cap, mais en laissant à l’autre la place de s’écarter. Au près, un tribord ne peut pas abattre sur un bâbord qui passe derrière lui si cela l’oblige à changer de route immédiatement (règle 16.2).</li>
       </ul>
       <div class="ref">
-        <blockquote><span class="lg">FR</span>« Un bateau doit éviter le contact avec un autre bateau si cela est raisonnablement possible. » — RCV 14</blockquote>
-        <blockquote class="en"><span class="lg">EN</span>« A boat shall avoid contact with another boat if reasonably possible. » — RRS 14</blockquote>
+        <blockquote class="plain"><span class="lg">FR</span>En clair : RCV 14, « Éviter le contact » ; depuis 2025 la règle interdit aussi de provoquer un contact entre deux autres bateaux, ou avec un objet.</blockquote>
+        <blockquote class="en"><span class="lg">EN</span>« If reasonably possible, a boat shall (a) avoid contact with another boat, (b) not cause contact between boats, and (c) not cause contact between a boat and an object that should be avoided. » — RRS 14</blockquote>
         <blockquote><span class="lg">FR</span>« Quand un bateau prioritaire modifie sa route, il doit laisser à l’autre bateau la place de se maintenir à l’écart. » — RCV 16.1</blockquote>
         <blockquote class="en"><span class="lg">EN</span>« When a right-of-way boat changes course, she shall give the other boat room to keep clear. » — RRS 16.1</blockquote>
         <blockquote class="en"><span class="lg">EN</span>« When a boat acquires right of way, she shall initially give the other boat room to keep clear, unless she acquires right of way because of the other boat’s actions. » — RRS 15</blockquote>
@@ -398,8 +400,13 @@ a { color: var(--sea); }
       <ul>
         <li>La situation est « photographiée » quand le premier bateau entre dans la zone. Elle vaut jusqu’à ce que le bateau qui a droit à la place ait passé la bouée.</li>
         <li>« Place à la marque » : de quoi aller à la bouée, la contourner en bon marin et la laisser derrière soi. Pas de quoi faire un grand arrondi tactique qui gênerait l’autre.</li>
-        <li>Si l’intérieur doit empanner pour suivre sa route, il ne s’éloigne pas plus que nécessaire de la bouée avant d’empanner (règle 18.4).</li>
+        <li>Si l’intérieur prioritaire doit empanner pour suivre sa route, il ne s’éloigne pas plus que nécessaire de la bouée avant d’empanner (règle 18.4, qui ne s’applique pas à une porte).</li>
+        <li>Le droit à la place cesse si le bateau qui l’a passe bout au vent ou sort de la zone (18.2(b)). En cas de doute sur l’engagement « à temps », on présume qu’il n’existait pas (18.2(e)) : c’est à l’intérieur de prouver.</li>
       </ul>
+      <div class="ref">
+        <blockquote class="en"><span class="lg">EN</span>« When the first of two boats reaches the zone, (1) if the boats are overlapped, the outside boat at that moment shall give the inside boat mark-room; (2) if the boats are not overlapped, the boat that has not reached the zone at that moment shall give the other boat mark-room. » — RRS 18.2(a)</blockquote>
+        <blockquote class="plain"><span class="lg">FR</span>Texte officiel : RCV 18.2, « Laisser la place à la marque » ; définitions « Place à la marque » et « Zone » (trois longueurs de coque du bateau le plus proche de la marque).</blockquote>
+      </div>
     </div>
 
     <div class="card">
@@ -422,7 +429,7 @@ a { color: var(--sea); }
         </svg>
       </figure>
       <ul>
-        <li>Un bateau qui rattrape par derrière et s’engage à l’intérieur <b>une fois dans la zone</b> n’a pas droit à la place.</li>
+        <li>Un bateau qui rattrape par derrière et s’engage à l’intérieur <b>une fois dans la zone</b> n’a pas droit à la place : l’obligation fixée à l’entrée dure « même si un engagement se crée ou se rompt ensuite ».</li>
         <li>C’est le changement majeur de 2025 : on ne regarde plus seulement l’engagement mais qui atteint la zone en premier.</li>
       </ul>
     </div>
@@ -446,17 +453,19 @@ a { color: var(--sea); }
         </svg>
       </figure>
       <ul>
-        <li>B ne doit pas obliger T à monter au-dessus du près pour l’éviter, et ne peut pas réclamer la place à l’intérieur.</li>
+        <li>B ne peut pas réclamer la place à l’intérieur. Si T est tribord depuis son entrée dans la zone, B ne doit pas l’obliger à monter au-dessus du près pour l’éviter, et doit lui laisser la place si T s’engage à son intérieur.</li>
         <li>Depuis 2025, cela vaut même si l’autre bateau a lui aussi viré dans la zone.</li>
         <li>Le bon réflexe en J80 : arriver sur la lay-line tribord avant la zone, surtout avec une flotte compacte.</li>
       </ul>
+      <div class="ref"><blockquote class="en"><span class="lg">EN</span>« If a boat passes head to wind from port to starboard tack in the zone of a mark to be left to port, rule 18.2 does not apply between her and another boat on starboard tack that is fetching the mark. » — RRS 18.3</blockquote></div>
     </div>
 
     <div class="card">
       <h3>Quand la règle 18 ne s’applique pas <span class="r">règle 18.1</span></h3>
       <ul>
         <li><b>Au près, entre bâbord et tribord</b>, à la bouée au vent : c’est la règle 10 qui joue, tribord passe. Un bâbord qui arrive sur la bouée doit laisser passer tous les tribords.</li>
-        <li>Entre un bateau qui s’approche de la ligne pour prendre le départ et un autre, à une marque de départ (Comité, bouée de départ).</li>
+        <li>Entre un bateau qui arrive à la bouée et un bateau qui la quitte.</li>
+        <li>Aux marques de départ (Comité, bouée), à l’approche pour partir.</li>
         <li>Quand la « bouée » est un obstacle continu, comme une digue : c’est alors la règle 19 qui s’applique.</li>
       </ul>
     </div>
@@ -482,7 +491,8 @@ a { color: var(--sea); }
     </div>
     <div class="card">
       <h3>Demander à virer <span class="r">règle 20</span></h3>
-      <p>Au près, coincé par un obstacle (la côte, une digue) avec un bateau au vent : hélez <b>« De l’eau pour virer ! »</b> (en anglais <i>« Room to tack »</i>). L’autre doit soit virer, soit répondre « Vire ! » et vous laisser la place. Ne hélez que si vous en avez réellement besoin pour éviter l’obstacle, et laissez à l’autre le temps de réagir.</p>
+      <p>Au près, coincé par un obstacle (la côte, une digue) avec un bateau au vent : hélez <b>« De l’eau pour virer ! »</b> (en anglais <i>« Room to tack »</i>). L’autre doit soit virer, soit répondre « Vire ! » et vous laisser la place. Ne hélez que si vous êtes au près (ou plus haut) et devez bientôt changer nettement de route pour éviter l’obstacle. Interdit si l’obstacle est une bouée et qu’un bateau qui la « fait » devrait changer de route. Laissez à l’autre le temps de réagir.</p>
+      <div class="ref"><blockquote class="en"><span class="lg">EN</span>Hail « Room to tack » ; reply « You tack ». — RRS 20.1, 20.2</blockquote></div>
     </div>
   </div>
 </section>
@@ -518,6 +528,7 @@ a { color: var(--sea); }
         <li>Pas besoin de franchir complètement la ligne : dès que l’étrave coupe, c’est fini. On peut ensuite repartir de n’importe quel côté.</li>
         <li>Vous n’avez <b>pas</b> fini si, après avoir coupé, vous faites une pénalité, si vous corrigez une erreur de parcours ou si vous continuez le parcours. Il faut alors recouper la ligne.</li>
         <li>Vous êtes encore en course tant que vous n’avez pas dégagé la ligne et ses bouées : les priorités et la règle 31 s’appliquent toujours.</li>
+        <li>Une pénalité faite près de la ligne d’arrivée : la coque doit être entièrement revenue côté parcours avant de finir (règle 44.2).</li>
         <li>Fin de course au près dans la pétole : aller chercher l’extrémité la plus au vent de la ligne (le même calcul de biais qu’au départ).</li>
         <li><b>CVAT</b> : la ligne est entre le mât du Comité (pavillon bleu) et la bouée indiquée par les IC. Le parcours peut être réduit à une porte de pointage (2e substitut + pavillon de classe, voir l’onglet IC de l’app).</li>
       </ul>
@@ -550,26 +561,28 @@ a { color: var(--sea); }
       </figure>
       <ul>
         <li><b>IC CVAT : un seul tour</b> (un virement + un empannage) pour une faute de priorité, au lieu des deux tours de la règle de base. Pour une bouée touchée, c’est un tour dans tous les cas.</li>
-        <li>Le faire dès que possible après l’incident, en se dégageant des autres bateaux.</li>
-        <li>Un tour ne suffit pas s’il y a eu blessure, dommage sérieux, ou un avantage significatif : il faut alors abandonner.</li>
+        <li>Se dégager des autres bateaux dès que possible après l’incident, puis faire le tour sans attendre. Plusieurs tours : tous dans le même sens. Pendant la pénalité, on s’écarte de tous (règle 21.2).</li>
+        <li>Faute de priorité et bouée touchée dans le même incident : seule la pénalité de priorité est due (44.1(a)).</li>
+        <li>Un tour ne suffit pas s’il y a eu blessure, dommage sérieux, ou un avantage significatif : il faut alors abandonner (44.1(b)).</li>
         <li>Les IC CVAT demandent ensuite une reconnaissance écrite : prévenez le Comité à l’arrivée.</li>
       </ul>
       <div class="ref">
-        <blockquote class="en"><span class="lg">EN</span>« A boat may take a Two-Turns Penalty when she may have broken one or more rules of Part 2 in an incident while racing. » — RRS 44.1 (penalty changed to one turn by the CVAT sailing instructions)</blockquote>
+        <blockquote class="en"><span class="lg">EN</span>« A boat may take a Two-Turns Penalty when she may have broken one or more rules of Part 2 in an incident while racing. She may take a One-Turn Penalty when she may have broken rule 31. » — RRS 44.1 (Part 2 penalty changed to one turn by the CVAT sailing instructions)</blockquote>
         <blockquote class="plain"><span class="lg">FR</span>Texte officiel : RCV 44.1 et 44.2, « Pénalité d’un tour / de deux tours ». Les IC peuvent modifier la règle : ce sont elles qui priment.</blockquote>
       </div>
     </div>
     <div class="card">
       <h3>Réclamer <span class="r">règle 60</span></h3>
       <ul>
-        <li>Héler <b>« Je proteste ! »</b> (« Protest ») tout de suite, et hisser le pavillon rouge à la première occasion (obligatoire pour un bateau de plus de 6 m, donc en J80).</li>
+        <li>Héler <b>« Je proteste ! »</b> (« Protest ») et hisser le pavillon rouge à la première occasion raisonnable (obligatoire pour un bateau de plus de 6 m, donc en J80), et le garder jusqu’à la fin de la course.</li>
+        <li>Si l’autre bateau était trop loin pour être hélé, il suffit de le prévenir dès que possible (60.2(b)).</li>
         <li>Si l’autre fait son tour, l’affaire est réglée.</li>
         <li>Sinon : prévenir le Comité à l’arrivée et déposer la réclamation dans le délai des IC. Notez l’heure, la position et les témoins. La trace GPS de l’app peut aider.</li>
       </ul>
     </div>
     <div class="card">
       <h3>Exonération <span class="r">règle 43</span></h3>
-      <p>Un bateau obligé d’enfreindre une règle à cause de la faute d’un autre bateau est exonéré : pas de pénalité. Exemple : l’intérieur à une bouée qui touche le bateau extérieur parce que celui-ci ne lui a pas laissé la place.</p>
+      <p>Un bateau obligé d’enfreindre une règle à cause de la faute d’un autre bateau est exonéré : pas de pénalité (43.1(a)). De même, l’intérieur qui navigue dans la place à laquelle il a droit est exonéré s’il enfreint une règle de priorité, ou touche la bouée, à cause du bateau qui devait lui laisser cette place (43.1(b)).</p>
     </div>
   </div>
 </section>
@@ -578,7 +591,7 @@ a { color: var(--sea); }
   <h2><span class="n">7</span> Testez-vous</h2>
   <p class="lead">Six situations fréquentes en J80. Touchez une question pour voir la réponse.</p>
   <details class="q"><summary>Au près, nous sommes bâbord et un J80 arrive tribord. Il hèle « Passe ! ». Que faire ?</summary><p>Rien ne vous oblige à passer devant : c’est une invitation, et vous restez responsable si ça touche. S’il change de route après vous l’avoir proposé, il doit vous laisser la place de vous écarter (règle 16). Dans le doute, passez derrière.</p></details>
-  <details class="q"><summary>Préparatoire : pavillon I. À H−40 s nous sommes au-dessus de la ligne. Peut-on replonger par la ligne ?</summary><p>Non. Sous I, un bateau dans le triangle pendant la dernière minute doit revenir en contournant une extrémité de la ligne (règle 30.1). Avec P, on aurait pu replonger directement.</p></details>
+  <details class="q"><summary>Préparatoire : pavillon I. À H−40 s nous sommes au-dessus de la ligne. Peut-on replonger par la ligne ?</summary><p>Non. Sous I, un bateau du côté parcours de la ligne (ou de ses prolongements) pendant la dernière minute doit revenir en traversant un prolongement, donc en contournant une extrémité (règle 30.1). Avec P, on aurait pu replonger directement. Être dans le triangle sans franchir la ligne n’est pas une faute sous I.</p></details>
   <details class="q"><summary>Préparatoire : pavillon U, puis rappel général. Nous étions dans le triangle. Sommes-nous disqualifiés ?</summary><p>Non : la pénalité U est effacée si le départ est redonné (règle 30.3). Avec le pavillon noir, elle serait maintenue et vous ne pourriez pas reprendre le départ (règle 30.4). Avec Z, les 20 % seraient maintenus.</p></details>
   <details class="q"><summary>Bouée sous le vent à laisser à bâbord. Nous sommes engagés à l’intérieur quand l’autre entre dans la zone, mais il est sous le vent. Qui a raison ?</summary><p>Vous. À l’intérieur et engagé à l’entrée dans la zone, vous avez droit à la place à la marque (règle 18.2), même si l’autre est prioritaire en règle 11. Il doit vous laisser passer la bouée.</p></details>
   <details class="q"><summary>Bouée au vent : nous arrivons bâbord, un tribord est sur la lay-line. On vire dans la zone sous son vent. Avons-nous droit à la place ?</summary><p>Non. Après avoir viré de bâbord à tribord dans la zone, vous n’avez pas droit à la place, et vous ne devez pas l’obliger à monter au-dessus du près (règle 18.3). Il fallait passer derrière lui ou virer avant la zone.</p></details>
@@ -605,6 +618,7 @@ a { color: var(--sea); }
     <tr><td>Rappels</td><td>Règle 29</td><td>Rule 29 · Recalls</td></tr>
     <tr><td>Pavillons I, Z, U, noir</td><td>Règle 30 · Pénalités de départ</td><td>Rule 30 · Starting Penalties</td></tr>
     <tr><td>Toucher une marque</td><td>Règle 31</td><td>Rule 31 · Touching a Mark</td></tr>
+    <tr><td>Erreurs au départ, bateau qui fait sa pénalité</td><td>Règle 21</td><td>Rule 21 · Starting Errors; Taking Penalties; Backing a Sail</td></tr>
     <tr><td>Exonération</td><td>Règle 43</td><td>Rule 43 · Exoneration</td></tr>
     <tr><td>Tours de pénalité</td><td>Règle 44</td><td>Rule 44 · Penalties at the Time of an Incident</td></tr>
     <tr><td>Réclamer</td><td>Règle 60</td><td>Rule 60 · Protests</td></tr>
@@ -612,10 +626,10 @@ a { color: var(--sea); }
   <div class="cards" style="margin-top:12px">
     <div class="card"><h3>Où les lire</h3><ul>
       <li>Français : <a href="https://arbitrage.ffvoile.fr/" target="_blank" rel="noopener">FFVoile, site de l’arbitrage</a> (RCV 2025-2028, prescriptions nationales, livret de jurisprudence).</li>
-      <li>English : <a href="https://www.sailing.org/inside-world-sailing/rules-regulations/racing-rules-of-sailing/" target="_blank" rel="noopener">World Sailing, The Racing Rules of Sailing 2025-2028</a>.</li>
+      <li>English : <a href="https://www.sailing.org/wp-content/uploads/2026/04/2025-2028-RRS-with-Changes-and-Corrections.pdf" target="_blank" rel="noopener">World Sailing, The Racing Rules of Sailing 2025-2028 (PDF, version corrigée avril 2026)</a>.</li>
       <li>Les IC de la régate : onglet <b>IC</b> de l’app.</li>
     </ul></div>
-    <div class="card"><h3>À propos des citations</h3><p class="small">Les citations sont de courts extraits des règles 2025-2028. Quand le texte français officiel n’est pas cité mot pour mot, la mention « En clair » le résume et renvoie au numéro de règle. Les deux versions ont la même numérotation.</p></div>
+    <div class="card"><h3>À propos des citations</h3><p class="small">Les citations anglaises sont vérifiées sur l’édition World Sailing <a href="https://www.sailing.org/wp-content/uploads/2026/04/2025-2028-RRS-with-Changes-and-Corrections.pdf" target="_blank" rel="noopener">2025-2028 avec changements et corrections (avril 2026)</a>. Quand le texte français officiel n’est pas cité mot pour mot, la mention « En clair » le résume et renvoie au numéro de règle. Les deux versions ont la même numérotation.</p></div>
   </div>
 </section>
 </main>
