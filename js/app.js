@@ -16,6 +16,8 @@ import { parseWind, listen, say } from './voice.js';
 import { Recorder, listTracks, getTrack, deleteTrack, saveTrack, analyzeTrack, exportGPX, fromGPX } from './track.js';
 import { shroudsFor } from './tuning.js';
 import { createStartMode } from './startmode.js';
+import { initUpdates } from './swupdate.js';
+import { isActive, isRaceDay, lockState } from './racelock.js';
 import { detect as dbDetect, ask as dbAsk, askModes as dbAskModes, analyze as dbAnalyze, narrative as dbNarrative, buildReport as dbBuild, shareReport as dbShare } from './debrief.js';
 
 const $ = (s, r = document) => r.querySelector(s);
@@ -80,16 +82,11 @@ async function init() {
   refreshWeather();
   refreshLive();
   setInterval(refreshLive, 5 * 60000);
-  if ('serviceWorker' in navigator) {
-    // mise à jour sans intervention : nouvelle version détectée → rechargement unique
-    const had = !!navigator.serviceWorker.controller;
-    let reloaded = false;
-    navigator.serviceWorker.addEventListener('controllerchange', () => { if (had && !reloaded) { reloaded = true; location.reload(); } });
-    navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then((reg) => {
-      reg.update().catch(() => {});
-      document.addEventListener('visibilitychange', () => { if (!document.hidden) reg.update().catch(() => {}); });
-    }).catch(() => {});
-  }
+  // mise à jour différée : bandeau hors course, application sur geste seulement (js/swupdate.js, js/racelock.js)
+  updates = initUpdates({ isLocked: () => raceLock().locked, onAvailable: showUpdateBar, onHidden: hideUpdateBar });
+  setInterval(raceTick, 5000);
+  addEventListener('pagehide', saveRaceActivity);
+  document.addEventListener('visibilitychange', () => { if (document.hidden) saveRaceActivity(); });
 }
 
 async function refreshWeather() {
@@ -627,6 +624,42 @@ function renderCourse() {
     if (selLeg != null) { const l = analysis.legs[i]; scene.focus([l.from, l.to, ...(l.route?.path ?? [])], 1.35); S.hour = Math.min(21, Math.floor(l.eta0 * 4) / 4); $('#hour').value = S.hour; $('#hourLbl').textContent = hhmm(S.hour); updateDisplayField(); }
   }));
 }
+
+// ───────────────────────── MISE À JOUR DIFFÉRÉE ET VERROU « EN COURSE »
+let updates = null;
+const RL = store.get('rade.racelock', {});     // { lastActiveAt, finishedAt } : survit au rechargement et à la relance iOS
+let rlSavedAt = 0, wasLocked = false;
+const saveRL = (now = Date.now()) => { rlSavedAt = now; store.set('rade.racelock', RL); };
+const raceActive = (now) => isActive({ now, timerEnd: timer.end, startModeOpen: startMode.isOpen(), recording: recorder.active, gpsOn: gps?.watch != null });
+function raceLock(now = Date.now()) {
+  return lockState({ now, active: raceActive(now), raceFrom: IC?.date || null, raceTo: IC?.dateEnd || IC?.date || null, lastActiveAt: RL.lastActiveAt ?? null, finishedAt: RL.finishedAt ?? null });
+}
+function saveRaceActivity() { const now = Date.now(); if (raceActive(now)) { RL.lastActiveAt = now; saveRL(now); } }
+function raceTick() {
+  const now = Date.now();
+  if (raceActive(now)) { RL.lastActiveAt = now; if (now - rlSavedAt >= 30000) saveRL(now); }
+  const locked = raceLock(now).locked;
+  updates?.refresh();
+  if (wasLocked && !locked) updates?.check();    // le téléchargement était suspendu pendant le verrou
+  wasLocked = locked;
+}
+// Bandeau discret en haut ; texte posé par textContent, jamais en HTML (la note vient du worker)
+function showUpdateBar(build) {
+  let el = document.getElementById('updbar');
+  if (!el) {
+    el = document.createElement('div'); el.id = 'updbar'; el.setAttribute('role', 'status'); document.body.appendChild(el);
+  }
+  if (el.dataset.bid !== String(build.id)) {
+    el.dataset.bid = String(build.id);
+    const msg = document.createElement('span'); msg.textContent = `Nouvelle version v${build.n} · ${build.note}`;
+    const btn = document.createElement('button'); btn.className = 'btn small acc'; btn.textContent = 'Mettre à jour';
+    btn.addEventListener('click', () => { if (!updates?.apply()) toast('Course en cours : mise à jour reportée'); });
+    el.replaceChildren(msg, btn);
+  }
+  el.classList.toggle('crit', !!build.critical);
+  el.hidden = false;
+}
+function hideUpdateBar() { const el = document.getElementById('updbar'); if (el) el.hidden = true; }
 
 // ───────────────────────── DÉPART
 let timer = { end: null, running: false, iv: null, beeps: new Set() };
