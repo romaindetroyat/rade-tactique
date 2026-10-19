@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 2
 current_phase_name: Fiable et juste en mer
 status: executing
-stopped_at: Completed 02-01-PLAN.md
-last_updated: "2026-10-19T16:00:35.215Z"
+stopped_at: Completed 02-02-PLAN.md
+last_updated: "2026-10-19T16:19:16.997Z"
 last_activity: 2026-10-19
 last_activity_desc: Phase 2 execution started
-state_head: 45edadb42e0c46a6857e44355ed7fe9a9b3c3cb7
+state_head: 3b010165dd8258567bd040dc0813567856ec38a3
 progress:
   total_phases: 4
   completed_phases: 1
   total_plans: 9
-  completed_plans: 5
+  completed_plans: 6
   percent: 25
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-10-19)
 ## Current Position
 
 Phase: 2 (Fiable et juste en mer) — EXECUTING
-Plan: 2 of 5
+Plan: 3 of 5
 Status: Ready to execute
 Last activity: 2026-10-19 — Phase 2 execution started
 
@@ -59,6 +59,7 @@ Progress: [███░░░░░░░] 25%
 | Phase 01 P02 | 3 min | 2 tasks | 7 files |
 | Phase 01 P03 | 13 min | 2 tasks | 9 files |
 | Phase 02 P01 | 69 min | 3 tasks | 13 files |
+| Phase 02 P02 | 20 min | 2 tasks | 14 files |
 
 ## Accumulated Context
 
@@ -81,6 +82,9 @@ Décisions récentes qui orientent le travail en cours :
 - [Phase 02]: 02-01 : tolérance de recalage des bips resserrée à 12 ms (l’horloge audio de Chromium dérive d’environ 1,5 ms/s ; avec 30 ms et 8 s d’avance des bips sonnaient à 31-34 ms)
 - [Phase 02]: 02-01 : mesure Chromium des bips rejouée jusqu’à 3 fois (glissements de l’horloge audio de la machine de mesure) ; un vrai défaut échoue à chaque tentative (contrôle négatif réalisé)
 - [Phase 02]: 02-01 : chrono repris après un rechargement (rade.timer.v1, borné à H+10 min) ; réactivation du son et redemande du verrou d’écran sur pointerdown et pointerup
+- [Phase 02]: 02-02 : la lampe réseau suit le résultat de la sonde HEAD (jamais navigator.onLine seul) et n’est jamais rouge — Un GET serait servi par le cache du worker et dirait « réseau ok » en mode avion ; une sonde sans réponse passe la lampe à l’orange tout de suite
+- [Phase 02]: 02-02 : garde de test « aucune erreur avalée » sur app, track, startmode, wakelock et beeper : tout gestionnaire consigne (report / note) ou explique son repli par un commentaire — FIAB-07 : plus aucun échec du chemin départ / course sans trace
+- [Phase 02]: 02-02 : mode départ, quatre lampes sur une seconde ligne de la barre du haut ; ligne d’action = lampe touchée, sinon première lampe rouge, sinon alerte du chrono — Quatre lampes ne tiennent pas sur la ligne des boutons à 375 px
 
 ### Pending Todos
 
@@ -105,6 +109,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-10-19T16:00:35.102Z
-Stopped at: Completed 02-01-PLAN.md
+Last session: 2026-10-19T16:19:16.901Z
+Stopped at: Completed 02-02-PLAN.md
 Resume file: None
