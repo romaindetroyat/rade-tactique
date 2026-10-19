@@ -18,6 +18,7 @@ import { shroudsFor } from './tuning.js';
 import { createStartMode } from './startmode.js';
 import { initUpdates } from './swupdate.js';
 import { createBeeper, audioAlive, milestones, KEY } from './beeper.js';
+import { candidates, ACCURACY_M } from './markfit.js';
 import { MAX_MOVE_M, DOUBT, parseLatLon, loadOverrides, saveOverride, clearOverride, applyOverrides, restoreMark } from './marks.js';
 import { createWakeLock } from './wakelock.js';
 import { computeStatus, lampLabel, actionLabel, GPS_STALE_S } from './status.js';
@@ -1341,6 +1342,12 @@ function renderTraceDetail() {
   const nT = res.man.filter((m) => m.kind === 'virement').length, nE = res.man.length - nT;
   const sp = res.split.filter((s) => !s.missed);
   const worst = sp.filter((s) => s.plan && s.t - s.plan > 30).sort((a, b) => (b.t - b.plan) - (a.t - a.plan))[0];
+  // bouées à confirmer contournées sur cette trace : jusqu’à trois virages proposés par bouée, l’équipier valide (D-02 amendé, JUST-02)
+  const fits = Object.entries(MARKS).filter(([, m]) => DOUBT(m)).map(([k, m]) => ({ k, m, c: candidates(res.P, toXY(m.lat, m.lon)) })).filter((f) => f.c.length);
+  const hms = (t) => new Date(t).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  const fitCard = fits.length ? `<div class="card"><h3><span>Bouées à confirmer ${tip('La trace montre où vous avez contourné la bouée : l’app propose le sommet de votre virage, décalé de 14 m vers l’intérieur. Choisissez le virage qui correspond à votre arrondi : rien n’est changé sans votre validation, et le recalage reste sur ce téléphone.')}</span><small>d’après cette trace</small></h3>
+    <p class="small muted" style="margin:0 0 4px">Précision attendue ±${ACCURACY_M} m (davantage si l’arrondi était large). Choisissez le virage où vous avez contourné la bouée.</p>
+    ${fits.map((f) => `<div style="margin-top:10px"><b>${esc(f.k)} ${esc(f.m.name)}</b> — position à confirmer</div>${f.c.map((c, i) => `<div class="small" style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin:6px 0"><span>virage de ${Math.round(Math.abs(c.turn.D))}° à ${hms(c.turn.t)} · à ${Math.round(c.d0)} m de la position actuelle · passage au plus près à ${Math.round(c.near.d)} m <span class="muted">(pour information)</span></span><button class="btn small acc" data-mkfit="${esc(f.k)}" data-i="${i}">Valider</button></div>`).join('')}`).join('')}</div>` : '';
   el.innerHTML = `<div class="card"><h3><span>${esc(tr.name)}</span><small>${new Date(tr.start).toLocaleTimeString('fr-FR', { timeStyle: 'short' })}</small></h3>
     <div class="kpis"><div class="kpi"><b>${(res.dist / NM).toFixed(1)}</b><span>Nq parcourus</span></div><div class="kpi"><b>${summarizeTime(res.dur)}</b><span>durée</span></div><div class="kpi"><b>${res.vmean.toFixed(1)}</b><span>nd moyen (max ${res.vmax.toFixed(1)})</span></div></div>
     <div class="kpis" style="margin-top:8px"><div class="kpi"><b>${nT}</b><span>virements</span></div><div class="kpi"><b>${nE}</b><span>empannages</span></div><div class="kpi"><b>${res.perf ? Math.round(res.perf * 100) + ' %' : '—'}</b><span>de la polaire ${tip('Vitesse mesurée ÷ vitesse cible de la polaire J80 pour le vent du modèle à cet endroit et cette heure. Indicatif : le vent réel peut différer du modèle.')}</span></div></div>
@@ -1348,7 +1355,12 @@ function renderTraceDetail() {
     <div class="btns"><button class="btn alt" id="trPlay">▶ Rejouer la trace</button><button class="btn alt" id="trGpx">Exporter GPX</button><button class="btn alt" id="trHide">Masquer</button></div>
     ${sameCourse ? (sp.length ? `<h3 style="margin-top:12px">Bord par bord ${tip('Temps réel entre deux marques comparé au temps du routage optimal (même vent modèle). Un écart positif = temps perdu.')}</h3><table class="t"><tr><th>Marque</th><th>Réel</th><th>Optimal</th><th>Écart</th><th>Polaire</th></tr>${res.split.map((s) => s.missed ? `<tr><td>${s.leg.order} · ${esc(s.leg.to.name)}</td><td colspan="4" class="muted">non détectée</td></tr>` : `<tr><td>${s.leg.order} · ${esc(s.leg.to.name)}</td><td>${summarizeTime(s.t)}</td><td>${summarizeTime(s.plan)}</td><td style="color:${s.t > s.plan ? 'var(--bad)' : 'var(--ok)'}">${s.t > s.plan ? '+' : '−'}${summarizeTime(Math.abs(s.t - s.plan))}</td><td>${s.pct ? Math.round(s.pct * 100) + ' %' : '—'}</td></tr>`).join('')}</table>${worst ? `<p class="small">Bord le plus coûteux : vers <b>${esc(worst.leg.to.name)}</b> (${summarizeTime(worst.t - worst.plan)} de plus que l’optimal). Rejouez-le en comparant à la route bleue.</p>` : ''}` : '<p class="small muted">Aucune marque du parcours détectée sur cette trace (passage à plus de 250 m).</p>')
       : '<p class="small muted">Pour le découpage bord par bord, sélectionnez dans l’onglet Parcours le parcours couru (même numéro et même classe).</p>'}
-    <p class="small muted">Couleur de la trace : du bleu (lent) au rouge (rapide). V = virement, E = empannage.</p></div>`;
+    <p class="small muted">Couleur de la trace : du bleu (lent) au rouge (rapide). V = virement, E = empannage.</p></div>${fitCard}`;
+  $$('[data-mkfit]', el).forEach((b) => b.addEventListener('click', () => {
+    const f = fits.find((x) => x.k === b.dataset.mkfit), c = f?.c[+b.dataset.i]; if (!c) return;
+    const ll = toLL(c.x, c.y);
+    recalMark(f.k, { lat: +ll.lat.toFixed(6), lon: +ll.lon.toFixed(6), src: 'trace', t: tr.start });
+  }));
   $('#trPlay').onclick = () => {
     const t0 = res.P[0].t;
     scene.setReplay(res.P.map((p) => ({ x: p.x, y: p.y, t: (p.t - t0) / 1000, hd: p.hd, twa: p.twa, bsp: p.v, spi: Math.abs(p.twa) > 110, trace: true, pct: p.pct, abs: p.t })));
@@ -1439,7 +1451,7 @@ function recalMark(k, ov) {
   applyOverrides(MARKS, { [k]: ov });
   refreshMarks();
   const m = MARKS[k];
-  toast(`Bouée ${k} ${m.name} recalée (${m.src}${ov.src === 'trace' ? ', ±20 m' : ''})${kept ? '' : ' — non gardée après fermeture : mémoire pleine'}`);
+  toast(`Bouée ${k} ${m.name} recalée${ov.src === 'trace' ? ` : ${m.src} (±${ACCURACY_M} m)` : ` (${m.src})`}${kept ? '' : ' — non gardée après fermeture : mémoire pleine'}`);
 }
 function resetMark(k) {
   clearOverride(marksStore(), k); restoreMark(MARKS, k);
