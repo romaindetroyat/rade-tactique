@@ -37,7 +37,7 @@ Les phases décimales s'intercalent entre les phases entières qui les entourent
   4. Chaque mise en ligne porte un numéro de version et une liste de fichiers hors réseau générés automatiquement : une seule commande (`npm run release`) régénère version et liste, et la porte refuse toute mise en ligne qui l'a oubliée : aucun fichier n'est à ajouter à la main.
   5. Un PDF d'IC piégé importé dans l'app n'exécute aucun code, et les IC CVAT habituelles s'importent toujours.
 
-**Plans:** 2/4 plans executed
+**Plans:** 3/4 plans executed
 
 Plans:
 **Wave 1**
@@ -45,7 +45,7 @@ Plans:
 - [x] 01-02-PLAN.md — Version et liste hors réseau générées par `tools/stamp.mjs`, version dans l'aide (vague 1, en parallèle)
 
 **Wave 2** *(blocked on Wave 1 completion)*
-- [ ] 01-03-PLAN.md — Mise à jour différée : worker en attente, bandeau, verrou « en course » et « journée de régate », « Course finie », régate sur plusieurs jours (vague 2)
+- [x] 01-03-PLAN.md — Mise à jour différée : worker en attente, bandeau, verrou « en course » et « journée de régate », « Course finie », régate sur plusieurs jours (vague 2)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 - [ ] 01-04-PLAN.md — Porte de mise en ligne (`npm run gate`), v26, règle d'exploitation, aperçu vérifié par Romain puis activation et mise en production à un moment calme (vague 3)
@@ -105,7 +105,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Mises en ligne sans risque | 2/4 | In Progress | - |
+| 1. Mises en ligne sans risque | 3/4 | In Progress | - |
 | 2. Fiable et juste en mer | 0/TBD | Not started | - |
 | 3. Ouvrir une régate | 0/TBD | Not started | - |
 | 4. Archive partagée | 0/TBD | Not started | - |

@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 1
 current_phase_name: Mises en ligne sans risque
 status: executing
-stopped_at: Completed 01-02-PLAN.md
-last_updated: "2026-10-19T11:14:48.517Z"
+stopped_at: Completed 01-03-PLAN.md
+last_updated: "2026-10-19T11:31:04.200Z"
 last_activity: 2026-10-19
 last_activity_desc: Phase 1 execution started
-state_head: fe64646f3482b26c1cd473326c6cbfca21a11ff2
+state_head: 4f9f1930ed6861307116b5d8f94f7fcc0bb92cd0
 progress:
   total_phases: 4
   completed_phases: 0
   total_plans: 4
-  completed_plans: 2
+  completed_plans: 3
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-10-19)
 ## Current Position
 
 Phase: 1 (Mises en ligne sans risque) — EXECUTING
-Plan: 3 of 4
+Plan: 4 of 4
 Status: Ready to execute
 Last activity: 2026-10-19 — Phase 1 execution started
 
@@ -57,6 +57,7 @@ Progress: [░░░░░░░░░░] 0%
 |------|----------|-------|-------|
 | Phase 01 P01 | 5 min | 3 tasks | 11 files |
 | Phase 01 P02 | 3 min | 2 tasks | 7 files |
+| Phase 01 P03 | 13 min | 2 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -74,6 +75,8 @@ Décisions récentes qui orientent le travail en cours :
 - [Phase 01]: Matcher d'accès : acces.html, manifest.webmanifest et sw.js ancrés par $ (noms voisins désormais privés)
 - [Phase 01]: pdf.js : PDF_OPTIONS gelé isEvalSupported false + garde statique sur getDocument(
 - [Phase 01]: 01-02 : pdf.js précaché (import d'IC hors réseau) ; stamp --check strict seulement en production ou RT_STRICT=1 ; le hachage de version exclut release.json et js/version.js
+- [Phase 01]: Bandeau de mise à jour placé sous la barre du haut (ne masque ni ⟳ ni ?), texte posé par textContent
+- [Phase 01]: Verrou : « course finie » et inactivité ne comptent que le même jour de Paris (régate de plusieurs jours, D-15) ; état dans localStorage rade.racelock
 
 ### Pending Todos
 
@@ -98,6 +101,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-10-19T11:14:48.473Z
-Stopped at: Completed 01-02-PLAN.md
+Last session: 2026-10-19T11:31:04.153Z
+Stopped at: Completed 01-03-PLAN.md
 Resume file: None
