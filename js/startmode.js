@@ -11,7 +11,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<
 const fmtS = (s) => { const a = Math.abs(Math.round(s)); return a >= 60 ? `${Math.floor(a / 60)}:${String(a % 60).padStart(2, '0')}` : `${a} s`; };
 
 export function createStartMode(api) {
-  // api : { S, persist, line(), windAt(p), timer, beep, audioInit, startGps, gps(), say, setLineEnd, toast }
+  // api : { S, persist, line(), windAt(p), timer, beep, audioInit, audioRelease, testSound, chronoAlert, fixAlert, startGps, gps(), say, setLineEnd, toast }
   let root = null, lock = null, raf = null, compass = null, compassOn = false, lastSaid = null;
   const st = { crossed: null, ocs: false };
 
@@ -104,6 +104,7 @@ export function createStartMode(api) {
     cancelAnimationFrame(raf); raf = null;
     try { if (document.fullscreenElement) document.exitFullscreen?.(); } catch { /* déjà sorti */ }
     try { lock?.release(); } catch { /* déjà libéré */ } lock = null;
+    if (api.timer.end == null) api.audioRelease?.();     // session audio « playback » remise à « auto » quand plus rien n’en a besoin
     stopCompass();
   }
   function build() {
@@ -117,7 +118,8 @@ export function createStartMode(api) {
         <button class="sm-gear" data-a="gear" aria-label="Réglages">⚙</button>
       </div>
       <div class="sm-main">
-        <div class="sm-clockbox" data-a="clock" data-lockhold="clock"><div class="sm-clock" id="smClock">5:00</div><div class="sm-phase" id="smPhase">Touchez DÉPART 5’ au signal</div></div>
+        <div class="sm-clockbox" data-a="clock" data-lockhold="clock"><div class="sm-clock" id="smClock">5:00</div><div class="sm-phase" id="smPhase">Touchez DÉPART 5’ au signal</div>
+          <button class="sm-alert" id="smAlert" data-a="alert" hidden><span></span><b></b></button></div>
         <div class="sm-fav" id="smFav"><span class="l"></span><b></b><span class="r"></span></div>
         <div class="sm-num" id="smNumView">
           <div class="sm-big" id="smDist"><span>Ligne</span><b>—</b><small></small></div>
@@ -151,6 +153,7 @@ export function createStartMode(api) {
             <div class="sm-stepper"><span>GPS → étrave</span><button data-a="bm">−</button><b id="smBowV">5 m</b><button data-a="bp">+</button></div>
             <div class="sm-grid2"><button data-a="voice" id="smVoice">Voix</button><button data-a="sun" id="smSun">Plein soleil</button></div>
             <div class="sm-grid2"><button data-a="bips" id="smBips">Bips</button><button data-a="help" id="smHelpBtn">Aide</button></div>
+            <div class="sm-grid2"><button data-a="sndtest" id="smSndTest">🔊 Tester le son</button><button data-a="flash" id="smFlash">⚡ Flash visuel</button></div>
             <button data-a="rules" class="sm-wide">Règles du départ (P, I, U, Z, noir)</button>
             <small class="sm-hint" id="smPinged"></small></div>
         </div>
@@ -192,6 +195,9 @@ export function createStartMode(api) {
     if (a === 'close') return close();
     if (a === 'lock') { locked = true; root.classList.add('locked'); $('#smSheet').hidden = true; updateToggles(); api.toast?.('Écran verrouillé : maintenir 🔒 pour déverrouiller'); return; }
     if (a === 'clock') { if (T.end && T.end > Date.now() - 600000) { const r = (T.end - Date.now()) / 1000; T.end = Date.now() + Math.round(r / 60) * 60000; api.beep(1000, 0.1); } return; }
+    if (a === 'alert') return api.fixAlert?.($('#smAlert').dataset.act);
+    if (a === 'sndtest') { $('#smSheet').hidden = true; return api.testSound?.(); }
+    if (a === 'flash') { api.S.startFlash = api.S.startFlash === false; api.persist(); updateToggles(); return; }
     if (a === 'bips') { api.S.startBips = !(api.S.startBips ?? true); api.persist(); updateToggles(); return; }
     if (a === 'help') { $('#smSheet').hidden = true; return api.help?.(); }
     if (a === 'rules') { $('#smSheet').hidden = true; return window.open('regles.html#depart', '_blank', 'noopener'); }
@@ -215,6 +221,7 @@ export function createStartMode(api) {
     if (!root) return;
     root.querySelector('#smVoice').textContent = (api.S.startVoice ?? true) ? '🔊 Voix activée' : '🔇 Voix coupée';
     root.querySelector('#smSun').textContent = api.S.startSun ? '☀ Plein soleil' : '🌙 Écran sombre';
+    root.querySelector('#smFlash').textContent = api.S.startFlash !== false ? '⚡ Flash visuel' : '⚡ Flash coupé';
     root.querySelector('#smBips').textContent = (api.S.startBips ?? true) ? '📶 Bips à brûler' : '🔕 Sans bips';
     root.querySelector('#smLock').textContent = locked ? '🔒' : '🔓';
     root.querySelector('#smBowV').textContent = `${String(api.S.bowOffset ?? 5).replace('.', ',')} m`;
@@ -275,6 +282,14 @@ export function createStartMode(api) {
     const acc = g?.pos?.acc;
     $('#smGps').textContent = g?.pos ? `±${Math.round(acc ?? 0)} m` : g?.err ? 'GPS ✕' : 'GPS…';
     $('#smGps').className = 'sm-gps ' + (!g?.pos ? 'bad' : acc > 15 ? 'warn' : 'good');
+    // alerte du chrono : son coupé / non testé, écran non maintenu, avec l’action pour y remédier
+    const al = api.chronoAlert?.(), ab = $('#smAlert');
+    ab.hidden = !al;
+    if (al) {
+      ab.dataset.act = al.act; ab.className = 'sm-alert ' + (al.act === 'test' ? 'warn' : 'bad');
+      if (ab.firstChild.textContent !== al.text) ab.firstChild.textContent = al.text;
+      ab.lastChild.textContent = al.act === 'test' ? 'Tester le son' : al.act === 'wake' ? 'Réessayer' : 'Réactiver';
+    }
     // chrono et bouton principal
     const r = m.rem, go = $('#smGo');
     if (r == null) { $('#smClock').textContent = '5:00'; $('#smPhase').textContent = 'Touchez DÉPART 5’ au signal'; go.innerHTML = '<b>DÉPART 5’</b><small>au signal</small>'; }

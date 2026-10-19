@@ -163,3 +163,16 @@ test('garde : l’ensemble des bips déjà joués de timer a disparu', () => {
   assert.ok(!/timer\.beeps|beeps:\s*new Set/.test(APP), 'js/app.js');
   assert.ok(!/\.beeps\b/.test(SM), 'js/startmode.js');
 });
+
+test('garde : son vérifié et flash câblés dans js/app.js, js/startmode.js et styles.css', () => {
+  for (const mot of ['audioSession', 'beepFlash', 'Tester le son', 'startFlash']) assert.ok(APP.includes(mot), `js/app.js : ${mot}`);
+  assert.ok(SM.includes('sndtest') && SM.includes('smAlert'), 'js/startmode.js : sndtest, smAlert');
+  assert.ok(readFileSync(ROOT + 'styles.css', 'utf8').includes('#beepFlash'), 'styles.css : #beepFlash');
+  assert.ok(/startFlash:\s*true/.test(APP.slice(0, APP.indexOf('const S ='))), 'startFlash est dans DEF (persisté)');
+});
+
+test('garde : le flash n’est jamais rouge', () => {
+  const css = readFileSync(ROOT + 'styles.css', 'utf8');
+  const bloc = css.slice(css.indexOf('#beepFlash {'), css.indexOf('#sndAsk {'));
+  assert.ok(bloc.length > 100 && !/red|#f00|#ff0000|#d63031|var\(--bad\)/i.test(bloc));
+});

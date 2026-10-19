@@ -17,7 +17,7 @@ import { Recorder, listTracks, getTrack, deleteTrack, saveTrack, analyzeTrack, e
 import { shroudsFor } from './tuning.js';
 import { createStartMode } from './startmode.js';
 import { initUpdates } from './swupdate.js';
-import { createBeeper } from './beeper.js';
+import { createBeeper, audioAlive, milestones, KEY } from './beeper.js';
 import { isActive, isRaceDay, lockState } from './racelock.js';
 import { detect as dbDetect, ask as dbAsk, askModes as dbAskModes, analyze as dbAnalyze, narrative as dbNarrative, buildReport as dbBuild, shareReport as dbShare } from './debrief.js';
 
@@ -39,7 +39,7 @@ const dayName = (s) => new Date(s + 'T12:00:00').toLocaleDateString('fr-FR', { w
 const DEF = {
   day: today(), hour: 11, src: 'forecast', manual: { dir: 315, spd: 15, gust: 20 }, calib: null, localFx: 1, obs: [], modelSel: 'auto', nowcast: true,
   courseId: 3, cls: 'G', laps: 2, wlNm: 0.8, startTime: 11, linePreset: 'vignettes', lineLen: 0.12, lineMode: 'wind', lineBrg: 0, lineOverride: null,
-  perf: 1, polar: null, obsOpen: true,
+  perf: 1, polar: null, obsOpen: true, startFlash: true,
 };
 const S = { ...DEF, ...store.get('rade.state', {}) };
 let IC = currentEvent();
@@ -85,6 +85,12 @@ async function init() {
   $('#splash').classList.add('gone');
   if (resumed) toast('Chrono repris — touchez l’écran pour réactiver le son');
   maybeWelcome();
+  // réactivation au toucher : le contexte audio ne naît ou ne revient que d’un geste (relance d’iOS, écran verrouillé, appel)
+  const reveil = () => {
+    if (timer.end == null && !startMode.isOpen()) return;
+    if (!actx || actx.state !== 'running' || snd.alive === false) audioInit();
+  };
+  document.addEventListener('pointerdown', reveil, true); document.addEventListener('pointerup', reveil, true);
   renderTracks();
   refreshWeather();
   refreshLive();
@@ -678,13 +684,14 @@ Object.defineProperty(timer, 'end', {
   get: () => timerEnd,
   set(v) {
     timerEnd = v ?? null;
-    if (timerEnd == null) beeper?.disarm(); else beeper?.arm(timerEnd);
+    if (timerEnd == null) { beeper?.disarm(); releaseAudioIfIdle(); } else { beeper?.arm(timerEnd); flashKick(); }
     store.set('rade.timer.v1', { end: timerEnd });
   },
 });
 const startMode = createStartMode({
   S, persist, timer, beep: (...x) => beep(...x), audioInit: () => audioInit(), startTimer: () => startTimer(), startGps: () => startGps(), gps: () => gps, say, toast,
   setLineEnd: (w, ll) => setLineEnd(w, ll), reanalyse: () => scheduleAnalysis(), help: () => openGuide(),
+  audioRelease: () => audioRelease(), testSound: () => testSound(), chronoAlert: () => chronoAlert(), fixAlert: (a) => fixAlert(a),
   firstMark: () => { const l = analysis?.legs?.[0]; return l ? { x: l.to.x, y: l.to.y, name: l.order ? String(l.order) : (l.to.name || '').split(' ')[0] } : null; },
   line: () => S.lineOverride?.cb && S.lineOverride?.pin ? S.lineOverride : analysis ? { cb: toLL(analysis.line.cb.x, analysis.line.cb.y), pin: toLL(analysis.line.pin.x, analysis.line.pin.y) } : null,
   windAt: (p) => {
@@ -713,8 +720,9 @@ function renderStart() {
   }
   html += `<div class="card timer"><h3>Chrono de départ <small>règle 26 : 5-4-1-0</small></h3>
     <div class="clock" id="tClock">5:00</div><div class="phase" id="tPhase">Prêt</div>
+    <button type="button" class="snd-line" id="tSnd" hidden></button>
     <div class="btns" style="justify-content:center"><button class="btn acc" id="t5">Top 5’ (avertissement)</button><button class="btn" id="t4">Top 4’</button><button class="btn" id="t1">Top 1’</button></div>
-    <div class="btns" style="justify-content:center"><button class="btn alt small" id="tm">−1 min</button><button class="btn alt small" id="tp">+1 min</button><button class="btn alt small" id="tsync">Arrondir à la minute</button><button class="btn alt small" id="tstop">Stop</button></div>
+    <div class="btns" style="justify-content:center"><button class="btn alt small" id="tm">−1 min</button><button class="btn alt small" id="tp">+1 min</button><button class="btn alt small" id="tsync">Arrondir à la minute</button><button class="btn alt small" id="tstop">Stop</button><button class="btn alt small" id="tTest">🔊 Tester le son</button></div>
     <table class="t" style="margin-top:8px">${IC.sequence.map((r) => `<tr><td><b>${r[0]}</b></td><td>${esc(r[1])}</td><td>${esc(r[2])}</td></tr>`).join('')}</table>
     <div class="small muted">Bips aux minutes, toutes les 10 s dans la dernière minute et chaque seconde les 10 dernières. Le temps se compte sur les signaux visuels (IC 10.1).</div></div>`;
   el.innerHTML = html;
@@ -730,31 +738,126 @@ function renderStart() {
   $('#t5').onclick = () => setT(300); $('#t4').onclick = () => setT(240); $('#t1').onclick = () => setT(60);
   $('#tm').onclick = () => { if (timer.end) timer.end -= 60000; }; $('#tp').onclick = () => { if (timer.end) timer.end += 60000; };
   $('#tsync').onclick = () => { if (timer.end) { const r = (timer.end - Date.now()) / 1000; timer.end = Date.now() + Math.round(r / 60) * 60000; } };
-  $('#tstop').onclick = () => { timer.end = null; clearInterval(timer.iv); timer.iv = null; $('#tClock').textContent = '5:00'; $('#tPhase').textContent = 'Prêt'; };
+  $('#tstop').onclick = () => { timer.end = null; clearInterval(timer.iv); timer.iv = null; $('#tClock').textContent = '5:00'; $('#tPhase').textContent = 'Prêt'; renderChronoAlert(); };
+  $('#tTest').onclick = () => testSound();
+  $('#tSnd').onclick = (e) => fixAlert(e.currentTarget.dataset.act);
   if (timer.iv) tickTimer();
+  renderChronoAlert();
 }
 function pingLine(which) {
   if (!navigator.geolocation) return toast('GPS indisponible');
   navigator.geolocation.getCurrentPosition((p) => setLineEnd(which, { lat: p.coords.latitude, lon: p.coords.longitude }), (e) => toast('GPS : ' + e.message), { enableHighAccuracy: true, timeout: 15000 });
 }
 let actx = null, beeper = null;
-// Toujours appelé dans un geste. Le contexte naît ici, avec le planificateur de bips ; un chrono déjà armé est replanifié.
+// Santé du son : tested = null (jamais testé) / true (entendu) / false (pas entendu) ; alive = l’horloge audio avance vraiment
+const snd = { tested: null, alive: null, prev: null };
+// Toujours appelé dans un geste. Le type de session « playback » (iOS 17+) passe outre le bouton silencieux : posé avant de créer
+// ou de reprendre le contexte, remis à « auto » quand plus rien n’en a besoin (audioRelease). Le contexte naît ici avec son planificateur de bips.
 function audioInit() {
   try {
-    if (!actx) { actx = new (window.AudioContext || window.webkitAudioContext)(); beeper = createBeeper({ ctx: actx }); }
-    actx.resume();
+    try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch { /* session audio non prise en charge */ }
+    if (!actx) {
+      actx = new (window.AudioContext || window.webkitAudioContext)(); beeper = createBeeper({ ctx: actx });
+      actx.addEventListener?.('statechange', () => { snd.prev = null; snd.alive = null; renderChronoAlert(); });
+    }
+    // resume() peut ne jamais se résoudre quand le navigateur est suspendu en arrière-plan (WebKit 281566) : reprise bornée à 1,5 s
+    const prete = Promise.race([actx.resume(), new Promise((ok) => setTimeout(ok, 1500))]).catch(() => {});
     if (timer.end != null && beeper.end !== timer.end) beeper.arm(timer.end);
-  } catch { /* audio indisponible */ }
+    return prete;
+  } catch { return Promise.resolve(); /* audio indisponible */ }
+}
+function audioRelease() { try { if (navigator.audioSession) navigator.audioSession.type = 'auto'; } catch { /* rien à remettre */ } }
+function releaseAudioIfIdle() { if (timer.end == null && !startMode?.isOpen()) audioRelease(); }
+function beepAt(f, d, when) {
+  const o = actx.createOscillator(), g = actx.createGain(); o.frequency.value = f; o.connect(g); g.connect(actx.destination);
+  g.gain.setValueAtTime(0.4, when); g.gain.exponentialRampToValueAtTime(0.001, when + d); o.start(when); o.stop(when + d);
 }
 function beep(f = 880, d = 0.12) {
   if (!actx) return;
-  const o = actx.createOscillator(), g = actx.createGain(); o.frequency.value = f; o.connect(g); g.connect(actx.destination);
-  g.gain.setValueAtTime(0.4, actx.currentTime); g.gain.exponentialRampToValueAtTime(0.001, actx.currentTime + d); o.start(); o.stop(actx.currentTime + d);
+  beepAt(f, d, actx.currentTime);
   navigator.vibrate?.(d * 1000);
 }
-function startTimer() { clearInterval(timer.iv); timer.iv = setInterval(tickTimer, 100); tickTimer(); }
+// L’état « running » ne prouve pas que le son sort (WebKit 276016) : l’horloge audio doit avancer au rythme de l’horloge murale
+function sampleSound(now) {
+  if (!actx) return;
+  if (actx.state !== 'running') { snd.prev = null; snd.alive = null; return; }
+  if (snd.prev && now - snd.prev.wall < 1000) return;
+  const cur = { wall: now, ct: actx.currentTime };
+  if (!snd.prev) { snd.prev = cur; return; }
+  const a = audioAlive(snd.prev, cur); if (a !== null) { snd.alive = a; snd.prev = cur; }
+}
+const soundState = () => ({ state: actx?.state ?? null, alive: snd.alive, tested: snd.tested });
+// « Tester le son » : trois bips posés sur l’horloge audio, puis l’équipier dit s’il les a entendus (ni le bouton silencieux ni le volume ne sont lisibles)
+async function testSound() {
+  await audioInit();
+  if (!actx) return toast('Son indisponible sur cet appareil');
+  const t = actx.currentTime;
+  for (const d of [0.15, 0.55, 0.95]) beepAt(1000, 0.12, t + d);
+  setTimeout(askHeard, 1300);
+}
+function askHeard() {
+  let el = document.getElementById('sndAsk');
+  if (!el) {
+    el = document.createElement('div'); el.id = 'sndAsk'; el.setAttribute('role', 'dialog'); el.setAttribute('aria-label', 'Test du son');
+    const q = document.createElement('p'); q.textContent = 'Avez-vous entendu 3 bips ?';
+    const row = document.createElement('div'); row.className = 'btns';
+    const answer = (heard) => {
+      snd.tested = heard; el.hidden = true;
+      if (!heard) toast('Vérifiez le bouton silencieux (sur le côté de l’iPhone), le volume et le Bluetooth ; le flash visuel reste actif.');
+      renderChronoAlert(); startMode?.render(); releaseAudioIfIdle();
+    };
+    const yes = document.createElement('button'); yes.className = 'yes'; yes.textContent = 'Oui, entendus'; yes.onclick = () => answer(true);
+    const no = document.createElement('button'); no.className = 'no'; no.textContent = 'Non'; no.onclick = () => answer(false);
+    row.append(yes, no); el.append(q, row); document.body.appendChild(el);
+  }
+  el.hidden = false;
+}
+// Ligne d’alerte du chrono (onglet Départ et mode départ) : null ou { text, act } ; act : 'sound' | 'test' (| 'wake' : tâche 3)
+function chronoAlert() {
+  if (timer.end == null && !startMode.isOpen()) return null;
+  sampleSound(Date.now());
+  const s = soundState();
+  if (s.state !== 'running' || s.alive === false) return { text: '🔇 Son coupé — touchez pour réactiver', act: 'sound' };
+  if (s.tested === false) return { text: '🔇 Bips non entendus au test — le flash visuel reste actif', act: 'test' };
+  if (s.tested === null) return { text: '🔈 Son non testé', act: 'test' };
+  return null;
+}
+function fixAlert(act) {
+  if (act === 'sound') return audioInit();
+  if (act === 'test') return testSound();
+}
+function renderChronoAlert() {
+  const el = document.getElementById('tSnd'); if (!el) return;
+  const a = chronoAlert();
+  el.hidden = !a;
+  if (a) { if (el.textContent !== a.text) el.textContent = a.text; el.dataset.act = a.act; el.classList.toggle('bad', a.act === 'sound'); }
+}
+// Flash plein écran sur les bips clés (minutes et signal), doublure visuelle des bips ; jamais en retard de plus de 400 ms, jamais rouge
+const flash = { raf: null, seen: new Set() };
+function flashKick() { if (!flash.raf) flash.raf = requestAnimationFrame(flashLoop); }
+function flashLoop() {
+  flash.raf = null;
+  const end = timer.end; if (end == null) { flash.seen.clear(); return; }
+  const now = Date.now();
+  for (const m of milestones(end, now - 400)) {
+    if (m.at > now) break;
+    if (!KEY(m) || flash.seen.has(m.at)) continue;
+    flash.seen.add(m.at);
+    if (S.startFlash !== false) flashNow(m.kind);
+  }
+  if (now < end + 2000) flash.raf = requestAnimationFrame(flashLoop);
+}
+function flashNow(kind) {
+  let el = document.getElementById('beepFlash');
+  if (!el) { el = document.createElement('div'); el.id = 'beepFlash'; el.setAttribute('aria-hidden', 'true'); document.body.appendChild(el); }
+  el.className = ''; void el.offsetWidth;                                  // relance l’animation
+  el.className = kind === 'go' ? 'go' : 'min';
+  if (S.startSun && startMode.isOpen()) el.classList.add('dark');          // mode « plein soleil » : fond blanc, un flash blanc ne se verrait pas
+}
+function startTimer() { clearInterval(timer.iv); timer.iv = setInterval(tickTimer, 100); tickTimer(); flashKick(); }
 function tickTimer() {
   beeper?.tick();     // remplit la fenêtre de bips posés sur l’horloge audio (js/beeper.js) ; l’affichage ci-dessous ne sonne plus
+  renderChronoAlert();
   const c = $('#tClock'), ph = $('#tPhase'); if (!timer.end) return;
   const r = (timer.end - Date.now()) / 1000, s = Math.ceil(r);
   if (r > 0) {
