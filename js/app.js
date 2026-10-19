@@ -7,8 +7,8 @@ import { MARKS, COURSES, LINE_PRESETS, FORBIDDEN_ZONE, DANGERS } from './courses
 import { pdfText, parseIC } from './events.js';
 import { reviewFromParse, reviewFromRegatta, setValue, setKeep, canValidate, checksFor, applyReview, reviewHTML, chipOf, validatedHTML } from './icread.js';
 import { migrate, saveRegattas, createRegatta, upsertRegatta, removeRegatta, setCurrent as setCurrentRegatta, currentRegatta, todayRegatta, icOf, groupBySeason, lockDates, daysOf, addRace, removeRace, raceSettings, membre, saveMembre, backfillAuthor } from './regates.js';
-import { THROTTLE_MS, slotKey, freezeAction, obsNeedsCopy, sliceDays, freezeSummary } from './gel.js';
-import { putSlot } from './regstore.js';
+import { THROTTLE_MS, slotKey, freezeAction, obsNeedsCopy, stratNeedsCopy, sliceDays, freezeSummary, strategySummary, compactStrategy, windSourceKind, frozenLabel } from './gel.js';
+import { putSlot, getSlot } from './regstore.js';
 import { listHTML, newRegattaFormHTML, sheetHTML } from './regview.js';
 import { fetchAll, cached, snapshot, consensus, gridPoints, marineAt, fetchLive, MODELS, WMO, CENTER } from './weather.js';
 import { buildLegs, analyzeLeg, markAdvice, analyzeStart, trendOf, rankCourses, regimeOf, sideName, summarizeTime } from './tactics.js';
@@ -201,27 +201,34 @@ const dayObs = () => S.obs.filter((o) => o.day === S.day).sort((a, b) => a.h - b
 function selectedModel() { return S.modelSel !== 'auto' ? S.modelSel : ranking[0]?.id || AROME_ID; }
 const modelLabel = (id) => MODELS.find((m) => m.id === id)?.label || id;
 
-// Recalcule le classement des modèles puis, pour le modèle retenu, l'écart résiduel à chaque relevé
-function refreshObs() {
-  ranking = data ? scoreModels(data, dayObs()) : [];
-  resid = [];
-  if (!data || !F) return;                   // sans champ de vent (ouverture en cours), seul le classement des modèles se calcule
-  const sel = selectedModel();
-  for (const o of dayObs()) {
-    const pts = modelPoints(data, o.day, o.h, sel);
+// Écart résiduel de chaque relevé au modèle retenu `sel` : même calcul pour le jour courant (refreshObs) et pour un vent figé (débrief tardif).
+// Chaque relevé fixe le champ F sur son vent : F n'est plus celui de l'écran ensuite, d'où fieldKey = null.
+function residualsFor(dataX, obsList, sel) {
+  const out = [];
+  for (const o of obsList) {
+    const pts = modelPoints(dataX, o.day, o.h, sel);
     if (!pts) continue;
     F.compute({ points: pts }, { localEffects: S.localFx });
     fieldKey = null;                         // F porte maintenant le vent de ce relevé : le champ affiché sera recalculé
     const p = toXY(o.lat, o.lon), w = F.sample(p.x, p.y);
     o.fit = { dir: w.dir, spd: w.spd };
-    resid.push({ h: o.h, dd: norm180(o.dir - w.dir), rr: Math.max(0.3, Math.min(3, o.spd / Math.max(0.8, w.spd))) });
+    out.push({ h: o.h, dd: norm180(o.dir - w.dir), rr: Math.max(0.3, Math.min(3, o.spd / Math.max(0.8, w.spd))) });
   }
+  return out;
+}
+// Recalcule le classement des modèles puis, pour le modèle retenu, l'écart résiduel à chaque relevé
+function refreshObs() {
+  ranking = data ? scoreModels(data, dayObs()) : [];
+  resid = [];
+  if (!data || !F) return;                   // sans champ de vent (ouverture en cours), seul le classement des modèles se calcule
+  resid = residualsFor(data, dayObs(), selectedModel());
+  if (resid.length) fieldKey = null;         // F porte le vent du dernier relevé (residualsFor l’a déjà noté) : le champ affiché sera recalculé
 }
 // L'écart mesuré s'applique pleinement à l'heure du relevé, puis s'estompe (≈ 2 h 30)
-function applyResiduals(pts, day, hour) {
-  if (day !== S.day || !resid.length) return pts;
+function applyResiduals(pts, day, hour, rs = resid, refDay = S.day) {
+  if (day !== refDay || !rs.length) return pts;
   let sw = 0, sd = 0, sr = 0, wmax = 0;
-  for (const r of resid) { const w = Math.exp(-Math.abs(hour - r.h) / 2.5); sw += w; sd += w * r.dd; sr += w * (r.rr - 1); wmax = Math.max(wmax, w); }
+  for (const r of rs) { const w = Math.exp(-Math.abs(hour - r.h) / 2.5); sw += w; sd += w * r.dd; sr += w * (r.rr - 1); wmax = Math.max(wmax, w); }
   const dd = (sd / sw) * wmax, k = 1 + (sr / sw) * wmax;
   return pts.map((p) => ({ ...p, dir: norm360(p.dir + dd), spd: p.spd * k, gust: (p.gust ?? p.spd * 1.3) * k }));
 }
@@ -417,7 +424,7 @@ async function runAnalysis() {
   if (token !== anaToken) return;
   let ord = 0;
   legs.forEach((l) => { if (l.mark !== 'GATE' && l.mark !== 'FINISH') l.order = ++ord; });
-  analysis = { course, cls, legs, line: B.line, points: B.points, start, total: t - S.startTime, dist: legs.reduce((s, l) => s + l.dist, 0), trend };
+  analysis = { course, cls, legs, line: B.line, points: B.points, start, total: t - S.startTime, dist: legs.reduce((s, l) => s + l.dist, 0), trend, day: S.day, cfg: stratSettings(cls) };
   freezeTick('analyse');
   applyPendingEnds();
   updateDisplayField();
@@ -1280,10 +1287,12 @@ function freezeTick(why) {
   const reg = todayRegatta({ now, list: REG.list, currentId: REG.current });
   if (!reg || !data || now - freezeFailAt < THROTTLE_MS) return;       // pas de régate aujourd’hui, rien à copier, ou base refusée il y a moins de 10 min
   const slot = reg.frozen?.[day] || null, obs = (S.obs || []).filter((o) => o.day === day);
-  const action = freezeAction({ now, regatta: reg, day, slot, dataFetched: couvre(data, day) ? data.fetched : 0, hasAnalysis: false });
-  if (action === 'rien' && !obsNeedsCopy({ slot, nObsNow: obs.length, obsStamp: obsStamp(obs) })) return;
+  const ana = analysis && analysis.day === day ? analysis : null;                // la dernière analyse déjà faite, si elle porte sur ce jour : aucun calcul n’est lancé pour geler
+  const action = freezeAction({ now, regatta: reg, day, slot, dataFetched: couvre(data, day) ? data.fetched : 0, hasAnalysis: !!ana });
+  const stratDue = action === 'rien' && stratNeedsCopy({ slot, hasAnalysis: !!ana });
+  if (action === 'rien' && !stratDue && !obsNeedsCopy({ slot, nObsNow: obs.length, obsStamp: obsStamp(obs) })) return;
   freezeBusy = true;
-  const job = { why, now, day, rid: reg.id, action, d: data, ser: series, obs: obs.map(obsCopy), slot };
+  const job = { why, now, day, rid: reg.id, action, d: data, ser: series, obs: obs.map(obsCopy), slot, ana: action !== 'rien' || stratDue ? ana : null, sel: reg.sel ?? null };
   setTimeout(() => {
     freezeWrite(job).catch((e) => { freezeFailAt = Date.now(); report('gel', e); }).finally(() => {
       freezeBusy = false;
@@ -1291,40 +1300,80 @@ function freezeTick(why) {
     });
   }, 0);
 }
-async function freezeWrite({ why, now, day, rid, action, d, ser, obs, slot }) {
+async function freezeWrite({ why, now, day, rid, action, d, ser, obs, slot, ana, sel }) {
+  const strat = ana ? compactStrategy(ana, { ...ana.cfg, sel }, { toLL }) : null;
   let summary;
   if (action === 'rien') {
-    summary = { ...slot, nObs: obs.length, obsStamp: obsStamp(obs) };               // nouveau relevé : seuls les relevés sont recopiés, prévisions et stratégie ne bougent plus
+    summary = { ...slot, nObs: obs.length, obsStamp: obsStamp(obs) };               // nouveau relevé (ou route d’une copie tardive) : prévisions et stratégie ne bougent plus
+    if (strat) summary.strategy = strategySummary(strat);
   } else {
     const reg = REG.list.find((x) => x.id === rid);
     if (!reg) return;
-    await putSlot(slotKey(rid, day, 'wx'), sliceDays(d, [day]));
-    const model = S.modelSel !== 'auto' ? S.modelSel : scoreModels(d, obs)[0]?.id || AROME_ID;
-    summary = freezeSummary({ action, now, regatta: reg, day, data: d, series: ser, model, nObs: obs.length, obsStamp: obsStamp(obs), by: who() });
+    const wx = couvre(d, day);                                                       // prévisions qui ne couvrent pas le jour (analyse au vent manuel) : rien de copié, et le résumé le dit
+    if (wx) await putSlot(slotKey(rid, day, 'wx'), sliceDays(d, [day]));
+    const model = !wx ? null : S.modelSel !== 'auto' ? S.modelSel : scoreModels(d, obs)[0]?.id || AROME_ID;
+    summary = freezeSummary({ action, now, regatta: reg, day, data: wx ? d : null, series: wx ? ser : [], model, nObs: obs.length, obsStamp: obsStamp(obs), by: who(), strategy: strat });
+    if (!strat && slot?.strategy) summary.strategy = slot.strategy;                 // pas d’analyse cette fois : la route déjà figée est gardée
   }
+  if (strat) await putSlot(slotKey(rid, day, 'strat'), strat);
   await putSlot(slotKey(rid, day, 'obs'), { day, at: now, obs });
   const cur = REG.list.find((x) => x.id === rid);                                    // la régate a pu changer pendant l’écriture : l’index est relu
   if (!cur) return;
   saveReg(upsertRegatta(REG, { ...cur, frozen: { ...(cur.frozen || {}), [day]: summary } }));
-  note('gel', `${action === 'rien' ? 'relevés' : action} · ${why} · ${obs.length} relevé(s)`);
+  note('gel', `${action === 'rien' ? (strat ? 'route' : 'relevés') : action} · ${why} · ${obs.length} relevé(s)${strat ? ` · ${strat.legs.length} bords` : ''}`);
   if ($('section[data-tab=ic]')?.classList.contains('on') && !icBusy()) renderIC();     // la fiche, si elle est ouverte, montre le gel qui vient d’avoir lieu
+}
+// Réglages qui ont servi à calculer l’analyse en cours : figés avec la route conseillée pour pouvoir la recalculer plus tard
+function stratSettings(cls) {
+  return {
+    courseId: S.courseId, cls, laps: S.laps, wlNm: S.wlNm, startTime: S.startTime, day: S.day, linePreset: S.linePreset, lineLen: S.lineLen, lineMode: S.lineMode,
+    lineBrg: S.lineBrg, lineOverride: S.lineOverride, perf: S.perf, polar: getPolar().source, model: selectedModel(), src: S.src, ...(S.src === 'manual' ? { manual: S.manual } : {}),
+  };
 }
 
 // ───────────────────────── TRACES
 let traceView = null;
-function trackWindAt(day) {
+// Source du vent d'une trace (ARCH-02) : les prévisions vivantes si leur jour y figure, sinon le gel de ce jour (prévisions et relevés copiés
+// dans la régate), sinon le vent manuel, annoncé comme tel. { kind, data, ser (série consensus), obs, resid, refDay, model, label }
+async function windSource(day) {
+  const manuel = (label) => ({ kind: 'aucun', data: null, ser: [], obs: S.obs || [], resid, refDay: S.day, model: selectedModel(), label });
+  if (S.src === 'manual') return manuel('vent manuel (réglé dans l’onglet Vent)');
+  const liveDays = new Set((data?.multi?.hourly?.time || []).map((x) => String(x).slice(0, 10)));
+  const reg = REG.list.find((r) => r.frozen?.[day]);
+  const kind = windSourceKind({ day, liveDays, frozenDays: new Set(reg ? [day] : []) });
+  if (kind === 'live') return { kind, data, ser: series, obs: S.obs || [], resid, refDay: S.day, model: selectedModel(), label: 'prévisions du jour' };
+  if (kind === 'gel') {
+    try {
+      const f = reg.frozen[day];
+      const [wx, ob] = await Promise.all([getSlot(slotKey(reg.id, day, 'wx')), getSlot(slotKey(reg.id, day, 'obs'))]);
+      if (wx?.multi?.hourly?.time?.length) {
+        const obs = ob?.obs || [], model = f.model || AROME_ID;
+        return { kind, data: wx, ser: consensus(wx), obs, resid: residualsFor(wx, obs, model), refDay: day, model, label: frozenLabel(f) };
+      }
+      note('gel', `vent figé du ${day} sans prévisions dans la base : vent manuel`);
+    } catch (e) { report('gel', e); }            // base illisible : le vent manuel, dit comme tel
+  }
+  return manuel('vent manuel (aucune prévision pour ce jour)');
+}
+function trackWindAt(day, src) {
   const cache = new Map();
   return (x, y, tMs) => {
-    const d = new Date(tMs), h = Math.round((d.getHours() + d.getMinutes() / 60) * 4) / 4;
+    const c = parisClock(tMs), h = Math.round((c.hour + c.minute / 60) * 4) / 4;
     let pts = cache.get(h);
-    if (!pts) { pts = S.src === 'manual' || !data ? [{ x: 0, y: 0, ...S.manual }] : (modelPoints(data, day, h, selectedModel()) || [{ x: 0, y: 0, ...S.manual }]); if (S.nowcast) pts = applyResiduals(pts, day, h); cache.set(h, pts); }
+    if (!pts) {
+      const manuel = [{ x: 0, y: 0, ...S.manual }];
+      pts = src.kind === 'aucun' || !src.data ? manuel : (modelPoints(src.data, day, h, src.model) || manuel);
+      if (S.nowcast) pts = applyResiduals(pts, day, h, src.resid, src.refDay);
+      cache.set(h, pts);
+    }
     return idwAt(pts, x, y);
   };
 }
 // ───────────────────────── débrief de course
-function forecastAt(tMs) {
-  const d = new Date(tMs), key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}T${String(d.getHours()).padStart(2, '0')}:00`;
-  const r = series.find((x) => x.time === key); return r?.dir != null ? { dir: r.dir, spd: r.spd } : null;
+// Prévision de l'heure de tMs (heure de Paris) dans une série consensus
+function forecastIn(ser, tMs) {
+  const c = parisClock(tMs), key = `${c.date}T${String(c.hour).padStart(2, '0')}:00`;
+  const r = ser.find((x) => x.time === key); return r?.dir != null ? { dir: r.dir, spd: r.spd } : null;
 }
 function busy(msg) {
   let m = document.getElementById('modal'); if (!m) { m = document.createElement('div'); m.id = 'modal'; document.body.appendChild(m); }
@@ -1332,15 +1381,18 @@ function busy(msg) {
 }
 async function runDebrief(tr) {
   fieldKey = null;                           // le débrief écrit dans F (une base par bord) : le champ affiché sera recalculé
+  // même vent que l'analyse de la trace : prévisions vivantes, ou vent du jour figé quand elles ne couvrent plus ce jour (jamais le vent manuel sans le dire)
+  const src = traceView?.id === tr.id && traceView.src ? traceView.src : await windSource(parisClock(tr.start).date);
+  const figeTxt = src.kind === 'gel' ? ` (${src.label})` : '';
   const api = {
-    F, ctx: { terrain: T, forbidden, perf: S.perf ?? 1 }, localFx: S.localFx ?? 1, forecastAt, toast, meta: T.meta, eventName: IC?.event || '',
-    // relevé saisi ce jour-là le plus proche du départ, sinon la prévision
+    F, ctx: { terrain: T, forbidden, perf: S.perf ?? 1 }, localFx: S.localFx ?? 1, forecastAt: (t) => forecastIn(src.ser, t), toast, meta: T.meta, eventName: IC?.event || '',
+    // relevé saisi ce jour-là le plus proche du départ (figé, si le jour l'est), sinon la prévision (figée de même)
     windGuess: (t) => {
-      const near = (S.obs || []).filter((o) => o.t && Math.abs(o.t - t) < 3 * 3600e3).sort((a, b) => Math.abs(a.t - t) - Math.abs(b.t - t))[0];
-      if (near) return { dir: Math.round(near.dir), src: `votre relevé de ${new Date(near.t).toLocaleTimeString('fr-FR', { timeStyle: 'short' })}` };
-      const f = forecastAt(t); return f ? { dir: Math.round(f.dir), src: 'la prévision' } : null;
+      const near = src.obs.filter((o) => o.t && Math.abs(o.t - t) < 3 * 3600e3).sort((a, b) => Math.abs(a.t - t) - Math.abs(b.t - t))[0];
+      if (near) return { dir: Math.round(near.dir), src: `votre relevé de ${new Date(near.t).toLocaleTimeString('fr-FR', { timeStyle: 'short' })}${figeTxt}` };
+      const f = forecastIn(src.ser, t); return f ? { dir: Math.round(f.dir), src: `la prévision${figeTxt}` } : null;
     },
-    restoreField: () => { fieldKey = null; updateDisplayField(); }, obs: S.obs || [],
+    restoreField: () => { fieldKey = null; updateDisplayField(); }, obs: src.obs,
   };
   let det;
   try { det = dbDetect(tr); } catch (e) { report('debrief', e); toast('Débrief impossible : ' + e.message); return; }
@@ -1397,18 +1449,19 @@ async function renderTracks() {
 }
 async function showTrace(id) {
   const tr = await getTrack(id); if (!tr) return;
-  const d = new Date(tr.start), day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const day = parisClock(tr.start).date;
+  const src = await windSource(day);                     // vent des prévisions, ou vent du jour figé si elles ne couvrent plus ce jour
   const sameCourse = analysis && tr.course && tr.course.id === analysis.course.id && tr.course.cls === analysis.cls;
-  const res = analyzeTrack(tr, { windAt: trackWindAt(day), boatSpeed, legs: sameCourse ? analysis.legs.filter((l) => l.order) : null });
+  const res = analyzeTrack(tr, { windAt: trackWindAt(day, src), boatSpeed, legs: sameCourse ? analysis.legs.filter((l) => l.order) : null });
   if (!res) { toast('Trace vide'); return; }
-  traceView = { id, tr, res, sameCourse };
+  traceView = { id, tr, res, sameCourse, src };
   scene.setTrace(res.P, res.man);
   scene.focus(res.P.filter((_, i) => i % 10 === 0));
   renderTraceDetail();
 }
 function renderTraceDetail() {
   const el = $('#traceDetail'); if (!el || !traceView) return;
-  const { tr, res, sameCourse } = traceView;
+  const { tr, res, sameCourse, src } = traceView;
   const nT = res.man.filter((m) => m.kind === 'virement').length, nE = res.man.length - nT;
   const sp = res.split.filter((s) => !s.missed);
   const worst = sp.filter((s) => s.plan && s.t - s.plan > 30).sort((a, b) => (b.t - b.plan) - (a.t - a.plan))[0];
@@ -1421,6 +1474,7 @@ function renderTraceDetail() {
   el.innerHTML = `<div class="card"><h3><span>${esc(tr.name)}</span><small>${new Date(tr.start).toLocaleTimeString('fr-FR', { timeStyle: 'short' })}</small></h3>
     <div class="kpis"><div class="kpi"><b>${(res.dist / NM).toFixed(1)}</b><span>Nq parcourus</span></div><div class="kpi"><b>${summarizeTime(res.dur)}</b><span>durée</span></div><div class="kpi"><b>${res.vmean.toFixed(1)}</b><span>nd moyen (max ${res.vmax.toFixed(1)})</span></div></div>
     <div class="kpis" style="margin-top:8px"><div class="kpi"><b>${nT}</b><span>virements</span></div><div class="kpi"><b>${nE}</b><span>empannages</span></div><div class="kpi"><b>${res.perf ? Math.round(res.perf * 100) + ' %' : '—'}</b><span>de la polaire ${tip('Vitesse mesurée ÷ vitesse cible de la polaire J80 pour le vent du modèle à cet endroit et cette heure. Indicatif : le vent réel peut différer du modèle.')}</span></div></div>
+    <p class="small muted" id="trWind" style="margin:8px 0 0">Vent de l’analyse : ${esc(src.label)}.</p>
     <button class="btn acc" id="trDebrief" style="width:100%;margin-top:8px">📝 ${tr.report ? 'Refaire le débrief de course' : 'Débrief de course'}</button>${tr.report ? '<button class="btn" id="trReport" style="width:100%;margin-top:6px">📄 Voir le débrief</button>' : ''}
     <div class="btns"><button class="btn alt" id="trPlay">▶ Rejouer la trace</button><button class="btn alt" id="trGpx">Exporter GPX</button><button class="btn alt" id="trHide">Masquer</button></div>
     ${sameCourse ? (sp.length ? `<h3 style="margin-top:12px">Bord par bord ${tip('Temps réel entre deux marques comparé au temps du routage optimal (même vent modèle). Un écart positif = temps perdu.')}</h3><table class="t"><tr><th>Marque</th><th>Réel</th><th>Optimal</th><th>Écart</th><th>Polaire</th></tr>${res.split.map((s) => s.missed ? `<tr><td>${s.leg.order} · ${esc(s.leg.to.name)}</td><td colspan="4" class="muted">non détectée</td></tr>` : `<tr><td>${s.leg.order} · ${esc(s.leg.to.name)}</td><td>${summarizeTime(s.t)}</td><td>${summarizeTime(s.plan)}</td><td style="color:${s.t > s.plan ? 'var(--bad)' : 'var(--ok)'}">${s.t > s.plan ? '+' : '−'}${summarizeTime(Math.abs(s.t - s.plan))}</td><td>${s.pct ? Math.round(s.pct * 100) + ' %' : '—'}</td></tr>`).join('')}</table>${worst ? `<p class="small">Bord le plus coûteux : vers <b>${esc(worst.leg.to.name)}</b> (${summarizeTime(worst.t - worst.plan)} de plus que l’optimal). Rejouez-le en comparant à la route bleue.</p>` : ''}` : '<p class="small muted">Aucune marque du parcours détectée sur cette trace (passage à plus de 250 m).</p>')

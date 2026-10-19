@@ -8,6 +8,7 @@ import { parisClock } from './racelock.js';
 import { isTime, lastDay, daysOf } from './regates.js';
 
 export const THROTTLE_MS = 10 * 60e3;          // au plus une copie complète toutes les 10 minutes
+export const MAX_STRATEGY_BYTES = 12000;       // la route conseillée figée tient en moins de 12 Ko
 const pad = (n) => String(n).padStart(2, '0');
 
 // Clé d’une donnée lourde dans la base rade-regates : nature = 'wx' (prévisions), 'obs' (relevés) ou 'strat' (route conseillée)
@@ -49,6 +50,7 @@ export function freezeAction({ now, regatta, day, slot = null, dataFetched = 0, 
   if (now >= seal.at) return slot ? 'sceau' : 'tard';
   if (!slot) return 'gel';
   if (dataFetched && dataFetched !== slot.fetched) return 'gel';            // nouvelles prévisions
+  if (hasAnalysis && !slot.strategy) return 'gel';                          // la route conseillée vient d’être calculée : pas d’attente de 10 min
   return now - slot.at >= THROTTLE_MS ? 'gel' : 'rien';
 }
 
@@ -57,6 +59,9 @@ export function freezeAction({ now, regatta, day, slot = null, dataFetched = 0, 
 export function obsNeedsCopy({ slot, nObsNow = 0, obsStamp = 0 }) {
   return !!slot && (nObsNow !== (slot.nObs ?? 0) || obsStamp !== (slot.obsStamp ?? 0));
 }
+// Une copie tardive (app ouverte après le signal) peut recevoir la route conseillée une seule fois, quand la première analyse est prête
+export const stratNeedsCopy = ({ slot, hasAnalysis = false }) => !!slot && !!slot.late && !slot.strategy && !!hasAnalysis;
+
 // Prévisions : mêmes tableaux horaires que le cache, réduits aux jours demandés plus l’heure qui suit le dernier
 // (modelAt interpole entre l’heure i et i+1 : sans elle, 23 h 30 serait faux). Ne modifie pas l’original.
 export function sliceDays(data, days) {
@@ -78,8 +83,53 @@ export function windAtHour(series, day, hhmm) {
   return r?.dir == null || r.spd == null ? null : { dir: Math.round(r.dir), spd: Math.round(r.spd * 10) / 10 };
 }
 
+// ───────────────────────── route conseillée compacte
+
+const r1 = (x) => Math.round(x * 10) / 10, r3 = (x) => Math.round(x * 1000) / 1000, r5 = (x) => Math.round(x * 1e5) / 1e5;
+const octets = (o) => new TextEncoder().encode(JSON.stringify(o)).length;
+// Route conseillée d’une analyse (celle de runAnalysis) : positions en latitude / longitude (jamais en x / y : l’origine de la projection
+// pourrait changer), chemin décimé d’un point sur trois, réglages inclus pour pouvoir recalculer plus tard. `reglages` vient de l’app ;
+// toLL(x, y) → { lat, lon } est injectée (module pur). Si le JSON dépasse MAX_STRATEGY_BYTES, le chemin est décimé davantage, puis les
+// conseils sont raccourcis, puis le chemin est retiré : aucun bord n’est perdu.
+export function compactStrategy(analysis, reglages = {}, { toLL } = {}) {
+  const ll = (p) => { const q = toLL(p.x, p.y); return [r5(q.lat), r5(q.lon)]; };
+  const build = (pas, conseils) => ({
+    v: 1,
+    settings: { ...reglages },
+    total: r3(analysis.total), dist: Math.round(analysis.dist),
+    line: analysis.line ? { cb: ll(analysis.line.cb), pin: ll(analysis.line.pin) } : null,
+    start: analysis.start?.startPoint ? ll(analysis.start.startPoint) : null,
+    legs: analysis.legs.map((l, i) => ({
+      n: i + 1, order: l.order ?? null, mark: l.mark, side: l.side ?? null, name: l.to?.name ?? '', to: ll(l.to),
+      brg: r1(l.brg), dist: Math.round(l.dist), time: Math.round(l.time), eta0: r3(l.eta0 ?? 0), eta1: r3(l.eta1 ?? 0),
+      type: { id: l.type?.id ?? '', label: l.type?.label ?? '', sail: l.type?.sail ?? '' },
+      wind: { dir: Math.round(l.wind.dir), spd: r1(l.wind.spd), gust: r1(l.wind.gust) },
+      advice: (l.advice || []).slice(0, conseils).map((a) => String(a).slice(0, 300)),
+      path: pas && l.route?.path ? l.route.path.filter((_, k, a) => k % pas === 0 || k === a.length - 1).map(ll) : [],
+    })),
+  });
+  let out = null;
+  for (const [pas, conseils] of [[3, 5], [4, 3], [6, 2], [12, 1], [0, 1]]) {
+    out = build(pas, conseils);
+    if (octets(out) <= MAX_STRATEGY_BYTES) break;
+  }
+  return out;
+}
+
+// Ce que la fiche garde dans l’index (sans attendre la base) : réglages et détail des bords en peu de mots
+export function strategySummary(s) {
+  return {
+    courseId: s.settings?.courseId ?? null, cls: s.settings?.cls ?? null, laps: s.settings?.laps ?? null, startTime: s.settings?.startTime ?? null,
+    nLegs: s.legs.length, total: s.total, dist: s.dist,
+    legs: s.legs.map((l) => ({
+      mark: l.mark, name: l.name, side: l.side, brg: l.brg, dist: l.dist, time: l.time, type: l.type.label, windDir: l.wind.dir, windSpd: l.wind.spd,
+      advice: String(l.advice[1] ?? l.advice[0] ?? '').slice(0, 140),
+    })),
+  };
+}
+
 // Résumé d’un gel pour l’index de la régate : affiché par la fiche sans toucher à la base IndexedDB
-export function freezeSummary({ action, now, regatta, day, data, series, model = null, nObs = 0, obsStamp = 0, by = null }) {
+export function freezeSummary({ action, now, regatta, day, data, series, model = null, nObs = 0, obsStamp = 0, by = null, strategy = null }) {
   const seal = sealAt(regatta, day);
   const signal = seal?.signal ?? null;
   const out = {
@@ -88,5 +138,19 @@ export function freezeSummary({ action, now, regatta, day, data, series, model =
     windStart: seal && signal !== 'inconnu' ? windAtHour(series, day, clockOf(seal.at)) : null,
     model, nObs, obsStamp, signal, sealAt: seal?.at ?? null,
   };
+  if (strategy) out.strategy = strategySummary(strategy);
   return out;
+}
+
+// Source du vent d’une trace : les prévisions vivantes si leur jour y figure (plus récentes que la copie), sinon le gel de ce jour, sinon rien
+export function windSourceKind({ day, liveDays, frozenDays }) {
+  if (liveDays?.has?.(day)) return 'live';
+  if (frozenDays?.has?.(day)) return 'gel';
+  return 'aucun';
+}
+
+// « vent du jour figé le JJ/MM à HH:MM » (heure de Paris du gel) : dit d’où vient le vent d’une analyse ou d’un débrief tardif
+export function frozenLabel(f) {
+  const d = parisClock(f.at).date;
+  return `vent du jour figé le ${d.slice(8, 10)}/${d.slice(5, 7)} à ${clockOf(f.at)}`;
 }

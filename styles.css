@@ -198,6 +198,8 @@ button.rg.on { border-color: var(--accent); background: #fff8ef; }
 .rgwinds h4 { margin: 12px 0 4px; font-size: 14px; }
 .rgwind { border-left: 4px solid #cfd8e2; padding: 6px 10px; margin: 6px 0; background: #f8fafc; border-radius: 0 10px 10px 0; }
 .rgdn, .rgwf { font-weight: 700; }
+.rgdet summary { cursor: pointer; margin-top: 4px; }
+.rgleg { border-top: 1px solid var(--line); padding: 6px 0; overflow-wrap: anywhere; }
 .icf { margin: 0 0 12px; }
 .icf .icex { color: var(--mute); margin-top: 3px; overflow-wrap: anywhere; line-height: 1.35; }
 .icf .icex.none { color: #9a6a00; }

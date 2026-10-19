@@ -93,7 +93,21 @@ function sealLine(f, now) {
   if (f.sealed) return `scellé au signal de ${clockOf(f.sealAt)}`;
   return now >= f.sealAt ? `dernière copie avant le signal de ${clockOf(f.sealAt)} (app fermée au signal)` : `sera scellé au signal de ${clockOf(f.sealAt)}`;
 }
-function windDayHTML(day, f, { now }) {
+const pad2 = (n) => String(n).padStart(2, '0');
+const hm = (h) => { const m = Math.round(h * 60); return `${pad2(Math.floor(m / 60) % 24)}:${pad2(m % 60)}`; };
+// Durée en clair : « 18 min », « 2 h 05 »
+const dur = (h) => { const m = Math.round(h * 60); return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${pad2(m % 60)}`; };
+const SIDE = { t: ' (à tribord)', b: ' (à bâbord)' };
+// Route conseillée figée : réglages en une ligne, puis le détail des bords dans un <details> (déjà dans l’index : aucune requête)
+function strategyHTML(s, courses) {
+  if (!s) return '<div class="small muted">Route conseillée : pas encore figée (aucune analyse faite ce jour-là).</div>';
+  const legs = s.legs || [];
+  return `<div class="small">Route conseillée figée : ${escHTML(courseLabel(s.courseId, courses))} · classe ${escHTML(s.cls)} · ${s.laps} tour${s.laps > 1 ? 's' : ''} · départ ${hm(s.startTime)} · ${s.nLegs} bord${s.nLegs > 1 ? 's' : ''} · arrivée estimée en ${dur(s.total)}</div>`
+    + `<details class="rgdet"><summary class="small">Détail des bords (${legs.length})</summary>${legs.map((l, i) => `<div class="small rgleg" data-rgleg="${i + 1}">`
+      + `<span class="rgdn">${i + 1} · ${escHTML(l.name)}</span>${SIDE[l.side] || ''} · cap ${Math.round(l.brg)}° · ${(l.dist / 1852).toFixed(1).replace('.', ',')} Nq · ${dur(l.time / 3600)}`
+      + `<br>${escHTML(l.type)} · vent ${Math.round(l.windDir)}° ${Math.round(l.windSpd)} nd${l.advice ? `<br><i>${escHTML(l.advice)}</i>` : ''}</div>`).join('')}</details>`;
+}
+function windDayHTML(day, f, { now, courses }) {
   const head = `<div class="rgh"><span class="rgdn">${escHTML(dayLabel(day))}</span></div>`;
   if (!f) {
     const passe = day < parisClock(now).date;
@@ -105,13 +119,13 @@ function windDayHTML(day, f, { now }) {
   return `<div class="rgwind" data-day="${escHTML(day)}">${head}`
     + `<div class="small"><span class="rgwf">Figé automatiquement à ${clockOf(f.at)}</span> · <span class="muted">${byLine(f.by, f.at)}</span></div>`
     + `<div class="small">${escHTML(prev)}${f.model ? ` · modèle ${escHTML(modelLabel(f.model))}` : ''} · ${nRel(f.nObs ?? 0)}</div>${ws}`
-    + `${etat ? `<div class="small">${escHTML(etat)}</div>` : ''}</div>`;
+    + `${etat ? `<div class="small">${escHTML(etat)}</div>` : ''}${strategyHTML(f.strategy, courses)}</div>`;
 }
 // Section « Vent du jour » : une entrée par jour de la régate
-export function windSectionHTML(r, { now = Date.now() } = {}) {
+export function windSectionHTML(r, { now = Date.now(), courses = [] } = {}) {
   const jours = daysOf(r);
   if (!jours.length) return '';
-  return `<div class="rgwinds"><h4>Vent du jour</h4>${jours.map((d) => windDayHTML(d, r.frozen?.[d] || null, { now })).join('')}</div>`;
+  return `<div class="rgwinds"><h4>Vent du jour</h4>${jours.map((d) => windDayHTML(d, r.frozen?.[d] || null, { now, courses })).join('')}</div>`;
 }
 
 // Fiche de la régate courante : nom, club, dates, statut, auteur, puis les manches (courses = parcours connus [{ id, title }]) et le vent du jour

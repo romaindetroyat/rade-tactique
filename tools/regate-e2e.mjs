@@ -15,6 +15,7 @@
 
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { extname, join, normalize } from 'node:path';
 import assert from 'node:assert/strict';
@@ -450,6 +451,16 @@ async function gel({ browser, base }) {
   assert.match(await texteVent(page, '2026-10-18'), /Figé automatiquement à 10:00/);
   assert.match(await texteVent(page, '2026-10-18'), /prévisions embarquées du 17\/10/);
   assert.match(await texteVent(page, '2026-10-18'), /sera scellé au signal de 10:55/);
+  // la route conseillée du jour (dernière analyse déjà faite) est figée avec le vent : en base et dans la fiche, sans requête
+  const g1 = await attendGel(page, '2026-10-18', (x) => x.strategy, 'route conseillée');
+  const strat = await lireSlot(page, `${id}|2026-10-18|strat`);
+  assert.ok(strat, 'route conseillée dans la base rade-regates');
+  assert.ok(strat.legs.length >= 8 && strat.legs.length === g1.strategy.nLegs, `bords figés : ${strat.legs.length}`);
+  assert.ok(JSON.stringify(strat).length <= 12000, 'moins de 12 Ko');
+  assert.equal(strat.settings.day, '2026-10-18'); assert.equal(typeof strat.settings.courseId, 'number'); assert.ok(strat.settings.polar && strat.settings.model, 'les réglages sont gardés');
+  assert.ok(strat.legs.every((l) => l.to[0] > 43 && l.to[0] < 43.2 && l.to[1] > 5.8 && l.to[1] < 6.1), 'positions en latitude / longitude');
+  assert.match(await texteVent(page, '2026-10-18'), /Route conseillée figée : .*classe [GP] · \d tours? · départ \d\d:\d\d · \d+ bords · arrivée estimée en/);
+  assert.equal(await page.locator('#rgSheet .rgwind[data-day="2026-10-18"] details .rgleg').count(), strat.legs.length, 'détail des bords sans requête');
 
   // 2) 11 h : un tic de raceTick (5 s) suffit pour sceller
   await ctx.clock.setFixedTime(new Date('2026-10-18T09:00:00Z'));
@@ -497,7 +508,71 @@ async function gel({ browser, base }) {
   await ctx3.close();
 }
 
-const SCENARIOS = { creer, manche, auteur, ic, vraisemblance, gel };
+// ───────────────────────── débrief tardif sur le vent figé (ARCH-02, Pitfall 1)
+
+const GPX_SNPM = ROOT + 'tests/fixtures/coupe-snpm-2026-10-18.gpx';
+// Copie de data/wx-snapshot.json décalée de 7 jours calendaires, heure locale inchangée (« 2026-10-17T00:00 » → « 2026-10-24T00:00 ») :
+// chaque horodatage de multi, des 24 points de grille et de la mer, et `fetched` ; aucune autre valeur n'est modifiée
+function snapshotDecale(jours = 7) {
+  const wx = JSON.parse(readFileSync(ROOT + 'data/wx-snapshot.json', 'utf8'));
+  const pousse = (t) => new Date(Date.parse(t.slice(0, 10) + 'T12:00:00Z') + jours * 864e5).toISOString().slice(0, 10) + t.slice(10);
+  const cale = (loc) => { if (loc?.hourly?.time) loc.hourly.time = loc.hourly.time.map(pousse); };
+  cale(wx.multi); (Array.isArray(wx.grid) ? wx.grid : [wx.grid]).forEach(cale); cale(wx.marine);
+  wx.fetched += jours * 864e5;
+  return wx;
+}
+const lireDirections = (jour) => {                          // directions AROME HD du jour dans l'instantané embarqué : le vent figé en vient
+  const h = JSON.parse(readFileSync(ROOT + 'data/wx-snapshot.json', 'utf8')).multi.hourly;
+  return new Set(h.time.map((t, i) => (t.startsWith(jour) ? Math.round(h.wind_direction_10m_meteofrance_arome_france_hd[i]) : null)).filter((x) => x != null));
+};
+
+// Deux jours ou plus après la course : l'analyse de la trace et le questionnaire du débrief utilisent le vent figé du jour, et le disent
+async function debriefTardif({ browser, base }) {
+  // 1) le 18/10 à 10 h (Paris), régate avec une manche : le vent et la route sont figés sans geste
+  const ctx = await ouvreContexte(browser, { heure: '2026-10-18T08:00:00Z' });
+  const { page, erreurs } = await ouvrePage(ctx);
+  await ouvreApp(page, base);
+  await creeRegate(page, { nom: 'Coupe SNPM figée', debut: '2026-10-18', club: 'CVAT' });
+  await ajouteManche(page, { heure: '10:55', parcours: '5', cls: 'G', tours: '2' });
+  await attendGel(page, '2026-10-18', (x) => x.strategy, 'vent et route figés');
+
+  // 2) le 25/10 à 12 h (Paris, heure d'hiver) : les prévisions vivantes couvrent 24 au 26/10, plus le 18/10
+  await ctx.clock.setFixedTime(new Date('2026-10-25T11:00:00Z'));
+  await page.evaluate((v) => localStorage.setItem('rade.wx.v1', v), JSON.stringify(snapshotDecale()));
+  await ouvreApp(page, base);
+  const vivant = await page.evaluate(() => JSON.parse(localStorage.getItem('rade.wx.v1')).multi.hourly.time.map((t) => t.slice(0, 10)));
+  assert.ok(!vivant.includes('2026-10-18') && vivant.includes('2026-10-25'), 'les prévisions vivantes ne couvrent plus le 18/10');
+  await page.click('#tabs button[data-tab=tracks]');
+  await page.setInputFiles('#gpxIn', GPX_SNPM);
+  await page.waitForSelector('#trWind', { timeout: 90000 });
+  assert.match(await page.locator('#trWind').textContent(), /vent du jour figé le 18\/10 à 10:\d\d/, 'l’analyse de la trace annonce le vent figé');
+  assert.match(await page.locator('#traceDetail').textContent(), /% de la polaire|de la polaire/);
+
+  // 3) le questionnaire du débrief : vent au départ pré-rempli d'après le gel (jamais le vent manuel par défaut), source citée
+  await page.click('#trDebrief');
+  await page.waitForSelector('#dqWind', { timeout: 30000 });
+  const vent = await page.inputValue('#dqWind');
+  assert.ok(vent !== '' && lireDirections('2026-10-18').has(+vent), `vent au départ « ${vent} » : une direction des prévisions figées du 18/10 attendue (${[...lireDirections('2026-10-18')].join(', ')})`);
+  const modal = (await page.locator('#modal').textContent()).replace(/\s+/g, ' ');
+  assert.match(modal, /Pré-rempli avec[^.]*figé le 18\/10/, 'le questionnaire cite le gel du 18/10');
+  await page.click('#dqCancel');
+
+  // 4) contrôle négatif : sans le gel du jour, c'est le vent manuel, annoncé comme tel et sans valeur pré-remplie (le défaut que le gel corrige)
+  await page.evaluate(() => { const i = JSON.parse(localStorage.getItem('rade.regates.v1')); i.list.forEach((r) => { r.frozen = {}; }); localStorage.setItem('rade.regates.v1', JSON.stringify(i)); });
+  await ouvreApp(page, base);
+  await page.click('#tabs button[data-tab=tracks]');
+  await page.click('[data-tv]');
+  await page.waitForSelector('#trWind', { timeout: 60000 });
+  assert.match(await page.locator('#trWind').textContent(), /vent manuel \(aucune prévision pour ce jour\)/, 'sans gel : vent manuel, annoncé');
+  await page.click('#trDebrief');
+  await page.waitForSelector('#dqWind', { timeout: 30000 });
+  assert.equal(await page.inputValue('#dqWind'), '', 'sans gel, rien n’est pré-rempli');
+  await page.click('#dqCancel');
+  sansErreur(erreurs, 'débrief tardif');
+  await ctx.close();
+}
+
+const SCENARIOS = { creer, manche, auteur, ic, vraisemblance, gel, 'debrief-tardif': debriefTardif };
 
 // ───────────────────────── lancement
 
