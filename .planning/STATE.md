@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 2
 current_phase_name: Fiable et juste en mer
 status: executing
-stopped_at: Completed 02-03-PLAN.md
-last_updated: "2026-10-19T17:03:53.857Z"
+stopped_at: Completed 02-04-PLAN.md
+last_updated: "2026-10-19T17:17:32.148Z"
 last_activity: 2026-10-19
 last_activity_desc: Phase 2 execution started
-state_head: 2d60af012caa0c7718deca1a6dd710e71f978e2f
+state_head: 7be4ec72520e56c63830c868ac2aa57ada400cc6
 progress:
   total_phases: 4
   completed_phases: 1
   total_plans: 9
-  completed_plans: 7
+  completed_plans: 8
   percent: 25
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-10-19)
 ## Current Position
 
 Phase: 2 (Fiable et juste en mer) — EXECUTING
-Plan: 4 of 5
+Plan: 5 of 5
 Status: Ready to execute
 Last activity: 2026-10-19 — Phase 2 execution started
 
@@ -61,6 +61,7 @@ Progress: [███░░░░░░░] 25%
 | Phase 02 P01 | 69 min | 3 tasks | 13 files |
 | Phase 02 P02 | 20 min | 2 tasks | 14 files |
 | Phase 02 P03 | 40 min | 2 tasks | 13 files |
+| Phase 02 P04 | 13 min | 2 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -90,6 +91,8 @@ Décisions récentes qui orientent le travail en cours :
 - [Phase 02]: Le champ de vent est préparé dans prepareField par tranches de 12 ms (kitSteps / warm) derrière autoHeavy ; computeField est mémoïsé, fieldKey remis à null par refreshObs et le débrief
 - [Phase 02]: Seuls les recalculs automatiques (ouverture, prévisions sans geste) sont reportés de H−6 min à H+1 min ; gestes et relevés calculent tout de suite (garde statique W4)
 - [Phase 02]: L’outil de mesure neutralise le dessin et le téléversement WebGL : le rendu logiciel de Chromium sans tête fausse les mesures
+- [Phase 02]: Bouées : recalage par la trace = sommet du virage + 14 m vers l’intérieur, jusqu’à 3 candidats, ±20 m, passage au plus près pour information, aucun candidat sans virage net (D-02 amendé) ; mesures SNPM 26,3 m (marque 7) et 30,8 m (marque 6), simulation p90 18,7 m
+- [Phase 02]: 02-04 : recalages de bouées dans localStorage rade.marks.v1 (ce téléphone seulement, D-04), appliqués à MARKS seulement par js/app.js (début d’init et juste après un recalage validé), jamais dans les tests ; saisie bornée à la rade, confirmation au-delà de 2 Nq
 
 ### Pending Todos
 
@@ -114,6 +117,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-10-19T17:03:53.727Z
-Stopped at: Completed 02-03-PLAN.md
+Last session: 2026-10-19T17:17:26.330Z
+Stopped at: Completed 02-04-PLAN.md
 Resume file: None
