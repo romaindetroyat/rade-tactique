@@ -6,7 +6,10 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { ROOT, fixture } from './helpers/setup.mjs';
 import { fromGPX } from '../js/track.js';
-import { trackDay, matchRegattas, raceOfTrack, sameTrack, attachTrace, detachTrace } from '../js/attach.js';
+import { parseHTML } from 'linkedom';
+import * as ATT from '../js/attach.js';           // lu aussi par espace de noms (traceSummary, setTraceReport, setTraceSummary) : un module incomplet échoue sur « is not a function »
+import { sheetHTML } from '../js/regview.js';
+const { trackDay, matchRegattas, raceOfTrack, sameTrack, attachTrace, detachTrace } = ATT;
 
 const t = (s) => Date.parse(s);
 const deepFreeze = (o) => { if (o && typeof o === 'object' && !Object.isFrozen(o)) { Object.freeze(o); Object.values(o).forEach(deepFreeze); } return o; };
@@ -148,4 +151,102 @@ test('câblage de l’import dans js/app.js : doublon, rattachement, débrief la
   assert.match(src, /courseHint/, 'parcours de la manche donné au débrief');
   assert.match(src, /mapReady/, 'le débrief attend la carte sans geler l’interface');
   assert.ok(src.indexOf('sameTrack(') < src.indexOf('await saveTrack(tr)', src.indexOf('sameTrack(')), 'sameTrack avant saveTrack');
+});
+
+// ───────────────────────── résumés et rapport d’une trace dans la fiche de régate (ARCH-02)
+
+const resume = { dist: 28150, dur: 12780, vmean: 4.28, perf: 0.87 };
+
+test('résumé d’une analyse : distance (m), durée active (s), vitesse moyenne (nd) et pourcentage de la polaire, arrondis', () => {
+  const s = ATT.traceSummary({ dist: 28150.4, dur: 12780.2, vmean: 4.2812, vmax: 7.5, perf: 0.8712, P: [] });
+  assert.deepEqual(s, { dist: 28150, dur: 12780, vmean: 4.28, perf: 0.87 });
+  assert.equal(ATT.traceSummary({ dist: 100, dur: 60, vmean: 3.2, perf: null }).perf, null, 'sans polaire : null, jamais 0');
+  assert.equal(ATT.traceSummary(null), null);
+  // la trace SNPM : 15,2 Nq en 3 h 33 actifs, vitesse moyenne d’environ 4,3 nd
+  const nombres = ATT.traceSummary({ dist: 15.218 * 1852, dur: 3.551 * 3600, vmean: 4.29, perf: 0.9 });
+  assert.equal(nombres.dist, Math.round(15.218 * 1852));
+});
+
+test('résumé posé sur la référence : changé seulement s’il diffère ; régate d’entrée intacte ; identifiant absent sans effet', () => {
+  const r = deepFreeze(attachTrace(regate(), snpm, { by: 'Teiva', at: 1 }));
+  const a = ATT.setTraceSummary(r, snpm.id, resume);
+  assert.deepEqual(a.traces[0].sum, resume);
+  assert.equal(r.traces[0].sum, undefined, 'régate d’entrée non modifiée');
+  assert.equal(ATT.setTraceSummary(a, snpm.id, { ...resume }), a, 'même résumé : même objet, rien à écrire');
+  assert.equal(ATT.setTraceSummary(r, 'inconnu', resume), r);
+});
+
+test('rapport du débrief posé sur la référence de la trace : instant et auteur ; identifiant absent sans effet', () => {
+  const r = deepFreeze(attachTrace(regate(), snpm, { by: 'Teiva', at: 1 }));
+  const a = ATT.setTraceReport(r, snpm.id, { t: 5000, by: 'Thibaud' });
+  assert.deepEqual(a.traces[0].report, { t: 5000, by: 'Thibaud' });
+  assert.equal(r.traces[0].report, undefined);
+  assert.equal(ATT.setTraceReport(r, 'inconnu', { t: 1, by: 'x' }), r);
+  assert.equal(ATT.setTraceReport(a, snpm.id, { t: 6000, by: null }).traces[0].report.by, null, 'auteur inconnu : null, affiché « — »');
+});
+
+const fiche = (r) => parseHTML(`<html><body>${sheetHTML(r, { now: t('2026-10-19T09:00:00Z') })}</body></html>`).document;
+
+test('fiche de régate, section « Traces » : nom, jour et heure, auteur, résumé mis en forme, débrief et boutons', () => {
+  let r = regate({ traces: [] });
+  r = attachTrace(r, { id: 'trA', name: 'Coupe SNPM', start: t('2026-10-18T08:40:43Z'), n: 9538 }, { by: 'Teiva', at: t('2026-10-19T07:00:00Z') });
+  r = ATT.setTraceSummary(r, 'trA', resume);
+  r = ATT.setTraceReport(r, 'trA', { t: t('2026-10-19T08:00:00Z'), by: 'Thibaud' });
+  r = attachTrace(r, { id: 'trB', name: 'Sortie du soir', start: t('2026-10-18T16:00:00Z'), n: 100 }, { by: null, at: 0 });
+  const d = fiche(r);
+  const lignes = [...d.querySelectorAll('#rgSheet .rgtr')];
+  assert.equal(lignes.length, 2, 'une ligne par trace');
+  const a = lignes[0].textContent.replace(/\s+/g, ' ');
+  assert.match(a, /Coupe SNPM/);
+  assert.match(a, /18\/10 10:40/, 'jour et heure de Paris');
+  assert.match(a, /par Teiva le 19\/10/, 'auteur');
+  assert.match(a, /15,2 Nq · 3 h 33 actives · 4,3 nd · 87 % de la polaire/);
+  assert.match(a, /Débrief par Thibaud le 19\/10/);
+  assert.equal(lignes[0].querySelector('[data-trd]').textContent.trim(), 'Voir le débrief');
+  assert.equal(lignes[0].querySelector('[data-trd]').getAttribute('data-trd'), 'trA');
+  assert.equal(lignes[0].querySelector('[data-trv]').textContent.trim(), 'Voir la trace');
+  assert.equal(lignes[0].querySelector('[data-trx]').textContent.trim(), 'Détacher');
+  const b = lignes[1].textContent.replace(/\s+/g, ' ');
+  assert.match(b, /pas encore débriefée/);
+  assert.match(b, /par —|—/, 'auteur inconnu : « — »');
+  assert.equal(lignes[1].querySelector('[data-trd]').textContent.trim(), 'Débrief');
+});
+
+test('fiche de régate : sans polaire, le pourcentage est omis ; sans résumé, la ligne le dit ; sans trace, le message d’aide', () => {
+  let r = attachTrace(regate(), { id: 'trA', name: 'A', start: t('2026-10-18T08:40:43Z'), n: 5 }, { by: 'Teiva', at: 1 });
+  r = ATT.setTraceSummary(r, 'trA', { dist: 1852, dur: 600, vmean: 6, perf: null });
+  const a = fiche(r).querySelector('#rgSheet .rgtr').textContent.replace(/\s+/g, ' ');
+  assert.match(a, /1,0 Nq · 10 min actives · 6,0 nd/);
+  assert.doesNotMatch(a, /polaire/);
+  const sans = attachTrace(regate(), { id: 'trB', name: 'B', start: 1, n: 5 }, { by: 'Teiva', at: 1 });
+  assert.match(fiche(sans).querySelector('#rgSheet .rgtr').textContent, /Ouvrez la trace pour la mesurer|analyse pas encore faite/i);
+  assert.match(fiche(regate()).querySelector('#rgSheet').textContent.replace(/\s+/g, ' '), /Aucune trace : importez le GPX après la course \(onglet Traces\)/);
+});
+
+test('fiche de régate : un nom de trace piégé s’affiche en texte, sans balise img ni attribut exécutable', () => {
+  const piege = '<img src=x onerror=alert(1)>';
+  const r = ATT.setTraceReport(attachTrace(regate(), { id: 'trP"><b>', name: piege, start: 1, n: 5 }, { by: '<script>alert(2)</script>', at: 1 }), 'trP"><b>', { t: 1, by: '<i onclick=alert(3)>' });
+  const d = fiche(r);
+  assert.equal(d.querySelectorAll('#rgSheet img').length, 0);
+  assert.equal(d.querySelectorAll('#rgSheet script').length, 0);
+  assert.equal(d.querySelectorAll('#rgSheet i').length, 0);
+  assert.equal(d.querySelectorAll('#rgSheet [onerror], #rgSheet [onclick]').length, 0);
+  assert.ok(d.querySelector('#rgSheet .rgtr').textContent.includes(piege), 'le nom reste lisible, en texte');
+  assert.equal([...d.querySelectorAll('#rgSheet [data-trd]')].length, 1, 'l’identifiant piégé ne casse pas l’attribut');
+});
+
+test('fiche de régate : lit seulement r.traces (résumés), jamais la liste complète des traces', () => {
+  const vue = readFileSync(ROOT + 'js/regview.js', 'utf8');
+  assert.doesNotMatch(vue, /listTracks|getTrack|indexedDB/, 'aucun accès aux traces complètes depuis la vue');
+  assert.match(vue, /data-trx/);
+});
+
+test('câblage de l’invite et des résumés dans js/app.js', () => {
+  const src = readFileSync(ROOT + 'js/app.js', 'utf8');
+  assert.match(src, /traceSummary\(/);
+  assert.match(src, /setTraceReport\(/);
+  assert.match(src, /detachTrace\(/);
+  assert.match(src, /Créer une régate le /);
+  assert.match(src, /Laisser sans régate/);
+  assert.match(src, /durée active/, 'le détail de la trace parle de durée active');
 });
