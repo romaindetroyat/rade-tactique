@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 2
 current_phase_name: Fiable et juste en mer
 status: executing
-stopped_at: Phase 2 context gathered
-last_updated: "2026-10-19T14:49:02.820Z"
+stopped_at: Completed 02-01-PLAN.md
+last_updated: "2026-10-19T16:00:35.215Z"
 last_activity: 2026-10-19
 last_activity_desc: Phase 2 execution started
-state_head: c782f49b92cdbe8021a1558694b3242e7c9f9a29
+state_head: 45edadb42e0c46a6857e44355ed7fe9a9b3c3cb7
 progress:
   total_phases: 4
   completed_phases: 1
   total_plans: 9
-  completed_plans: 4
+  completed_plans: 5
   percent: 25
 ---
 
@@ -28,8 +28,8 @@ See: .planning/PROJECT.md (updated 2026-10-19)
 ## Current Position
 
 Phase: 2 (Fiable et juste en mer) — EXECUTING
-Plan: 1 of 5
-Status: Executing Phase 2
+Plan: 2 of 5
+Status: Ready to execute
 Last activity: 2026-10-19 — Phase 2 execution started
 
 Progress: [███░░░░░░░] 25%
@@ -58,6 +58,7 @@ Progress: [███░░░░░░░] 25%
 | Phase 01 P01 | 5 min | 3 tasks | 11 files |
 | Phase 01 P02 | 3 min | 2 tasks | 7 files |
 | Phase 01 P03 | 13 min | 2 tasks | 9 files |
+| Phase 02 P01 | 69 min | 3 tasks | 13 files |
 
 ## Accumulated Context
 
@@ -77,6 +78,9 @@ Décisions récentes qui orientent le travail en cours :
 - [Phase 01]: 01-02 : pdf.js précaché (import d'IC hors réseau) ; stamp --check strict seulement en production ou RT_STRICT=1 ; le hachage de version exclut release.json et js/version.js
 - [Phase 01]: Bandeau de mise à jour placé sous la barre du haut (ne masque ni ⟳ ni ?), texte posé par textContent
 - [Phase 01]: Verrou : « course finie » et inactivité ne comptent que le même jour de Paris (régate de plusieurs jours, D-15) ; état dans localStorage rade.racelock
+- [Phase 02]: 02-01 : tolérance de recalage des bips resserrée à 12 ms (l’horloge audio de Chromium dérive d’environ 1,5 ms/s ; avec 30 ms et 8 s d’avance des bips sonnaient à 31-34 ms)
+- [Phase 02]: 02-01 : mesure Chromium des bips rejouée jusqu’à 3 fois (glissements de l’horloge audio de la machine de mesure) ; un vrai défaut échoue à chaque tentative (contrôle négatif réalisé)
+- [Phase 02]: 02-01 : chrono repris après un rechargement (rade.timer.v1, borné à H+10 min) ; réactivation du son et redemande du verrou d’écran sur pointerdown et pointerup
 
 ### Pending Todos
 
@@ -101,6 +105,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-10-19T13:32:53.191Z
-Stopped at: Phase 2 context gathered
+Last session: 2026-10-19T16:00:35.102Z
+Stopped at: Completed 02-01-PLAN.md
 Resume file: None

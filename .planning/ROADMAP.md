@@ -65,11 +65,11 @@ Plans:
   4. Après une sortie, un équipier ouvre le journal de diagnostic dans l'app et y lit les erreurs survenues en mode départ et en mode course, avec leur heure.
   5. Une bouée dont la position n'est pas confirmée est signalée sur la carte, dans les parcours et en mode départ ; un équipier la recale par un point GPS au passage ou par saisie, et la bouée affiche ensuite la source et la date de sa position.
 
-**Plans:** 5 plans
+**Plans:** 1/5 plans executed
 
 Plans:
 **Wave 1**
-- [ ] 02-01-PLAN.md — Chrono fiable : bips posés sur l'horloge audio, son vérifié (« Tester le son »), flash plein écran, verrou d'écran unique et honnête (vague 1)
+- [x] 02-01-PLAN.md — Chrono fiable : bips posés sur l'horloge audio, son vérifié (« Tester le son »), flash plein écran, verrou d'écran unique et honnête (vague 1)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 - [ ] 02-02-PLAN.md — Journal de diagnostic (Aide › Journal) et voyant GPS / écran / son / réseau en mode départ et en course (vague 2)
@@ -123,6 +123,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Mises en ligne sans risque | 4/4 | Complete    | 2026-10-19 |
-| 2. Fiable et juste en mer | 0/4 | Planned | - |
+| 2. Fiable et juste en mer | 1/5 | In Progress | - |
 | 3. Ouvrir une régate | 0/TBD | Not started | - |
 | 4. Archive partagée | 0/TBD | Not started | - |
