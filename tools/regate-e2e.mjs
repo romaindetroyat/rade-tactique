@@ -1012,7 +1012,185 @@ async function iaErreurs({ browser, base }) {
   await ctx3.close();
 }
 
-const SCENARIOS = { creer, manche, auteur, ic, 'depuis-ic': depuisIC, vraisemblance, gel, 'debrief-tardif': debriefTardif, gpx, 'gpx-choix': gpxChoix, ia, 'ia-erreurs': iaErreurs };
+// ───────────────────────── bouées et parcours d'un autre club « à confirmer » (plan 03-07, D-04, REG-04)
+
+// Texte fabriqué (D-06) : deux bouées dans la rade (Alpha en degrés-minutes, Bravo en décimal), une sans position lisible (Charlie) et un parcours A
+const TEXTE_BOUEES = `${TEXTE_AUTRE_CLUB}
+ANNEXE : MARQUES ET PARCOURS
+
+Bouée Alpha : 43°05,845' N – 005°56,049' E
+
+Bouée Bravo : 43,0905 N ; 5,9587 E
+
+Bouée Charlie : au large de la Pointe Rouge, position donnée par le Comité
+
+Parcours A : départ, Alpha bâbord, Bravo bâbord, arrivée
+`;
+
+// REG-04 : les bouées et parcours lus par l'IA sont « à confirmer » (X1 ? sur la carte) et n'entrent ni dans les marques ni dans les parcours avant confirmation
+async function bouees({ browser, base }) {
+  const ctx = await ouvreContexte(browser, { heure: '2026-10-19T08:30:00Z' });        // lundi 19/10/2026 10 h 30 à Paris
+  // les étiquettes dessinées sur la carte (texte de chaque sprite) sont relevées pour vérifier « X1 ? »
+  await ctx.addInitScript(() => {
+    window.__labels = [];
+    const f = CanvasRenderingContext2D.prototype.fillText;
+    CanvasRenderingContext2D.prototype.fillText = function (t) { window.__labels.push(String(t)); return f.apply(this, arguments); };
+  });
+  await simuleMembre(ctx, 'Équipier test');                                       // le prénom signe la lecture et la confirmation
+  const etat = await serviaIA(ctx, (input) => sortieIA({
+    event: { value: 'Coupe de la Société Nautique de Marseille Sud', excerpt: copie(input, /Coupe de la Société Nautique de Marseille Sud/) },
+    dateStart: { value: '2026-10-18', excerpt: copie(input, /dimanche 18 octobre 2026/) },
+    marks: [
+      { name: 'Alpha', position: copie(input, /43°05,845. N . 005°56,049. E/), excerpt: copie(input, /Bouée Alpha : 43°05,845. N . 005°56,049. E/) },
+      { name: 'Bravo', position: copie(input, /43,0905 N ; 5,9587 E/), excerpt: copie(input, /Bouée Bravo : 43,0905 N ; 5,9587 E/) },
+      { name: 'Charlie', position: 'au large de la Pointe Rouge', excerpt: copie(input, /Bouée Charlie : au large de la Pointe Rouge, position donnée par le Comité/) },
+    ],
+    courses: [{ name: 'Parcours A', excerpt: copie(input, /Parcours A : départ, Alpha bâbord, Bravo bâbord, arrivée/), sequence: [{ mark: 'Départ', side: null }, { mark: 'Alpha', side: 'b' }, { mark: 'Bravo', side: 'b' }, { mark: 'Arrivée', side: null }] }],
+  }));
+  const { page, erreurs } = await ouvrePage(ctx);
+  // les tables réelles de la page (même module que l'app)
+  const tables = () => page.evaluate(async () => { const m = await import('/js/courses.js'); return { marks: Object.keys(m.MARKS), courses: m.COURSES.map((c) => `${c.id}:${c.title}`) }; });
+  const parcours = async () => { await page.click('#tabs button[data-tab=course]'); const l = await page.locator('#cSel option').allTextContents(); await page.click('#tabs button[data-tab=ic]'); return l; };
+  const etatApp = () => page.evaluate(() => JSON.parse(localStorage.getItem('rade.state')));
+  const CVAT = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11'];
+
+  await ouvreApp(page, base);
+  await membreGarde(page, 'Équipier test');
+  await creeRegate(page, { nom: 'Régate bouées', debut: '2026-10-19', club: 'SNM' });
+  const idPremiere = (await regateCourante(page)).id;
+  await importeTexte(page, TEXTE_BOUEES);
+  await page.click('#icIa');
+  await page.waitForSelector('.icmark', { timeout: 30000 });
+  assert.equal(etat.demandes.length, 1, 'un seul appel');
+  // relecture : bouées lues, conversion en degrés-minutes, puces, extraits ; Charlie illisible non cochée ; le parcours A coché
+  const marques = await page.locator('.icmark').evaluateAll((l) => l.map((el) => ({ txt: el.textContent, coche: el.querySelector('input').checked, puce: el.querySelector('.chip')?.className ?? '' })));
+  assert.equal(marques.length, 3);
+  assert.match(marques[0].txt, /Alpha · 43°05\.845N 005°56\.049E/); assert.equal(marques[0].coche, true); assert.match(marques[0].puce, /\bgood\b/);
+  assert.match(marques[0].txt, /Extrait : « Bouée Alpha/);
+  assert.match(marques[1].txt, /Bravo · 43°05\.430N 005°57\.522E/); assert.equal(marques[1].coche, true);
+  assert.match(marques[2].txt, /Charlie · position à saisir/); assert.equal(marques[2].coche, false, 'position illisible : non cochée par défaut'); assert.match(marques[2].puce, /\bmid\b/);
+  assert.match(await page.locator('.iccourse').textContent(), /Parcours A : Départ → Alpha bâbord → Bravo bâbord → Arrivée/);
+  assert.equal(await page.locator('.iccourse input').isChecked(), true);
+  // décocher Bravo décoche le parcours (il en dépend), le recocher ne le recoche pas tout seul
+  await page.uncheck('input[data-mk="1"]');
+  assert.equal(await page.locator('.iccourse input').isChecked(), false); assert.equal(await page.locator('.iccourse input').isDisabled(), true);
+  await page.check('input[data-mk="1"]');
+  assert.equal(await page.locator('.iccourse input').isDisabled(), false); await page.check('.iccourse input');
+  await page.check('input[data-mk="2"]');                                        // Charlie : retenue malgré tout, « position à saisir »
+  assert.deepEqual(((await regateCourante(page)).marks || []), [], 'rien n’entre avant « Valider les IC »');
+  await page.click('#icValidate');
+  await page.waitForSelector('#icReview', { state: 'detached', timeout: 10000 });
+
+  // fiche : trois bouées à confirmer, un parcours en attente ; rien dans les tables ni dans l'onglet Parcours
+  const reg = await regateCourante(page);
+  assert.deepEqual(reg.marks.map((m) => [m.id, m.name, m.status]), [['X1', 'Alpha', 'a_confirmer'], ['X2', 'Bravo', 'a_confirmer'], ['X3', 'Charlie', 'a_confirmer']]);
+  assert.equal(reg.marks[0].by, 'Équipier test'); assert.match(reg.marks[0].excerpt, /Bouée Alpha/); assert.equal(reg.marks[0].src, 'IC SNM');
+  assert.deepEqual([reg.marks[0].lat, reg.marks[0].lon, reg.marks[1].lat, reg.marks[1].lon, reg.marks[2].lat], [43.097417, 5.93415, 43.0905, 5.9587, null]);
+  assert.equal(reg.courses.length, 1); assert.equal(reg.courses[0].id, 101);
+  const ligne = (id) => page.locator(`#rgSheet [data-mk-row=${id}]`);
+  assert.equal((await ligne('X1').locator('.rgdn').textContent()).trim(), 'X1 Alpha ?');
+  assert.equal((await ligne('X2').locator('.rgdn').textContent()).trim(), 'X2 Bravo ?');
+  assert.match(await ligne('X3').textContent(), /position à saisir/);
+  assert.equal(await ligne('X3').locator('[data-mk-ok]').count(), 0, 'position à saisir : rien à confirmer');
+  assert.match(await page.locator('#rgSheet [data-co-row="101"]').textContent(), /Parcours A \(IC\)[\s\S]*en attente de : X1 Alpha, X2 Bravo/);
+  await page.waitForFunction(() => window.__labels.includes('X1 ?') && window.__labels.includes('X2 ?'), null, { timeout: 30000 });
+  assert.ok((await page.evaluate(() => window.__labels)).includes('Alpha · à confirmer'), '« X1 ? » et « Alpha · à confirmer » dessinés sur la carte');
+  let t = await tables();
+  assert.deepEqual(t.marks, CVAT, 'aucune bouée à confirmer dans la table des marques (routage, mode départ, débrief)');
+  assert.ok(!t.courses.some((c) => /^10\d:/.test(c)), 'aucun parcours lu dans la table');
+  assert.ok(!(await parcours()).some((x) => /\(IC\)/.test(x)), 'l’onglet Parcours ne propose pas « Parcours A (IC) »');
+
+  // Corriger la position : hors rade refusée ; plus de 2 Nq demande confirmation ; la bouée reste à confirmer
+  await page.click('[data-mk-fix=X1]');
+  await page.fill('#mkxTxt', '48°51.400N 002°21.100E'); await page.click('#mkxOk');
+  assert.match(await page.locator('#mkxErr').textContent(), /hors de la rade/i);
+  await page.fill('#mkxTxt', '43°02.000N 006°05.000E'); await page.click('#mkxOk');
+  assert.match(await page.locator('#mkxOk').textContent(), /^Confirmer : déplacement de \d/);
+  await page.click('#mkxOk');
+  await page.waitForSelector('#mkxTxt', { state: 'detached', timeout: 10000 });
+  assert.match(await ligne('X1').textContent(), /43°02\.000N 006°05\.000E[\s\S]*position corrigée/);
+  assert.match(await ligne('X1').locator('.chip').textContent(), /à confirmer/);
+  await page.click('[data-mk-fix=X1]');                                          // retour à la position du texte (plus de 2 Nq : confirmation de nouveau)
+  await page.fill('#mkxTxt', "43°05.845N 005°56.049E"); await page.click('#mkxOk'); await page.click('#mkxOk');
+  await page.waitForSelector('#mkxTxt', { state: 'detached', timeout: 10000 });
+  assert.match(await ligne('X1').textContent(), /43°05\.845N 005°56\.049E/);
+  await page.click('[data-mk-fix=X3]');                                          // Charlie : « Saisir la position », sans distance de référence
+  await page.fill('#mkxTxt', '43,0910 ; 5,9500'); await page.click('#mkxOk');
+  await page.waitForSelector('#mkxTxt', { state: 'detached', timeout: 10000 });
+  assert.match(await ligne('X3').textContent(), /43°05\.460N 005°57\.000E/);
+  assert.equal(await ligne('X3').locator('[data-mk-ok]').count(), 1, 'une fois saisie, elle se confirme');
+  t = await tables();
+  assert.deepEqual(t.marks, CVAT, 'corriger ne fait rien servir');
+
+  // Confirmer Alpha : la bouée entre sous X1 ; le parcours reste absent (Bravo n'est pas confirmée)
+  await page.click('[data-mk-ok=X1]');
+  assert.equal((await ligne('X1').locator('.rgdn').textContent()).trim(), 'X1 Alpha');
+  assert.match(await ligne('X1').textContent(), /Confirmée par Équipier test le 19\/10/, 'qui a confirmé, et quand');
+  t = await tables();
+  assert.deepEqual(t.marks, [...CVAT, 'X1'], 'seule Alpha est entrée');
+  assert.ok(!(await parcours()).some((x) => /\(IC\)/.test(x)), 'toujours absent : Bravo reste à confirmer');
+  const apresAlpha = await regateCourante(page);
+  assert.equal(apresAlpha.marks[0].status, 'confirmee'); assert.equal(typeof apresAlpha.marks[0].confirmed.at, 'number'); assert.equal(apresAlpha.marks[0].confirmed.by, 'Équipier test');
+
+  // Confirmer Bravo : le parcours est proposé
+  await page.click('[data-mk-ok=X2]');
+  t = await tables();
+  assert.deepEqual(t.marks, [...CVAT, 'X1', 'X2'], 'X3 (Charlie) n’est jamais entrée');
+  assert.ok(t.courses.includes('101:Parcours A (IC)'));
+  assert.ok((await parcours()).includes('Parcours A (IC)'), 'l’onglet Parcours propose « Parcours A (IC) »');
+  assert.match(await page.locator('#rgSheet [data-co-row="101"]').textContent(), /proposé dans l’onglet Parcours/);
+
+  // le choisir : l'analyse se fait avec les deux bouées confirmées, sans erreur de page
+  await page.click('#tabs button[data-tab=course]');
+  await page.selectOption('#cSel', '101');
+  await page.waitForFunction(() => [...document.querySelectorAll('section[data-tab=course] .leg .hd')].some((e) => /X1 Alpha/.test(e.textContent)) && [...document.querySelectorAll('section[data-tab=course] .leg .hd')].some((e) => /X2 Bravo/.test(e.textContent)), null, { timeout: 90000 });
+  assert.equal(await page.locator('section[data-tab=course] .leg').count(), 3, 'Alpha, Bravo, arrivée');
+  assert.equal(await page.locator('section[data-tab=course] .leg .chip.mid').filter({ hasText: 'position à confirmer' }).count(), 0);
+  assert.equal((await etatApp()).courseId, 101);
+  sansErreur(erreurs, 'avec le parcours lu');
+
+  // après relance : bouées confirmées et parcours choisi retrouvés dès le démarrage
+  await ouvreApp(page, base);
+  assert.equal((await etatApp()).courseId, 101, 'le parcours choisi survit à la relance');
+  t = await tables();
+  assert.deepEqual(t.marks, [...CVAT, 'X1', 'X2']);
+  await page.waitForFunction(() => [...document.querySelectorAll('section[data-tab=course] .leg .hd')].some((e) => /X2 Bravo/.test(e.textContent)), null, { timeout: 90000 });
+  sansErreur(erreurs, 'après la relance');
+
+  // Ignorer (deux touches) : Charlie n'est plus proposée ; l'ignorée ne sert jamais
+  await page.click('#tabs button[data-tab=ic]');
+  await page.click('[data-mk-ign=X3]');
+  assert.equal(await ligne('X3').locator('[data-mk-ign]').textContent(), 'Ignorer ?');
+  await page.click('[data-mk-ign=X3]');
+  assert.match(await ligne('X3').locator('.chip').textContent(), /ignorée/);
+  assert.equal((await regateCourante(page)).marks[2].status, 'ignoree');
+  assert.equal(await ligne('X3').locator('button').count(), 0);
+
+  // une autre régate : les bouées et le parcours de la précédente sont retirés, le parcours choisi redevient le 3
+  await creeRegate(page, { nom: 'Autre régate', debut: '2026-10-20', club: 'CVAT' });
+  await page.waitForFunction(() => JSON.parse(localStorage.getItem('rade.state')).courseId === 3, null, { timeout: 15000 });
+  assert.match(await page.locator('#toast').textContent(), /Parcours A \(IC\) retiré \(bouées d’une autre régate/);
+  t = await tables();
+  assert.deepEqual(t.marks, CVAT, 'les bouées de la régate précédente sont retirées');
+  assert.ok(!t.courses.some((c) => /^10\d:/.test(c)));
+  assert.ok(!(await parcours()).some((x) => /\(IC\)/.test(x)), 'le parcours disparaît de la liste');
+  await page.waitForFunction(() => [...document.querySelectorAll('section[data-tab=course] .leg .hd')].some((e) => /GR1|Grande Jetée/.test(e.textContent)), null, { timeout: 90000 });
+  assert.equal((await page.locator('#cSel').inputValue()), '3', 'le parcours 3 est choisi');
+  sansErreur(erreurs, 'après le changement de régate');
+
+  // retour à la première : bouées confirmées réinjectées (le parcours choisi reste le 3), « Voir sur la carte » replie le panneau
+  await page.click(`#tabs button[data-tab=ic]`);
+  await page.click(`[data-rg="${idPremiere}"]`);
+  t = await tables();
+  assert.deepEqual(t.marks, [...CVAT, 'X1', 'X2']); assert.ok(t.courses.includes('101:Parcours A (IC)'));
+  assert.equal((await etatApp()).courseId, 3);
+  await page.click('[data-mk-voir=X2]');
+  await page.waitForFunction(() => document.body.dataset.sheet === 'min', null, { timeout: 5000 });
+  sansErreur(erreurs, 'à la fin du scénario');
+  await ctx.close();
+}
+
+const SCENARIOS = { creer, manche, auteur, ic, 'depuis-ic': depuisIC, vraisemblance, gel, 'debrief-tardif': debriefTardif, gpx, 'gpx-choix': gpxChoix, ia, 'ia-erreurs': iaErreurs, bouees };
 
 // ───────────────────────── lancement
 

@@ -207,10 +207,14 @@ button.rg.on { border-color: var(--accent); background: #fff8ef; }
 .icf .icex.none { color: #9a6a00; }
 .icf .icmod { color: #9a6a00; font-weight: 600; }
 .icf .chip { margin-top: 4px; }
-.icrules h4 { margin: 12px 0 4px; font-size: 14px; }
+.icrules h4, .icblock h4 { margin: 12px 0 4px; font-size: 14px; }
 .icrule { display: block; margin: 0 0 6px; overflow-wrap: anywhere; }
 .icrule input { margin-right: 6px; }
 .icrule.icoff { opacity: .55; }
+.icmn { font-weight: 700; }
+.rgmarks h4 { margin: 12px 0 4px; font-size: 14px; }
+.rgmk { border-left: 4px solid #f5c400; padding: 6px 10px; margin: 6px 0; background: #f8fafc; border-radius: 0 10px 10px 0; overflow-wrap: anywhere; }
+.rgmk.off { opacity: .55; border-left-color: #cfd8e2; }
 #icBlock { margin: 8px 0 0; font-weight: 600; }
 button.btn:disabled { opacity: .45; }
 table.t tr.sel td { background: #fff3e0; font-weight: 600; }

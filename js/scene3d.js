@@ -324,7 +324,7 @@ export class Scene3D {
       // dans le parcours : numéro d'ordre de passage (1, 2, 3…) ; hors parcours : numéro CVAT en grisé
       const txt0 = a?.orders?.length ? a.orders.join('·') : String(id), txt = m.doubt ? txt0 + ' ?' : txt0;      // « 3 ? » : position à confirmer (D-01)
       const s = a ? makeLabel(txt, { circle: a.orders.length < 2, bg, fg, size: 26, border: ring }, 30)
-        : makeLabel(String(id), { circle: true, bg: 'rgba(120,135,150,.75)', fg: '#fff', size: 22 }, 17);
+        : makeLabel(String(id) + (m.doubt ? ' ?' : ''), { circle: !m.doubt, bg: 'rgba(120,135,150,.75)', fg: '#fff', size: 22 }, 17);      // hors parcours aussi : « X1 ? » (D-04)
       s.position.copy(W(p.x, p.y, 70));
       s.userData.mark = id;
       g.add(s);

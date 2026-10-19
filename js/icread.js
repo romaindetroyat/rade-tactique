@@ -8,12 +8,16 @@
 //   excerpt = extrait d’origine (null si la valeur n’a pas été lue dans le texte) ; edited = vrai si l’équipier a changé la valeur
 //   flag = (lecture par l’IA) pourquoi la valeur est vide : « extrait introuvable dans le texte » ou « la valeur ne figure pas dans l’extrait »
 //   keyRules[].verified === false = règle lue par l’IA dont l’extrait n’est pas dans le texte : grisée, jamais cochée
-//   races = manches lues par l’IA [{ date, time, label, excerpt, verified, keep }] ; marks, courses = bouées et parcours lus, gardés tels quels
+//   races = manches lues par l’IA [{ date, time, label, excerpt, verified, keep }]
+//   marks = bouées lues [{ name, position (texte du PDF), lat, lon (nuls si illisible), excerpt, verified, keep }] ; courses = parcours lus [{ name, sequence, excerpt, verified, keep }]
+//   (plan 03-07 : cochés ici, rangés « à confirmer » par applyReview ; un parcours n’est retenu que si toutes ses bouées le sont)
 
 import { escHTML } from './regview.js';
 import { isDate, seasonOf, addRace, MAX_NAME, MAX_NOTE, MAX_IC_TEXT } from './regates.js';
 import { parisClock } from './racelock.js';
-import { checkDate, checkDateEnd, checkTime, checkSeq, checkVhf } from './icplaus.js';
+import { checkDate, checkDateEnd, checkTime, checkSeq, checkVhf, checkPos } from './icplaus.js';
+import { parseLatLon } from './marks.js';
+import { marksFromReview, coursesFromReview, normName, isLineName, fmtPos, sideTxt } from './regmarks.js';
 
 export const FIELDS = Object.freeze([
   { key: 'event', label: 'Épreuve', kind: 'text' },
@@ -80,8 +84,18 @@ export function reviewFromApi(a, { source = '', text, regatta = null } = {}) {
     .map((r) => (r?.verified ? { value: str(r.excerpt), keep: true } : { value: str(r?.value), keep: false, verified: false }))
     .filter((k) => k.value !== '');
   const races = list(a?.races).map((r) => ({ date: str(r?.date), time: str(r?.warning), label: str(r?.label), excerpt: r?.verified ? str(r.excerpt) : null, verified: !!r?.verified, keep: !!r?.verified }));
-  const clone = (v) => list(v).map((x) => ({ ...x }));
-  return build(values, excerpts, { source, read: 'ia', text, keyRules, flags, extra: { races, marks: clone(a?.marks), courses: clone(a?.courses), truncated: !!a?.truncated } });
+  // Bouées : la position est du TEXTE recopié du PDF, convertie ici par la page (parseLatLon, bornée à la rade) ; illisible → lat/lon nuls, jamais devinée.
+  // Cochée au départ seulement si vérifiée, lisible et sans puce rouge (positions hors carte).
+  const marks = list(a?.marks).map((m) => {
+    const p = parseLatLon(str(m?.position)), lat = p.error ? null : p.lat, lon = p.error ? null : p.lon, verified = !!m?.verified;
+    return { name: str(m?.name), position: str(m?.position), lat, lon, excerpt: verified ? str(m?.excerpt) : null, verified, keep: verified && lat != null && str(m?.name) !== '' && checkPos(lat, lon).level !== 'bad' };
+  });
+  const courses = list(a?.courses).map((c) => ({
+    name: str(c?.name), excerpt: c?.verified ? str(c.excerpt) : null, verified: !!c?.verified, keep: false,
+    sequence: list(c?.sequence).map((x) => ({ mark: str(x?.mark), side: x?.side === 'b' || x?.side === 't' ? x.side : null })),
+  }));
+  for (const c of courses) c.keep = c.verified && c.name !== '' && courseReady({ marks }, c);
+  return build(values, excerpts, { source, read: 'ia', text, keyRules, flags, extra: { races, marks, courses, truncated: !!a?.truncated } });
 }
 
 // Nouvel objet : la valeur d’un champ change, `edited` dit si elle diffère de celle du départ (son extrait ne la décrit alors plus)
@@ -91,6 +105,20 @@ export function setValue(review, key, value) {
 }
 export function setKeepRace(review, i, keep) {
   return { ...review, races: (review.races || []).map((m, j) => (j === i && m.verified ? { ...m, keep: !!keep } : m)) };   // une manche non vérifiée ne se coche pas
+}
+// Un parcours lu n’est retenable que si chacune de ses bouées (hors départ et arrivée) est retenue dans la relecture
+export function courseReady(review, c) {
+  const kept = new Set((review?.marks || []).filter((m) => m.keep && m.verified).map((m) => normName(m.name)));
+  const names = (c?.sequence || []).map((x) => x.mark).filter((n) => n && !isLineName(n));
+  return names.length > 0 && names.every((n) => kept.has(normName(n)));
+}
+export function setKeepMark(review, i, keep) {
+  const marks = (review.marks || []).map((m, j) => (j === i && m.verified ? { ...m, keep: !!keep } : m));    // une bouée non vérifiée ne se coche pas
+  const next = { ...review, marks };
+  return { ...next, courses: (next.courses || []).map((c) => (c.keep && !courseReady(next, c) ? { ...c, keep: false } : c)) };   // sans l’une de ses bouées, le parcours est décoché
+}
+export function setKeepCourse(review, i, keep) {
+  return { ...review, courses: (review.courses || []).map((c, j) => (j === i && c.verified && (!keep || courseReady(review, c)) ? { ...c, keep: !!keep } : c)) };
 }
 export function setKeep(review, i, keep) {
   return { ...review, keyRules: review.keyRules.map((k, j) => (j === i && k.verified !== false ? { ...k, keep: !!keep } : k)) };   // une règle non vérifiée ne se coche pas
@@ -154,6 +182,14 @@ export function applyReview(r, review, { by = null, at = Date.now() } = {}) {
     const note = `${m.label ? `${m.label} — ` : ''}parcours à préciser`.slice(0, MAX_NOTE);
     const res = addRace(next, { date, time: m.time, note }, { now: at, by });
     if (res.ok) next = res.regatta;
+  }
+  // Bouées et parcours lus (autre club) : rangés « à confirmer » dans la régate. Ils ne servent à rien tant qu’un équipier ne les a pas confirmés sur la carte.
+  const keptMarks = (review.marks || []).filter((m) => m.keep && m.verified);
+  if (keptMarks.length) {
+    const fresh = marksFromReview(keptMarks, { by, at, club: next.club, existing: next.marks });
+    next = { ...next, marks: [...(next.marks || []), ...fresh] };
+    const keptCourses = (review.courses || []).filter((c) => c.keep && c.verified && courseReady(review, c));
+    if (keptCourses.length) next = { ...next, courses: [...(next.courses || []), ...coursesFromReview(keptCourses, next.marks, { by, at, existing: next.courses })] };
   }
   return next;
 }
@@ -226,6 +262,23 @@ export function reviewHTML(review, checks = {}, opts = {}) {
   const races = (review.races || []).length
     ? `<div class="icrules icraces"><h4>Manches lues <small>décochez celles à ne pas ajouter (le parcours reste à préciser)</small></h4>${review.races.map((m, i) => `<label class="small icrule icrace${m.verified ? '' : ' icoff'}"><input type="checkbox" data-rc="${i}"${m.keep ? ' checked' : ''}${m.verified ? '' : ' disabled'}> ${escHTML(m.date || 'jour à préciser')} · ${escHTML(m.time || 'heure inconnue')}${m.label ? ` · ${escHTML(m.label)}` : ''}${m.verified && m.excerpt ? `<span class="icex" style="display:block">Extrait : « ${escHTML(m.excerpt.replace(/\s+/g, ' '))} »</span>` : '<em> (extrait introuvable dans le texte : non retenue)</em>'}</label>`).join('')}</div>`
     : '';
+  const isLand = opts.isLand;
+  const marks = (review.marks || []).length
+    ? `<div class="icblock icmarks"><h4>Bouées lues <small>elles resteront « à confirmer » sur la carte jusqu’à votre confirmation</small></h4>${review.marks.map((m, i) => {
+      const c = m.lat != null ? chipOf(checkPos(m.lat, m.lon, { isLand })) : { cls: 'chip mid', text: '⚠ position à saisir : illisible dans le texte' };
+      const pos = m.lat != null ? `${escHTML(fmtPos(m.lat, m.lon))}` : 'position à saisir';
+      return `<label class="small icrule icmark${m.verified ? '' : ' icoff'}"><input type="checkbox" data-mk="${i}"${m.keep ? ' checked' : ''}${m.verified ? '' : ' disabled'}> <span class="icmn">${escHTML(m.name || 'sans nom')}</span> · ${pos}`
+        + `${m.verified ? ` <span class="${c.cls}">${escHTML(c.text)}</span><span class="icex" style="display:block">Texte : « ${escHTML(m.position)} » · Extrait : « ${escHTML(String(m.excerpt || '').replace(/\s+/g, ' '))} »</span>` : '<em> (extrait introuvable dans le texte : non retenue)</em>'}</label>`;
+    }).join('')}</div>`
+    : '';
+  const courses = (review.courses || []).length
+    ? `<div class="icblock iccourses"><h4>Parcours lus <small>proposés dans l’onglet Parcours une fois toutes leurs bouées confirmées</small></h4>${review.courses.map((c, i) => {
+      const ready = courseReady(review, c);
+      const seq = c.sequence.map((x) => `${escHTML(x.mark)}${sideTxt(x.side)}`).join(' → ') || 'séquence non lue';
+      return `<label class="small icrule iccourse${c.verified ? '' : ' icoff'}"><input type="checkbox" data-co="${i}"${c.keep ? ' checked' : ''}${c.verified && ready ? '' : ' disabled'}> <span class="icmn">${escHTML(c.name || 'sans nom')}</span> : ${seq}`
+        + `${c.verified ? `<em data-co-nr="${i}"${ready ? ' hidden' : ''}> (une bouée n’est pas retenue ci-dessus : parcours non retenu)</em><span class="icex" style="display:block">Extrait : « ${escHTML(String(c.excerpt || '').replace(/\s+/g, ' '))} »</span>` : '<em> (extrait introuvable dans le texte : non retenu)</em>'}</label>`;
+    }).join('')}</div>`
+    : '';
   const tronque = review.truncated ? '<div class="small muted icex">Texte long : seuls les 50 000 premiers caractères ont été lus par l’IA.</div>' : '';
   return `<div class="card" id="icReview"><h3>Relecture des IC <small>rien n’est retenu avant « Valider les IC »</small></h3>`
     + `<div class="small muted">Source : ${escHTML(review.source || 'saisie')} · lecture ${escHTML(READ_LONG[review.read] || READ_LONG.saisie)}</div>`
@@ -234,6 +287,8 @@ export function reviewHTML(review, checks = {}, opts = {}) {
     + review.fields.map((f) => fieldHTML(f, checks[f.key])).join('')
     + rules
     + races
+    + marks
+    + courses
     + `<div class="rgerr" id="icBlock"${ok ? ' hidden' : ''}>${BLOCK_MSG}</div>`
     + `<div class="btns"><button type="button" class="btn acc" id="icValidate"${ok ? '' : ' disabled'}>Valider les IC</button><button type="button" class="btn alt" id="icCancel">Annuler</button></div></div>`;
 }
