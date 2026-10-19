@@ -76,10 +76,32 @@ details.q[open] summary { margin-bottom: 6px; }
 .memo h3 { color: #ffb366; }
 .memo ol { margin: 6px 0 0; padding-left: 22px; display: grid; gap: 6px; }
 .memo b { color: #ffd8a8; }
+.chat { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 14px; display: grid; gap: 10px; }
+.chat .log { display: grid; gap: 10px; }
+.chat .log:empty { display: none; }
+.msg { border-radius: 14px; padding: 10px 14px; max-width: 100%; }
+.msg.me { background: var(--sea); color: #fff; justify-self: end; max-width: 88%; }
+.msg.bot { background: var(--quote); border: 1px solid var(--line); }
+.msg.bot .verdict { font-weight: 800; font-size: 18px; margin-bottom: 4px; }
+.msg.bot p { margin: 6px 0 0; }
+.msg.bot .ref { margin-top: 8px; }
+.msg.bot .rn { font-weight: 800; color: var(--sea); font-size: 14px; margin-top: 8px; }
+.msg.bot .note { font-size: 14px; color: var(--muted); margin-top: 8px; }
+.msg.bot .note b { color: var(--accent); }
+.msg.err { background: var(--tip); border: 1px solid var(--tipline); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chips button { font: inherit; font-size: 14px; border: 1px solid var(--line); background: var(--chip); color: var(--ink); border-radius: 999px; padding: 6px 12px; cursor: pointer; text-align: left; }
+.ask { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: end; }
+.ask textarea { font: inherit; font-size: 16px; width: 100%; min-height: 52px; max-height: 160px; resize: vertical; border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; background: var(--bg); color: var(--ink); }
+.ask button { font: inherit; font-weight: 800; border: 0; border-radius: 12px; padding: 0 18px; min-height: 52px; background: #ff8a1c; color: #000; cursor: pointer; }
+.ask button:disabled { opacity: .5; }
+.dots::after { content: "…"; animation: dots 1.2s steps(4) infinite; display: inline-block; width: 1.2em; overflow: hidden; vertical-align: bottom; }
+@keyframes dots { from { width: 0 } to { width: 1.2em } }
+a.fab { position: fixed; right: max(16px, env(safe-area-inset-right, 0px)); bottom: calc(env(safe-area-inset-bottom, 0px) + 16px); z-index: 10; background: #ff8a1c; color: #000; font-weight: 800; text-decoration: none; border-radius: 999px; padding: 12px 18px; box-shadow: 0 4px 16px rgba(0,0,0,.3); }
 footer { color: var(--muted); font-size: 14px; text-align: center; padding: 20px; max-width: 920px; margin: 0 auto; }
 a { color: var(--sea); }
 @media (max-width: 520px) { body { font-size: 16px; } .hero .in { grid-template-columns: 1fr; } .hero img { width: 60px; height: 60px; } h2 { font-size: 23px; } .card { padding: 14px; } }
-@media print { nav.toc, .hero .links { display: none; } section { break-inside: avoid-page; } }
+@media print { nav.toc, .hero .links, #arbitre, a.fab { display: none; } section { break-inside: avoid-page; } }
 </style>
 </head>
 <body>
@@ -108,10 +130,26 @@ a { color: var(--sea); }
 </div></header>
 
 <nav class="toc" aria-label="Sommaire">
-  <a href="#memo">L’essentiel</a><a href="#lire">Lire les schémas</a><a href="#depart">Départ</a><a href="#priorites">Priorités</a><a href="#bouees">Bouées</a><a href="#obstacles">Obstacles</a><a href="#arrivee">Arrivée</a><a href="#penalites">Pénalités</a><a href="#quiz">Testez-vous</a><a href="#textes">Textes officiels</a>
+  <a href="#arbitre">Demander à l’arbitre</a><a href="#memo">L’essentiel</a><a href="#lire">Lire les schémas</a><a href="#depart">Départ</a><a href="#priorites">Priorités</a><a href="#bouees">Bouées</a><a href="#obstacles">Obstacles</a><a href="#arrivee">Arrivée</a><a href="#penalites">Pénalités</a><a href="#quiz">Testez-vous</a><a href="#textes">Textes officiels</a>
 </nav>
 
 <main>
+<section id="arbitre">
+  <h2><span class="n">?</span> Demander à l’arbitre</h2>
+  <p class="lead">Décrivez la situation avec vos mots : l’arbitre de poche répond en s’appuyant sur le texte officiel des règles 2025-2028 et les IC CVAT, avec les règles citées en français et en anglais.</p>
+  <div class="chat">
+    <div class="log" id="chatLog" aria-live="polite"></div>
+    <div class="chips" id="chatChips">
+      <button type="button">Au près, bâbord contre tribord : qui passe ?</button>
+      <button type="button">Je rattrape un bateau par derrière dans la zone de la bouée, ai-je droit à la place ?</button>
+      <button type="button">Pavillon Z puis rappel général : que se passe-t-il ?</button>
+      <button type="button">On a touché le Comité à l’arrivée, que faire ?</button>
+    </div>
+    <form class="ask" id="chatForm"><textarea id="chatIn" rows="2" placeholder="Ex. : on arrive tribord à la bouée au vent, un bâbord vire sous notre vent dans la zone…" aria-label="Votre question"></textarea><button type="submit" id="chatGo">Demander</button></form>
+    <div class="small" style="color:var(--muted)">Réponse rédigée par une IA (OpenAI) : utile pour comprendre, mais seul le jury tranche une réclamation. Une citation anglaise marquée « à vérifier » n’a pas été retrouvée mot pour mot dans le texte officiel.</div>
+  </div>
+</section>
+
 <section id="memo">
   <h2><span class="n">★</span> L’essentiel en 30 secondes</h2>
   <p class="lead">Huit réflexes qui couvrent l’immense majorité des situations sur l’eau.</p>
@@ -222,10 +260,11 @@ a { color: var(--sea); }
       </table></div>
       <p class="small" style="color:var(--muted)">Pour Z, U et noir, « dans le triangle » veut dire n’importe quelle partie de la coque, pendant la dernière minute ; le triangle est formé par les deux extrémités de la ligne et la première marque. Le Comité peut aussi hisser Z et I ensemble : les deux règles s’appliquent. Un bateau qui revient vers la ligne après le signal de départ (OCS ou pavillon I) doit s’écarter de tous ceux qui ne le font pas (règle 21.1).</p>
       <div class="ref">
+        <blockquote><span class="lg">FR</span>« Si le pavillon I a été envoyé et qu’une partie de la coque d’un bateau est du côté parcours de la ligne de départ ou de l’un de ses prolongements pendant la dernière minute précédant son signal de départ, il doit traverser un prolongement de façon que sa coque soit entièrement du côté pré-départ avant de prendre le départ. » — règle 30.1 (traduction)</blockquote>
         <blockquote class="en"><span class="lg">EN</span>« If flag I has been displayed, and any part of a boat’s hull is on the course side of the starting line or one of its extensions during the last minute before her starting signal, she shall sail across an extension so that her hull is completely on the pre-start side before she starts. » — RRS 30.1</blockquote>
+        <blockquote><span class="lg">FR</span>« Si le pavillon U a été envoyé, aucune partie de la coque d’un bateau ne doit se trouver dans le triangle formé par les extrémités de la ligne de départ et la première marque pendant la dernière minute précédant son signal de départ. Si un bateau enfreint cette règle et est identifié, il est disqualifié sans instruction, mais pas si la course est redonnée ou recourue. » — règle 30.3 (traduction)</blockquote>
         <blockquote class="en"><span class="lg">EN</span>« If flag U has been displayed, no part of a boat’s hull shall be in the triangle formed by the ends of the starting line and the first mark during the last minute before her starting signal. If a boat breaks this rule and is identified, she shall be disqualified without a hearing, but not if the race is restarted or resailed. » — RRS 30.3</blockquote>
-        <blockquote class="plain"><span class="lg">FR</span>En clair : pavillon I, il faut revenir en contournant une extrémité de la ligne. Texte officiel : RCV 30.1 (Pénalité I), 30.2 (Z), 30.3 (U), 30.4 (noir), 29.1 (rappel individuel), 29.2 (rappel général).</blockquote>
-      </div>
+        </div>
     </div>
     <div class="card">
       <h3>Priorités avant le départ</h3>
@@ -264,7 +303,7 @@ a { color: var(--sea); }
         <li>B peut proposer « Passe ! » à T : T n’est pas obligé d’accepter.</li>
       </ul>
       <div class="ref">
-        <blockquote><span class="lg">FR</span>« Quand des bateaux sont sur des bords opposés, un bateau bâbord amures doit se maintenir à l’écart d’un bateau tribord amures. » — RCV 10</blockquote>
+        <blockquote><span class="lg">FR</span>« Quand des bateaux sont sur des bords opposés, un bateau bâbord amures doit se maintenir à l’écart d’un bateau tribord amures. » — règle 10 (traduction)</blockquote>
         <blockquote class="en"><span class="lg">EN</span>« When boats are on opposite tacks, a port-tack boat shall keep clear of a starboard-tack boat. » — RRS 10</blockquote>
       </div>
     </div>
@@ -290,8 +329,9 @@ a { color: var(--sea); }
         <li><b>Exception, règle 17</b> : s’il s’est engagé sous le vent <b>en arrivant par derrière</b>, à moins de deux longueurs (16 m en J80), il ne peut pas monter au-dessus de sa route normale (au près : pas au-dessus du près). Il garde la priorité, mais pas le droit de « tasser ».</li>
       </ul>
       <div class="ref">
-        <blockquote><span class="lg">FR</span>« Quand des bateaux sont sur le même bord et engagés, un bateau au vent doit se maintenir à l’écart d’un bateau sous le vent. » — RCV 11</blockquote>
+        <blockquote><span class="lg">FR</span>« Quand des bateaux sont sur le même bord et engagés, un bateau au vent doit se maintenir à l’écart d’un bateau sous le vent. » — règle 11 (traduction)</blockquote>
         <blockquote class="en"><span class="lg">EN</span>« When boats are on the same tack and overlapped, a windward boat shall keep clear of a leeward boat. » — RRS 11</blockquote>
+        <blockquote><span class="lg">FR</span>« Si un bateau en route libre derrière s’engage à moins de deux de ses longueurs de coque sous le vent d’un bateau sur le même bord, il ne doit pas naviguer au-dessus de sa route normale tant qu’ils restent sur le même bord et engagés à cette distance, sauf si, ce faisant, il passe rapidement derrière l’autre bateau. » — règle 17 (traduction)</blockquote>
         <blockquote class="en"><span class="lg">EN</span>« If a boat clear astern becomes overlapped within two of her hull lengths to leeward of a boat on the same tack, she shall not sail above her proper course while they remain on the same tack and overlapped within that distance, unless in doing so she promptly sails astern of the other boat. » — RRS 17</blockquote>
       </div>
     </div>
@@ -317,7 +357,7 @@ a { color: var(--sea); }
         <figcaption>La ligne pointillée passe au ras du tableau arrière du bateau de devant. Dès que l’étrave de l’autre la dépasse, ils sont engagés.</figcaption>
       </figure>
       <div class="ref">
-        <blockquote><span class="lg">FR</span>« Quand des bateaux sont sur le même bord et non engagés, un bateau en route libre derrière doit se maintenir à l’écart d’un bateau en route libre devant. » — RCV 12</blockquote>
+        <blockquote><span class="lg">FR</span>« Quand des bateaux sont sur le même bord et non engagés, un bateau en route libre derrière doit se maintenir à l’écart d’un bateau en route libre devant. » — règle 12 (traduction)</blockquote>
         <blockquote class="en"><span class="lg">EN</span>« When boats are on the same tack and not overlapped, a boat clear astern shall keep clear of a boat clear ahead. » — RRS 12</blockquote>
       </div>
     </div>
@@ -345,7 +385,7 @@ a { color: var(--sea); }
         <li>Si les deux virent en même temps, c’est celui qui est à bâbord de l’autre, ou derrière, qui s’écarte.</li>
       </ul>
       <div class="ref">
-        <blockquote><span class="lg">FR</span>« Après avoir dépassé la position bout au vent, un bateau doit se maintenir à l’écart des autres bateaux jusqu’à ce qu’il soit au près. » — RCV 13</blockquote>
+        <blockquote><span class="lg">FR</span>« Après avoir dépassé la position bout au vent, un bateau doit se maintenir à l’écart des autres bateaux jusqu’à ce qu’il soit au près. » — règle 13 (traduction)</blockquote>
         <blockquote class="en"><span class="lg">EN</span>« After a boat passes head to wind, she shall keep clear of other boats until she is on a close-hauled course. » — RRS 13</blockquote>
       </div>
     </div>
@@ -358,10 +398,11 @@ a { color: var(--sea); }
         <li><b>Changer de route (16)</b> : le prioritaire peut changer de cap, mais en laissant à l’autre la place de s’écarter. Au près, un tribord ne peut pas abattre sur un bâbord qui passe derrière lui si cela l’oblige à changer de route immédiatement (règle 16.2).</li>
       </ul>
       <div class="ref">
-        <blockquote class="plain"><span class="lg">FR</span>En clair : RCV 14, « Éviter le contact » ; depuis 2025 la règle interdit aussi de provoquer un contact entre deux autres bateaux, ou avec un objet.</blockquote>
+        <blockquote><span class="lg">FR</span>« Si cela est raisonnablement possible, un bateau doit (a) éviter le contact avec un autre bateau, (b) ne pas provoquer de contact entre des bateaux, et (c) ne pas provoquer de contact entre un bateau et un objet qui devrait être évité. » — règle 14 (traduction)</blockquote>
         <blockquote class="en"><span class="lg">EN</span>« If reasonably possible, a boat shall (a) avoid contact with another boat, (b) not cause contact between boats, and (c) not cause contact between a boat and an object that should be avoided. » — RRS 14</blockquote>
-        <blockquote><span class="lg">FR</span>« Quand un bateau prioritaire modifie sa route, il doit laisser à l’autre bateau la place de se maintenir à l’écart. » — RCV 16.1</blockquote>
+        <blockquote><span class="lg">FR</span>« Quand un bateau prioritaire modifie sa route, il doit laisser à l’autre bateau la place de se maintenir à l’écart. » — règle 16.1 (traduction)</blockquote>
         <blockquote class="en"><span class="lg">EN</span>« When a right-of-way boat changes course, she shall give the other boat room to keep clear. » — RRS 16.1</blockquote>
+        <blockquote><span class="lg">FR</span>« Quand un bateau acquiert la priorité, il doit initialement laisser à l’autre bateau la place de se maintenir à l’écart, sauf s’il acquiert la priorité à cause des actions de l’autre bateau. » — règle 15 (traduction)</blockquote>
         <blockquote class="en"><span class="lg">EN</span>« When a boat acquires right of way, she shall initially give the other boat room to keep clear, unless she acquires right of way because of the other boat’s actions. » — RRS 15</blockquote>
       </div>
     </div>
@@ -404,9 +445,9 @@ a { color: var(--sea); }
         <li>Le droit à la place cesse si le bateau qui l’a passe bout au vent ou sort de la zone (18.2(b)). En cas de doute sur l’engagement « à temps », on présume qu’il n’existait pas (18.2(e)) : c’est à l’intérieur de prouver.</li>
       </ul>
       <div class="ref">
+        <blockquote><span class="lg">FR</span>« Quand le premier de deux bateaux atteint la zone, (1) si les bateaux sont engagés, le bateau à l’extérieur à ce moment doit laisser la place à la marque au bateau à l’intérieur ; (2) si les bateaux ne sont pas engagés, le bateau qui n’a pas encore atteint la zone à ce moment doit laisser la place à la marque à l’autre bateau. » — règle 18.2(a) (traduction)</blockquote>
         <blockquote class="en"><span class="lg">EN</span>« When the first of two boats reaches the zone, (1) if the boats are overlapped, the outside boat at that moment shall give the inside boat mark-room; (2) if the boats are not overlapped, the boat that has not reached the zone at that moment shall give the other boat mark-room. » — RRS 18.2(a)</blockquote>
-        <blockquote class="plain"><span class="lg">FR</span>Texte officiel : RCV 18.2, « Laisser la place à la marque » ; définitions « Place à la marque » et « Zone » (trois longueurs de coque du bateau le plus proche de la marque).</blockquote>
-      </div>
+        </div>
     </div>
 
     <div class="card">
@@ -457,7 +498,8 @@ a { color: var(--sea); }
         <li>Depuis 2025, cela vaut même si l’autre bateau a lui aussi viré dans la zone.</li>
         <li>Le bon réflexe en J80 : arriver sur la lay-line tribord avant la zone, surtout avec une flotte compacte.</li>
       </ul>
-      <div class="ref"><blockquote class="en"><span class="lg">EN</span>« If a boat passes head to wind from port to starboard tack in the zone of a mark to be left to port, rule 18.2 does not apply between her and another boat on starboard tack that is fetching the mark. » — RRS 18.3</blockquote></div>
+      <div class="ref"><blockquote><span class="lg">FR</span>« Si un bateau passe bout au vent de bâbord amures à tribord amures dans la zone d’une marque à laisser à bâbord, la règle 18.2 ne s’applique pas entre lui et un autre bateau tribord amures qui fait la marque (qui peut la passer au vent, du bon côté, sans virer). » — règle 18.3 (traduction)</blockquote>
+        <blockquote class="en"><span class="lg">EN</span>« If a boat passes head to wind from port to starboard tack in the zone of a mark to be left to port, rule 18.2 does not apply between her and another boat on starboard tack that is fetching the mark. » — RRS 18.3</blockquote></div>
     </div>
 
     <div class="card">
@@ -474,8 +516,8 @@ a { color: var(--sea); }
       <h3>Toucher une bouée <span class="r">règle 31</span></h3>
       <p>Il est interdit de toucher la bouée de départ avant de partir, une bouée qui commence, limite ou termine le bord en cours, et une bouée d’arrivée après avoir fini. <b>Pénalité : un tour</b> (un virement + un empannage), dès que possible, en se dégageant des autres.</p>
       <div class="ref">
+        <blockquote><span class="lg">FR</span>« Pendant qu’il est en course, un bateau ne doit pas toucher une marque de départ avant de prendre le départ, une marque qui commence, limite ou termine le bord du parcours sur lequel il navigue, ni une marque d’arrivée après avoir fini. » — règle 31 (traduction)</blockquote>
         <blockquote class="en"><span class="lg">EN</span>« While racing, a boat shall not touch a starting mark before starting, a mark that begins, bounds or ends the leg of the course on which she is sailing, or a finishing mark after finishing. » — RRS 31</blockquote>
-        <blockquote class="plain"><span class="lg">FR</span>Texte officiel : RCV 31, « Toucher une marque ». Pénalité : RCV 44.1 et 44.2.</blockquote>
       </div>
     </div>
   </div>
@@ -492,7 +534,8 @@ a { color: var(--sea); }
     <div class="card">
       <h3>Demander à virer <span class="r">règle 20</span></h3>
       <p>Au près, coincé par un obstacle (la côte, une digue) avec un bateau au vent : hélez <b>« De l’eau pour virer ! »</b> (en anglais <i>« Room to tack »</i>). L’autre doit soit virer, soit répondre « Vire ! » et vous laisser la place. Ne hélez que si vous êtes au près (ou plus haut) et devez bientôt changer nettement de route pour éviter l’obstacle. Interdit si l’obstacle est une bouée et qu’un bateau qui la « fait » devrait changer de route. Laissez à l’autre le temps de réagir.</p>
-      <div class="ref"><blockquote class="en"><span class="lg">EN</span>Hail « Room to tack » ; reply « You tack ». — RRS 20.1, 20.2</blockquote></div>
+      <div class="ref"><blockquote><span class="lg">FR</span>Héler « De l’eau pour virer » ; réponse « Vire ». — règles 20.1 et 20.2 (traduction)</blockquote>
+        <blockquote class="en"><span class="lg">EN</span>Hail « Room to tack » ; reply « You tack ». — RRS 20.1, 20.2</blockquote></div>
     </div>
   </div>
 </section>
@@ -533,8 +576,8 @@ a { color: var(--sea); }
         <li><b>CVAT</b> : la ligne est entre le mât du Comité (pavillon bleu) et la bouée indiquée par les IC. Le parcours peut être réduit à une porte de pointage (2e substitut + pavillon de classe, voir l’onglet IC de l’app).</li>
       </ul>
       <div class="ref">
-        <blockquote class="en"><span class="lg">EN</span>« A boat finishes when, after her starting signal, any part of her hull crosses the finishing line from the course side. » — RRS, Definitions, Finish</blockquote>
-        <blockquote class="plain"><span class="lg">FR</span>Texte officiel : RCV, Définitions, « Finir » et « Effectuer le parcours » ; règle 28.</blockquote>
+        <blockquote><span class="lg">FR</span>« Un bateau finit quand, après son signal de départ, une partie quelconque de sa coque coupe la ligne d’arrivée depuis le côté parcours. Toutefois, il n’a pas fini si, après avoir coupé la ligne, il effectue une pénalité selon la règle 44.2, corrige une erreur de parcours commise sur la ligne, ou continue à effectuer le parcours. » — définition « Finir » (traduction)</blockquote>
+        <blockquote class="en"><span class="lg">EN</span>« A boat finishes when, after her starting signal, any part of her hull crosses the finishing line from the course side. However, she has not finished if after crossing the finishing line she (a) takes a penalty under rule 44.2, (b) corrects an error in sailing the course made at the line, or (c) continues to sail the course. » — RRS, Definitions, Finish</blockquote>
       </div>
     </div>
   </div>
@@ -567,8 +610,8 @@ a { color: var(--sea); }
         <li>Les IC CVAT demandent ensuite une reconnaissance écrite : prévenez le Comité à l’arrivée.</li>
       </ul>
       <div class="ref">
+        <blockquote><span class="lg">FR</span>« Un bateau peut effectuer une pénalité de deux tours quand il peut avoir enfreint une ou plusieurs règles du chapitre 2 lors d’un incident pendant qu’il est en course. Il peut effectuer une pénalité d’un tour quand il peut avoir enfreint la règle 31. » — règle 44.1 ; les IC CVAT réduisent la pénalité du chapitre 2 à un tour (traduction)</blockquote>
         <blockquote class="en"><span class="lg">EN</span>« A boat may take a Two-Turns Penalty when she may have broken one or more rules of Part 2 in an incident while racing. She may take a One-Turn Penalty when she may have broken rule 31. » — RRS 44.1 (Part 2 penalty changed to one turn by the CVAT sailing instructions)</blockquote>
-        <blockquote class="plain"><span class="lg">FR</span>Texte officiel : RCV 44.1 et 44.2, « Pénalité d’un tour / de deux tours ». Les IC peuvent modifier la règle : ce sont elles qui priment.</blockquote>
       </div>
     </div>
     <div class="card">
@@ -629,10 +672,50 @@ a { color: var(--sea); }
       <li>English : <a href="https://www.sailing.org/wp-content/uploads/2026/04/2025-2028-RRS-with-Changes-and-Corrections.pdf" target="_blank" rel="noopener">World Sailing, The Racing Rules of Sailing 2025-2028 (PDF, version corrigée avril 2026)</a>.</li>
       <li>Les IC de la régate : onglet <b>IC</b> de l’app.</li>
     </ul></div>
-    <div class="card"><h3>À propos des citations</h3><p class="small">Les citations anglaises sont vérifiées sur l’édition World Sailing <a href="https://www.sailing.org/wp-content/uploads/2026/04/2025-2028-RRS-with-Changes-and-Corrections.pdf" target="_blank" rel="noopener">2025-2028 avec changements et corrections (avril 2026)</a>. Quand le texte français officiel n’est pas cité mot pour mot, la mention « En clair » le résume et renvoie au numéro de règle. Les deux versions ont la même numérotation.</p></div>
+    <div class="card"><h3>À propos des citations</h3><p class="small">Les citations françaises sont des traductions de Rade Tactique, faites depuis le texte anglais officiel : en cas de différence, le texte des RCV publié par la FFVoile fait foi. Les citations anglaises sont vérifiées sur l’édition World Sailing <a href="https://www.sailing.org/wp-content/uploads/2026/04/2025-2028-RRS-with-Changes-and-Corrections.pdf" target="_blank" rel="noopener">2025-2028 avec changements et corrections (avril 2026)</a>. Les versions française et anglaise ont la même numérotation.</p></div>
   </div>
 </section>
 </main>
 <footer>Rade Tactique · Règles de course à la voile 2025-2028 expliquées pour l’équipage J80. Ce document n’a pas de valeur officielle.</footer>
+<a class="fab" href="#arbitre" id="fab">💬 Question de règle ?</a>
+<script>
+// Arbitre de poche : envoie la question et les derniers échanges à /api/rules, affiche verdict, explication et règles citées
+(() => {
+  const $ = (s) => document.querySelector(s);
+  const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const para = (t) => esc(t).split(/\n+/).filter(Boolean).map((l) => `<p>${l}</p>`).join('');
+  const log = $('#chatLog'), input = $('#chatIn'), go = $('#chatGo');
+  const history = [];
+  const add = (cls, html) => { const d = document.createElement('div'); d.className = 'msg ' + cls; d.innerHTML = html; log.appendChild(d); d.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); return d; };
+  const render = (a) => `<div class="verdict">${esc(a.verdict)}</div>${para(a.explication)}
+    ${(a.regles || []).map((r) => `<div class="rn">Règle ${esc(r.numero)} · ${esc(r.titre)}</div><div class="ref">
+      <blockquote><span class="lg">FR</span>« ${esc(r.fr)} » (traduction)</blockquote>
+      <blockquote class="en"><span class="lg">EN</span>« ${esc(r.en)} »${r.verifie ? '' : ' <b style="font-style:normal;color:var(--accent)">à vérifier</b>'}</blockquote></div>`).join('')}
+    ${a.ic ? `<div class="note"><b>IC CVAT :</b> ${esc(a.ic)}</div>` : ''}${a.attention ? `<div class="note"><b>Attention :</b> ${esc(a.attention)}</div>` : ''}`;
+  async function ask(q) {
+    q = q.trim(); if (!q || go.disabled) return;
+    add('me', esc(q)); input.value = ''; go.disabled = true; $('#chatChips').hidden = true;
+    const wait = add('bot', '<span class="dots">L’arbitre consulte les règles</span>');
+    try {
+      const r = await fetch('api/rules', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ question: q, history }) });
+      const a = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(a.error === 'no_key' ? 'L’arbitre n’est pas configuré (clé OpenAI absente).' : 'L’arbitre n’a pas pu répondre. Réessayez dans un instant.');
+      wait.innerHTML = render(a);
+      history.push({ role: 'user', content: q }, { role: 'assistant', content: `${a.verdict} ${a.explication}` });
+      history.splice(0, Math.max(0, history.length - 6));
+    } catch (e) {
+      wait.className = 'msg err';
+      wait.textContent = navigator.onLine === false ? 'Pas de connexion : l’arbitre a besoin du réseau. Les fiches de cette page restent lisibles hors ligne.' : e.message;
+    } finally { go.disabled = false; }
+  }
+  $('#chatForm').addEventListener('submit', (e) => { e.preventDefault(); ask(input.value); });
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); ask(input.value); } });
+  $('#chatChips').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) ask(b.textContent); });
+  // le bouton flottant disparaît quand la zone de question est à l'écran
+  const fab = $('#fab');
+  new IntersectionObserver(([en]) => { fab.hidden = en.isIntersecting; }).observe($('#arbitre'));
+  fab.addEventListener('click', () => setTimeout(() => input.focus({ preventScroll: true }), 400));
+})();
+</script>
 </body>
 </html>

@@ -90,7 +90,7 @@ export const GUIDE = `
   <li><b>Traces</b> : après la course, revoyez votre trace, comparez-la à la route optimale et exportez-la (GPX).</li>
 </ol>
 <p class="small"><a href="guide.html" target="_blank" rel="noopener"><b>📖 Guide complet de l’équipage</b></a> : toutes les fonctions, du départ au débrief.</p>
-<p class="small"><a href="regles.html" target="_blank" rel="noopener"><b>📘 Règles de course expliquées</b></a> : départs P, I, U, Z, noir, priorités, bouées, arrivée, pénalités (aussi dans l’onglet IC).</p>
+<p class="small"><a href="regles.html" target="_blank" rel="noopener"><b>📘 Règles de course expliquées</b></a> : départs P, I, U, Z, noir, priorités, bouées, arrivée, pénalités, et un arbitre de poche à qui poser vos questions (aussi dans l’onglet IC).</p>
 <p class="small"><b>Installer l’app</b> : sur iPhone, ouvrez le lien dans Safari puis Partager → « Sur l’écran d’accueil ». Sur Android, menu ⋮ → « Installer l’application ».</p>
 <p class="small muted">Le vent local est un modèle simplifié pour la tactique : il donne les tendances (pression, bascules, dévents). Il ne remplace pas l’observation du plan d’eau. Les positions marquées « approx » sont à vérifier sur zone ; le Comité fait foi.</p>`;
 

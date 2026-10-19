@@ -58,6 +58,9 @@
   "functions": {
     "api/debrief.js": {
       "maxDuration": 60
+    },
+    "api/rules.js": {
+      "maxDuration": 60
     }
   }
 }
