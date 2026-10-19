@@ -203,6 +203,92 @@ test('vues : liste par saison, ligne courante marquée, attribut data-rg entre g
   assert.match(sheetHTML(null), /Aucune régate courante/);
 });
 
+// ───────────────────────── manches (REG-02)
+
+// addRace / removeRace / raceSettings : lus par l’espace de noms (une fonction absente fait échouer le test visé, pas le chargement du fichier)
+import * as R from '../js/regates.js';
+import { COURSES } from '../js/courses.js';
+
+const PARCOURS = deepFreeze(COURSES.map(({ id, title }) => ({ id, title })));          // copie gelée : COURSES n’est jamais muté
+const AVANT = JSON.stringify(COURSES);
+const ajoute = (r, race, by = 'Teiva') => R.addRace(r, race, { now: 1000, by, courses: PARCOURS });
+
+test('manche : date hors de la régate, heure impossible, parcours inconnu, classe, tours : refusés, un message en français par champ', () => {
+  const r = regate();
+  const bad = (race, champ) => { const x = ajoute(r, race); assert.equal(x.ok, false, JSON.stringify(race)); assert.ok(x.errors[champ], `message pour ${champ}`); assert.match(x.errors[champ], /[a-zé]/i); assert.equal(x.regatta, r, 'régate inchangée'); };
+  bad({ date: '2026-11-06' }, 'date'); bad({ date: '2026-11-10' }, 'date'); bad({ date: '2026-02-30' }, 'date');
+  bad({ time: '25:00' }, 'time'); bad({ time: '10h55' }, 'time'); bad({ time: '9:5' }, 'time');
+  bad({ courseId: 9999 }, 'courseId'); bad({ courseId: 'X1' }, 'courseId');
+  bad({ cls: 'Z' }, 'cls'); bad({ cls: 'g' }, 'cls');
+  bad({ laps: 0 }, 'laps'); bad({ laps: 5 }, 'laps'); bad({ laps: 1.5 }, 'laps'); bad({ laps: 'deux' }, 'laps');
+  bad({ note: 'n'.repeat(201) }, 'note');
+  const plusieurs = ajoute(r, { time: '99:99', cls: 'Z', laps: 9 });
+  assert.deepEqual(Object.keys(plusieurs.errors).sort(), ['cls', 'laps', 'time'], 'une erreur par champ fautif');
+  // valeurs acceptées : tout vide (parcours à préciser, heure inconnue), numéro de parcours en texte (liste déroulante)
+  const vide = ajoute(r, {});
+  assert.equal(vide.ok, true);
+  assert.deepEqual({ ...vide.regatta.races[0] }, { n: 1, date: '2026-11-07', time: '', courseId: null, cls: 'G', laps: 2, note: '', by: 'Teiva', at: 1000 });
+  assert.equal(ajoute(r, { courseId: '5', cls: 'P', laps: '1', date: '2026-11-09', time: '13:25', note: ' vent faible ' }).regatta.races[0].courseId, 5);
+  assert.equal(ajoute(r, { note: ' vent faible ' }).regatta.races[0].note, 'vent faible');
+  assert.equal(JSON.stringify(COURSES), AVANT, 'COURSES n’est pas muté');
+});
+
+test('manche : numérotation par jour puis heure, deux manches le même jour, sans heure en dernier ; removeRace renumérote ; la manche choisie suit', () => {
+  let r = regate();
+  r = ajoute(r, { date: '2026-11-08', time: '10:55', courseId: 5 }).regatta;
+  r = ajoute(r, { date: '2026-11-07', time: '13:25', courseId: 3 }).regatta;
+  r = ajoute(r, { date: '2026-11-07', time: '' }).regatta;                                  // sans heure : après celles du jour qui en ont
+  r = ajoute(r, { date: '2026-11-07', time: '10:55', courseId: 5 }).regatta;
+  assert.deepEqual(r.races.map((m) => [m.n, m.date, m.time]), [[1, '2026-11-07', '10:55'], [2, '2026-11-07', '13:25'], [3, '2026-11-07', ''], [4, '2026-11-08', '10:55']]);
+  const gel = deepFreeze(JSON.parse(JSON.stringify({ ...r, sel: 2 })));
+  const sans = R.removeRace(gel, 1);
+  assert.deepEqual(sans.races.map((m) => [m.n, m.date, m.time]), [[1, '2026-11-07', '13:25'], [2, '2026-11-07', ''], [3, '2026-11-08', '10:55']], 'renumérotée');
+  assert.equal(sans.sel, 1, 'la manche choisie suit sa nouvelle place');
+  assert.equal(gel.races.length, 4, 'état d’origine intact');
+  assert.equal(R.removeRace(gel, 2).sel, undefined, 'la manche choisie est supprimée : plus de choix');
+  assert.equal(R.removeRace(gel, 4).sel, 2, 'supprimer après la manche choisie : le choix ne bouge pas');
+  // ajouter une manche plus tôt décale le choix
+  const choisie = { ...r, sel: 2 };                                                         // 13:25 le 7
+  const plusTot = ajoute(choisie, { date: '2026-11-07', time: '08:00' }).regatta;
+  assert.equal(plusTot.races[plusTot.sel - 1].time, '13:25', 'sel désigne toujours la même manche');
+  assert.equal(ajoute(r, { date: '2026-11-07', time: '13:25' }).regatta.races.filter((m) => m.time === '13:25').length, 2, 'deux manches à la même heure acceptées');
+});
+
+test('manche : raceSettings cale parcours, classe, tours, jour et départ = avertissement + 5 min ; sans heure, pas d’heure de départ', () => {
+  assert.deepEqual(R.raceSettings({ date: '2026-11-07', time: '10:55', courseId: 5, cls: 'P', laps: 2 }), { courseId: 5, cls: 'P', laps: 2, day: '2026-11-07', startTime: 11 });
+  assert.equal(R.raceSettings({ date: '2026-11-07', time: '13:25', courseId: 3, cls: 'G', laps: 1 }).startTime, 13.5);
+  assert.equal(R.raceSettings({ date: '2026-11-08', time: '09:57', courseId: 3, cls: 'G', laps: 1 }).startTime, (9 * 60 + 62) / 60);
+  const sans = R.raceSettings({ date: '2026-11-07', time: '', courseId: 5, cls: 'G', laps: 2 });
+  assert.ok(!('startTime' in sans), 'sans heure : pas de startTime'); assert.equal(sans.courseId, 5);
+  const aPreciser = R.raceSettings({ date: '2026-11-07', time: '10:55', courseId: null, cls: 'G', laps: 2 });
+  assert.ok(!('courseId' in aPreciser), 'parcours à préciser : le parcours de l’app ne change pas');
+});
+
+test('manche : la fiche affiche chaque manche (n, jour, heure, parcours, classe, tours, auteur), « heure inconnue », la note échappée, le choix', () => {
+  let r = regate();
+  r = ajoute(r, { date: '2026-11-07', time: '10:55', courseId: 5, cls: 'G', laps: 2, note: '<img src=x onerror=alert(1)>' }, 'Thibaud').regatta;
+  r = ajoute(r, { date: '2026-11-08', time: '', courseId: null, cls: 'P', laps: 1 }, null).regatta;
+  const now = t('2026-11-07T08:30:00Z');
+  const html = sheetHTML({ ...r, sel: 1 }, { now, courses: PARCOURS });
+  const { document } = parseHTML(`<html><body>${html}</body></html>`);
+  assert.equal(document.querySelectorAll('img, script').length, 0, 'note piégée : aucune balise');
+  const lignes = [...document.querySelectorAll('.rgrace')];
+  assert.equal(lignes.length, 2);
+  assert.match(lignes[0].textContent, /Manche 1/); assert.match(lignes[0].textContent, /10:55/); assert.match(lignes[0].textContent, /Parcours 5/); assert.match(lignes[0].textContent, /2 tours/); assert.match(lignes[0].textContent, /par Thibaud le 01\/01/);
+  assert.ok(lignes[0].textContent.includes('<img src=x onerror=alert(1)>'), 'la note s’affiche en texte');
+  assert.match(lignes[1].textContent, /signal : heure inconnue/); assert.match(lignes[1].textContent, /parcours à préciser/); assert.match(lignes[1].textContent, /1 tour(?!s)/); assert.match(lignes[1].textContent, /—/);
+  assert.deepEqual([...document.querySelectorAll('button[data-race]')].map((b) => b.getAttribute('data-race')), ['1', '2']);
+  assert.match(document.querySelector('button[data-race]').textContent, /Choisir cette manche/);
+  assert.ok(lignes[0].classList.contains('on') && !lignes[1].classList.contains('on'), 'la manche choisie est marquée');
+  assert.deepEqual([...document.querySelectorAll('button[data-rmrace]')].map((b) => b.getAttribute('data-rmrace')), ['1', '2']);
+  const avecForm = parseHTML(`<html><body>${sheetHTML(r, { now, courses: PARCOURS, raceDraft: { date: '2026-11-07', time: '', courseId: '', cls: 'G', laps: '2', note: '' }, raceErrors: { time: 'Heure impossible (HH:MM).' } })}</body></html>`).document;
+  assert.deepEqual([...avecForm.querySelectorAll('#rcDate option')].map((o) => o.getAttribute('value')), ['2026-11-07', '2026-11-08', '2026-11-09'], 'les jours de la régate');
+  assert.equal(avecForm.querySelectorAll('#rcCourse option').length, PARCOURS.length + 1, 'tous les parcours + « à préciser »');
+  assert.ok(avecForm.querySelector('#rcAdd') && avecForm.querySelector('#rcTime') && avecForm.querySelector('#rcCls') && avecForm.querySelector('#rcLaps') && avecForm.querySelector('#rcNote'));
+  assert.match(avecForm.querySelector('[data-err=time]').textContent, /Heure impossible/);
+  assert.ok(parseHTML(`<html><body>${sheetHTML(r, { now, courses: PARCOURS })}</body></html>`).document.querySelector('#rcNew'), 'bouton « Ajouter une manche »');
+});
+
 // ───────────────────────── gardes statiques du câblage (le comportement réel est exécuté par tools/regate-e2e.mjs)
 
 const app = readFileSync(ROOT + 'js/app.js', 'utf8');
