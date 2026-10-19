@@ -1,0 +1,186 @@
+---
+last_mapped_commit: 7ca5ba6e5a21f8caf7a9640bf6acad4e08155e2d
+last_mapped_at: 2026-10-19
+---
+# Coding Conventions
+
+**Analysis Date:** 2026-10-19
+
+## Scope and Language Context
+
+- Static PWA: vanilla JavaScript ES modules in the browser (`js/*.js`), no bundler, no build step, no TypeScript.
+- Serverless functions for Vercel in `api/*.js` (Node, ES modules, `export default async function handler(req, res)`).
+- Edge middleware in `middleware.js` (Vercel `next()` / `Response` API).
+- Service worker in `sw.js` (classic script, not a module).
+- Python and Node build scripts in `tools/` (`build_terrain.py`, `build_basemap.py`, `snapshot_weather.py`, `build_polar.mjs`).
+- `package.json` sets `"type": "module"`; the only runtime dependencies are `openai` and `@vercel/functions` (used by `api/` and `middleware.js` only).
+- UI strings, code comments and most identifiers' documentation are in French. Identifiers in code are mostly short English/French mixes (`S`, `T`, `F`, `series`, `resid`, `lineBrg`).
+
+## Naming Patterns
+
+**Files:**
+- Lowercase, single word or kebab-case for multi-word names: `js/app.js`, `js/startmode.js`, `js/polar-orc.js`, `api/debrief.js`, `api/_rrs.js`.
+- Leading underscore for a non-endpoint helper inside `api/` (`api/_rrs.js` holds the RRS text constant and is not a route).
+- HTML pages at root, lowercase: `index.html`, `guide.html`, `regles.html`, `acces.html`.
+- Data artifacts in `data/` use descriptive names (`terrain.bin`, `coast.json`, `j80.pol`, `wx-snapshot.json`).
+- Python tools use snake_case (`tools/build_basemap.py`); Node tool uses snake_case with `.mjs` (`tools/build_polar.mjs`).
+
+**Functions:**
+- camelCase for everything: `refreshWeather`, `refreshObs`, `baseAt`, `seriesIndex`, `selectedModel`, `dayObs`, `buildLegs`, `analyzeLeg`.
+- Short arrow helpers defined at module top for DOM and formatting, e.g. in `js/app.js`:
+  ```js
+  const $ = (s, r = document) => r.querySelector(s);
+  const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+  const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const hhmm = (h) => `${String(Math.floor(h)).padStart(2, '0')}:${String(Math.round((h % 1) * 60)).padStart(2, '0')}`;
+  ```
+- Exported geo/format helpers keep short names: `toXY`, `toLL`, `norm360`, `norm180`, `bearingXY`, `distXY`, `fmtBrg`, `fmtNm`, `cardinal` (`js/geo.js`).
+- Handler functions for DOM events are named or inline arrows inside `bindUI()` (`js/app.js`).
+
+**Variables:**
+- `const` by default; `let` only for reassigned module state. Example module state block in `js/app.js`: `let T, F, scene, data = null, series = [], live = [], ...`.
+- Single-letter names are used for short-lived locals and for the main state objects (`S` = persisted UI state, `T` = terrain, `F` = wind field, `P` = points, `h` for hour, `o` for observation). Do not rename these in patches; they are referenced across long functions.
+- Element references are fetched at the call site with `$('#id')`, not cached in globals (exceptions exist; keep local).
+- Object keys in state use short camelCase: `courseId`, `cls`, `laps`, `wlNm`, `startTime`, `linePreset`, `lineBrg`, `localFx`, `modelSel`.
+
+**Types / Classes:**
+- Classes are used only for stateful subsystems: `Terrain` (`js/geo.js`), `WindField` (`js/wind.js`), `Scene3D` (`js/scene3d.js`), `Recorder` (`js/track.js`). Pure logic is plain functions.
+- No TypeScript, no JSDoc type annotations; document shapes in comments (`// point : [t (ms), lat, lon, sog (nd), cog (°), précision (m)]` in `js/track.js`).
+
+**Constants:**
+- Module-level `UPPER_SNAKE_CASE` for configuration tables and fixed catalogs: `MARKS`, `COURSES`, `LINE_PRESETS`, `FORBIDDEN_ZONE`, `DANGERS` (`js/courses.js`), `EQUIPAGE` and `COOKIE` (`middleware.js`), `SHELL` and `VERSION` (`sw.js`), `MODEL`, `SYSTEM`, `SCHEMA`, `CVAT` (`api/*.js`).
+- Storage keys are namespaced strings: `'rade.state'`, `'rade.events.v1'`, `'rade-traces'` (IndexedDB), cache `rade-v25` (`sw.js`). Bump the version suffix when the persisted shape or the service-worker shell changes.
+- Module-scope `const` for the app version: `export const APP_VERSION = 'v25 · accès équipage';` in `js/app.js`. Keep it aligned with `VERSION` in `sw.js` when releasing.
+
+## Code Style
+
+**Formatting:**
+- No formatter configured (no `.prettierrc`, no `.editorconfig`). Observed style is consistent enough to follow by hand:
+  - 2-space indentation, single quotes for JS strings, template literals for interpolation.
+  - Semicolons at end of statements (`js/app.js` ends roughly 620 lines with `;`).
+  - Trailing commas in multi-line object literals; compact one-line functions are common.
+  - Long one-liners are normal (many functions and DOM handlers fit on one line of 120–200 characters). Do not reflow existing code unless you are changing it.
+- Section dividers are used in long files with box-drawing characters:
+  ```js
+  // ───────────────────────── démarrage
+  // ───────────────────────── vent de base
+  ```
+  Reuse this pattern when adding a section to a large module.
+
+**Linting:**
+- None configured. There is no ESLint, Biome or Prettier config and no lint script in `package.json`.
+- Syntax check is the de facto gate: `node --check <file>` on each changed `.js` file (ES modules: use `node --check --input-type=module < file` if the file uses `import` and the `.js` extension is not under a `"type": "module"` package; the root `package.json` already sets `"type": "module"`).
+
+**Quotes and typography:**
+- Use the typographic apostrophe `’` in UI strings and French prose inside JS strings (`'l’app'`, `'ce fichier n’est pas un GPX lisible'`, `'Hors ligne — prévisions du …'`). Mixed usage exists: the ASCII apostrophe appears in code strings written in the same file. Match the surrounding strings.
+- Use the guillemets-free French style in messages; em dash `—` and middle dot `·` are used as separators in status text.
+- Prompts in `api/*.js` are written in French with the typographic apostrophe `'`/`’` as in the surrounding text; quoted English RRS citations are kept verbatim.
+
+## Import Organization
+
+**Order in modules:**
+1. Named imports from sibling modules, one `import { … } from './x.js'` per dependency, always with the explicit `.js` extension.
+2. Module-level constants and configuration.
+3. Exported helpers or classes.
+4. Bootstrap code last (`init().catch(...)` at the bottom of `js/app.js`).
+
+Example from `js/app.js`:
+
+```js
+import { Terrain, toXY, toLL, NM, bearingXY, distXY, norm360, norm180, fmtBrg, fmtNm, fmtLat, fmtLon, cardinal } from './geo.js';
+import { WindField, speedColor } from './wind.js';
+import { Scene3D } from './scene3d.js';
+```
+
+**Path aliases:** None. All paths are relative (`./`, `../`) or absolute URL paths in fetches (`'data/'`, `'sw.js'`). Server-side files import packages by bare name (`import OpenAI from 'openai';`, `import { next } from '@vercel/functions';`) and local helpers with `./` (`import RRS from './_rrs.js';`).
+
+**Exports:**
+- Named exports for almost everything in `js/`; `export default` only for API handlers, the RRS text module (`api/_rrs.js`) and the middleware.
+- Re-exports are not used; each module exports what it defines.
+- `js/app.js` exports `APP_VERSION` and is imported by no other module (it is the entry point).
+
+**Barrel files:** None.
+
+## Error Handling
+
+**Client (`js/`):**
+- Fail soft and keep the UI usable. Wrap optional I/O in `try { … } catch { … }` with a comment or a fallback value:
+  ```js
+  const store = { get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch { return d; } }, set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* indisponible */ } } };
+  ```
+  Storage access is always guarded (localStorage may be unavailable in private mode).
+- Use the parameterless `catch {` (optional catch binding) by default; use `catch (e)` only when the error is shown or reported.
+- Throw `new Error('message in French')` only in parsers and loaders whose caller shows the message: `js/polar.js` (`'Fichier polaire trop court'`), `js/track.js` (`'ce fichier n’est pas un GPX lisible'`), `js/weather.js` (`` `HTTP ${r.status}` ``), `js/debrief.js` (`'trace trop courte'`).
+- Degrade to cached/offline data instead of raising. Pattern in `refreshWeather()` (`js/app.js`): on failure, fall back to `snapshot()` and set a French status message with `status(...)`.
+- Top-level bootstrap failures are shown in the splash screen with `esc(e.message)` and logged with `console.error(e)` (the only `console` call in `js/`).
+- Always escape text inserted with `innerHTML` through `esc()` (79 call sites use it; 35 `innerHTML` assignments exist). Prefer `textContent` for plain text (`toast` in `js/app.js` does this).
+
+**Server (`api/*.js`, `middleware.js`):**
+- Validate the request shape first and return early with a status code and a JSON error object:
+  ```js
+  if (req.method !== 'POST') return res.status(405).json({ error: 'POST uniquement' });
+  if (!process.env.OPENAI_API_KEY) return res.status(503).json({ error: 'no_key' });
+  ```
+- Create the OpenAI client lazily inside the `try` block (`client ??= new OpenAI();`) so a missing key does not crash module load.
+- Map SDK errors to HTTP status in the `catch`:
+  ```js
+  const status = err instanceof OpenAI.APIError ? err.status || 502 : 500;
+  return res.status(status).json({ error: String(err.message || err).slice(0, 300) });
+  ```
+- Bound all user input before sending it to the model: `.slice(0, 1500)` for questions and history items, `.slice(0, 60000)` for JSON facts (`api/rules.js`, `api/debrief.js`).
+- Model output is constrained with a strict JSON Schema (`text.format: { type: 'json_schema', strict: true, schema: SCHEMA }`) and `additionalProperties: false` on every object. Keep this pattern for any new endpoint.
+- Factual claims from the model are verified mechanically: `api/rules.js` checks each quoted English citation against the official text (`verbatim()` with `norm()`) before showing it.
+- Middleware returns `401` JSON for `/api/*` and a redirect to `/acces.html` for HTML navigation (`middleware.js`). Responses that must not be cached carry `Cache-Control: no-store`.
+
+**Service worker (`sw.js`):**
+- Network-first with cache fallback for same-origin GET requests that are not under `/api/`. Errors fall back to `caches.match(...)` and then to `index.html`.
+
+## Logging
+
+- No logging framework. Browser code has no `console.log`; the single `console.error(e)` is in the `init()` catch of `js/app.js`.
+- Server code has no logging statements; errors are returned in the HTTP response body.
+- User-visible feedback goes through `toast(msg)` (`js/app.js`, auto-hides after 4.5 s) or the `status(msg)` line in the header.
+
+## Comments
+
+**When to comment:**
+- Explain intent, domain rules, and non-obvious constraints, in French. Examples:
+  - `// lien partagé : #p=<parcours>-<classe>-<tours>[-<jour>]` (`js/app.js`)
+  - `// réseau d’abord (pour recevoir les mises à jour), cache si hors ligne` (`sw.js`)
+  - `// créé à la première requête : sans clé, le constructeur lèverait une erreur au chargement` (`api/*.js`)
+- Module header comment (one to three lines, French) at the top of every file describing purpose and data flow. Keep this for new modules, e.g. `// Routage par isochrones d’un J80 entre deux points …` (`js/router.js`).
+- Domain formulas and units are annotated inline: `const KN = 1852 / 3600; // m/s par nœud`.
+- Do not add comments that restate the code.
+
+**JSDoc/TSDoc:** Not used. Document shapes in prose comments instead.
+
+## Function Design
+
+**Size:** Pure helpers are short (one to ten lines). UI orchestration functions in `js/app.js` are long (`bindUI()` and `updateAll()`-style renderers); new UI wiring should go in `bindUI()` or a dedicated `render*` function, not in new top-level statements.
+
+**Parameters:**
+- Positional for two or three values (`distXY(a, b)`, `bearingXY(a, b)`, `route(from, to, field, opts)`).
+- Options objects with defaults for optional knobs: `route(from, to, field, opts = {})` destructures `{ terrain, forbidden = [], tackLoss = 9, gybeLoss = 6, perf = 1 }` (`js/router.js`).
+
+**Return Values:**
+- Plain objects and arrays. Return `null` for "not found / not available" (`route` returns `null` when the trip is shorter than 20 m; `listTracks` maps stored records to summaries).
+- Async I/O returns promises; use `async`/`await` with `Promise.all` for parallel fetches (`Terrain.load`, `js/geo.js`).
+
+## Module Design
+
+**Exports:** Named exports; one responsibility per file. Modules under `js/` that are imported by `app.js` expose a small public surface and keep helpers private.
+
+**Shared state:** Persisted UI state lives in one object `S` built from `DEF` defaults and `store.get('rade.state', …)`; `persist()` writes only keys that exist in `DEF`. When adding a persisted field, add it to `DEF` first, or it will not be saved.
+
+**Barrel files:** Not used.
+
+## Patterns to Follow for New Code
+
+- New browser module: `js/<name>.js`, header comment in French, named exports, imported from `js/app.js`, and added to the `SHELL` list in `sw.js` so it works offline. Bump `VERSION` in `sw.js` when the shell changes.
+- New API route: `api/<name>.js` with `export default async function handler(req, res)`, `POST`-only check, `process.env.OPENAI_MODEL || 'gpt-5.5'` default, strict JSON Schema, and a `maxDuration` entry in `vercel.json` `functions`.
+- New UI text: French, with `’` apostrophes and `—`/`·` separators as in the existing strings. Escape with `esc()` before any `innerHTML`.
+- Never commit secrets. The only secrets are environment variables (`OPENAI_API_KEY`, `OPENAI_MODEL`) and the hashed crew access codes in `middleware.js`. Do not paste codes, hashes or keys into code, comments, docs or reports.
+
+---
+
+*Convention analysis: 2026-10-19*
