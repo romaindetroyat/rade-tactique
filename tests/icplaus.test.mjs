@@ -1,12 +1,11 @@
 // Vraisemblance des valeurs lues dans les IC (D-02, REG-03) : seuils de date, d’heure, de canal VHF et de position, sur le vrai terrain (data/).
-// Les fonctions sont lues par espace de noms (P.) pour que le fichier se charge même quand une fonction manque.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { ROOT } from './helpers/setup.mjs';
 import { Terrain, toXY } from '../js/geo.js';
 import { MARKS } from '../js/courses.js';
-const P = await import('../js/icplaus.js').catch(() => ({}));
+import * as P from '../js/icplaus.js';
 
 const t = (s) => Date.parse(s);
 const NOW = t('2026-10-19T08:30:00Z');                      // lundi 19/10/2026, 10 h 30 à Paris

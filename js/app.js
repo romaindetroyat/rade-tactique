@@ -5,7 +5,7 @@ import { Terrain, toXY, toLL, NM, bearingXY, distXY, norm360, norm180, fmtBrg, f
 import { WindField, speedColor } from './wind.js';
 import { MARKS, COURSES, LINE_PRESETS, FORBIDDEN_ZONE, DANGERS } from './courses.js';
 import { pdfText, parseIC } from './events.js';
-import { reviewFromParse, reviewFromRegatta, setValue, setKeep, canValidate, applyReview, reviewHTML, validatedHTML } from './icread.js';
+import { reviewFromParse, reviewFromRegatta, setValue, setKeep, canValidate, checksFor, applyReview, reviewHTML, chipOf, validatedHTML } from './icread.js';
 import { migrate, saveRegattas, createRegatta, upsertRegatta, removeRegatta, setCurrent as setCurrentRegatta, currentRegatta, icOf, groupBySeason, lockDates, daysOf, addRace, removeRace, raceSettings, membre, saveMembre, backfillAuthor } from './regates.js';
 import { listHTML, newRegattaFormHTML, sheetHTML } from './regview.js';
 import { fetchAll, cached, snapshot, consensus, gridPoints, marineAt, fetchLive, MODELS, WMO, CENTER } from './weather.js';
@@ -1542,7 +1542,7 @@ function renderIC() {
     <div class="small muted" id="rgWho" style="margin-top:6px">${who() ? `Vous : ${esc(who())}` : 'Vous : — (prénom donné à la prochaine connexion)'}</div></div>`;
   if (rgDraft) html += newRegattaFormHTML(rgDraft, rgErr);
   html += sheetHTML(cur, { now, courses: courseList(), raceDraft, raceErrors: raceErr });
-  if (icDraft) html += reviewHTML(icDraft);
+  if (icDraft) html += reviewHTML(icDraft, icChecks());
   html += `<div class="card"><h3>Instructions de course <small>${cur?.ic ? 'validées' : 'à importer'}</small></h3>
     <div class="btns" style="margin:0 0 6px"><label class="btn acc small" for="icFile" style="cursor:pointer">＋ Importer des IC (PDF)</label><button class="btn alt small" id="evEdit">Modifier</button></div>
     <input type="file" id="icFile" accept="application/pdf,.pdf,.txt,text/plain" hidden>
@@ -1625,17 +1625,31 @@ function renderIC() {
   };
   if (icDraft) {
     // la carte n’est pas reconstruite à chaque touche : le curseur reste dans le champ
-    $$('input[data-f]', el).forEach((inp) => inp.addEventListener('input', () => { icDraft = setValue(icDraft, inp.dataset.f, inp.value); }));
+    $$('input[data-f]', el).forEach((inp) => inp.addEventListener('input', () => { icDraft = setValue(icDraft, inp.dataset.f, inp.value); paintReview(); }));
     $$('input[data-kr]', el).forEach((cb) => cb.addEventListener('change', () => { icDraft = setKeep(icDraft, +cb.dataset.kr, cb.checked); }));
     $('#icValidate').onclick = validateIC;
     $('#icCancel').onclick = () => { icDraft = null; renderIC(); };
   }
 }
 
+// Contrôles de vraisemblance de la relecture ouverte ; la carte (terrain) sert dès qu'elle est chargée, sinon seules les bornes comptent
+const icChecks = () => checksFor(icDraft, { now: Date.now(), isLand: T ? (x, y) => T.isLand(x, y) : undefined });
+// Met à jour les puces, l'état du bouton « Valider les IC » et la mention « valeur modifiée » sans reconstruire la carte
+function paintReview() {
+  if (!icDraft || !$('#icReview')) return;
+  const checks = icChecks(), ok = canValidate(icDraft, checks);
+  for (const f of icDraft.fields) {
+    const chip = $(`#icReview [data-chip="${f.key}"]`), mod = $(`#icReview [data-mod="${f.key}"]`), c = chipOf(checks[f.key]);
+    if (chip) { chip.className = c.cls; chip.textContent = c.text; chip.hidden = !c.text; }
+    if (mod) mod.hidden = !f.edited;
+  }
+  $('#icValidate').disabled = !ok; $('#icBlock').hidden = ok;
+}
+
 // « Valider les IC » (geste) : seul endroit où la relecture entre dans la régate, avec qui a validé et quand (D-02).
 // Sans régate courante, elle est d’abord créée depuis les champs relus.
 function validateIC() {
-  if (!icDraft || !canValidate(icDraft)) return;
+  if (!icDraft || !canValidate(icDraft, icChecks())) return;
   const at = Date.now(), by = who(), read = (k) => String(icDraft.fields.find((f) => f.key === k)?.value ?? '').trim();
   let reg = currentRegatta(REG);
   if (!reg) {

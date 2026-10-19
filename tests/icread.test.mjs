@@ -7,9 +7,8 @@ import { parseHTML } from 'linkedom';
 import { ROOT } from './helpers/setup.mjs';
 import { parseIC } from '../js/events.js';
 import { createRegatta } from '../js/regates.js';
-import * as ICR from '../js/icread.js';        // checksFor lu par espace de noms : le fichier se charge même quand elle manque
 import {
-  FIELDS, NOT_READ, reviewFromParse, reviewFromRegatta, setValue, setKeep, canValidate, applyReview, reviewHTML, chipOf, validatedHTML,
+  FIELDS, NOT_READ, checksFor, reviewFromParse, reviewFromRegatta, setValue, setKeep, canValidate, applyReview, reviewHTML, chipOf, validatedHTML,
 } from '../js/icread.js';
 
 const deepFreeze = (o) => { if (o && typeof o === 'object' && !Object.isFrozen(o)) { Object.freeze(o); Object.values(o).forEach(deepFreeze); } return o; };
@@ -180,7 +179,8 @@ test('vue : champs en texte, extrait lisible, indications, boutons ; le bouton e
   assert.equal(document.querySelector('[data-f=firstWarning]').getAttribute('value'), '10:55');
   assert.equal(document.querySelector('[data-f=firstWarning]').getAttribute('placeholder'), 'HH:MM');
   assert.equal(document.querySelector('[data-f=dateStart]').getAttribute('placeholder'), 'AAAA-MM-JJ');
-  assert.match(document.querySelector('[data-field=firstWarning] .icex').textContent, /^Extrait : « .*10:55.* »$/);
+  assert.match(document.querySelector('[data-field=firstWarning] .icex').textContent, /^Extrait : « .*10:55.* »/);
+  assert.ok(document.querySelector('[data-mod=firstWarning]').hasAttribute('hidden'), '« valeur modifiée » caché tant que la valeur est celle du texte');
   assert.match(document.querySelector('#r').textContent, /par motifs \(CVAT, hors réseau\)/);
   assert.equal(document.querySelectorAll('input[data-kr]').length, rv.keyRules.length);
   assert.ok(document.querySelector('#icValidate') && document.querySelector('#icCancel'));
@@ -235,7 +235,7 @@ test('garde statique : app.js valide par applyReview sur un geste, n’utilise p
 // ───────────────────────── vraisemblance par champ (D-02)
 
 const NOW = Date.parse('2026-10-19T08:30:00Z');
-const verif = (rv, opts = {}) => ICR.checksFor(rv, { now: NOW, ...opts });
+const verif = (rv, opts = {}) => checksFor(rv, { now: NOW, ...opts });
 
 test('checksFor : une puce par champ ; les IC lues sont plausibles, le dernier jour vide est permis', () => {
   const c = verif(relecture());

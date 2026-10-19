@@ -10,6 +10,7 @@
 import { escHTML } from './regview.js';
 import { isDate, seasonOf, MAX_NAME, MAX_IC_TEXT } from './regates.js';
 import { parisClock } from './racelock.js';
+import { checkDate, checkDateEnd, checkTime, checkSeq, checkVhf } from './icplaus.js';
 
 export const FIELDS = Object.freeze([
   { key: 'event', label: 'Épreuve', kind: 'text' },
@@ -63,7 +64,30 @@ export function setKeep(review, i, keep) {
   return { ...review, keyRules: review.keyRules.map((k, j) => (j === i ? { ...k, keep: !!keep } : k)) };
 }
 
-// ───────────────────────── validation
+// ───────────────────────── vraisemblance et validation
+
+// Une puce par champ : { clé: { level: 'ok' | 'warn' | 'bad', msg } }. Valeur vide : « non lu dans le texte » (alerte), sauf le dernier jour,
+// facultatif ; la VHF saisie en texte est convertie en entier avant le contrôle (« 7 2 » est impossible). Les positions (isLand) servent aux bouées (plan 07).
+const GRAVITE = { ok: 0, warn: 1, bad: 2 };
+const pire = (a, b) => (GRAVITE[b.level] > GRAVITE[a.level] ? b : a);
+export function checksFor(review, { now = Date.now() } = {}) {
+  const vide = review.read === 'motifs' ? NOT_READ : 'valeur vide';
+  const out = {};
+  for (const f of review.fields) {
+    const x = str(f.value);
+    if (x === '') { out[f.key] = f.key === 'dateEnd' ? { level: 'ok', msg: '' } : { level: 'warn', msg: vide }; continue; }
+    switch (f.key) {
+      case 'dateStart': out[f.key] = checkDate(x, { now }); break;
+      case 'dateEnd': out[f.key] = checkDateEnd(valueOf(review, 'dateStart'), x); break;
+      case 'firstWarning': out[f.key] = checkTime(x); break;
+      case 'lastFinishSignal': out[f.key] = pire(checkTime(x), checkSeq(valueOf(review, 'firstWarning'), x)); break;
+      case 'vhf': out[f.key] = checkVhf(/^\d+$/.test(x) ? Number(x) : NaN); break;
+      case 'event': out[f.key] = x.length > MAX_NAME ? { level: 'warn', msg: `nom trop long : raccourci à ${MAX_NAME} caractères` } : { level: 'ok', msg: '' }; break;
+      default: out[f.key] = { level: 'ok', msg: '' };
+    }
+  }
+  return out;
+}
 
 // Faux si une valeur non vide porte un contrôle de niveau 'bad' (checks : { clé: { level, msg } }, voir js/icplaus.js) ; vider la valeur lève le blocage
 export function canValidate(review, checks = {}) {
@@ -106,7 +130,7 @@ const HINT = { date: 'AAAA-MM-JJ', time: 'HH:MM', int: 'ex. 72', text: '' };
 function fieldHTML(f, check) {
   const chip = chipOf(check);
   const sans = f.excerpt ? '' : f.value.trim() === '' ? `<div class="small icex none">${NOT_READ} : saisissez la valeur ou laissez vide</div>` : '<div class="small icex">Sans extrait du texte (nom du fichier, fiche ou saisie à la main)</div>';
-  const ex = f.excerpt ? `<div class="small icex">Extrait : « ${escHTML(f.excerpt.replace(/\s+/g, ' '))} »${f.edited ? ' <span class="icmod">valeur modifiée</span>' : ''}</div>` : '';
+  const ex = f.excerpt ? `<div class="small icex">Extrait : « ${escHTML(f.excerpt.replace(/\s+/g, ' '))} »<span class="icmod" data-mod="${escHTML(f.key)}"${f.edited ? '' : ' hidden'}> · valeur modifiée</span></div>` : '';
   return `<div class="icf" data-field="${escHTML(f.key)}"><label class="f" for="icf-${escHTML(f.key)}">${escHTML(f.label)}</label>`
     + `<input type="text" id="icf-${escHTML(f.key)}" data-f="${escHTML(f.key)}" value="${escHTML(f.value)}" placeholder="${escHTML(HINT[f.kind] || '')}" maxlength="${MAX_FIELD}" autocomplete="off"${f.kind === 'int' ? ' inputmode="numeric"' : ''}>`
     + `<span class="${chip.cls}" data-chip="${escHTML(f.key)}"${chip.text ? '' : ' hidden'}>${escHTML(chip.text)}</span>${ex}${sans}</div>`;

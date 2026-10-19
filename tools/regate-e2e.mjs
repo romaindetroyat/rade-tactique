@@ -337,7 +337,67 @@ async function ic({ browser, base }) {
   await ctx.close();
 }
 
-const SCENARIOS = { creer, manche, auteur, ic };
+// Saisit une valeur dans un champ de la relecture ; rend l'état de la puce du champ et du bouton « Valider les IC »
+async function saisit(page, champ, valeur) {
+  await page.fill('#icf-' + champ, valeur);
+  return page.evaluate((c) => ({
+    puce: document.querySelector(`#icReview [data-chip="${c}"]`).className, puceTexte: document.querySelector(`#icReview [data-chip="${c}"]`).textContent,
+    bouton: document.querySelector('#icValidate').disabled, blocVisible: !document.querySelector('#icBlock').hidden, actif: document.activeElement?.id,
+  }), champ);
+}
+
+// REG-03 (D-02) : une puce de vraisemblance à côté de chaque valeur ; une valeur impossible empêche la validation tant qu'elle n'est pas corrigée ou vidée
+async function vraisemblance({ browser, base }) {
+  const ctx = await ouvreContexte(browser, { heure: '2026-10-19T08:30:00Z' });
+  const { page, erreurs } = await ouvrePage(ctx);
+  await ouvreApp(page, base);
+  await creeRegate(page, { nom: 'Test vraisemblance', debut: '2026-10-19', club: 'CVAT' });
+  await importeIC(page);
+  // les IC SNPM lues sont plausibles : une puce verte par valeur lue, bouton actif
+  const rel = await lireRelecture(page);
+  for (const k of ['event', 'dateStart', 'firstWarning', 'lastFinishSignal', 'vhf']) assert.match(rel[k].puce, /\bgood\b/, `${k} : puce verte attendue, vu « ${rel[k].puce} » ${rel[k].puceTexte}`);
+  assert.equal(await page.locator('#icValidate').isDisabled(), false);
+
+  let e = await saisit(page, 'vhf', '99');
+  assert.match(e.puce, /\blow\b/, 'VHF 99 : puce rouge'); assert.match(e.puceTexte, /impossible/);
+  assert.equal(e.bouton, true, 'VHF 99 : « Valider les IC » désactivé'); assert.equal(e.blocVisible, true);
+  assert.equal(e.actif, 'icf-vhf', 'la carte n’est pas reconstruite à chaque touche : le curseur reste dans le champ');
+  assert.match(await page.locator('#icBlock').textContent(), /Corrigez ou videz les valeurs impossibles/);
+  e = await saisit(page, 'vhf', '72');
+  assert.match(e.puce, /\bgood\b/); assert.equal(e.bouton, false); assert.equal(e.blocVisible, false);
+  e = await saisit(page, 'firstWarning', '03:30');
+  assert.match(e.puce, /\bmid\b/, '03:30 : puce orange'); assert.match(e.puceTexte, /inhabituelle/); assert.equal(e.bouton, false, 'une valeur inhabituelle n’empêche rien');
+  e = await saisit(page, 'firstWarning', '25:00');
+  assert.match(e.puce, /\blow\b/, '25:00 : puce rouge'); assert.equal(e.bouton, true, '25:00 : « Valider les IC » désactivé');
+  e = await saisit(page, 'firstWarning', '');
+  assert.equal(e.bouton, false, 'valeur vidée : la validation est possible'); assert.match(e.puce, /\bmid\b/, 'vidée : « non lu » en alerte'); assert.match(e.puceTexte, /non lu dans le texte/);
+  e = await saisit(page, 'firstWarning', '10:55');
+  assert.match(e.puce, /\bgood\b/); assert.equal(e.bouton, false);
+  e = await saisit(page, 'lastFinishSignal', '09:00');
+  assert.match(e.puce, /\bmid\b/); assert.match(e.puceTexte, /avant le premier signal/);
+  e = await saisit(page, 'dateStart', '2026-02-30');
+  assert.match(e.puce, /\blow\b/); assert.equal(e.bouton, true);
+  e = await saisit(page, 'dateStart', '2026-10-18');
+  assert.equal(e.bouton, false);
+  e = await saisit(page, 'vhf', '16');
+  assert.match(e.puce, /\bmid\b/); assert.match(e.puceTexte, /détresse/); assert.equal(e.bouton, false);
+  e = await saisit(page, 'vhf', '7 2');
+  assert.match(e.puce, /\blow\b/); assert.equal(e.bouton, true);
+  assert.equal(await page.locator('#icReview [data-mod=vhf]').isVisible(), true, 'valeur modifiée à la main : signalé');
+  // rien n'a été écrit pendant la saisie ; la valeur impossible vidée, la validation passe et l'impossible n'entre pas
+  assert.equal((await regateCourante(page)).ic, null);
+  e = await saisit(page, 'vhf', '');
+  assert.equal(e.bouton, false);
+  await page.click('#icValidate');
+  await page.waitForSelector('#icReview', { state: 'detached', timeout: 10000 });
+  const reg = await regateCourante(page);
+  assert.equal(reg.ic.fields.vhf, null, 'VHF vidée : rien d’écrit');
+  assert.equal(reg.ic.fields.firstWarning, '10:55'); assert.equal(reg.ic.fields.lastFinishSignal, '09:00', 'une valeur inhabituelle est validée telle quelle');
+  sansErreur(erreurs, 'pendant le scénario');
+  await ctx.close();
+}
+
+const SCENARIOS = { creer, manche, auteur, ic, vraisemblance };
 
 // ───────────────────────── lancement
 
