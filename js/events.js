@@ -61,33 +61,68 @@ export async function pdfText(file) {
 const MONTHS = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
 const hm = (h, m) => `${String(+h).padStart(2, '0')}:${String(+(m || 0)).padStart(2, '0')}`;
 
+// Nettoyage du texte brut d’un PDF : « p r e m i e r » → « premier » (lettres espacées de certains PDF), blancs et tabulations réduits à un espace
+export function cleanText(raw) {
+  return String(raw ?? '').replace(/\b(?:\p{L} ){3,}\p{L}\b/gu, (m) => m.replace(/ /g, '')).replace(/[ \t]+/g, ' ');
+}
+
+// Extrait d’une valeur (D-03) : le segment qui l’a produite, élargi d’au plus 30 caractères de part et d’autre sans couper de mot,
+// 260 caractères au plus. Il est tiré du texte déjà nettoyé : il y figure donc tel quel. Rend null si le segment est vide.
+const EX_MARGE = 30, EX_MAX = 260;
+const blanc = (c) => c === undefined || /\s/.test(c);
+function around(flat, start, end) {
+  if (!(end > start) || start < 0) return null;
+  let s = Math.max(0, start - EX_MARGE), e = Math.min(flat.length, end + EX_MARGE);
+  while (s < start && !blanc(flat[s - 1])) s++;           // on ne commence pas au milieu d’un mot
+  while (e > end && !blanc(flat[e])) e--;                 // on ne finit pas au milieu d’un mot
+  while (e - s > EX_MAX && s < start) { s++; while (s < start && !blanc(flat[s - 1])) s++; }
+  while (e - s > EX_MAX && e > end) { e--; while (e > end && !blanc(flat[e])) e--; }
+  if (e - s > EX_MAX) e = s + EX_MAX;                     // segment trouvé démesuré : coupé net, il reste une tranche du texte
+  const out = flat.slice(s, e).trim();
+  return out || null;
+}
+
 export function parseIC(raw, fileName = '') {
-  // « p r e m i e r » → « premier » (lettres espacées de certains PDF)
-  const text = raw.replace(/\b(?:\p{L} ){3,}\p{L}\b/gu, (m) => m.replace(/ /g, '')).replace(/[ \t]+/g, ' ');
-  const flat = text.replace(/\n/g, ' ');
+  const text = cleanText(raw);
+  const flat = text.replace(/\n/g, ' ');                  // même longueur que `text` : un indice vaut pour les deux
   const f = {};
+  const ex = {};
+  const put = (cle, m, len = m?.[0]?.length) => { if (m) { const x = around(flat, m.index, m.index + len); if (x) ex[cle] = x; } };
   const titles = [...flat.matchAll(/\b(coupe|troph[ée]e|r[ée]gate|challenge|grand prix|championnat|crit[ée]rium|interclubs?)\b\s+[\p{L}0-9'’ .-]{2,60}/giu)]
-    .map((m) => m[0].split(/\s+(?:lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche|\d)/i)[0].replace(/\s+/g, ' ').trim());
-  const title = titles.find((t) => t.length > 8) || '';
-  f.event = title.length > 6 ? title : fileName.replace(/\.(pdf|txt)$/i, '').replace(/[_-]+/g, ' ');
+    .map((m) => ({ t: m[0].split(/\s+(?:lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche|\d)/i)[0].replace(/\s+/g, ' ').trim(), m }));
+  const title = titles.find((x) => x.t.length > 8);
+  f.event = title && title.t.length > 6 ? title.t : fileName.replace(/\.(pdf|txt)$/i, '').replace(/[_-]+/g, ' ');
+  if (title && title.t.length > 6) put('event', title.m);   // titre venu du nom de fichier : pas d’extrait
   const dm = new RegExp(`(?:lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche)?\\s*(\\d{1,2})(?:er)?\\s+(${MONTHS.join('|')})\\s+(20\\d\\d)`, 'i').exec(flat);
-  if (dm) f.date = `${dm[3]}-${String(MONTHS.indexOf(dm[2].toLowerCase()) + 1).padStart(2, '0')}-${String(+dm[1]).padStart(2, '0')}`;
+  if (dm) { f.date = `${dm[3]}-${String(MONTHS.indexOf(dm[2].toLowerCase()) + 1).padStart(2, '0')}-${String(+dm[1]).padStart(2, '0')}`; put('date', dm); }
   const fw = /avertissement[^0-9]{0,25}(\d{1,2})\s*[hH:.]\s*(\d{2})?/.exec(flat);
-  if (fw) f.firstWarning = hm(fw[1], fw[2]);
+  if (fw) { f.firstWarning = hm(fw[1], fw[2]); put('firstWarning', fw); }
   const lf = /(?:limite|aucun signal)[^.]{0,60}?arriv[ée]e?[^0-9]{0,40}(\d{1,2})\s*[hH:.]\s*(\d{2})?/i.exec(flat);
-  if (lf) f.lastFinishSignal = hm(lf[1], lf[2]);
+  if (lf) { f.lastFinishSignal = hm(lf[1], lf[2]); put('lastFinishSignal', lf); }
   const vhf = /canal[^0-9]{0,30}(\d{1,2})\b/i.exec(flat) || /VHF[^0-9]{0,20}(\d{1,2})\b/.exec(flat);
-  if (vhf) f.vhf = +vhf[1];
+  if (vhf) { f.vhf = +vhf[1]; put('vhf', vhf); }
   const tel = /(0[1-9](?:[ .-]?\d{2}){4})/.exec(flat);
   const pres = /Pr[ée]sident du comit[ée] de course\s*:?\s*([A-ZÉÈ][\p{L} .'-]{2,40})/u.exec(flat) || /Comit[ée] de course\s*:\s*([A-ZÉÈ][\p{L} .'-]{2,40}?)\s{2,}/u.exec(text);
-  f.committee = [pres?.[1]?.split(/\s{2,}/)[0].trim(), tel ? 'tél. ' + tel[1] : null].filter(Boolean).join(' — ');
+  const nom = pres?.[1]?.split(/\s{2,}/)[0].trim();
+  f.committee = [nom, tel ? 'tél. ' + tel[1] : null].filter(Boolean).join(' — ');
+  // extrait du Comité : la mention du nom la plus proche du téléphone (même ligne du texte) quand elle l'est, sinon la mention du nom, sinon le téléphone
+  if (nom || tel) {
+    let a = pres ? pres.index : tel.index, b = pres ? pres.index + pres[0].length : tel.index + tel[0].length;
+    if (nom && tel) {
+      let best = null;
+      for (let i = flat.indexOf(nom); i >= 0; i = flat.indexOf(nom, i + 1)) { const d = Math.abs(i - tel.index); if (best === null || d < best.d) best = { i, d }; }
+      if (best && best.d <= 120) { a = Math.min(best.i, tel.index); b = Math.max(best.i + nom.length, tel.index + tel[0].length); }
+    }
+    const x = around(flat, a, b); if (x) ex.committee = x;
+  }
   const zone = /zone de course\s*:?\s*([^.\n]{8,160})/i.exec(text);
-  if (zone) f.zone = zone[1].trim();
+  if (zone) { f.zone = zone[1].trim(); put('zone', zone); }
   // points clés : phrases qui contiennent des mots-clés de la régate
   const KW = /(pénalit|360|720|ligne de départ|ligne d.arrivée|pavillon|VHF|canal|abandon|brassière|gilet|délai|temps limite|HFL|réduction|bouée de dégagement|zone interdite|réclamation|remise des prix|classement)/i;
   const sentences = flat.split(/(?<=[.;])\s+/).map((s) => s.replace(/\s+/g, ' ').trim()).filter((s) => s.length > 25 && s.length < 260 && KW.test(s));
   f.keyRules = [...new Set(sentences)].slice(0, 18);
   f.text = raw.slice(0, 60000);
+  f.ex = ex;                                              // ajout (phase 3) : extrait de chaque valeur lue, clé par clé
   return f;
 }
 

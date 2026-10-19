@@ -4,8 +4,9 @@ import { report, note, setContext } from './journal.js';
 import { Terrain, toXY, toLL, NM, bearingXY, distXY, norm360, norm180, fmtBrg, fmtNm, fmtLat, fmtLon, cardinal } from './geo.js';
 import { WindField, speedColor } from './wind.js';
 import { MARKS, COURSES, LINE_PRESETS, FORBIDDEN_ZONE, DANGERS } from './courses.js';
-import { pdfText, parseIC, eventForm, readForm } from './events.js';
-import { migrate, saveRegattas, createRegatta, upsertRegatta, removeRegatta, setCurrent as setCurrentRegatta, currentRegatta, icOf, groupBySeason, lockDates, seasonOf, daysOf, addRace, removeRace, raceSettings, membre, saveMembre, backfillAuthor } from './regates.js';
+import { pdfText, parseIC } from './events.js';
+import { reviewFromParse, reviewFromRegatta, setValue, setKeep, canValidate, applyReview, reviewHTML, validatedHTML } from './icread.js';
+import { migrate, saveRegattas, createRegatta, upsertRegatta, removeRegatta, setCurrent as setCurrentRegatta, currentRegatta, icOf, groupBySeason, lockDates, daysOf, addRace, removeRace, raceSettings, membre, saveMembre, backfillAuthor } from './regates.js';
 import { listHTML, newRegattaFormHTML, sheetHTML } from './regview.js';
 import { fetchAll, cached, snapshot, consensus, gridPoints, marineAt, fetchLive, MODELS, WMO, CENTER } from './weather.js';
 import { buildLegs, analyzeLeg, markAdvice, analyzeStart, trendOf, rankCourses, regimeOf, sideName, summarizeTime } from './tactics.js';
@@ -1509,7 +1510,7 @@ async function refreshMembre() {
     if (!icBusy()) renderIC();                           // « Vous : prénom » et les auteurs complétés
   } catch (e) { note('membre', 'prénom indisponible : ' + (e?.message || e)); } finally { clearTimeout(to); }
 }
-let icDraft = null;                          // fiche IC en cours de relecture (import ou « Modifier »)
+let icDraft = null;                          // relecture des IC en cours (import ou « Modifier »), en mémoire de la page seulement : rien n’est écrit avant « Valider les IC »
 let rgDraft = null, rgErr = {};              // formulaire « Nouvelle régate » ouvert : sa saisie survit à un redessin
 let raceDraft = null, raceErr = {};          // formulaire « Nouvelle manche » ouvert
 const icBusy = () => !!(rgDraft || icDraft || raceDraft);
@@ -1541,11 +1542,12 @@ function renderIC() {
     <div class="small muted" id="rgWho" style="margin-top:6px">${who() ? `Vous : ${esc(who())}` : 'Vous : — (prénom donné à la prochaine connexion)'}</div></div>`;
   if (rgDraft) html += newRegattaFormHTML(rgDraft, rgErr);
   html += sheetHTML(cur, { now, courses: courseList(), raceDraft, raceErrors: raceErr });
-  if (icDraft) html += eventForm(icDraft);
-  html += `<div class="card"><h3>Instructions de course <small>${cur?.ic ? `lues ${esc(cur.ic.read === 'motifs' ? 'depuis le PDF' : cur.ic.read === 'reprise' ? 'sur une ancienne fiche' : 'à la main')}` : 'à importer'}</small></h3>
+  if (icDraft) html += reviewHTML(icDraft);
+  html += `<div class="card"><h3>Instructions de course <small>${cur?.ic ? 'validées' : 'à importer'}</small></h3>
     <div class="btns" style="margin:0 0 6px"><label class="btn acc small" for="icFile" style="cursor:pointer">＋ Importer des IC (PDF)</label><button class="btn alt small" id="evEdit">Modifier</button></div>
     <input type="file" id="icFile" accept="application/pdf,.pdf,.txt,text/plain" hidden>
-    <div class="small muted" id="icMsg" style="margin-bottom:8px">L’app lit le PDF des IC, propose la fiche (date, heures, VHF, Comité, zone, points clés) : vérifiez puis enregistrez.</div>
+    <div class="small muted" id="icMsg" style="margin-bottom:8px">L’app lit le PDF des IC et montre, pour chaque valeur (date, heures, VHF, Comité, zone), la phrase d’où elle vient : relisez, corrigez, puis « Valider les IC ».</div>
+    <div class="small" id="icVal" style="margin-bottom:8px">${validatedHTML(cur?.ic)}</div>
     <div class="kpis"><div class="kpi"><b>${esc(IC.firstWarning || '—')}</b><span>1er avertissement</span></div><div class="kpi"><b>${esc(IC.lastFinishSignal || '—')}</b><span>limite arrivée du 1er</span></div><div class="kpi"><b>VHF ${esc(IC.vhf ?? '—')}</b><span>canal de course</span></div></div>
     <p class="small">${IC.committee ? `Comité : ${tel ? `<a href="tel:${tel.replace(/\D/g, '')}">${esc(IC.committee)}</a>` : esc(IC.committee)}<br>` : ''}${IC.zone ? `Zone : ${esc(IC.zone)}<br>` : ''}${IC.id === 'snpm-2026' ? 'Avis : <a href="https://chat.whatsapp.com/J2W7onZ86t9AnqJJliPUSU" target="_blank" rel="noopener">WhatsApp « CVAT Tableau Officiel »</a>' : ''}</p>
     ${IC.firstWarning && IC.date ? `<button class="btn small alt" id="evUse">Caler le départ sur ces IC (${esc(dayName(IC.date))}, ${esc(IC.firstWarning)} + 5 min)</button>` : ''}</div>
@@ -1604,7 +1606,7 @@ function renderIC() {
     if (b.dataset.c !== '1') { b.dataset.c = '1'; b.textContent = 'Supprimer ?'; return; }
     saveReg(upsertRegatta(REG, removeRace(cur, +b.dataset.rmrace))); renderIC();
   }));
-  $('#evEdit').onclick = () => { icDraft = { ...IC }; renderIC(); };
+  $('#evEdit').onclick = () => { icDraft = reviewFromRegatta(cur); renderIC(); $('#icReview')?.scrollIntoView({ behavior: 'smooth' }); };
   $('#evDel')?.addEventListener('click', (e) => { if (e.target.dataset.c !== '1') { e.target.dataset.c = '1'; e.target.textContent = 'Confirmer la suppression'; return; } icDraft = null; saveReg(removeRegatta(REG, cur.id)); afterRegChange(); });
   $('#evUse')?.addEventListener('click', () => {
     const [h, m] = IC.firstWarning.split(':').map(Number);
@@ -1617,35 +1619,36 @@ function renderIC() {
     $('#icMsg').textContent = 'Lecture des IC…';
     try {
       const text = /\.pdf$/i.test(f.name) || f.type === 'application/pdf' ? await pdfText(f) : await f.text();
-      icDraft = { ...parseIC(text, f.name), id: 'ev' + Date.now(), source: f.name, read: 'motifs' };
-      renderIC(); $('#evForm')?.scrollIntoView({ behavior: 'smooth' });
+      icDraft = reviewFromParse(parseIC(text, f.name), { source: f.name, text, regatta: cur });
+      renderIC(); $('#icReview')?.scrollIntoView({ behavior: 'smooth' });
     } catch (err) { report('ic', err); $('#icMsg').textContent = 'Lecture impossible : ' + err.message + '. Vous pouvez saisir la fiche à la main (Modifier).'; }
   };
   if (icDraft) {
-    $('#evSave').onclick = () => {
-      const ev = readForm(icDraft), at = Date.now(), prev = cur;
-      // les IC enregistrées vont dans la régate courante (sinon la régate est créée depuis les IC) ; les champs que le formulaire ne porte pas sont gardés
-      const ic = {
-        fields: { ...(prev?.ic?.fields || {}), firstWarning: ev.firstWarning, lastFinishSignal: ev.lastFinishSignal, vhf: ev.vhf, committee: ev.committee, zone: ev.zone, keyRules: ev.keyRules },
-        text: String(icDraft.text || '').slice(0, 20000), source: icDraft.source || prev?.ic?.source || '', read: icDraft.read || prev?.ic?.read || 'saisie',
-        excerpts: prev?.ic?.excerpts || {}, validated: { by: who(), at },
-      };
-      let reg;
-      if (prev) {
-        const dateStart = ev.date || prev.dateStart;      // une date vidée ne retire pas son jour à la régate
-        reg = { ...prev, name: String(ev.event || prev.name).slice(0, 80), dateStart, dateEnd: dateStart && ev.dateEnd > dateStart ? ev.dateEnd : '', season: seasonOf(dateStart), ic };
-      } else {
-        const r = createRegatta({ name: ev.event, dateStart: ev.date, dateEnd: ev.dateEnd, club: '' }, { now: at, by: who() });
-        if (!r.ok) { toast(r.errors.dateStart || r.errors.name || 'Régate incomplète'); return; }
-        reg = { ...r.regatta, ic };
-      }
-      icDraft = null;
-      saveReg(setCurrentRegatta(upsertRegatta(REG, reg), reg.id));
-      if (ev.firstWarning && ev.date && ev.date >= today() && ev.date <= addDays(today(), 2)) { const [h, m] = ev.firstWarning.split(':').map(Number); S.startTime = h + (m + 5) / 60; S.day = ev.date; persist(); }
-      afterRegChange(); toast(`Régate enregistrée : ${reg.name}`); updateAll();
-    };
-    $('#evCancel').onclick = () => { icDraft = null; renderIC(); };
+    // la carte n’est pas reconstruite à chaque touche : le curseur reste dans le champ
+    $$('input[data-f]', el).forEach((inp) => inp.addEventListener('input', () => { icDraft = setValue(icDraft, inp.dataset.f, inp.value); }));
+    $$('input[data-kr]', el).forEach((cb) => cb.addEventListener('change', () => { icDraft = setKeep(icDraft, +cb.dataset.kr, cb.checked); }));
+    $('#icValidate').onclick = validateIC;
+    $('#icCancel').onclick = () => { icDraft = null; renderIC(); };
   }
+}
+
+// « Valider les IC » (geste) : seul endroit où la relecture entre dans la régate, avec qui a validé et quand (D-02).
+// Sans régate courante, elle est d’abord créée depuis les champs relus.
+function validateIC() {
+  if (!icDraft || !canValidate(icDraft)) return;
+  const at = Date.now(), by = who(), read = (k) => String(icDraft.fields.find((f) => f.key === k)?.value ?? '').trim();
+  let reg = currentRegatta(REG);
+  if (!reg) {
+    const r = createRegatta({ name: read('event'), dateStart: read('dateStart'), dateEnd: read('dateEnd'), club: '' }, { now: at, by });
+    if (!r.ok) { toast(r.errors.dateStart || r.errors.name || 'Régate incomplète'); return; }
+    reg = r.regatta;
+  }
+  const next = applyReview(reg, icDraft, { by, at });
+  icDraft = null;
+  saveReg(setCurrentRegatta(upsertRegatta(REG, next), next.id));
+  const { firstWarning } = next.ic.fields, d = next.dateStart;
+  if (firstWarning && d && d >= today() && d <= addDays(today(), 2)) { const [h, m] = firstWarning.split(':').map(Number); S.startTime = h + (m + 5) / 60; S.day = d; persist(); }
+  afterRegChange(); toast(`IC validées : ${next.name}`); updateAll();
 }
 
 init().catch((e) => {

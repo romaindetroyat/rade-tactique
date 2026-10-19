@@ -263,7 +263,81 @@ async function auteur({ browser, base }) {
   await ctx2.close();
 }
 
-const SCENARIOS = { creer, manche, auteur };
+const PDF_IC = ROOT + 'tests/fixtures/ic-coupe-snpm-2026-10-18.pdf';
+// Dépose le PDF des IC SNPM dans #icFile (lecture réelle par pdf.js dans Chromium) et attend la carte de relecture
+async function importeIC(page) {
+  await page.setInputFiles('#icFile', PDF_IC);
+  await page.waitForSelector('#icReview', { timeout: 60000 });
+}
+// Relecture affichée : { clé: { valeur, extrait, texte } } (extrait = ligne « Extrait : … » ou la mention « non lu… »)
+const lireRelecture = (page) => page.evaluate(() => Object.fromEntries([...document.querySelectorAll('#icReview .icf')].map((el) => [el.dataset.field, {
+  valeur: el.querySelector('input[data-f]').value, extrait: el.querySelector('.icex')?.textContent ?? '', puce: el.querySelector('[data-chip]')?.className ?? '', puceTexte: el.querySelector('[data-chip]')?.textContent ?? '',
+}])));
+
+// REG-03 (IC CVAT, D-02, D-03) : le PDF s'importe en relecture champ par champ avec l'extrait d'origine ; rien n'est retenu avant « Valider les IC »
+async function ic({ browser, base }) {
+  const ctx = await ouvreContexte(browser, { heure: '2026-10-19T08:30:00Z' });        // lundi 19/10/2026 10 h 30 à Paris
+  const { page, erreurs } = await ouvrePage(ctx);
+  await ouvreApp(page, base);
+  await creeRegate(page, { nom: 'Test IC', debut: '2026-10-19', club: 'CVAT' });
+  assert.equal((await regateCourante(page)).ic, null, 'une régate créée n’a pas d’IC');
+  assert.match(await page.locator('#icVal').textContent(), /Pas encore d’IC validées/);
+
+  await importeIC(page);
+  let rel = await lireRelecture(page);
+  assert.equal(rel.firstWarning.valeur, '10:55', 'premier signal lu');
+  assert.match(rel.firstWarning.extrait, /^Extrait : .*10h55/, 'l’extrait contient « 10h55 »');
+  assert.equal(rel.vhf.valeur, '72'); assert.match(rel.vhf.extrait, /^Extrait : .*72/);
+  assert.equal(rel.dateStart.valeur, '2026-10-18'); assert.match(rel.dateStart.extrait, /18 octobre 2026/);
+  assert.equal(rel.lastFinishSignal.valeur, '16:00');
+  assert.match(rel.dateEnd.extrait, /non lu dans le texte/, 'le dernier jour n’est pas lu : vide, et le dit');
+  assert.equal(rel.dateEnd.valeur, '');
+  assert.equal(await page.locator('#icReview input[data-f]').evaluateAll((l) => l.every((i) => i.type === 'text')), true, 'saisie en texte');
+  // l'import n'a rien retenu : ni dans l'index, ni dans la fiche
+  assert.equal((await regateCourante(page)).ic, null, 'rien n’entre avant « Valider les IC »');
+  assert.match(await page.locator('#icVal').textContent(), /Pas encore d’IC validées/);
+  // un changement d'onglet n'écrit rien non plus
+  await page.click('#tabs button[data-tab=live]'); await page.click('#tabs button[data-tab=ic]');
+  assert.equal((await regateCourante(page)).ic, null, 'changement d’onglet : rien d’écrit');
+
+  // « Annuler » : la relecture disparaît, toujours rien
+  await page.click('#icCancel');
+  await page.waitForSelector('#icReview', { state: 'detached', timeout: 10000 });
+  assert.equal((await regateCourante(page)).ic, null, '« Annuler » : rien d’écrit');
+  // une relance abandonne aussi une relecture ouverte
+  await importeIC(page);
+  await ouvreApp(page, base);
+  await page.click('#tabs button[data-tab=ic]');
+  assert.equal(await page.locator('#icReview').count(), 0, 'relance : la relecture est abandonnée');
+  assert.equal((await regateCourante(page)).ic, null, 'relance : rien d’écrit');
+
+  // nouvel import, correction d'un champ puis « Valider les IC »
+  await importeIC(page);
+  await page.fill('#icf-zone', 'Rade de Toulon corrigée');
+  await page.click('#icValidate');
+  await page.waitForSelector('#icReview', { state: 'detached', timeout: 10000 });
+  const reg = await regateCourante(page);
+  assert.equal(typeof reg.ic.validated.at, 'number', 'qui a validé et quand : l’heure est posée');
+  assert.ok(reg.ic.validated.by === null || typeof reg.ic.validated.by === 'string');
+  assert.equal(reg.ic.fields.vhf, 72); assert.equal(reg.ic.fields.firstWarning, '10:55'); assert.equal(reg.ic.fields.lastFinishSignal, '16:00');
+  assert.equal(reg.ic.fields.zone, 'Rade de Toulon corrigée');
+  assert.equal(reg.dateStart, '2026-10-18', 'le premier jour vient des IC'); assert.equal(reg.season, '2026');
+  assert.ok(reg.ic.excerpts.firstWarning && /10h55/.test(reg.ic.excerpts.firstWarning), 'l’extrait est gardé');
+  assert.ok(!('zone' in reg.ic.excerpts), 'une valeur corrigée à la main perd son extrait');
+  assert.equal(reg.ic.read, 'motifs'); assert.equal(reg.ic.source, 'ic-coupe-snpm-2026-10-18.pdf');
+  assert.ok(reg.ic.fields.keyRules.length > 0 && reg.ic.text.length > 10000 && reg.ic.text.length <= 20000);
+  assert.match(await page.locator('#icVal').textContent(), /^IC validées.* le \d\d\/\d\d \(lecture par motifs\)$/);
+  assert.match(await page.locator('section[data-tab=ic]').textContent(), /VHF 72/);
+  // elle survit à un rechargement
+  await ouvreApp(page, base);
+  await page.click('#tabs button[data-tab=ic]');
+  assert.match(await page.locator('#icVal').textContent(), /IC validées/);
+  assert.equal((await regateCourante(page)).ic.fields.vhf, 72);
+  sansErreur(erreurs, 'pendant le scénario');
+  await ctx.close();
+}
+
+const SCENARIOS = { creer, manche, auteur, ic };
 
 // ───────────────────────── lancement
 
