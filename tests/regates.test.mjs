@@ -289,6 +289,64 @@ test('manche : la fiche affiche chaque manche (n, jour, heure, parcours, classe,
   assert.ok(parseHTML(`<html><body>${sheetHTML(r, { now, courses: PARCOURS })}</body></html>`).document.querySelector('#rcNew'), 'bouton « Ajouter une manche »');
 });
 
+// ───────────────────────── auteur (D-05, ARCH-02)
+
+test('auteur : membre() rend le prénom gardé ou null (stockage illisible compris) ; saveMembre refuse vide, trop long, caractères étrangers', () => {
+  const st = mem();
+  assert.equal(R.membre(st), null, 'rien de gardé');
+  assert.equal(R.saveMembre(st, '  Teiva '), true);
+  assert.equal(st.getItem(R.MEMBRE_KEY), 'Teiva'); assert.equal(R.membre(st), 'Teiva');
+  for (const ok of ['Jean-Luc', 'D’Artagnan', 'D\'Artagnan', 'Élodie', 'Anne Sophie']) assert.equal(R.saveMembre(mem(), ok), true, ok);
+  for (const mauvais of ['', '   ', 'a'.repeat(41), 'Teiva1', '<b>x</b>', 'x;y', '---', '\'\'', null, undefined, 42]) { const s2 = mem(); assert.equal(R.saveMembre(s2, mauvais), false, String(mauvais)); assert.equal(s2.m.size, 0, 'rien d’écrit'); }
+  assert.equal(R.saveMembre(mem(), 'a'.repeat(40)), true);
+  assert.equal(R.membre(mem({ [R.MEMBRE_KEY]: '<script>' })), null, 'une valeur gardée invalide est ignorée');
+  assert.equal(R.membre({ getItem() { throw new Error('fermé'); } }), null);
+  assert.equal(R.membre(null), null);
+  assert.equal(R.saveMembre({ setItem() { throw new DOMException('quota', 'QuotaExceededError'); } }, 'Teiva'), false, 'quota dépassé : faux, sans exception');
+});
+
+test('auteur : backfillAuthor complète les by: null (régates, manches, IC validées), compte, et ne remplace jamais un auteur posé', () => {
+  const avecIC = (by) => ({ fields: {}, text: '', source: '', read: 'saisie', excerpts: {}, validated: { by, at: 1 } });
+  const a = regate({ id: 'a', by: null, ic: avecIC(null), races: [{ n: 1, by: null, at: 1 }, { n: 2, by: 'Thibaud', at: 1 }] });
+  const b = regate({ id: 'b', by: 'Teiva', ic: avecIC('Teiva'), races: [{ n: 1, by: null, at: 1 }] });
+  const c = regate({ id: 'c', by: null, ic: null, races: [] });
+  const st = deepFreeze({ v: 1, current: 'a', list: [a, b, c] });
+  const { st: suite, n } = R.backfillAuthor(st, ' Teiva ');
+  assert.equal(n, 5, 'régate a + sa manche 1 + son IC + manche 1 de b + régate c');
+  assert.deepEqual(suite.list.map((r) => r.by), ['Teiva', 'Teiva', 'Teiva']);
+  assert.deepEqual(suite.list[0].races.map((m) => m.by), ['Teiva', 'Thibaud'], 'l’auteur déjà posé reste');
+  assert.equal(suite.list[0].ic.validated.by, 'Teiva'); assert.equal(suite.list[1].ic.validated.by, 'Teiva');
+  assert.equal(suite.list[1].races[0].by, 'Teiva'); assert.equal(suite.list[2].ic, null);
+  assert.equal(st.list[0].by, null, 'état d’origine intact');
+  const { st: encore, n: zero } = R.backfillAuthor(suite, 'Autre');
+  assert.equal(zero, 0, 'plus rien à compléter'); assert.equal(encore, suite, 'état rendu tel quel'); assert.equal(encore.list[0].by, 'Teiva', 'jamais écrasé');
+  assert.equal(R.backfillAuthor(st, '').n, 0); assert.equal(R.backfillAuthor(st, '<b>').n, 0); assert.equal(R.backfillAuthor(st, null).st, st);
+});
+
+test('garde : /api/membre est demandée après la marque rt:ui (jamais attendue avant l’interface utile), une seule fois, sans code ni cookie lus', () => {
+  const init = bodyOf(app, 'init'), ui = init.indexOf("performance.mark('rt:ui')");
+  assert.ok(ui > 0, 'marque rt:ui dans init()');
+  const appel = init.search(/\brefreshMembre\(/);
+  assert.ok(appel > ui, 'refreshMembre() est appelée dans init(), après la marque rt:ui');
+  assert.ok(!/\bawait\b/.test(init.slice(0, ui)), 'aucune attente avant l’interface utile');
+  assert.ok(!/\bawait\s+refreshMembre\(/.test(init), 'init() n’attend pas la réponse du middleware');
+  assert.equal((app.match(/fetch\('\/api\/membre'/g) || []).length, 1, 'une seule demande');
+  const corps = bodyOf(app, 'refreshMembre');
+  assert.match(corps, /fetch\('\/api\/membre'/); assert.match(corps, /new AbortController\(\)/); assert.match(corps, /cache: 'no-store'/); assert.match(corps, /\b(?:saveMembre|backfillAuthor)\(/);
+  assert.match(corps, /note\('membre'/, 'un échec est consigné, sans message à l’équipier');
+  assert.ok(!/document\.cookie|rt_acces|\bacces\b/.test(corps), 'le code d’accès n’est jamais lu côté page');
+});
+
+test('garde : tout élément créé porte l’auteur donné par le middleware (plus de by: null en dur dans les créations de js/app.js)', () => {
+  for (const f of ['renderIC', 'chooseRace']) assert.ok(!/\bby:\s*null\b/.test(bodyOf(app, f)), `${f} : by: null en dur`);
+  assert.match(bodyOf(app, 'renderIC'), /by: who\(\)/);
+  assert.match(app, /migrate\(\{ storage: localStore\(\), now: Date\.now\(\), by: who\(\) \}\)|migrate\(\{[^}]*by: membre\(/, 'la reprise des fiches porte l’auteur déjà connu de l’appareil');
+});
+
+test('garde : aucune chaîne hexadécimale de 64 caractères (empreinte) dans les tests ni dans l’outil de bout en bout', () => {
+  for (const f of ['tests/regates.test.mjs', 'tools/regate-e2e.mjs']) assert.ok(!/(?<![0-9a-f])[0-9a-f]{64}(?![0-9a-f])/i.test(readFileSync(ROOT + f, 'utf8')), `empreinte dans ${f}`);
+});
+
 // ───────────────────────── gardes statiques du câblage (le comportement réel est exécuté par tools/regate-e2e.mjs)
 
 const app = readFileSync(ROOT + 'js/app.js', 'utf8');
