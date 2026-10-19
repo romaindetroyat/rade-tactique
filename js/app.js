@@ -779,12 +779,16 @@ const recorder = new Recorder();
 let rest = null;
 function renderLive() {
   const el = $('section[data-tab=live]');
-  el.innerHTML = `<div class="card" id="liveGps"></div>
+  // jour de régate (D-15) : « Course finie » lève le verrou de mise à jour ; il n’arrête ni chrono, ni trace, ni GPS
+  const raceCard = isRaceDay({ now: Date.now(), raceFrom: IC?.date || null, raceTo: IC?.dateEnd || IC?.date || null })
+    ? `<div class="card"><button class="btn alt" id="raceDone">🏁 Course finie — retour au port</button><div class="small muted" style="margin-top:6px">Permet d’appliquer une mise à jour en attente. Le chrono, la trace et le GPS ne sont pas arrêtés.</div></div>` : '';
+  el.innerHTML = `${raceCard}<div class="card" id="liveGps"></div>
     <div class="card"><h3><span>Trace ${tip('Enregistre votre position toutes les 1–2 s pendant la course. L’écran reste allumé pendant l’enregistrement (sur iPhone, le GPS s’arrête si l’écran se verrouille). Les traces se retrouvent dans l’onglet Traces.')}</span></h3><div id="liveRec"></div></div>
     <div class="card timer"><div class="small muted">Chrono</div><div class="clock" id="liveClock" style="font-size:40px">—</div></div>
     <div class="card" id="liveNav"></div>
     <div class="card"><h3><span>Suite du parcours ${tip('Recalcule les bords restants depuis votre position GPS, à l’heure actuelle, avec le modèle retenu par vos relevés et l’ajustement sur le dernier relevé. Fait automatiquement après chaque nouveau relevé si le GPS est actif.')}</span></h3><div id="livePlan"></div></div>
     <details class="card obsbox" open><summary><span>🌬 Relevé de vent</span><small>sans quitter l’onglet</small></summary><div class="obs-card"></div></details>`;
+  $('#raceDone')?.addEventListener('click', () => { RL.finishedAt = Date.now(); saveRL(); toast('Course finie notée'); raceTick(); });
   renderLiveNav(); renderPlan(); renderObsAll();
   if (timer.iv) tickTimer();
 }
@@ -1053,7 +1057,7 @@ function renderIC() {
     <input type="file" id="icFile" accept="application/pdf,.pdf,.txt,text/plain" hidden>
     <div class="small muted" id="icMsg" style="margin-top:6px">L’app lit le PDF des IC, propose la fiche (date, heures, VHF, Comité, zone, points clés) : vérifiez puis enregistrez.</div></div>`;
   if (icDraft) html += eventForm(icDraft);
-  html += `<div class="card"><h3>${esc(IC.event)} <small>${IC.date ? esc(dayName(IC.date)) : 'date à préciser'}</small></h3>
+  html += `<div class="card"><h3>${esc(IC.event)} <small>${IC.date ? (IC.dateEnd ? `du ${esc(dayName(IC.date))} au ${esc(dayName(IC.dateEnd))}` : esc(dayName(IC.date))) : 'date à préciser'}</small></h3>
     <div class="kpis"><div class="kpi"><b>${esc(IC.firstWarning || '—')}</b><span>1er avertissement</span></div><div class="kpi"><b>${esc(IC.lastFinishSignal || '—')}</b><span>limite arrivée du 1er</span></div><div class="kpi"><b>VHF ${esc(IC.vhf ?? '—')}</b><span>canal de course</span></div></div>
     <p class="small">${IC.committee ? `Comité : ${tel ? `<a href="tel:${tel.replace(/\D/g, '')}">${esc(IC.committee)}</a>` : esc(IC.committee)}<br>` : ''}${IC.zone ? `Zone : ${esc(IC.zone)}<br>` : ''}${IC.id === 'snpm-2026' ? 'Avis : <a href="https://chat.whatsapp.com/J2W7onZ86t9AnqJJliPUSU" target="_blank" rel="noopener">WhatsApp « CVAT Tableau Officiel »</a>' : ''}</p>
     ${IC.firstWarning && IC.date ? `<button class="btn small alt" id="evUse">Caler le départ sur ces IC (${esc(dayName(IC.date))}, ${esc(IC.firstWarning)} + 5 min)</button>` : ''}</div>
@@ -1067,9 +1071,9 @@ function renderIC() {
     <div class="small muted" style="margin-top:6px">« approx » = position relevée sur les cartes du cahier ou sur OpenStreetMap : vérifier sur zone, le Comité fait foi.</div></div>
   <div class="card"><h3>Dangers</h3><ul class="tips small"><li><b>Zone interdite</b> de la presqu’île de Saint-Mandrier (zone Marine nationale, rouge sur la carte).</li>${DANGERS.map((d) => `<li><b>${esc(d.name)}</b> (${fmtLat(d.lat)} ${fmtLon(d.lon)}) : ${esc(d.note)}</li>`).join('')}</ul></div>`;
   el.innerHTML = html;
-  $('#evSel').onchange = (e) => { setCurrent(e.target.value); icDraft = null; IC = currentEvent(); renderIC(); renderDaySeg(); renderBrief(); };
+  $('#evSel').onchange = (e) => { setCurrent(e.target.value); icDraft = null; IC = currentEvent(); renderIC(); renderDaySeg(); renderBrief(); renderLive(); };
   $('#evEdit').onclick = () => { icDraft = { ...IC }; renderIC(); };
-  $('#evDel')?.addEventListener('click', (e) => { if (e.target.dataset.c !== '1') { e.target.dataset.c = '1'; e.target.textContent = 'Confirmer la suppression'; return; } removeEvent(IC.id); renderIC(); renderDaySeg(); renderBrief(); });
+  $('#evDel')?.addEventListener('click', (e) => { if (e.target.dataset.c !== '1') { e.target.dataset.c = '1'; e.target.textContent = 'Confirmer la suppression'; return; } removeEvent(IC.id); renderIC(); renderDaySeg(); renderBrief(); renderLive(); });
   $('#evUse')?.addEventListener('click', () => {
     const [h, m] = IC.firstWarning.split(':').map(Number);
     S.startTime = h + (m + 5) / 60; S.hour = Math.floor(S.startTime * 4) / 4;

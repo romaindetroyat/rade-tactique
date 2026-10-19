@@ -98,6 +98,7 @@ export function eventForm(ev) {
     <label class="f" for="evName">Épreuve</label><input id="evName" type="text" value="${esc(ev.event)}">
     <div class="row2"><div><label class="f" for="evDate">Date</label><input id="evDate" type="date" value="${esc(ev.date || '')}"></div>
     <div><label class="f" for="evVhf">Canal VHF</label><input id="evVhf" type="number" min="1" max="88" value="${esc(ev.vhf ?? '')}"></div></div>
+    <label class="f" for="evDateEnd">Dernier jour (régate sur plusieurs jours)</label><input id="evDateEnd" type="date" value="${esc(ev.dateEnd || '')}">
     <div class="row2"><div><label class="f" for="evWarn">1er signal d’avertissement</label><input id="evWarn" type="time" value="${esc(ev.firstWarning || '')}"></div>
     <div><label class="f" for="evLast">Limite d’arrivée du 1er</label><input id="evLast" type="time" value="${esc(ev.lastFinishSignal || '')}"></div></div>
     <label class="f" for="evCom">Comité de course (nom, téléphone)</label><input id="evCom" type="text" value="${esc(ev.committee || '')}">
@@ -105,10 +106,12 @@ export function eventForm(ev) {
     <label class="f" for="evRules">Points clés (une ligne par point)</label><textarea id="evRules" rows="8">${esc((ev.keyRules || []).join('\n'))}</textarea>
     <div class="btns"><button class="btn acc" id="evSave">Enregistrer cette régate</button><button class="btn alt" id="evCancel">Annuler</button></div></div>`;
 }
+// D-15 : le dernier jour n’est gardé que s’il est postérieur au premier (sinon chaîne vide : une régate d’un seul jour)
+const dateEnd = (date, end) => (date && end > date ? end : '');
 export function readForm(base) {
   const v = (id) => document.getElementById(id).value.trim();
   return {
-    ...base, event: v('evName') || 'Régate', date: v('evDate'), vhf: v('evVhf') ? +v('evVhf') : null,
+    ...base, event: v('evName') || 'Régate', date: v('evDate'), dateEnd: dateEnd(v('evDate'), v('evDateEnd')), vhf: v('evVhf') ? +v('evVhf') : null,
     firstWarning: v('evWarn'), lastFinishSignal: v('evLast'), committee: v('evCom'), zone: v('evZone'),
     keyRules: v('evRules').split('\n').map((l) => l.trim()).filter(Boolean),
   };
