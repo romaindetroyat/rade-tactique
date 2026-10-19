@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 3
 current_phase_name: Ouvrir une régate
 status: executing
-stopped_at: Completed 03-04-PLAN.md
-last_updated: "2026-10-19T21:28:43.878Z"
+stopped_at: Completed 03-05-PLAN.md
+last_updated: "2026-10-19T22:27:47.325Z"
 last_activity: 2026-10-19
 last_activity_desc: Phase 3 execution started
-state_head: 277f2322a2fee1f125e4f7041a7da294762b120f
+state_head: f2f8994368120600236492753d4ffe9a4fe6f853
 progress:
   total_phases: 4
   completed_phases: 2
   total_plans: 16
-  completed_plans: 13
+  completed_plans: 14
   percent: 50
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-10-19)
 ## Current Position
 
 Phase: 3 (Ouvrir une régate) — EXECUTING
-Plan: 5 of 7
+Plan: 6 of 7
 Status: Ready to execute
 Last activity: 2026-10-19 — Phase 3 execution started
 
@@ -68,6 +68,7 @@ Progress: [█████░░░░░] 50%
 | Phase 03 P02 | 14 min | 2 tasks | 11 files |
 | Phase 03 P03 | 25 min | 2 tasks | 9 files |
 | Phase 03 P04 | 22 min | 3 tasks | 13 files |
+| Phase 03 P05 | 58 min | 2 tasks | 12 files |
 
 ## Accumulated Context
 
@@ -110,6 +111,8 @@ Décisions récentes qui orientent le travail en cours :
 - [Phase 03]: [03-04] Jour d’une trace = jour de Paris du milieu de son plus long segment ; unique et heure rangent sans question, tout doute (choix, proche, aucune) ouvre une invite : l’app ne devine jamais entre deux régates
 - [Phase 03]: [03-04] Pauses = coupures dans les données (tr.brk, P[i].brk) : trou de plus de 120 s ou nouveau <trkseg> après plus de 5 s ; SNPM 15,25 Nq en 3,55 h actives (test) au lieu de 16,38 Nq en 6,00 h, référence inchangée
 - [Phase 03]: [03-04] La fiche de régate ne lit que r.traces (références et résumés), jamais la liste complète des traces ; résumé et rapport posés sur la référence à l’ouverture de la trace et à la fin du débrief
+- [Phase 03]: [03-05] Le gel du vent est refait sans attendre 10 min quand l'heure du signal change (manche ajoutée ou heure corrigée)
+- [Phase 03]: [03-05] js/events.js ne garde que la lecture du PDF et des IC ; l'ancien formulaire et rade.events.v1 en écriture ont disparu (scénario depuis-ic)
 
 ### Pending Todos
 
@@ -134,6 +137,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-10-19T21:28:43.721Z
-Stopped at: Completed 03-04-PLAN.md
+Last session: 2026-10-19T22:27:47.146Z
+Stopped at: Completed 03-05-PLAN.md
 Resume file: None

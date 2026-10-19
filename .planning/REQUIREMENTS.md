@@ -35,17 +35,17 @@ Version visée : prête pour la régate CVAT des 7-9 novembre 2026 (gel du code 
 
 ### Ouvrir une régate (REG)
 
-- [ ] **REG-01**: N'importe quel équipier crée une régate (nom, date, club) en moins d'une minute, avec un statut à venir / aujourd'hui / passée
-- [ ] **REG-02**: Une journée peut compter plusieurs manches, chacune avec son parcours
+- [x] **REG-01**: N'importe quel équipier crée une régate (nom, date, club) en moins d'une minute, avec un statut à venir / aujourd'hui / passée
+- [x] **REG-02**: Une journée peut compter plusieurs manches, chacune avec son parcours
 - [ ] **REG-03**: Le PDF des IC (CVAT ou autre club) s'importe avec une relecture champ par champ (extrait d'origine affiché) et des contrôles de vraisemblance ; rien n'est retenu sans validation
 - [ ] **REG-04**: Pour une régate hors cahier CVAT, les bouées et parcours lus dans les IC sont confirmés sur la carte avant usage
 
 ### Archive partagée (ARCH)
 
 - [ ] **ARCH-01**: Les régates sont stockées en ligne, en privé, et partagées par l'équipage ; chaque téléphone se synchronise dès que le réseau revient, sans rien perdre hors réseau
-- [ ] **ARCH-02**: Liste des régates par saison et fiche de régate : vent et stratégie du jour figés automatiquement (prévisions, relevés, route conseillée), traces, débrief, analyse polaire, rapport, auteur de chaque élément
+- [x] **ARCH-02**: Liste des régates par saison et fiche de régate : vent et stratégie du jour figés automatiquement (prévisions, relevés, route conseillée), traces, débrief, analyse polaire, rapport, auteur de chaque élément
 - [ ] **ARCH-03**: Les régates récentes restent lisibles hors réseau
-- [ ] **ARCH-04**: Un GPX importé (Open GPX Tracker, pauses comprises) se rattache tout seul à la régate du jour et lance le débrief
+- [x] **ARCH-04**: Un GPX importé (Open GPX Tracker, pauses comprises) se rattache tout seul à la régate du jour et lance le débrief
 
 ## v2 Requirements
 
@@ -109,14 +109,14 @@ Which phases cover which requirements. Updated during roadmap creation.
 | JUST-01 | Phase 2 | Complete |
 | JUST-02 | Phase 2 | Complete |
 | SECU-01 | Phase 1 | Complete |
-| REG-01 | Phase 3 | Pending |
-| REG-02 | Phase 3 | Pending |
+| REG-01 | Phase 3 | Complete |
+| REG-02 | Phase 3 | Complete |
 | REG-03 | Phase 3 | Pending |
 | REG-04 | Phase 3 | Pending |
 | ARCH-01 | Phase 4 | Pending |
-| ARCH-02 | Phase 3 | Pending |
+| ARCH-02 | Phase 3 | Complete |
 | ARCH-03 | Phase 4 | Pending |
-| ARCH-04 | Phase 3 | Pending |
+| ARCH-04 | Phase 3 | Complete |
 
 **Coverage:**
 - v1 requirements: 22 total
