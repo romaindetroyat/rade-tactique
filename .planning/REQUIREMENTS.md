@@ -19,8 +19,8 @@ Version visée : prête pour la régate CVAT des 7-9 novembre 2026 (gel du code 
 
 ### Non-régression (TEST)
 
-- [ ] **TEST-01**: Des tests automatiques couvrent les calculs (géométrie, polaire, routage, vent, lecture GPX, débrief), avec la Coupe SNPM du 18/10/2026 comme cas de référence
-- [ ] **TEST-02**: Un test vérifie que, sans code d'accès, aucune page, aucun fichier ni aucune fonction privée n'est servi
+- [x] **TEST-01**: Des tests automatiques couvrent les calculs (géométrie, polaire, routage, vent, lecture GPX, débrief), avec la Coupe SNPM du 18/10/2026 comme cas de référence
+- [x] **TEST-02**: Un test vérifie que, sans code d'accès, aucune page, aucun fichier ni aucune fonction privée n'est servi
 - [ ] **TEST-03**: Une mise en ligne est bloquée si un test échoue
 - [ ] **TEST-04**: La version de l'app et la liste des fichiers hors réseau sont générées automatiquement, sans oubli possible
 
@@ -31,7 +31,7 @@ Version visée : prête pour la régate CVAT des 7-9 novembre 2026 (gel du code 
 
 ### Sécurité (SECU)
 
-- [ ] **SECU-01**: L'import d'un PDF d'IC ne peut pas exécuter de code (faille de la lecture PDF corrigée)
+- [x] **SECU-01**: L'import d'un PDF d'IC ne peut pas exécuter de code (faille de la lecture PDF corrigée)
 
 ### Ouvrir une régate (REG)
 
@@ -102,13 +102,13 @@ Which phases cover which requirements. Updated during roadmap creation.
 | FIAB-05 | Phase 2 | Pending |
 | FIAB-06 | Phase 2 | Pending |
 | FIAB-07 | Phase 2 | Pending |
-| TEST-01 | Phase 1 | Pending |
-| TEST-02 | Phase 1 | Pending |
+| TEST-01 | Phase 1 | Complete |
+| TEST-02 | Phase 1 | Complete |
 | TEST-03 | Phase 1 | Pending |
 | TEST-04 | Phase 1 | Pending |
 | JUST-01 | Phase 2 | Pending |
 | JUST-02 | Phase 2 | Pending |
-| SECU-01 | Phase 1 | Pending |
+| SECU-01 | Phase 1 | Complete |
 | REG-01 | Phase 3 | Pending |
 | REG-02 | Phase 3 | Pending |
 | REG-03 | Phase 3 | Pending |

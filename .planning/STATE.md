@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 1
 current_phase_name: Mises en ligne sans risque
 status: executing
-stopped_at: Phase 1 context gathered
-last_updated: "2026-10-19T11:04:04.627Z"
+stopped_at: Completed 01-01-PLAN.md
+last_updated: "2026-10-19T11:10:46.900Z"
 last_activity: 2026-10-19
 last_activity_desc: Phase 1 execution started
-state_head: b16a9d3d7924e504ceeb9a074659affae7bbb424
+state_head: 5e5103b108710579c43f65c3ca80e9591afc50ff
 progress:
   total_phases: 4
   completed_phases: 0
   total_plans: 4
-  completed_plans: 0
+  completed_plans: 1
   percent: 0
 ---
 
@@ -28,8 +28,8 @@ See: .planning/PROJECT.md (updated 2026-10-19)
 ## Current Position
 
 Phase: 1 (Mises en ligne sans risque) — EXECUTING
-Plan: 1 of 4
-Status: Executing Phase 1
+Plan: 2 of 4
+Status: Ready to execute
 Last activity: 2026-10-19 — Phase 1 execution started
 
 Progress: [░░░░░░░░░░] 0%
@@ -51,6 +51,12 @@ Progress: [░░░░░░░░░░] 0%
 - Last 5 plans: -
 - Trend: -
 
+**Per-Plan Metrics:**
+
+| Plan | Duration | Tasks | Files |
+|------|----------|-------|-------|
+| Phase 01 P01 | 5 min | 3 tasks | 11 files |
+
 ## Accumulated Context
 
 ### Decisions
@@ -63,6 +69,9 @@ Décisions récentes qui orientent le travail en cours :
 - [Feuille de route] : JUST-01 et JUST-02 (bouées) vont en phase 2 pour la régate CVAT ; REG-04 (marques lues dans les IC à confirmer) réutilise ensuite l'état « confirmée / non confirmée ».
 - [Feuille de route] : ARCH-02 (vent et stratégie du jour figés, liste et fiche) et ARCH-04 (GPX rattaché, débrief lancé) vont en phase 3, en local : une prévision non figée avant la régate est perdue. La phase 4 ne porte que le partage en ligne (ARCH-01, ARCH-03).
 - [Feuille de route] : la phase 4 est coupable ; si elle n'est pas prête au gel du 2 novembre, la régate se court avec l'archive locale et le partage est livré après.
+- [Phase 01]: Référence SNPM mesurée avec tStart = départ détecté 09:43:42Z (D-14), validation par Romain en fin de phase
+- [Phase 01]: Matcher d'accès : acces.html, manifest.webmanifest et sw.js ancrés par $ (noms voisins désormais privés)
+- [Phase 01]: pdf.js : PDF_OPTIONS gelé isEvalSupported false + garde statique sur getDocument(
 
 ### Pending Todos
 
@@ -87,6 +96,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-10-19T09:57:16.047Z
-Stopped at: Phase 1 context gathered
-Resume file: .planning/phases/01-mises-en-ligne-sans-risque/01-CONTEXT.md
+Last session: 2026-10-19T11:10:46.853Z
+Stopped at: Completed 01-01-PLAN.md
+Resume file: None

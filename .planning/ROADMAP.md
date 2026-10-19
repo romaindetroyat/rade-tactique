@@ -37,11 +37,11 @@ Les phases décimales s'intercalent entre les phases entières qui les entourent
   4. Chaque mise en ligne porte un numéro de version et une liste de fichiers hors réseau générés automatiquement : une seule commande (`npm run release`) régénère version et liste, et la porte refuse toute mise en ligne qui l'a oubliée : aucun fichier n'est à ajouter à la main.
   5. Un PDF d'IC piégé importé dans l'app n'exécute aucun code, et les IC CVAT habituelles s'importent toujours.
 
-**Plans:** 4 plans
+**Plans:** 1/4 plans executed
 
 Plans:
 **Wave 1**
-- [ ] 01-01-PLAN.md — Filet de tests : `npm test` rejoue la Coupe SNPM, calculs de base, contrôle d'accès prouvé (matcher resserré), import PDF sûr (vague 1)
+- [x] 01-01-PLAN.md — Filet de tests : `npm test` rejoue la Coupe SNPM, calculs de base, contrôle d'accès prouvé (matcher resserré), import PDF sûr (vague 1)
 - [ ] 01-02-PLAN.md — Version et liste hors réseau générées par `tools/stamp.mjs`, version dans l'aide (vague 1, en parallèle)
 
 **Wave 2** *(blocked on Wave 1 completion)*
@@ -105,7 +105,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Mises en ligne sans risque | 0/TBD | Not started | - |
+| 1. Mises en ligne sans risque | 1/4 | In Progress | - |
 | 2. Fiable et juste en mer | 0/TBD | Not started | - |
 | 3. Ouvrir une régate | 0/TBD | Not started | - |
 | 4. Archive partagée | 0/TBD | Not started | - |
