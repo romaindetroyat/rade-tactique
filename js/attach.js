@@ -72,3 +72,23 @@ export function attachTrace(r, tr, { by = null, at = Date.now() } = {}) {
 export function detachTrace(r, trId) {
   return { ...r, traces: (r.traces || []).filter((x) => x.id !== trId) };
 }
+
+// ───────────────────────── résumés et rapport dans la fiche de régate (ARCH-02)
+// La fiche ne lit jamais la liste complète des traces (≈ 600 Ko chacune) : elle lit ces résumés, posés sur la référence au rattachement.
+
+// Résumé d'une analyse (analyzeTrack) : distance (m), durée d'enregistrement actif (s), vitesse moyenne (nd), part de la polaire (0 à 1 ou null)
+export function traceSummary(res) {
+  if (!res) return null;
+  return { dist: Math.round(res.dist), dur: Math.round(res.dur), vmean: Math.round(res.vmean * 100) / 100, perf: res.perf == null ? null : Math.round(res.perf * 100) / 100 };
+}
+const SUM_KEYS = ['dist', 'dur', 'vmean', 'perf'];
+// Régate dont la référence de la trace porte ce champ ; la même régate (même objet) quand il n'y a rien à changer
+const withRef = (r, trId, change) => {
+  const i = (r.traces || []).findIndex((x) => x.id === trId);
+  if (i < 0) return r;
+  const next = change(r.traces[i]);
+  return next === r.traces[i] ? r : { ...r, traces: r.traces.map((x, k) => (k === i ? next : x)) };
+};
+export const setTraceSummary = (r, trId, sum) => withRef(r, trId, (x) => (x.sum && SUM_KEYS.every((k) => x.sum[k] === sum[k]) ? x : { ...x, sum: { ...sum } }));
+// Rapport du débrief : instant et auteur du dernier rapport écrit pour cette trace
+export const setTraceReport = (r, trId, { t, by = null }) => withRef(r, trId, (x) => (x.report && x.report.t === t && x.report.by === by ? x : { ...x, report: { t, by } }));

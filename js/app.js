@@ -10,7 +10,7 @@ import { migrate, saveRegattas, createRegatta, upsertRegatta, removeRegatta, set
 import { THROTTLE_MS, slotKey, freezeAction, obsNeedsCopy, stratNeedsCopy, sliceDays, freezeSummary, strategySummary, compactStrategy, windSourceKind, frozenLabel } from './gel.js';
 import { putSlot, getSlot } from './regstore.js';
 import { listHTML, newRegattaFormHTML, sheetHTML } from './regview.js';
-import { trackDay, matchRegattas, raceOfTrack, sameTrack, attachTrace, detachTrace } from './attach.js';
+import { trackDay, matchRegattas, raceOfTrack, sameTrack, attachTrace, detachTrace, traceSummary, setTraceSummary, setTraceReport } from './attach.js';
 import { breaksOf } from './segments.js';
 import { fetchAll, cached, snapshot, consensus, gridPoints, marineAt, fetchLive, MODELS, WMO, CENTER } from './weather.js';
 import { buildLegs, analyzeLeg, markAdvice, analyzeStart, trendOf, rankCourses, regimeOf, sideName, summarizeTime } from './tactics.js';
@@ -1415,6 +1415,8 @@ async function runDebrief(tr) {
   tr.report = { html, t: Date.now(), name: `${ans.event || 'Débrief'} ${new Date(an.tStart).toLocaleDateString('fr-FR')}` };
   await saveTrack(tr);
   if (traceView?.id === tr.id) traceView.tr = tr;
+  const rangee = regOfTrace(tr.id);                                          // le rapport rejoint la fiche de la régate, avec son auteur
+  if (rangee) { const nx = setTraceReport(rangee, tr.id, { t: tr.report.t, by: who() }); if (nx !== rangee) { saveReg(upsertRegatta(REG, nx)); refreshSheet(); } }
   showReport(tr); renderTraceDetail();
 }
 function showReport(tr) {
@@ -1440,7 +1442,9 @@ async function renderTracks() {
   $$('[data-tx]', el).forEach((b) => b.onclick = async () => exportGPX(await getTrack(b.dataset.tx)));
   $$('[data-td]', el).forEach((b) => b.onclick = async () => {
     if (b.dataset.confirm !== '1') { b.dataset.confirm = '1'; b.textContent = 'Supprimer ?'; return; }
-    await deleteTrack(b.dataset.td); if (traceView?.id === b.dataset.td) { traceView = null; scene.setTrace(null); } renderTracks();
+    await deleteTrack(b.dataset.td); if (traceView?.id === b.dataset.td) { traceView = null; scene.setTrace(null); }
+    const rangee = regOfTrace(b.dataset.td); if (rangee) { saveReg(upsertRegatta(REG, detachTrace(rangee, b.dataset.td))); refreshSheet(); }      // plus de référence vers une trace effacée
+    renderTracks();
   });
   // pas de filtre « accept » : sur iPhone, l’extension .gpx n’est pas reconnue et les fichiers apparaîtraient grisés
   $('#gpxBtn').onclick = () => $('#gpxIn').click();
@@ -1452,16 +1456,48 @@ async function renderTracks() {
 }
 // Régate qui garde la référence de cette trace (null : trace sans régate)
 const regOfTrace = (id) => REG.list.find((r) => (r.traces || []).some((x) => x.id === id)) || null;
-// Range la trace dans la régate de son jour quand il n'y a aucun doute (une seule régate ce jour-là, ou une seule manche à l'heure de la trace).
-// Les autres cas laissent la trace sans régate. Rend { reg, how, deja } : reg = régate où elle se trouve (null : sans régate)
-function rangeTrace(tr) {
-  const deja = regOfTrace(tr.id);
-  if (deja) return { reg: deja, how: 'deja', deja: true };                    // déjà rangée : jamais une seconde référence
-  const m = matchRegattas(tr.pts, REG.list, breaksOf(tr));
-  if (m.how !== 'unique' && m.how !== 'heure') return { reg: null, how: m.how, m };
-  const reg = m.candidates[0];
+const dmj = (d) => `${d.slice(8, 10)}/${d.slice(5, 7)}`;
+const refreshSheet = () => { if (!icBusy()) renderIC(); };                   // la fiche de la régate courante montre les traces rangées
+// Invite de choix (modale du type de busy) : l'équipier tranche quand le jour de la trace ne suffit pas. Rend { reg } (une régate de la liste),
+// { create: true } (nouvelle régate à la date de la trace) ou null (laisser sans régate). Textes par esc ; une invite à la fois (l'appelant attend).
+function askPlace(tr, m) {
+  return new Promise((ok) => {
+    let el = document.getElementById('modal'); if (!el) { el = document.createElement('div'); el.id = 'modal'; document.body.appendChild(el); }
+    el.className = 'debrief'; el.hidden = false;
+    const jour = dmj(m.day), btn = (att, label, cls = 'alt') => `<button type="button" class="btn ${cls}" ${att} style="width:100%;margin-top:6px">${label}</button>`;
+    const titre = m.how === 'choix' ? `Cette trace du ${jour} correspond à plusieurs régates`
+      : m.how === 'aucune' || m.how === 'proche' ? `Cette trace du ${jour} n’est dans aucune régate` : `Ranger cette trace du ${jour}`;
+    const lignes = m.candidates.map((r, i) => btn(`data-rp="${i}"`, m.how === 'choix' ? esc(r.name) : `Ranger dans <b>${esc(r.name)}</b> (${esc(dmj(r.dateStart))})`, 'acc')).join('');
+    const bas = m.how === 'choix' ? btn('data-rn="1"', 'Aucune')
+      : btn('data-rc="1"', `Créer une régate le ${jour}`, 'acc') + btn('data-rn="1"', 'Laisser sans régate');
+    el.innerHTML = `<div class="modal-card" role="dialog" aria-modal="true"><h2>Trace à ranger</h2><p class="small"><b>${esc(tr.name)}</b></p><p>${esc(titre)}.</p>${lignes}${bas}</div>`;
+    const fin = (v) => { el.hidden = true; ok(v); };
+    el.querySelectorAll('[data-rp]').forEach((b) => b.addEventListener('click', () => fin({ reg: m.candidates[+b.dataset.rp] })));
+    el.querySelector('[data-rc]')?.addEventListener('click', () => fin({ create: true }));
+    el.querySelector('[data-rn]')?.addEventListener('click', () => fin(null));
+  });
+}
+// Pose la référence de la trace dans la régate (nouvelle régate « Régate du JJ/MM » si l'équipier l'a demandé) ; rend la régate de l'index
+function attachTo(reg, tr) {
   saveReg(upsertRegatta(REG, attachTrace(reg, tr, { by: who(), at: Date.now() })));
-  return { reg: REG.list.find((r) => r.id === reg.id), how: m.how };
+  refreshSheet();
+  return REG.list.find((r) => r.id === reg.id);
+}
+function createFor(m, tr) {
+  const r = createRegatta({ name: `Régate du ${dmj(m.day)}`, dateStart: m.day }, { now: Date.now(), by: who() });
+  return r.ok ? attachTo(r.regatta, tr) : null;
+}
+// Range la trace dans la régate de son jour. Une seule régate ce jour-là, ou une seule manche à l'heure de la trace : sans question.
+// Sinon (choix, proche, aucune) l'équipier décide par une invite ; invite = faux : la trace reste sans régate. Rend { reg, how }
+async function rangeTrace(tr, { invite = true, force = false } = {}) {
+  const deja = regOfTrace(tr.id);
+  if (deja) return { reg: deja, how: 'deja' };                                 // déjà rangée : jamais une seconde référence
+  const m = matchRegattas(tr.pts, REG.list, breaksOf(tr));
+  if (!force && (m.how === 'unique' || m.how === 'heure')) return { reg: attachTo(m.candidates[0], tr), how: m.how };
+  if (!invite) return { reg: null, how: m.how };
+  const c = await askPlace(tr, m);
+  if (!c) return { reg: null, how: m.how };
+  return { reg: c.create ? createFor(m, tr) : attachTo(c.reg, tr), how: c.create ? 'cree' : 'choisie' };
 }
 // Import de fichiers GPX, un par un : doublon reconnu (même début, même nombre de points), rangement dans la régate du jour, puis la dernière
 // trace s'ouvre et, si elle est rangée, le questionnaire du débrief s'ouvre seul, pré-rempli : l'équipier le valide comme avant.
@@ -1473,7 +1509,7 @@ async function importGpx(files) {
       const known = sameTrack(await listTracks(), tr);
       if (known) { tr = (await getTrack(known.id)) || tr; dup++; }              // « Déjà importée » : la trace existante est reprise, rien n'est dupliqué
       else await saveTrack(tr);
-      const r = rangeTrace(tr);
+      const r = await rangeTrace(tr);
       last = tr; placed = r.reg; ok++;
       launch = !!r.reg && r.how !== 'deja';                                     // trace déjà rangée et déjà connue : on la montre, sans rouvrir le questionnaire
       if (known) toast(`Déjà importée : ${tr.name}${r.reg ? ` · dans ${r.reg.name}` : ''}`);
@@ -1487,14 +1523,28 @@ async function importGpx(files) {
   await showTrace(last.id);
   if (launch) runDebrief(last).catch((err) => { report('debrief', err); toast('Débrief impossible : ' + (err?.message || err)); });
 }
+// Trace rangée : son résumé (distance, durée active, vitesse, % de la polaire) et son rapport suivent dans la référence de la régate,
+// pour que la fiche s'affiche sans ouvrir la liste des traces. Écrit seulement ce qui a changé.
+function syncRef(tr, res) {
+  const reg = regOfTrace(tr.id); if (!reg) return;
+  let next = setTraceSummary(reg, tr.id, traceSummary(res));
+  if (tr.report) next = setTraceReport(next, tr.id, { t: tr.report.t, by: reg.traces.find((x) => x.id === tr.id)?.report?.by ?? who() });
+  if (next !== reg) { saveReg(upsertRegatta(REG, next)); refreshSheet(); }
+}
+// Fiche de régate : « Débrief » (questionnaire) ou « Voir le débrief » (rapport déjà écrit), sur un geste
+async function openTraceDebrief(id) {
+  const tr = await getTrack(id); if (!tr) { toast('Trace introuvable sur cet appareil'); return; }
+  if (tr.report) showReport(tr); else await runDebrief(tr);
+}
 async function showTrace(id) {
   await mapReady;                                        // la carte (temps 2 d'init) : jamais gelée, l'appel attend
-  const tr = await getTrack(id); if (!tr) return;
+  const tr = await getTrack(id); if (!tr) { toast('Trace introuvable sur cet appareil'); return; }
   const day = parisClock(tr.start).date;
   const src = await windSource(day);                     // vent des prévisions, ou vent du jour figé si elles ne couvrent plus ce jour
   const sameCourse = analysis && tr.course && tr.course.id === analysis.course.id && tr.course.cls === analysis.cls;
   const res = analyzeTrack(tr, { windAt: trackWindAt(day, src), boatSpeed, legs: sameCourse ? analysis.legs.filter((l) => l.order) : null });
   if (!res) { toast('Trace vide'); return; }
+  syncRef(tr, res);
   traceView = { id, tr, res, sameCourse, src };
   scene.setTrace(res.P, res.man);
   scene.focus(res.P.filter((_, i) => i % 10 === 0));
@@ -1513,10 +1563,10 @@ function renderTraceDetail() {
     <p class="small muted" style="margin:0 0 4px">Précision attendue ±${ACCURACY_M} m (davantage si l’arrondi était large). Choisissez le virage où vous avez contourné la bouée.</p>
     ${fits.map((f) => `<div style="margin-top:10px"><b>${esc(f.k)} ${esc(f.m.name)}</b> — position à confirmer</div>${f.c.map((c, i) => `<div class="small" style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin:6px 0"><span>virage de ${Math.round(Math.abs(c.turn.D))}° à ${hms(c.turn.t)} · à ${Math.round(c.d0)} m de la position actuelle · passage au plus près à ${Math.round(c.near.d)} m <span class="muted">(pour information)</span></span><button class="btn small acc" data-mkfit="${esc(f.k)}" data-i="${i}">Valider</button></div>`).join('')}`).join('')}</div>` : '';
   el.innerHTML = `<div class="card"><h3><span>${esc(tr.name)}</span><small>${new Date(tr.start).toLocaleTimeString('fr-FR', { timeStyle: 'short' })}</small></h3>
-    <div class="kpis"><div class="kpi"><b>${(res.dist / NM).toFixed(1)}</b><span>Nq parcourus</span></div><div class="kpi"><b>${summarizeTime(res.dur)}</b><span>durée</span></div><div class="kpi"><b>${res.vmean.toFixed(1)}</b><span>nd moyen (max ${res.vmax.toFixed(1)})</span></div></div>
+    <div class="kpis"><div class="kpi"><b>${(res.dist / NM).toFixed(1)}</b><span>Nq parcourus</span></div><div class="kpi"><b>${summarizeTime(res.dur)}</b><span>durée active ${tip('Durée d’enregistrement réel : les pauses (arrêt puis reprise, perte du GPS de plus de 2 minutes) ne sont comptées ni dans la durée ni dans la distance.')}</span></div><div class="kpi"><b>${res.vmean.toFixed(1)}</b><span>nd moyen (max ${res.vmax.toFixed(1)})</span></div></div>
     <div class="kpis" style="margin-top:8px"><div class="kpi"><b>${nT}</b><span>virements</span></div><div class="kpi"><b>${nE}</b><span>empannages</span></div><div class="kpi"><b>${res.perf ? Math.round(res.perf * 100) + ' %' : '—'}</b><span>de la polaire ${tip('Vitesse mesurée ÷ vitesse cible de la polaire J80 pour le vent du modèle à cet endroit et cette heure. Indicatif : le vent réel peut différer du modèle.')}</span></div></div>
     <p class="small muted" id="trWind" style="margin:8px 0 0">Vent de l’analyse : ${esc(src.label)}.</p>
-    <p class="small" id="trReg" style="margin:4px 0 0">${regOfTrace(tr.id) ? `Rangée dans <b>${esc(regOfTrace(tr.id).name)}</b>` : 'Sans régate'}</p>
+    <p class="small" id="trReg" style="margin:4px 0 0">${regOfTrace(tr.id) ? `Rangée dans <b>${esc(regOfTrace(tr.id).name)}</b> · <button type="button" class="btn small alt" id="trDetach">Détacher</button>` : 'Sans régate · <button type="button" class="btn small alt" id="trPlace">Ranger…</button>'}</p>
     <button class="btn acc" id="trDebrief" style="width:100%;margin-top:8px">📝 ${tr.report ? 'Refaire le débrief de course' : 'Débrief de course'}</button>${tr.report ? '<button class="btn" id="trReport" style="width:100%;margin-top:6px">📄 Voir le débrief</button>' : ''}
     <div class="btns"><button class="btn alt" id="trPlay">▶ Rejouer la trace</button><button class="btn alt" id="trGpx">Exporter GPX</button><button class="btn alt" id="trHide">Masquer</button></div>
     ${sameCourse ? (sp.length ? `<h3 style="margin-top:12px">Bord par bord ${tip('Temps réel entre deux marques comparé au temps du routage optimal (même vent modèle). Un écart positif = temps perdu.')}</h3><table class="t"><tr><th>Marque</th><th>Réel</th><th>Optimal</th><th>Écart</th><th>Polaire</th></tr>${res.split.map((s) => s.missed ? `<tr><td>${s.leg.order} · ${esc(s.leg.to.name)}</td><td colspan="4" class="muted">non détectée</td></tr>` : `<tr><td>${s.leg.order} · ${esc(s.leg.to.name)}</td><td>${summarizeTime(s.t)}</td><td>${summarizeTime(s.plan)}</td><td style="color:${s.t > s.plan ? 'var(--bad)' : 'var(--ok)'}">${s.t > s.plan ? '+' : '−'}${summarizeTime(Math.abs(s.t - s.plan))}</td><td>${s.pct ? Math.round(s.pct * 100) + ' %' : '—'}</td></tr>`).join('')}</table>${worst ? `<p class="small">Bord le plus coûteux : vers <b>${esc(worst.leg.to.name)}</b> (${summarizeTime(worst.t - worst.plan)} de plus que l’optimal). Rejouez-le en comparant à la route bleue.</p>` : ''}` : '<p class="small muted">Aucune marque du parcours détectée sur cette trace (passage à plus de 250 m).</p>')
@@ -1534,6 +1584,18 @@ function renderTraceDetail() {
   };
   $('#trGpx').onclick = () => exportGPX(tr);
   $('#trDebrief').onclick = () => runDebrief(tr);
+  $('#trDetach')?.addEventListener('click', (e) => {                           // le rattachement se défait sur deux touches
+    if (e.target.dataset.c !== '1') { e.target.dataset.c = '1'; e.target.textContent = 'Détacher ?'; return; }
+    const reg = regOfTrace(tr.id); if (reg) { saveReg(upsertRegatta(REG, detachTrace(reg, tr.id))); refreshSheet(); toast(`Trace détachée de ${reg.name}`); }
+    renderTraceDetail();
+  });
+  $('#trPlace')?.addEventListener('click', async () => {                      // « Ranger… » : l'invite propose les régates et la création, jamais un choix automatique
+    try {
+      const r = await rangeTrace(tr, { force: true });
+      renderTraceDetail();
+      if (r.reg) { toast(`Trace rangée dans ${r.reg.name}`); runDebrief(tr).catch((err) => { report('debrief', err); toast('Débrief impossible : ' + (err?.message || err)); }); }
+    } catch (err) { report('import', err); toast('Rangement impossible : ' + (err?.message || err)); }
+  });
   $('#trReport')?.addEventListener('click', () => showReport(tr));
   $('#trHide').onclick = () => { traceView = null; scene.setTrace(null); el.innerHTML = ''; };
 }
@@ -1753,6 +1815,13 @@ function renderIC() {
   $$('[data-rmrace]', el).forEach((b) => b.addEventListener('click', () => {
     if (b.dataset.c !== '1') { b.dataset.c = '1'; b.textContent = 'Supprimer ?'; return; }
     saveReg(upsertRegatta(REG, removeRace(cur, +b.dataset.rmrace))); renderIC();
+  }));
+  // traces rangées : voir (onglet Traces), débrief ou rapport, détacher (deux touches)
+  $$('[data-trv]', el).forEach((b) => b.addEventListener('click', () => { openTab('tracks'); showTrace(b.dataset.trv).catch((err) => report('traces', err)); }));
+  $$('[data-trd]', el).forEach((b) => b.addEventListener('click', () => openTraceDebrief(b.dataset.trd).catch((err) => { report('debrief', err); toast('Débrief impossible : ' + (err?.message || err)); })));
+  $$('[data-trx]', el).forEach((b) => b.addEventListener('click', () => {
+    if (b.dataset.c !== '1') { b.dataset.c = '1'; b.textContent = 'Détacher ?'; return; }
+    saveReg(upsertRegatta(REG, detachTrace(cur, b.dataset.trx))); renderIC(); if (traceView) renderTraceDetail(); toast('Trace détachée de la régate');
   }));
   $('#evEdit').onclick = () => { icDraft = reviewFromRegatta(cur); renderIC(); $('#icReview')?.scrollIntoView({ behavior: 'smooth' }); };
   $('#evDel')?.addEventListener('click', (e) => { if (e.target.dataset.c !== '1') { e.target.dataset.c = '1'; e.target.textContent = 'Confirmer la suppression'; return; } icDraft = null; saveReg(removeRegatta(REG, cur.id)); afterRegChange(); });

@@ -603,8 +603,16 @@ async function gpx({ browser, base }) {
   const base1 = await lireTraces(page);
   assert.equal(base1.length, 1, 'une trace en base');
   assert.equal(r1.traces[0].id, base1[0].id);
+  assert.deepEqual(base1[0].brk, [293], 'la pause est enregistrée dans la trace');
   assert.match(await page.locator('#trReg').textContent(), /Rangée dans\s*Coupe de la SNPM — CVAT/, 'le détail de la trace dit où elle est rangée');
-  await page.click('#dqCancel');
+  assert.match(await page.locator('#traceDetail').textContent(), /durée active/, 'le détail parle de durée active');
+
+  // l'équipier valide le questionnaire tel quel ; la précision éventuelle (près ou portant) est acceptée telle quelle ; le rapport s'ouvre (réseau coupé : version automatique)
+  await page.click('#dqGo');
+  await page.waitForSelector('#rpFrame, #dmGo', { state: 'attached', timeout: 120000 });
+  if (await page.locator('#dmGo').isVisible()) { await page.click('#dmGo'); await page.waitForSelector('#rpFrame', { state: 'attached', timeout: 120000 }); }
+  await page.waitForFunction(() => document.querySelector('#rpFrame')?.srcdoc?.length > 500, null, { timeout: 120000 });
+  await page.click('#rpClose');
 
   // le même fichier une seconde fois : « Déjà importée », ni seconde trace ni seconde référence, pas de second questionnaire
   await ongletTraces(page);
@@ -614,11 +622,117 @@ async function gpx({ browser, base }) {
   assert.equal(await page.locator('#dqWind').isVisible(), false, 'pas de second questionnaire pour une trace déjà rangée');
   assert.equal((await lireTraces(page)).length, 1, 'toujours une seule trace en base');
   assert.equal((await regateCourante(page)).traces.length, 1, 'toujours une seule référence');
+
+  // la fiche de la régate réunit la trace, son analyse, son débrief et leurs auteurs
+  await page.click('#tabs button[data-tab=ic]');
+  await page.waitForSelector('#rgSheet .rgtr', { timeout: 20000 });
+  const ligne = (await page.locator('#rgSheet .rgtr').first().textContent()).replace(/\s+/g, ' ');
+  assert.match(ligne, /\d+,\d Nq · [^·]*actives · \d+,\d nd · \d+ % de la polaire/, `résumé de la trace dans la fiche : ${ligne}`);
+  assert.match(ligne, new RegExp(`par ${NOM}`), 'auteur de la trace');
+  assert.match(ligne, new RegExp(`Débrief par ${NOM}`), 'auteur du débrief');
+  assert.equal((await page.locator('#rgSheet [data-trd]').first().textContent()).trim(), 'Voir le débrief');
+  await page.click('#rgSheet [data-trd]');
+  await page.waitForFunction(() => document.querySelector('#rpFrame')?.srcdoc?.length > 500 && !document.querySelector('#modal')?.hidden, null, { timeout: 20000 });
+  const idx = await regateCourante(page);
+  assert.ok(idx.traces[0].sum && idx.traces[0].sum.dist > 25000 && idx.traces[0].sum.dur > 12000 && idx.traces[0].sum.dur < 13500, `résumé dans la référence : ${JSON.stringify(idx.traces[0].sum)}`);
+  assert.ok(idx.traces[0].report?.t, 'rapport relié à la fiche');
   sansErreur(erreurs, 'import GPX');
   await ctx.close();
 }
 
-const SCENARIOS = { creer, manche, auteur, ic, vraisemblance, gel, 'debrief-tardif': debriefTardif, gpx };
+// Index de régates posé avant le premier chargement de l'app (page de même origine sans l'app), puis app ouverte
+const regateSemee = (id, name, debut, fin = '') => ({ id, name, club: 'CVAT', dateStart: debut, dateEnd: fin, season: debut.slice(0, 4), races: [], ic: null, marks: [], courses: [], frozen: {}, traces: [], by: null, at: 0 });
+async function sème(page, base, regates, current) {
+  await page.goto(base + 'data/meta.json');
+  await page.evaluate((v) => localStorage.setItem('rade.regates.v1', v), JSON.stringify({ v: 1, current, list: regates }));
+  await ouvreApp(page, base);
+}
+const indexRegates = (page) => page.evaluate(() => JSON.parse(localStorage.getItem('rade.regates.v1')));
+
+// ARCH-04 : un jour ambigu est tranché par l'équipier, jamais deviné ; un rattachement se défait depuis la fiche
+async function gpxChoix({ browser, base }) {
+  // 1) deux régates le 18/10, sans manche : l'invite liste les deux
+  const ctx = await ouvreContexte(browser, { heure: '2026-10-19T09:00:00Z' });
+  const { page, erreurs } = await ouvrePage(ctx);
+  await sème(page, base, [regateSemee('ra', 'Régate A', '2026-10-18'), regateSemee('rb', 'Régate B', '2026-10-18')], 'ra');
+  await ongletTraces(page);
+  await page.setInputFiles('#gpxIn', GPX_SNPM);
+  await page.waitForSelector('#modal [data-rp]', { timeout: 90000 });
+  const invite = (await page.locator('#modal').textContent()).replace(/\s+/g, ' ');
+  assert.match(invite, /Cette trace du 18\/10 correspond à plusieurs régates/);
+  assert.deepEqual(await page.locator('#modal [data-rp]').allTextContents(), ['Régate A', 'Régate B']);
+  assert.match(invite, /Aucune/);
+  assert.equal((await indexRegates(page)).list.flatMap((r) => r.traces).length, 0, 'rien n’est rangé avant le choix');
+  await page.click('#modal [data-rp="1"]');
+  await page.waitForSelector('#dqEvent', { timeout: 60000 });
+  assert.equal(await page.inputValue('#dqEvent'), 'Régate B', 'le débrief s’ouvre sur la régate choisie');
+  let idx = await indexRegates(page);
+  assert.deepEqual(idx.list.map((r) => [r.id, r.traces.length]), [['ra', 0], ['rb', 1]], 'rangée dans la seconde seulement');
+  await page.click('#dqCancel');
+  // « Détacher » depuis la fiche (deux touches) : la trace reste en base, la fiche n'en liste plus
+  await page.click('#tabs button[data-tab=ic]');
+  await page.click('[data-rg="rb"]');
+  await page.waitForSelector('#rgSheet .rgtr', { timeout: 20000 });
+  await page.click('#rgSheet [data-trx]');
+  assert.match(await page.locator('#rgSheet [data-trx]').textContent(), /Détacher \?/, 'première touche : confirmation');
+  await page.click('#rgSheet [data-trx]');
+  await page.waitForFunction(() => !document.querySelector('#rgSheet .rgtr'), null, { timeout: 10000 });
+  assert.match(await page.locator('#rgSheet').textContent(), /Aucune trace : importez le GPX/);
+  idx = await indexRegates(page);
+  assert.equal(idx.list.flatMap((r) => r.traces).length, 0, 'plus aucune référence');
+  assert.equal((await lireTraces(page)).length, 1, 'la trace elle-même reste sur l’appareil');
+  await ongletTraces(page);
+  assert.match(await page.locator('#trReg').textContent(), /Sans régate/, 'le détail de la trace le dit');
+  // « Ranger… » depuis le détail : la même invite, la trace va dans la régate choisie
+  await page.click('#trPlace');
+  await page.waitForSelector('#modal [data-rp]', { timeout: 20000 });
+  await page.click('#modal [data-rp="0"]');
+  await page.waitForSelector('#dqEvent', { timeout: 60000 });
+  assert.equal(await page.inputValue('#dqEvent'), 'Régate A');
+  await page.click('#dqCancel');
+  assert.deepEqual((await indexRegates(page)).list.map((r) => [r.id, r.traces.length]), [['ra', 1], ['rb', 0]]);
+  assert.match(await page.locator('#trReg').textContent(), /Rangée dans\s*Régate A/);
+  sansErreur(erreurs, 'jour ambigu');
+  await ctx.close();
+
+  // 2) seule une régate du 7 au 9 novembre : l'invite propose d'en créer une à la date de la trace
+  const ctx2 = await ouvreContexte(browser, { heure: '2026-10-19T09:00:00Z' });
+  const { page: p2, erreurs: e2 } = await ouvrePage(ctx2);
+  await sème(p2, base, [regateSemee('nov', 'Régate de novembre', '2026-11-07', '2026-11-09')], 'nov');
+  await ongletTraces(p2);
+  await p2.setInputFiles('#gpxIn', GPX_SNPM);
+  await p2.waitForSelector('#modal [data-rc]', { timeout: 90000 });
+  assert.match(await p2.locator('#modal').textContent(), /Cette trace du 18\/10 n’est dans aucune régate/);
+  assert.equal((await p2.locator('#modal [data-rc]').textContent()).trim(), 'Créer une régate le 18/10');
+  assert.equal((await p2.locator('#modal [data-rn]').textContent()).trim(), 'Laisser sans régate');
+  await p2.click('#modal [data-rc]');
+  await p2.waitForSelector('#dqEvent', { timeout: 60000 });
+  assert.equal(await p2.inputValue('#dqEvent'), 'Régate du 18/10');
+  const i2 = await indexRegates(p2);
+  assert.deepEqual(i2.list.map((r) => [r.name, r.dateStart, r.traces.length]), [['Régate de novembre', '2026-11-07', 0], ['Régate du 18/10', '2026-10-18', 1]]);
+  assert.equal(i2.current, 'nov', 'la régate courante ne change pas');
+  await p2.click('#dqCancel');
+  sansErreur(e2, 'création depuis l’invite');
+  await ctx2.close();
+
+  // 3) « Laisser sans régate » : la trace s'ouvre, aucun questionnaire, aucune référence
+  const ctx3 = await ouvreContexte(browser, { heure: '2026-10-19T09:00:00Z' });
+  const { page: p3, erreurs: e3 } = await ouvrePage(ctx3);
+  await sème(p3, base, [regateSemee('nov', 'Régate de novembre', '2026-11-07', '2026-11-09')], 'nov');
+  await ongletTraces(p3);
+  await p3.setInputFiles('#gpxIn', GPX_SNPM);
+  await p3.waitForSelector('#modal [data-rn]', { timeout: 90000 });
+  await p3.click('#modal [data-rn]');
+  await p3.waitForSelector('#trReg', { timeout: 60000 });
+  assert.match(await p3.locator('#trReg').textContent(), /Sans régate/);
+  await p3.waitForTimeout(1000);
+  assert.equal(await p3.locator('#dqWind').count(), 0, 'aucun questionnaire');
+  assert.equal((await indexRegates(p3)).list.flatMap((r) => r.traces).length, 0);
+  sansErreur(e3, 'laisser sans régate');
+  await ctx3.close();
+}
+
+const SCENARIOS = { creer, manche, auteur, ic, vraisemblance, gel, 'debrief-tardif': debriefTardif, gpx, 'gpx-choix': gpxChoix };
 
 // ───────────────────────── lancement
 

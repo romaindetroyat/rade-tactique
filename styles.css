@@ -197,6 +197,8 @@ button.rg.on { border-color: var(--accent); background: #fff8ef; }
 .rgrform { margin-top: 10px; padding-top: 4px; border-top: 1px solid var(--line); }
 .rgwinds h4 { margin: 12px 0 4px; font-size: 14px; }
 .rgwind { border-left: 4px solid #cfd8e2; padding: 6px 10px; margin: 6px 0; background: #f8fafc; border-radius: 0 10px 10px 0; }
+.rgtraces h4 { margin: 12px 0 4px; font-size: 14px; }
+.rgtr { border-left: 4px solid #cfd8e2; padding: 6px 10px; margin: 6px 0; background: #f8fafc; border-radius: 0 10px 10px 0; }
 .rgdn, .rgwf { font-weight: 700; }
 .rgdet summary { cursor: pointer; margin-top: 4px; }
 .rgleg { border-top: 1px solid var(--line); padding: 6px 0; overflow-wrap: anywhere; }

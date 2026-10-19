@@ -128,6 +128,30 @@ export function windSectionHTML(r, { now = Date.now(), courses = [] } = {}) {
   return `<div class="rgwinds"><h4>Vent du jour</h4>${jours.map((d) => windDayHTML(d, r.frozen?.[d] || null, { now, courses })).join('')}</div>`;
 }
 
+// ───────────────────────── traces rangées dans la régate (ARCH-02, ARCH-04)
+// Construite depuis r.traces seulement (références et résumés) : la fiche ne touche jamais aux traces complètes.
+const tClock = (ms) => `${dm(ms)} ${clockOf(ms)}`;
+function traceSummaryText(sum) {
+  if (!sum) return 'analyse pas encore faite : ouvrez la trace';
+  const parts = [`${(sum.dist / 1852).toFixed(1).replace('.', ',')} Nq`, `${dur(sum.dur / 3600)} actives`, `${Number(sum.vmean).toFixed(1).replace('.', ',')} nd`];
+  if (sum.perf != null) parts.push(`${Math.round(sum.perf * 100)} % de la polaire`);
+  return parts.join(' · ');
+}
+function traceRowHTML(x) {
+  const id = escHTML(x.id);
+  return `<div class="rgtr" data-tr="${id}"><div class="rgh"><span class="rgdn">${escHTML(x.name)}</span> <span class="small muted">${Number.isFinite(x.start) ? tClock(x.start) : ''}</span></div>`
+    + `<div class="small muted">Rangée ${byLine(x.by, x.at)}</div>`
+    + `<div class="small">${escHTML(traceSummaryText(x.sum))}</div>`
+    + `<div class="small">${x.report ? `Débrief ${byLine(x.report.by, x.report.t)}` : 'pas encore débriefée'}</div>`
+    + `<div class="btns" style="margin-top:6px"><button type="button" class="btn small alt" data-trv="${id}">Voir la trace</button>`
+    + `<button type="button" class="btn small ${x.report ? 'alt' : 'acc'}" data-trd="${id}">${x.report ? 'Voir le débrief' : 'Débrief'}</button>`
+    + `<button type="button" class="btn small alt" data-trx="${id}">Détacher</button></div></div>`;
+}
+export function tracesSectionHTML(r) {
+  const list = r?.traces || [];
+  return `<div class="rgtraces"><h4>Traces</h4>${list.length ? list.map(traceRowHTML).join('') : '<p class="small muted">Aucune trace : importez le GPX après la course (onglet Traces).</p>'}</div>`;
+}
+
 // Fiche de la régate courante : nom, club, dates, statut, auteur, puis les manches (courses = parcours connus [{ id, title }]) et le vent du jour
 export function sheetHTML(r, { now = Date.now(), courses = [], raceDraft = null, raceErrors = {} } = {}) {
   if (!r) return '<div class="card" id="rgSheet"><p class="small muted">Aucune régate courante : créez-en une ou choisissez-en une dans la liste.</p></div>';
@@ -137,5 +161,6 @@ export function sheetHTML(r, { now = Date.now(), courses = [], raceDraft = null,
     <div class="small muted" style="margin-top:4px">Créée ${byLine(r.by, r.at)}</div>
     <div class="rgraces"><h4>Manches</h4>${races.length ? races.map((m) => raceRowHTML(m, { courses, chosen: r.sel === m.n })).join('') : '<p class="small muted">Aucune manche : ajoutez-en une avec son heure de signal et son parcours.</p>'}
     ${raceDraft ? raceFormHTML(r, raceDraft, raceErrors, courses) : '<div class="btns"><button type="button" class="btn small acc" id="rcNew">＋ Ajouter une manche</button></div>'}</div>
-    ${windSectionHTML(r, { now, courses })}</div>`;
+    ${windSectionHTML(r, { now, courses })}
+    ${tracesSectionHTML(r)}</div>`;
 }
