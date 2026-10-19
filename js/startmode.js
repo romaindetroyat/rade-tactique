@@ -186,7 +186,7 @@ export function createStartMode(api) {
     updateToggles();
   }
   let view = 'num', locked = false;
-  function setT(sec) { api.audioInit(); api.timer.end = Date.now() + sec * 1000; api.timer.beeps.clear(); api.startTimer(); st.crossed = null; st.ocs = false; lastSaid = null; }
+  function setT(sec) { api.audioInit(); api.timer.end = Date.now() + sec * 1000; api.startTimer(); st.crossed = null; st.ocs = false; lastSaid = null; }
   function act(a) {
     const T = api.timer, $ = (s) => root.querySelector(s);
     if (a === 'close') return close();

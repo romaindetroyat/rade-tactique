@@ -17,6 +17,7 @@ import { Recorder, listTracks, getTrack, deleteTrack, saveTrack, analyzeTrack, e
 import { shroudsFor } from './tuning.js';
 import { createStartMode } from './startmode.js';
 import { initUpdates } from './swupdate.js';
+import { createBeeper } from './beeper.js';
 import { isActive, isRaceDay, lockState } from './racelock.js';
 import { detect as dbDetect, ask as dbAsk, askModes as dbAskModes, analyze as dbAnalyze, narrative as dbNarrative, buildReport as dbBuild, shareReport as dbShare } from './debrief.js';
 
@@ -62,6 +63,11 @@ if (S.polar) { try { setPolar(S.polar.tws, S.polar.twa, S.polar.bsp, S.polar.sou
 
 // ───────────────────────── démarrage
 async function init() {
+  // chrono repris après un rechargement ou une relance d’iOS : l’affichage repart tout de suite, le son revient au premier toucher
+  const saved = store.get('rade.timer.v1', null);
+  let resumed = false;
+  if (saved?.end && Date.now() < saved.end + 10 * 60e3) { timer.end = saved.end; startTimer(); resumed = true; }
+  else if (saved?.end) store.set('rade.timer.v1', { end: null });
   T = await new Terrain().load('data/');
   F = new WindField(T);
   scene = new Scene3D($('#view'), T);
@@ -77,6 +83,7 @@ async function init() {
   if (data) { series = consensus(data); refreshObs(); }
   updateAll();
   $('#splash').classList.add('gone');
+  if (resumed) toast('Chrono repris — touchez l’écran pour réactiver le son');
   maybeWelcome();
   renderTracks();
   refreshWeather();
@@ -662,7 +669,19 @@ function showUpdateBar(build) {
 function hideUpdateBar() { const el = document.getElementById('updbar'); if (el) el.hidden = true; }
 
 // ───────────────────────── DÉPART
-let timer = { end: null, running: false, iv: null, beeps: new Set() };
+// timer.end est un accesseur : tout site d’appel (Top, ±1 min, Arrondir, Synchro, Stop) replanifie les bips sans autre geste
+// et mémorise l’heure de fin pour qu’un rechargement ou une relance d’iOS ne perde pas le chrono.
+const timer = { running: false, iv: null };
+let timerEnd = null;
+Object.defineProperty(timer, 'end', {
+  enumerable: true,
+  get: () => timerEnd,
+  set(v) {
+    timerEnd = v ?? null;
+    if (timerEnd == null) beeper?.disarm(); else beeper?.arm(timerEnd);
+    store.set('rade.timer.v1', { end: timerEnd });
+  },
+});
 const startMode = createStartMode({
   S, persist, timer, beep: (...x) => beep(...x), audioInit: () => audioInit(), startTimer: () => startTimer(), startGps: () => startGps(), gps: () => gps, say, toast,
   setLineEnd: (w, ll) => setLineEnd(w, ll), reanalyse: () => scheduleAnalysis(), help: () => openGuide(),
@@ -707,7 +726,7 @@ function renderStart() {
   $('#smOpen').onclick = () => startMode.open();
   $('#pingCb').onclick = () => pingLine('cb');
   $('#pingPin').onclick = () => pingLine('pin');
-  const setT = (sec) => { audioInit(); timer.end = Date.now() + sec * 1000; timer.beeps.clear(); startTimer(); };
+  const setT = (sec) => { audioInit(); timer.end = Date.now() + sec * 1000; startTimer(); };
   $('#t5').onclick = () => setT(300); $('#t4').onclick = () => setT(240); $('#t1').onclick = () => setT(60);
   $('#tm').onclick = () => { if (timer.end) timer.end -= 60000; }; $('#tp').onclick = () => { if (timer.end) timer.end += 60000; };
   $('#tsync').onclick = () => { if (timer.end) { const r = (timer.end - Date.now()) / 1000; timer.end = Date.now() + Math.round(r / 60) * 60000; } };
@@ -718,8 +737,15 @@ function pingLine(which) {
   if (!navigator.geolocation) return toast('GPS indisponible');
   navigator.geolocation.getCurrentPosition((p) => setLineEnd(which, { lat: p.coords.latitude, lon: p.coords.longitude }), (e) => toast('GPS : ' + e.message), { enableHighAccuracy: true, timeout: 15000 });
 }
-let actx = null;
-function audioInit() { try { actx = actx || new (window.AudioContext || window.webkitAudioContext)(); actx.resume(); } catch { /* audio indisponible */ } }
+let actx = null, beeper = null;
+// Toujours appelé dans un geste. Le contexte naît ici, avec le planificateur de bips ; un chrono déjà armé est replanifié.
+function audioInit() {
+  try {
+    if (!actx) { actx = new (window.AudioContext || window.webkitAudioContext)(); beeper = createBeeper({ ctx: actx }); }
+    actx.resume();
+    if (timer.end != null && beeper.end !== timer.end) beeper.arm(timer.end);
+  } catch { /* audio indisponible */ }
+}
 function beep(f = 880, d = 0.12) {
   if (!actx) return;
   const o = actx.createOscillator(), g = actx.createGain(); o.frequency.value = f; o.connect(g); g.connect(actx.destination);
@@ -728,18 +754,16 @@ function beep(f = 880, d = 0.12) {
 }
 function startTimer() { clearInterval(timer.iv); timer.iv = setInterval(tickTimer, 100); tickTimer(); }
 function tickTimer() {
+  beeper?.tick();     // remplit la fenêtre de bips posés sur l’horloge audio (js/beeper.js) ; l’affichage ci-dessous ne sonne plus
   const c = $('#tClock'), ph = $('#tPhase'); if (!timer.end) return;
   const r = (timer.end - Date.now()) / 1000, s = Math.ceil(r);
   if (r > 0) {
     if (c) c.textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
     if (ph) ph.textContent = s > 240 ? 'Avertissement — pavillon de classe' : s > 60 ? 'Préparatoire (P / I / U / Z / Noir)' : 'Dernière minute !';
-    const key = s;
-    if (!timer.beeps.has(key) && ((s % 60 === 0) || (s <= 60 && s % 10 === 0) || s <= 10)) { timer.beeps.add(key); beep(s % 60 === 0 ? 660 : 880, s % 60 === 0 ? 0.5 : 0.12); }
   } else {
     const e = -r;
     if (c) c.textContent = `+${Math.floor(e / 60)}:${String(Math.floor(e % 60)).padStart(2, '0')}`;
     if (ph) ph.textContent = e < 600 ? 'PARTI ! (départ possible jusqu’à H+10’)' : 'En course';
-    if (!timer.beeps.has('go')) { timer.beeps.add('go'); beep(990, 1.0); }
   }
   const lc = $('#liveClock'); if (lc && c) lc.textContent = c.textContent;
 }
