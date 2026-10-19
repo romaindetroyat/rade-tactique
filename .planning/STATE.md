@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 2
 current_phase_name: Fiable et juste en mer
 status: executing
-stopped_at: Completed 02-02-PLAN.md
-last_updated: "2026-10-19T16:19:16.997Z"
+stopped_at: Completed 02-03-PLAN.md
+last_updated: "2026-10-19T17:03:53.857Z"
 last_activity: 2026-10-19
 last_activity_desc: Phase 2 execution started
-state_head: 3b010165dd8258567bd040dc0813567856ec38a3
+state_head: 2d60af012caa0c7718deca1a6dd710e71f978e2f
 progress:
   total_phases: 4
   completed_phases: 1
   total_plans: 9
-  completed_plans: 6
+  completed_plans: 7
   percent: 25
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-10-19)
 ## Current Position
 
 Phase: 2 (Fiable et juste en mer) — EXECUTING
-Plan: 3 of 5
+Plan: 4 of 5
 Status: Ready to execute
 Last activity: 2026-10-19 — Phase 2 execution started
 
@@ -60,6 +60,7 @@ Progress: [███░░░░░░░] 25%
 | Phase 01 P03 | 13 min | 2 tasks | 9 files |
 | Phase 02 P01 | 69 min | 3 tasks | 13 files |
 | Phase 02 P02 | 20 min | 2 tasks | 14 files |
+| Phase 02 P03 | 40 min | 2 tasks | 13 files |
 
 ## Accumulated Context
 
@@ -85,6 +86,10 @@ Décisions récentes qui orientent le travail en cours :
 - [Phase 02]: 02-02 : la lampe réseau suit le résultat de la sonde HEAD (jamais navigator.onLine seul) et n’est jamais rouge — Un GET serait servi par le cache du worker et dirait « réseau ok » en mode avion ; une sonde sans réponse passe la lampe à l’orange tout de suite
 - [Phase 02]: 02-02 : garde de test « aucune erreur avalée » sur app, track, startmode, wakelock et beeper : tout gestionnaire consigne (report / note) ou explique son repli par un commentaire — FIAB-07 : plus aucun échec du chemin départ / course sans trace
 - [Phase 02]: 02-02 : mode départ, quatre lampes sur une seconde ligne de la barre du haut ; ligne d’action = lampe touchée, sinon première lampe rouge, sinon alerte du chrono — Quatre lampes ne tiennent pas sur la ligne des boutons à 375 px
+- [Phase 02]: L’interface utile s’affiche avant la 3D et le vent : import différé de scene3d.js, gardes, marques rt:ui / rt:map (FIAB-06)
+- [Phase 02]: Le champ de vent est préparé dans prepareField par tranches de 12 ms (kitSteps / warm) derrière autoHeavy ; computeField est mémoïsé, fieldKey remis à null par refreshObs et le débrief
+- [Phase 02]: Seuls les recalculs automatiques (ouverture, prévisions sans geste) sont reportés de H−6 min à H+1 min ; gestes et relevés calculent tout de suite (garde statique W4)
+- [Phase 02]: L’outil de mesure neutralise le dessin et le téléversement WebGL : le rendu logiciel de Chromium sans tête fausse les mesures
 
 ### Pending Todos
 
@@ -109,6 +114,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-10-19T16:19:16.901Z
-Stopped at: Completed 02-02-PLAN.md
+Last session: 2026-10-19T17:03:53.727Z
+Stopped at: Completed 02-03-PLAN.md
 Resume file: None
