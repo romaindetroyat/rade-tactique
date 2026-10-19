@@ -45,7 +45,12 @@ export default async function middleware(req) {
     return redirige(`/acces.html?erreur=1&suite=${encodeURIComponent(suite)}`);
   }
 
-  if (await membre(lireCookie(req))) return next();
+  // D-05 : le prénom de l'équipier connecté (jamais le code ni l'empreinte) sert à signer ce qu'il crée dans l'app ; réponse minuscule, jamais mise en cache
+  const prenom = await membre(lireCookie(req));
+  if (prenom) {
+    if (req.method === 'GET' && url.pathname === '/api/membre') return Response.json({ membre: prenom }, { headers: { 'Cache-Control': 'no-store' } });
+    return next();
+  }
 
   // page demandée par le navigateur : vers la connexion ; fichiers et API : refus net (rien ne doit être mis en cache)
   const navigation = req.headers.get('sec-fetch-mode') === 'navigate' || (req.headers.get('accept') || '').includes('text/html');

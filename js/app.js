@@ -5,7 +5,7 @@ import { Terrain, toXY, toLL, NM, bearingXY, distXY, norm360, norm180, fmtBrg, f
 import { WindField, speedColor } from './wind.js';
 import { MARKS, COURSES, LINE_PRESETS, FORBIDDEN_ZONE, DANGERS } from './courses.js';
 import { pdfText, parseIC, eventForm, readForm } from './events.js';
-import { migrate, saveRegattas, createRegatta, upsertRegatta, removeRegatta, setCurrent as setCurrentRegatta, currentRegatta, icOf, groupBySeason, lockDates, seasonOf, daysOf, addRace, removeRace, raceSettings } from './regates.js';
+import { migrate, saveRegattas, createRegatta, upsertRegatta, removeRegatta, setCurrent as setCurrentRegatta, currentRegatta, icOf, groupBySeason, lockDates, seasonOf, daysOf, addRace, removeRace, raceSettings, membre, saveMembre, backfillAuthor } from './regates.js';
 import { listHTML, newRegattaFormHTML, sheetHTML } from './regview.js';
 import { fetchAll, cached, snapshot, consensus, gridPoints, marineAt, fetchLive, MODELS, WMO, CENTER } from './weather.js';
 import { buildLegs, analyzeLeg, markAdvice, analyzeStart, trendOf, rankCourses, regimeOf, sideName, summarizeTime } from './tactics.js';
@@ -40,6 +40,8 @@ const arrow = (dir) => `<span class="arr" style="transform:rotate(${dir + 180}de
 const store = { get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch { return d; /* valeur absente ou illisible : la valeur par défaut */ } }, set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* indisponible */ } } };
 const marksStore = () => { try { return localStorage; } catch { return null; /* stockage indisponible : aucun recalage */ } };
 const localStore = () => { try { return localStorage; } catch { return null; /* stockage indisponible : les régates restent en mémoire */ } };
+// Auteur de ce qu’on crée : le prénom donné par le middleware (D-05), gardé sur l’appareil ; null tant qu’il n’est pas connu (affiché « — », complété plus tard)
+const who = () => membre(localStore());
 const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 const addDays = (s, n) => { const d = new Date(s + 'T12:00:00'); d.setDate(d.getDate() + n); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 const dayName = (s) => new Date(s + 'T12:00:00').toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
@@ -51,7 +53,7 @@ const DEF = {
 };
 const S = { ...DEF, ...store.get('rade.state', {}) };
 // Régates : l’index (petit) se lit de façon synchrone au chargement, comme l’ancienne fiche courante ; IC garde la forme d’avant (icOf)
-let REG = migrate({ storage: localStore(), now: Date.now(), by: null });
+let REG = migrate({ storage: localStore(), now: Date.now(), by: who() });
 let IC = icOf(currentRegatta(REG));
 // Remplace l’état des régates, l’écrit et recalcule IC ; un stockage plein ou refusé laisse l’état en mémoire, avec un message
 function saveReg(next) {
@@ -118,10 +120,11 @@ async function init() {
   setInterval(lampTick, 1000);
   addEventListener('pagehide', saveRaceActivity);
   document.addEventListener('visibilitychange', () => { note('page', document.hidden ? 'masquée' : 'visible'); if (document.hidden) saveRaceActivity(); else { lastProbe = Date.now(); probeNet(); renderRaceBar(); } });
-  addEventListener('online', () => { note('reseau', 'en ligne'); probeNet(); });
+  addEventListener('online', () => { note('reseau', 'en ligne'); probeNet(); if (!who()) refreshMembre(); });
   addEventListener('offline', () => { net.online = false; note('reseau', 'hors ligne'); renderRaceBar(); });
   // ── temps 2 : la carte et le vent
   await nextFrame();
+  refreshMembre();                                     // prénom de l’équipier : jamais attendu
   data = cached();
   const snap = await snapshot();
   if (snap && (!data || snap.fetched > data.fetched)) data = snap;
@@ -1492,6 +1495,20 @@ function bindMarksEdit(el) {
 }
 
 // ───────────────────────── RÉGATES ET IC
+// D-05 : le prénom de l’équipier est donné par le middleware (GET /api/membre : jamais le code ni son empreinte), copié sur l’appareil pour le hors-réseau,
+// puis il complète les éléments créés sans auteur sur cet appareil. Jamais attendu avant l’interface utile ; un échec est consigné, sans message à l’équipier.
+async function refreshMembre() {
+  const ctl = new AbortController(), to = setTimeout(() => ctl.abort(), 4000);
+  try {
+    const r = await fetch('/api/membre', { cache: 'no-store', signal: ctl.signal });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const nom = (await r.json())?.membre;
+    if (!saveMembre(localStore(), nom)) throw new Error('prénom illisible');
+    const { st, n } = backfillAuthor(REG, nom);
+    if (n) saveReg(st);
+    if (!icBusy()) renderIC();                           // « Vous : prénom » et les auteurs complétés
+  } catch (e) { note('membre', 'prénom indisponible : ' + (e?.message || e)); } finally { clearTimeout(to); }
+}
 let icDraft = null;                          // fiche IC en cours de relecture (import ou « Modifier »)
 let rgDraft = null, rgErr = {};              // formulaire « Nouvelle régate » ouvert : sa saisie survit à un redessin
 let raceDraft = null, raceErr = {};          // formulaire « Nouvelle manche » ouvert
@@ -1520,7 +1537,8 @@ function renderIC() {
   IC = icOf(cur);
   const tel = /(0[1-9](?:[ .-]?\d{2}){4})/.exec(IC.committee || '')?.[1];
   let html = `<div class="card"><h3><span>Régates ${tip('Chaque régate a sa fiche : jours, manches, Instructions de Course. La régate choisie fixe le jour 🏁, l’heure de départ par défaut et les points clés affichés. Classées par saison, puis Aujourd’hui, À venir, Passées.')}</span><button type="button" class="btn acc small" id="rgNew">＋ Nouvelle régate</button></h3>
-    ${listHTML(groupBySeason(REG.list, now), { currentId: cur?.id ?? null, now })}</div>`;
+    ${listHTML(groupBySeason(REG.list, now), { currentId: cur?.id ?? null, now })}
+    <div class="small muted" id="rgWho" style="margin-top:6px">${who() ? `Vous : ${esc(who())}` : 'Vous : — (prénom donné à la prochaine connexion)'}</div></div>`;
   if (rgDraft) html += newRegattaFormHTML(rgDraft, rgErr);
   html += sheetHTML(cur, { now, courses: courseList(), raceDraft, raceErrors: raceErr });
   if (icDraft) html += eventForm(icDraft);
@@ -1550,7 +1568,7 @@ function renderIC() {
     const sync = () => { rgDraft = { name: $('#rgName').value, dateStart: $('#rgStart').value, dateEnd: $('#rgEnd').value, club: $('#rgClub').value }; };
     const create = () => {
       sync();
-      const r = createRegatta(rgDraft, { now: Date.now(), by: null });
+      const r = createRegatta(rgDraft, { now: Date.now(), by: who() });
       if (!r.ok) { rgErr = r.errors; renderIC(); return; }
       rgDraft = null; rgErr = {}; icDraft = null;
       saveReg(setCurrentRegatta(upsertRegatta(REG, r.regatta), r.regatta.id));
@@ -1574,7 +1592,7 @@ function renderIC() {
     for (const id of ['#rcDate', '#rcTime', '#rcCourse', '#rcCls', '#rcLaps', '#rcNote']) { $(id).addEventListener('input', sync); $(id).addEventListener('change', sync); }
     $('#rcAdd').onclick = () => {
       sync();
-      const r = addRace(cur, raceDraft, { now: Date.now(), by: null, courses: COURSES });
+      const r = addRace(cur, raceDraft, { now: Date.now(), by: who(), courses: COURSES });
       if (!r.ok) { raceErr = r.errors; renderIC(); return; }
       raceDraft = null; raceErr = {};
       saveReg(upsertRegatta(REG, r.regatta)); renderIC(); toast(`Manche ajoutée (${r.regatta.races.length} dans la régate)`);
@@ -1610,14 +1628,14 @@ function renderIC() {
       const ic = {
         fields: { ...(prev?.ic?.fields || {}), firstWarning: ev.firstWarning, lastFinishSignal: ev.lastFinishSignal, vhf: ev.vhf, committee: ev.committee, zone: ev.zone, keyRules: ev.keyRules },
         text: String(icDraft.text || '').slice(0, 20000), source: icDraft.source || prev?.ic?.source || '', read: icDraft.read || prev?.ic?.read || 'saisie',
-        excerpts: prev?.ic?.excerpts || {}, validated: { by: null, at },
+        excerpts: prev?.ic?.excerpts || {}, validated: { by: who(), at },
       };
       let reg;
       if (prev) {
         const dateStart = ev.date || prev.dateStart;      // une date vidée ne retire pas son jour à la régate
         reg = { ...prev, name: String(ev.event || prev.name).slice(0, 80), dateStart, dateEnd: dateStart && ev.dateEnd > dateStart ? ev.dateEnd : '', season: seasonOf(dateStart), ic };
       } else {
-        const r = createRegatta({ name: ev.event, dateStart: ev.date, dateEnd: ev.dateEnd, club: '' }, { now: at, by: null });
+        const r = createRegatta({ name: ev.event, dateStart: ev.date, dateEnd: ev.dateEnd, club: '' }, { now: at, by: who() });
         if (!r.ok) { toast(r.errors.dateStart || r.errors.name || 'Régate incomplète'); return; }
         reg = { ...r.regatta, ic };
       }

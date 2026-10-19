@@ -199,7 +199,71 @@ async function manche({ browser, base }) {
   await ctx.close();
 }
 
-const SCENARIOS = { creer, manche };
+// Sert GET /api/membre comme le middleware : { membre } en 200, ou 401 { error: 'acces' } tant que `servi.ok` est faux ; `servi.vu` se résout à la première demande
+async function simuleMembre(ctx, nom) {
+  const servi = { ok: true, appels: 0 };
+  servi.vu = new Promise((ok) => { servi.signale = ok; });
+  await ctx.route('**/api/membre', (route) => {
+    servi.appels++; servi.signale();
+    return servi.ok ? route.fulfill({ status: 200, contentType: 'application/json', headers: { 'cache-control': 'no-store' }, body: JSON.stringify({ membre: nom }) })
+      : route.fulfill({ status: 401, contentType: 'application/json', body: '{"error":"acces"}' });
+  });
+  return servi;
+}
+const membreGarde = (page, nom) => page.waitForFunction((n) => localStorage.getItem('rade.membre.v1') === n, nom, { timeout: 20000 });
+const regateCourante = (page) => page.evaluate(() => { const i = JSON.parse(localStorage.getItem('rade.regates.v1')); return i.list.find((r) => r.id === i.current); });
+
+// ARCH-02 (auteur, D-05) : le prénom donné par le middleware signe la régate et la manche ; gardé hors réseau ; complété au premier succès
+async function auteur({ browser, base }) {
+  const NOM = 'Équipier test';
+  // 1) réponse du middleware dès le premier chargement : tout ce qui est créé porte le prénom
+  const ctx = await ouvreContexte(browser, { heure: '2026-11-07T08:30:00Z' });
+  const servi = await simuleMembre(ctx, NOM);
+  const { page, erreurs } = await ouvrePage(ctx);
+  await ouvreApp(page, base);
+  await membreGarde(page, NOM);
+  await creeRegate(page, { nom: 'Régate signée', debut: '2026-11-07', club: 'CVAT' });
+  await ajouteManche(page, { heure: '10:55', parcours: '5', cls: 'G', tours: '2' });
+  assert.match(await page.locator('section[data-tab=ic] .rg.on').textContent(), /par Équipier test/, 'la ligne de la régate porte son auteur');
+  assert.match(await page.locator('#rgSheet').textContent(), /Créée par Équipier test/);
+  assert.match(await page.locator('#rgSheet .rgrace').textContent(), /par Équipier test/, 'la manche porte son auteur');
+  assert.match(await page.locator('#rgWho').textContent(), /Vous : Équipier test/);
+  let reg = await regateCourante(page);
+  assert.equal(reg.by, NOM); assert.equal(reg.races[0].by, NOM);
+  assert.ok(servi.appels >= 1, '/api/membre a été demandée');
+  assert.ok(!JSON.stringify(await page.evaluate(() => ({ ...localStorage }))).match(/rt_acces|acces=/), 'aucun code d’accès côté page');
+  sansErreur(erreurs, 'avec le middleware');
+  await ctx.close();
+
+  // 2) premier lancement hors réseau (la réponse échoue) : « — », puis complété au premier succès
+  const ctx2 = await ouvreContexte(browser, { heure: '2026-11-07T08:30:00Z' });
+  const servi2 = await simuleMembre(ctx2, NOM);
+  servi2.ok = false;
+  const { page: p2, erreurs: e2 } = await ouvrePage(ctx2);
+  await ouvreApp(p2, base);
+  await servi2.vu;
+  await creeRegate(p2, { nom: 'Régate hors réseau', debut: '2026-11-07', club: 'CVAT' });
+  await ajouteManche(p2, { heure: '10:55', parcours: '5', cls: 'G', tours: '2' });
+  const ligne = await p2.locator('section[data-tab=ic] .rg.on').textContent();
+  assert.ok(ligne.includes('—') && !/par /.test(ligne), `sans réponse : « — » attendu, vu « ${ligne} »`);
+  assert.match(await p2.locator('#rgWho').textContent(), /Vous : —/);
+  reg = await regateCourante(p2);
+  assert.equal(reg.by, null); assert.equal(reg.races[0].by, null);
+  assert.equal(await p2.evaluate(() => localStorage.getItem('rade.membre.v1')), null, 'rien de gardé sans réponse');
+  servi2.ok = true;                                          // le réseau revient : au rechargement, la réponse arrive
+  await ouvreApp(p2, base);
+  await membreGarde(p2, NOM);
+  await p2.waitForFunction(() => document.querySelector('#rgWho')?.textContent.includes('Vous : Équipier test'), null, { timeout: 20000 });
+  await p2.click('#tabs button[data-tab=ic]');
+  assert.match(await p2.locator('section[data-tab=ic] .rg.on').textContent(), /par Équipier test/, 'la régate créée hors réseau est complétée');
+  assert.match(await p2.locator('#rgSheet .rgrace').textContent(), /par Équipier test/, 'la manche créée hors réseau est complétée');
+  reg = await regateCourante(p2);
+  assert.equal(reg.by, NOM); assert.equal(reg.races[0].by, NOM);
+  sansErreur(e2, 'hors réseau puis en ligne');
+  await ctx2.close();
+}
+
+const SCENARIOS = { creer, manche, auteur };
 
 // ───────────────────────── lancement
 

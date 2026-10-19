@@ -192,3 +192,30 @@ export function raceSettings(race) {
   if (isTime(race.time)) { const [h, m] = race.time.split(':').map(Number); out.startTime = (h * 60 + m + 5) / 60; }
   return out;
 }
+
+// ───────────────────────── auteur (D-05)
+
+// Prénom donné par le middleware, gardé sur l’appareil pour le hors-réseau ; null si inconnu ou stockage illisible
+export function membre(storage) {
+  try { const v = storage.getItem(MEMBRE_KEY); return validName(v) ? v.trim() : null; } catch { return null; /* stockage illisible : auteur inconnu */ }
+}
+const validName = (v) => typeof v === 'string' && v.trim().length > 0 && v.trim().length <= 40 && /^[\p{L}\p{M} '’-]+$/u.test(v.trim()) && /\p{L}/u.test(v);
+export function saveMembre(storage, nom) {
+  if (!validName(nom)) return false;
+  try { storage.setItem(MEMBRE_KEY, nom.trim()); return true; } catch { return false; /* stockage plein ou refusé */ }
+}
+// Complète les `by: null` créés sur cet appareil ; ne remplace jamais un auteur déjà posé. Rend { st, n } (n = éléments complétés).
+export function backfillAuthor(st, nom) {
+  if (!validName(nom)) return { st, n: 0 };
+  const by = nom.trim();
+  let n = 0;
+  const fill = (o) => { if (o && typeof o === 'object' && o.by == null) { n++; return { ...o, by }; } return o; };
+  const list = st.list.map((r) => {
+    const out = fill(r);
+    const races = (r.races || []).map(fill);
+    const ic = r.ic?.validated && r.ic.validated.by == null ? (n++, { ...r.ic, validated: { ...r.ic.validated, by } }) : r.ic;
+    const frozen = r.frozen ? Object.fromEntries(Object.entries(r.frozen).map(([k, v]) => [k, fill(v)])) : r.frozen;
+    return { ...out, races, ic, marks: (r.marks || []).map(fill), courses: (r.courses || []).map(fill), traces: (r.traces || []).map(fill), frozen };
+  });
+  return n ? { st: { ...st, list }, n } : { st, n: 0 };
+}
