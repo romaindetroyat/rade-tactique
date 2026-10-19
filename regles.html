@@ -91,7 +91,13 @@ details.q[open] summary { margin-bottom: 6px; }
 .msg.err { background: var(--tip); border: 1px solid var(--tipline); }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .chips button { font: inherit; font-size: 14px; border: 1px solid var(--line); background: var(--chip); color: var(--ink); border-radius: 999px; padding: 6px 12px; cursor: pointer; text-align: left; }
-.ask { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: end; }
+.ask { display: grid; grid-template-columns: auto 1fr; gap: 8px; }
+.ask textarea { grid-column: 1 / -1; min-height: 84px; }
+.ask .mic { background: var(--chip); color: var(--ink); border: 1px solid var(--line); font-size: 22px; padding: 0 14px; min-width: 52px; }
+.ask .mic.rec { background: #e03131; color: #fff; border-color: #e03131; animation: pulse 1.2s ease-in-out infinite; }
+@keyframes pulse { 50% { box-shadow: 0 0 0 8px rgba(224,49,49,.25); } }
+.msg.bot .say-btn { float: right; margin: -2px -4px 0 8px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); border-radius: 999px; font-size: 16px; padding: 4px 9px; cursor: pointer; }
+#chatHint { font-size: 14px; color: var(--accent); }
 .ask textarea { font: inherit; font-size: 16px; width: 100%; min-height: 52px; max-height: 160px; resize: vertical; border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; background: var(--bg); color: var(--ink); }
 .ask button { font: inherit; font-weight: 800; border: 0; border-radius: 12px; padding: 0 18px; min-height: 52px; background: #ff8a1c; color: #000; cursor: pointer; }
 .ask button:disabled { opacity: .5; }
@@ -145,7 +151,8 @@ a { color: var(--sea); }
       <button type="button">Pavillon Z puis rappel général : que se passe-t-il ?</button>
       <button type="button">On a touché le Comité à l’arrivée, que faire ?</button>
     </div>
-    <form class="ask" id="chatForm"><textarea id="chatIn" rows="2" placeholder="Ex. : on arrive tribord à la bouée au vent, un bâbord vire sous notre vent dans la zone…" aria-label="Votre question"></textarea><button type="submit" id="chatGo">Demander</button></form>
+    <form class="ask" id="chatForm"><textarea id="chatIn" rows="2" placeholder="Écrivez ou touchez 🎤 et racontez la situation : « on arrive tribord à la bouée au vent, un bâbord vire sous notre vent… »" aria-label="Votre question"></textarea><button type="button" class="mic" id="chatMic" aria-label="Dicter la question" title="Dicter la question">🎤</button><button type="submit" id="chatGo">Demander</button></form>
+    <div id="chatHint" hidden></div>
     <div class="small" style="color:var(--muted)">Réponse rédigée par une IA (OpenAI) : utile pour comprendre, mais seul le jury tranche une réclamation. Une citation anglaise marquée « à vérifier » n’a pas été retrouvée mot pour mot dans le texte officiel.</div>
   </div>
 </section>
@@ -687,7 +694,7 @@ a { color: var(--sea); }
   const log = $('#chatLog'), input = $('#chatIn'), go = $('#chatGo');
   const history = [];
   const add = (cls, html) => { const d = document.createElement('div'); d.className = 'msg ' + cls; d.innerHTML = html; log.appendChild(d); d.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); return d; };
-  const render = (a) => `<div class="verdict">${esc(a.verdict)}</div>${para(a.explication)}
+  const render = (a) => `<button type="button" class="say-btn" aria-label="Lire la réponse à voix haute" title="Lire à voix haute">🔊</button><div class="verdict">${esc(a.verdict)}</div>${para(a.explication)}
     ${(a.regles || []).map((r) => `<div class="rn">Règle ${esc(r.numero)} · ${esc(r.titre)}</div><div class="ref">
       <blockquote><span class="lg">FR</span>« ${esc(r.fr)} » (traduction)</blockquote>
       <blockquote class="en"><span class="lg">EN</span>« ${esc(String(r.en).replace(/\s+/g, ' ').trim())} »${r.verifie ? '' : ' <b style="font-style:normal;color:var(--accent)">à vérifier</b>'}</blockquote></div>`).join('')}
@@ -701,6 +708,7 @@ a { color: var(--sea); }
       const a = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(a.error === 'no_key' ? 'L’arbitre n’est pas configuré (clé OpenAI absente).' : 'L’arbitre n’a pas pu répondre. Réessayez dans un instant.');
       wait.innerHTML = render(a);
+      wait.querySelector('.say-btn').onclick = () => speak(`${a.verdict.replace(/[.\s]+$/, '')}. ${a.explication}${a.ic ? '. Instructions de course : ' + a.ic : ''}`);
       history.push({ role: 'user', content: q }, { role: 'assistant', content: `${a.verdict} ${a.explication}` });
       history.splice(0, Math.max(0, history.length - 6));
     } catch (e) {
@@ -708,9 +716,41 @@ a { color: var(--sea); }
       wait.textContent = navigator.onLine === false ? 'Pas de connexion : l’arbitre a besoin du réseau. Les fiches de cette page restent lisibles hors ligne.' : e.message;
     } finally { go.disabled = false; }
   }
-  $('#chatForm').addEventListener('submit', (e) => { e.preventDefault(); ask(input.value); });
+  // lecture à voix haute (synthèse vocale du téléphone)
+  function speak(text) {
+    try { speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(text); u.lang = 'fr-FR'; u.rate = 1.05; speechSynthesis.speak(u); } catch { /* synthèse indisponible */ }
+  }
+  // dictée : le texte s'affiche pendant qu'on parle, on corrige si besoin puis « Demander »
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const mic = $('#chatMic'), hint = $('#chatHint');
+  let rec = null;
+  const note = (t) => { hint.textContent = t; hint.hidden = !t; };
+  const stopMic = () => { try { rec?.stop(); } catch { /* déjà arrêtée */ } };
+  mic.addEventListener('click', () => {
+    if (rec) return stopMic();
+    if (!SR) { note('La dictée n’est pas disponible dans ce navigateur : touchez la zone de texte et utilisez le micro du clavier.'); input.focus(); return; }
+    const base = input.value.trim() ? input.value.trim() + ' ' : '';
+    let finals = '';
+    rec = new SR(); rec.lang = 'fr-FR'; rec.continuous = true; rec.interimResults = true;
+    rec.onresult = (e) => {
+      let interim = '';
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        if (e.results[i].isFinal) finals += e.results[i][0].transcript + ' '; else interim += e.results[i][0].transcript;
+      }
+      input.value = (base + finals + interim).replace(/\s+/g, ' ').trimStart();
+      input.scrollTop = input.scrollHeight;
+    };
+    rec.onerror = (e) => note(e.error === 'not-allowed' || e.error === 'service-not-allowed' ? 'Micro refusé : autorisez le micro pour ce site, ou utilisez le micro du clavier.' : e.error === 'no-speech' ? 'Rien entendu : touchez 🎤 et parlez.' : e.error === 'network' ? 'La dictée a besoin du réseau.' : e.error === 'aborted' ? '' : 'Dictée interrompue (' + e.error + ').');
+    rec.onend = () => { rec = null; mic.classList.remove('rec'); mic.textContent = '🎤'; mic.setAttribute('aria-label', 'Dicter la question'); if (input.value.trim()) { input.value = input.value.trim(); hint.hidden || note(hint.textContent); } };
+    try {
+      speechSynthesis?.cancel?.();
+      rec.start(); note('');
+      mic.classList.add('rec'); mic.textContent = '■'; mic.setAttribute('aria-label', 'Arrêter la dictée');
+    } catch { rec = null; note('Impossible de démarrer la dictée : utilisez le micro du clavier.'); }
+  });
+  $('#chatForm').addEventListener('submit', (e) => { e.preventDefault(); stopMic(); ask(input.value); });
   input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); ask(input.value); } });
-  $('#chatChips').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) ask(b.textContent); });
+  $('#chatChips').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) { stopMic(); ask(b.textContent); } });
   // le bouton flottant disparaît quand la zone de question est à l'écran
   const fab = $('#fab');
   new IntersectionObserver(([en]) => { fab.hidden = en.isIntersecting; }).observe($('#arbitre'));
