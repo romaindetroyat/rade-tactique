@@ -8,8 +8,8 @@
 // Pour chaque ouverture :
 //   - interface utile : instant de la marque performance.mark('rt:ui') (à défaut, retrait du splash : classe « gone » sur #splash) ;
 //   - à titre indicatif : délai entre cet instant et l’ouverture du mode départ (onglet Départ puis « Mode départ »), instant de la
-//     carte prête (marque rt:map, si elle existe) et plus longue tâche longue après l’interface utile (BOOT_WAIT_MS ms observées, 12000 par défaut).
-//     Le rendu WebGL logiciel de Chromium sans tête fausse la carte et ces tâches : ces trois colonnes ne servent pas de critère.
+//     carte prête (marque rt:map, si elle existe) et plus longue tâche longue après l’interface utile (BOOT_WAIT_MS ms observées, 15000 par défaut).
+//     Ces trois colonnes sont indicatives : seul l’instant de l’interface utile fait critère. Les appels de dessin et de téléversement WebGL sont neutralisés (voir INIT).
 // Sortie : 0 = médiane de l’interface utile < 2000 ms ; 1 = médiane ≥ 2000 ms ; 2 = mesure impossible avec PW_REQUIRED=1.
 // Le serveur n’écoute que sur 127.0.0.1, le temps de la première visite ; les requêtes vers d’autres hôtes échouent tout de suite
 // (aucun réseau pendant les ouvertures).
@@ -23,7 +23,7 @@ import { launchChromium } from './pw.mjs';
 const ROOT = fileURLToPath(new URL('../', import.meta.url));
 const CPU = Number(process.argv[2]) || 4;
 const OUVERTURES = Number(process.argv[3]) || 5;
-const ATTENTE_MS = Number(process.env.BOOT_WAIT_MS) || 12000;
+const ATTENTE_MS = Number(process.env.BOOT_WAIT_MS) || 15000;
 const SEUIL_MS = 2000;
 const REQUIS = process.env.PW_REQUIRED === '1';
 const MIME = {
@@ -45,8 +45,15 @@ await new Promise((ok) => serveur.listen(0, '127.0.0.1', ok));
 const port = serveur.address().port, url = `http://127.0.0.1:${port}/`;
 
 // Posé avant tout script de la page : tâches longues et retrait du splash, avec l’horloge de la page (origine = début de la navigation)
-const INIT = () => {
+const INIT = (sansDessin) => {
   window.__boot = { ui: null, longs: [] };
+  // Chromium sans tête dessine en logiciel (SwiftShader) : une image de la carte coûte 400 ms et le téléversement du fond de carte
+  // (texImage2D) 2,7 s sur le fil principal, ce qui fausse toutes les mesures qui suivent l’interface utile (un iPhone a un GPU).
+  // Les appels de dessin et de téléversement WebGL sont donc neutralisés ; tout le travail JavaScript de la 3D (import, terrain, maillage)
+  // et du vent reste mesuré. BOOT_GPU=1 garde le rendu réel.
+  if (sansDessin) for (const C of [window.WebGLRenderingContext, window.WebGL2RenderingContext]) {
+    if (C) for (const f of ['drawArrays', 'drawElements', 'drawArraysInstanced', 'drawElementsInstanced', 'drawRangeElements', 'clear', 'texImage2D', 'texSubImage2D', 'texStorage2D', 'generateMipmap']) if (C.prototype[f]) C.prototype[f] = function () {};
+  }
   try { new PerformanceObserver((l) => { for (const e of l.getEntries()) window.__boot.longs.push([e.startTime, e.duration]); }).observe({ type: 'longtask', buffered: true }); } catch { /* tâches longues non observables */ }
   new MutationObserver((_m, obs) => {
     const s = document.getElementById('splash');
@@ -126,7 +133,7 @@ let browser, code = 0;
 try {
   ({ browser } = await launchChromium({ args: ['--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1', '--no-proxy-server'] }));
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
-  await ctx.addInitScript(INIT);
+  await ctx.addInitScript(INIT, process.env.BOOT_GPU !== '1');
   const n = await premiereVisite(ctx);
   console.log(`Première visite en ligne : service worker actif, ${n} fichiers en cache.`);
   await arreteServeur();

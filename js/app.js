@@ -20,7 +20,7 @@ import { initUpdates } from './swupdate.js';
 import { createBeeper, audioAlive, milestones, KEY } from './beeper.js';
 import { createWakeLock } from './wakelock.js';
 import { computeStatus, lampLabel, actionLabel, GPS_STALE_S } from './status.js';
-import { isActive, isRaceDay, lockState } from './racelock.js';
+import { isActive, isRaceDay, lockState, heavyPaused, HEAVY_AFTER_MS } from './racelock.js';
 import { detect as dbDetect, ask as dbAsk, askModes as dbAskModes, analyze as dbAnalyze, narrative as dbNarrative, buildReport as dbBuild, shareReport as dbShare } from './debrief.js';
 
 const $ = (s, r = document) => r.querySelector(s);
@@ -121,25 +121,25 @@ async function init() {
   scene.onCamera = () => { $('#compass .needle').style.transform = `rotate(${-scene.azimuth()}deg)`; };
   bindMap();
   initTips();
-  refreshObs();
-  updateAll();
+  await autoHeavy(prepareField);                       // app ouverte pendant la séquence de départ : reporté après H+1 min
   performance.mark('rt:map');
   maybeWelcome();
   renderTracks();
-  refreshWeather();
+  refreshWeather(true);
   refreshLive();
   setInterval(refreshLive, 5 * 60000);
 }
 
-async function refreshWeather() {
+// auto : téléchargement lancé sans geste (ouverture de l’app) ; son calcul est reporté pendant la séquence de départ. Le bouton ⟳ est un geste : tout de suite.
+async function refreshWeather(auto = false) {
   const b = $('#refresh'); b.classList.add('spin');
   try {
-    data = await fetchAll(); series = consensus(data); refreshObs();
+    data = await fetchAll(); series = consensus(data);
     status();
-    updateAll();
+    await (auto ? autoHeavy(prepareField) : runHeavy(prepareField));
   } catch (e) {
     note('meteo', 'prévisions indisponibles : ' + (e?.message || e));      // hors réseau : l’instantané embarqué prend le relais
-    if (!data) { data = await snapshot(); if (data) { series = consensus(data); updateAll(); } }
+    if (!data) { data = await snapshot(); if (data) { series = consensus(data); await (auto ? autoHeavy(prepareField) : runHeavy(prepareField)); } }
     status(data ? `Hors ligne — prévisions du ${new Date(data.fetched).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })}` : 'Prévisions indisponibles (réseau)');
   } finally { b.classList.remove('spin'); }
 }
@@ -187,6 +187,7 @@ function refreshObs() {
     const pts = modelPoints(data, o.day, o.h, sel);
     if (!pts) continue;
     F.compute({ points: pts }, { localEffects: S.localFx });
+    fieldKey = null;                         // F porte maintenant le vent de ce relevé : le champ affiché sera recalculé
     const p = toXY(o.lat, o.lon), w = F.sample(p.x, p.y);
     o.fit = { dir: w.dir, spd: w.spd };
     resid.push({ h: o.h, dd: norm180(o.dir - w.dir), rr: Math.max(0.3, Math.min(3, o.spd / Math.max(0.8, w.spd))) });
@@ -304,7 +305,27 @@ function blend(a, b, t) {
 
 // fieldOn : F porte un vent calculé (avant cela, F.sample() ne donnerait que des zéros : le mode départ affiche « Vent à relever »)
 let fieldOn = false;
-function computeField(day, hour) { F.compute(baseAt(day, hour), { localEffects: S.localFx }); fieldOn = true; return F; }
+// Mémoïsé : même base (jour, heure, source, vent manuel, modèle, relevés, intensité du relief, prévisions), rien à recalculer.
+// Au démarrage, l’affichage (S.hour) et l’analyse (S.startTime) demandaient deux fois le même champ. Quiconque écrit dans F d’autre
+// part (refreshObs, débrief) remet fieldKey à null.
+let fieldKey = null;
+function computeField(day, hour) {
+  const key = [day, hour, S.day, S.src, JSON.stringify(S.manual), selectedModel(), S.nowcast, JSON.stringify(resid), S.localFx, data?.fetched].join('|');
+  if (key !== fieldKey) { F.compute(baseAt(day, hour), { localEffects: S.localFx }); fieldKey = key; }
+  fieldOn = true;
+  return F;
+}
+// Prépare le champ de vent par tranches courtes (F.warm) pour que les calculs qui suivent ne figent pas l’interface, puis affiche.
+// L’ordre compte : les relevés fixent le modèle retenu et l’écart appliqué aux bases de l’affichage et du départ.
+async function prepareField() {
+  if (!F) return;
+  ranking = data ? scoreModels(data, dayObs()) : [];
+  if (data) for (const o of dayObs()) { const pts = modelPoints(data, o.day, o.h, selectedModel()); if (pts) await F.warm({ points: pts }); }
+  refreshObs();
+  await F.warm(baseAt(S.day, S.hour));
+  await F.warm(baseAt(S.day, S.startTime));
+  updateAll();
+}
 
 // ───────────────────────── mises à jour
 let anaTimer = null, anaToken = 0;
@@ -725,6 +746,36 @@ function showUpdateBar(build) {
 }
 function hideUpdateBar() { const el = document.getElementById('updbar'); if (el) el.hidden = true; }
 
+// ───────────────────────── RECALCULS AUTOMATIQUES PENDANT LA SÉQUENCE DE DÉPART
+// De H−6 min à H+1 min (js/racelock.js), l’app ne lance AUCUN recalcul qu’aucun geste n’a demandé : l’affichage du mode départ doit rester fluide.
+// Liste fermée (testée) : la préparation du champ à l’ouverture (init) et le calcul qui suit un téléchargement de prévisions sans geste
+// (refreshWeather appelée avec auto), via autoHeavy. Tout geste de l’équipier (curseur d’heure, bord, « Recalculer la suite », parcours, réglages, ⟳, ping de
+// ligne) et tout relevé de vent (dicté ou saisi) calculent tout de suite : ils n’appellent jamais autoHeavy.
+const heavyQ = new Set();                    // calculs reportés, dans l’ordre, sans doublon
+let heavyTm = null, heavyNoted = false;
+const runHeavy = (fn) => Promise.resolve().then(fn).catch((e) => report('calcul', e));
+function autoHeavy(fn) {
+  if (heavyPaused({ now: Date.now(), timerEnd: timer.end })) { deferHeavy(fn); return Promise.resolve(); }
+  return runHeavy(fn);
+}
+function deferHeavy(fn) {
+  heavyQ.add(fn);
+  if (!heavyNoted) { heavyNoted = true; note('calcul', 'reporté après le départ'); status('Carte et calculs reportés après le départ'); }
+  armHeavy();
+}
+// Une seule minuterie, à H+1 min + 1 s ; recalculée si le chrono bouge (±1 min, Stop) et au déclenchement
+function armHeavy() {
+  clearTimeout(heavyTm);
+  heavyTm = setTimeout(flushHeavy, timer.end == null ? 1000 : Math.max(1000, timer.end + HEAVY_AFTER_MS + 1000 - Date.now()));
+}
+function flushHeavy() {
+  heavyTm = null;
+  if (heavyPaused({ now: Date.now(), timerEnd: timer.end })) { armHeavy(); return; }
+  heavyNoted = false;
+  const q = [...heavyQ]; heavyQ.clear();
+  for (const fn of q) runHeavy(fn);
+}
+
 // ───────────────────────── DÉPART
 // timer.end est un accesseur : tout site d’appel (Top, ±1 min, Arrondir, Synchro, Stop) replanifie les bips sans autre geste
 // et mémorise l’heure de fin pour qu’un rechargement ou une relance d’iOS ne perde pas le chrono.
@@ -749,6 +800,7 @@ Object.defineProperty(timer, 'end', {
     timerEnd = v ?? null;
     if (timerEnd == null) { beeper?.disarm(); releaseAudioIfIdle(); wake.drop('timer'); } else { beeper?.arm(timerEnd); flashKick(); wake.want('timer'); }
     store.set('rade.timer.v1', { end: timerEnd });
+    if (heavyQ.size) armHeavy();
   },
 });
 const startMode = createStartMode({
@@ -1204,6 +1256,7 @@ function busy(msg) {
   m.className = 'debrief'; m.hidden = false; m.innerHTML = `<div class="modal-card"><h2>Débrief de course</h2><p>${esc(msg)}</p></div>`;
 }
 async function runDebrief(tr) {
+  fieldKey = null;                           // le débrief écrit dans F (une base par bord) : le champ affiché sera recalculé
   const api = {
     F, ctx: { terrain: T, forbidden, perf: S.perf ?? 1 }, localFx: S.localFx ?? 1, forecastAt, toast, meta: T.meta, eventName: IC?.event || '',
     // relevé saisi ce jour-là le plus proche du départ, sinon la prévision
@@ -1212,7 +1265,7 @@ async function runDebrief(tr) {
       if (near) return { dir: Math.round(near.dir), src: `votre relevé de ${new Date(near.t).toLocaleTimeString('fr-FR', { timeStyle: 'short' })}` };
       const f = forecastAt(t); return f ? { dir: Math.round(f.dir), src: 'la prévision' } : null;
     },
-    restoreField: () => updateDisplayField(), obs: S.obs || [],
+    restoreField: () => { fieldKey = null; updateDisplayField(); }, obs: S.obs || [],
   };
   let det;
   try { det = dbDetect(tr); } catch (e) { report('debrief', e); toast('Débrief impossible : ' + e.message); return; }

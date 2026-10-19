@@ -56,8 +56,19 @@ export class WindField {
     return d;
   }
 
-  // Corrections pré-calculées pour une direction donnée (par pas de 5°)
+  // Corrections pré-calculées pour une direction donnée (par pas de 5°). Le calcul vit dans le générateur kitSteps : kit() le mène
+  // à terme d’un coup (mêmes nombres qu’avant), warm() le fait avancer par tranches courtes pour ne pas figer l’interface.
   kit(dirFrom) {
+    const key = Math.round(norm360(dirFrom) / 5) * 5 % 360;
+    if (this.kits.has(key)) return this.kits.get(key);
+    const g = this.kitSteps(key);
+    let r = g.next();
+    while (!r.done) r = g.next();
+    return r.value;
+  }
+
+  // Même calcul que kit(), qui cède la main (yield) toutes les 30 itérations de relaxation et toutes les 10 lignes du dévent / blocage
+  *kitSteps(dirFrom) {
     const key = Math.round(norm360(dirFrom) / 5) * 5 % 360;
     if (this.kits.has(key)) return this.kits.get(key);
     const { nx, ny, dx, dy, k } = this;
@@ -74,6 +85,7 @@ export class WindField {
     }
     const ax = 1 / (dx * dx), ay = 1 / (dy * dy), w = 1.9;
     for (let it = 0; it < 420; it++) {
+      if (it % 30 === 29) yield;
       for (let j = 1; j < ny - 1; j++) for (let i = 1; i < nx - 1; i++) {
         const id = j * nx + i;
         const e = kE[id] * ax, wv = kE[id - 1] * ax, s = kS[id] * ay, nn = kS[id - nx] * ay;
@@ -98,6 +110,7 @@ export class WindField {
     // déventement par le relief au vent
     const sx = Math.sin(rad(key)), sy = Math.cos(rad(key));
     for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
+      if (i === 0 && j % 10 === 9) yield;
       const id = j * nx + i;
       if (this.land[id]) { fac[id] = 0.5; continue; }
       fac[id] = Math.min(1.45, Math.max(0.55, fac[id] / ref));
@@ -122,10 +135,48 @@ export class WindField {
     return kitObj;
   }
 
-  // squelettes (RED) : le comportement vient avec le GREEN
-  *kitSteps() { /* rien */ }
-  warmKeys() { return []; }
-  async warm() { /* rien */ }
+  // Clés de 5° dont compute() aura besoin pour une base : chaque point et la clé suivante, et toutes celles de l’arc qui contient
+  // leurs directions (la direction d’une cellule est un mélange des points : elle reste dans cet arc, passage par le Nord compris).
+  // Quand une direction tombe pile sur un multiple de 5°, l’arrondi du calcul peut la placer d’un côté ou de l’autre : on garde la clé d’en dessous.
+  warmKeys(base) {
+    const eps = 1e-6, dirs = base.points.map((p) => norm360(p.dir)).sort((a, b) => a - b);
+    if (!dirs.length) return [];
+    let from = dirs[0], len = 0, enArc = true;
+    if (dirs.length > 1) {
+      // plus grand écart entre deux directions voisines (sur le cercle) : l’arc couvert est le reste du cercle
+      let gap = dirs[0] + 360 - dirs[dirs.length - 1], at = 0;
+      for (let i = 1; i < dirs.length; i++) if (dirs[i] - dirs[i - 1] > gap) { gap = dirs[i] - dirs[i - 1]; at = i; }
+      if (gap >= 180) { from = dirs[at]; len = 360 - gap; } else enArc = false;
+    }
+    const keys = new Set();
+    const add = (a) => keys.add((((Math.floor(a) % 72) + 72) % 72) * 5);
+    if (enArc && len <= 90) {
+      const a0 = from / 5, a1 = (from + len) / 5;
+      for (let a = Math.floor(a0 - eps); a <= Math.floor(a1 + eps) + 1; a++) add(a);
+    } else {
+      // directions réparties sur un grand arc ou tout autour : seules celles des points sont préparées, le reste se calcule à la demande
+      for (const d of dirs) { add(d / 5 - eps); add(d / 5 + eps); add(Math.floor(d / 5 + eps) + 1); }
+    }
+    return [...keys];
+  }
+
+  // Prépare, par tranches de sliceMs millisecondes et en rendant la main entre deux, les corrections d’une base :
+  // après quoi compute(base) ne calcule plus aucun kit d’un bloc.
+  async warm(base, sliceMs = 12) {
+    const now = () => performance.now();
+    for (const key of this.warmKeys(base)) {
+      if (this.kits.has(key)) continue;
+      const g = this.kitSteps(key);
+      let t0 = now();
+      for (let r = g.next(); !r.done; r = g.next()) {
+        if (now() - t0 >= sliceMs) {
+          await new Promise((ok) => setTimeout(ok, 0));
+          if (this.kits.has(key)) break;                       // un compute() l’a calculé entre-temps
+          t0 = now();
+        }
+      }
+    }
+  }
 
   // base : { points: [{x,y,dir,spd,gust}] } (IDW) — un seul point = vent uniforme
   compute(base, opts = {}) {
