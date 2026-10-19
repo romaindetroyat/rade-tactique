@@ -5,6 +5,7 @@ import { OrbitControls } from '../vendor/OrbitControls.js';
 import { toXY, toLL } from './geo.js';
 import { speedColor } from './wind.js';
 import { PLACES } from './courses.js';
+import { lineIndex } from './segments.js';
 
 const W = (x, y, h = 0) => new THREE.Vector3(x, h, -y);
 
@@ -578,7 +579,8 @@ export class Scene3D {
     if (R.follow) { const off = this.camera.position.clone().sub(this.controls.target); this.controls.target.set(x, 0, -y); this.camera.position.copy(this.controls.target.clone().add(off)); }
     if (Math.abs(R.t - R.wakeAt) > R.T / 300 || !R.playing) {
       R.wakeAt = R.t;
-      const pts = tr.slice(0, R.i + 1).map((p) => ({ x: p.x, y: p.y })); pts.push({ x, y });
+      let from = R.i; while (from > 0 && !tr[from].brk) from--;       // le sillage ne franchit pas une pause d'enregistrement
+      const pts = tr.slice(from, R.i + 1).map((p) => ({ x: p.x, y: p.y })); pts.push({ x, y });
       R.wake.userData.points = pts; this.needRibbons = true;
     }
     this.onReplay?.({ t: R.t, T: R.T, playing: R.playing, p: b, x, y, hd });
@@ -598,7 +600,9 @@ export class Scene3D {
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
     geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
-    const line = new THREE.Line(geo, new THREE.LineBasicMaterial({ vertexColors: true, linewidth: 2 }));
+    // segments indexés : une pause d'enregistrement ou une perte du GPS n'est jamais reliée par une ligne droite (js/segments.js)
+    geo.setIndex(lineIndex(P.length, P.flatMap((p, i) => (p.brk ? [i] : []))));
+    const line = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ vertexColors: true, linewidth: 2 }));
     line.renderOrder = 7; g.add(line);
     for (const m of man) { const s = makeLabel(m.kind === 'virement' ? 'V' : 'E', { circle: true, bg: m.kind === 'virement' ? '#1673c9' : '#7b3fb0', size: 22 }, 14); s.position.copy(W(m.x, m.y, 30)); g.add(s); }
     const a = makeLabel('Départ trace', { bg: 'rgba(0,0,0,.7)' }, 12); a.position.copy(W(P[0].x, P[0].y, 40)); g.add(a);

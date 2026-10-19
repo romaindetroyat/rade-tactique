@@ -11,6 +11,7 @@ import { THROTTLE_MS, slotKey, freezeAction, obsNeedsCopy, stratNeedsCopy, slice
 import { putSlot, getSlot } from './regstore.js';
 import { listHTML, newRegattaFormHTML, sheetHTML } from './regview.js';
 import { trackDay, matchRegattas, raceOfTrack, sameTrack, attachTrace, detachTrace } from './attach.js';
+import { breaksOf } from './segments.js';
 import { fetchAll, cached, snapshot, consensus, gridPoints, marineAt, fetchLive, MODELS, WMO, CENTER } from './weather.js';
 import { buildLegs, analyzeLeg, markAdvice, analyzeStart, trendOf, rankCourses, regimeOf, sideName, summarizeTime } from './tactics.js';
 import { optimalAngles, boatSpeed, trimAdvice, spiMinTwa, getPolar, setPolar, resetPolar, parsePolar } from './polar.js';
@@ -1389,7 +1390,7 @@ async function runDebrief(tr) {
   const figeTxt = src.kind === 'gel' ? ` (${src.label})` : '';
   await mapReady;                                       // le questionnaire écrit dans F et lit le terrain : la carte d'abord
   // trace rangée dans une régate : nom de l'épreuve = la régate, parcours de sa manche (celle dont le signal tombe dans la trace, sinon la manche choisie)
-  const reg = regOfTrace(tr.id), manche = reg ? (raceOfTrack(reg, trackDay(tr.pts, tr.brk ?? undefined)) || reg.races?.find((m) => m.n === reg.sel) || null) : null;
+  const reg = regOfTrace(tr.id), manche = reg ? (raceOfTrack(reg, trackDay(tr.pts, breaksOf(tr))) || reg.races?.find((m) => m.n === reg.sel) || null) : null;
   const api = {
     F, ctx: { terrain: T, forbidden, perf: S.perf ?? 1 }, localFx: S.localFx ?? 1, forecastAt: (t) => forecastIn(src.ser, t), toast, meta: T.meta, eventName: reg?.name || IC?.event || '', courseHint: manche?.courseId ?? null,
     // relevé saisi ce jour-là le plus proche du départ (figé, si le jour l'est), sinon la prévision (figée de même)
@@ -1456,7 +1457,7 @@ const regOfTrace = (id) => REG.list.find((r) => (r.traces || []).some((x) => x.i
 function rangeTrace(tr) {
   const deja = regOfTrace(tr.id);
   if (deja) return { reg: deja, how: 'deja', deja: true };                    // déjà rangée : jamais une seconde référence
-  const m = matchRegattas(tr.pts, REG.list, tr.brk ?? undefined);
+  const m = matchRegattas(tr.pts, REG.list, breaksOf(tr));
   if (m.how !== 'unique' && m.how !== 'heure') return { reg: null, how: m.how, m };
   const reg = m.candidates[0];
   saveReg(upsertRegatta(REG, attachTrace(reg, tr, { by: who(), at: Date.now() })));
@@ -1527,8 +1528,8 @@ function renderTraceDetail() {
     recalMark(f.k, { lat: +ll.lat.toFixed(6), lon: +ll.lon.toFixed(6), src: 'trace', t: tr.start });
   }));
   $('#trPlay').onclick = () => {
-    const t0 = res.P[0].t;
-    scene.setReplay(res.P.map((p) => ({ x: p.x, y: p.y, t: (p.t - t0) / 1000, hd: p.hd, twa: p.twa, bsp: p.v, spi: Math.abs(p.twa) > 110, trace: true, pct: p.pct, abs: p.t })));
+    const t0 = res.P[0].t; let saut = 0;                     // une pause dure une seconde de rejeu, pas des heures de bateau immobile
+    scene.setReplay(res.P.map((p, i) => { if (p.brk) saut += (p.t - res.P[i - 1].t) / 1000 - 1; return { x: p.x, y: p.y, t: (p.t - t0) / 1000 - saut, hd: p.hd, twa: p.twa, bsp: p.v, spi: Math.abs(p.twa) > 110, trace: true, pct: p.pct, abs: p.t, brk: !!p.brk }; }));
     $('#replayHud').hidden = false; scene.replayControl('speed', +$('#rhSpeed').value);
   };
   $('#trGpx').onclick = () => exportGPX(tr);

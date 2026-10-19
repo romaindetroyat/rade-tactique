@@ -119,7 +119,7 @@ export function detect(tr) {
 // ───────────────────────── analyse complète (après les réponses)
 function legStats(P, A, B, t0, t1, wdir) {
   const S = P.filter((p) => p.t >= t0 && p.t <= t1);
-  let dist = 0; for (let i = 1; i < S.length; i++) dist += distXY(S[i - 1], S[i]);
+  let dist = 0; for (let i = 1; i < S.length; i++) if (!S[i].brk) dist += distXY(S[i - 1], S[i]);      // jamais à travers une pause (P[i].brk)
   const brg = bearingXY(A, B), ux = Math.sin(brg * Math.PI / 180), uy = Math.cos(brg * Math.PI / 180);
   let right = 0, maxOff = 0, side = null, cand = null, man = 0, slow = 0;
   for (const p of S) {
