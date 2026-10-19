@@ -95,13 +95,34 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| (à remplir par la feuille de route) | | |
+| FIAB-01 | Phase 1 | Pending |
+| FIAB-02 | Phase 1 | Pending |
+| FIAB-03 | Phase 2 | Pending |
+| FIAB-04 | Phase 2 | Pending |
+| FIAB-05 | Phase 2 | Pending |
+| FIAB-06 | Phase 2 | Pending |
+| FIAB-07 | Phase 2 | Pending |
+| TEST-01 | Phase 1 | Pending |
+| TEST-02 | Phase 1 | Pending |
+| TEST-03 | Phase 1 | Pending |
+| TEST-04 | Phase 1 | Pending |
+| JUST-01 | Phase 2 | Pending |
+| JUST-02 | Phase 2 | Pending |
+| SECU-01 | Phase 1 | Pending |
+| REG-01 | Phase 3 | Pending |
+| REG-02 | Phase 3 | Pending |
+| REG-03 | Phase 3 | Pending |
+| REG-04 | Phase 3 | Pending |
+| ARCH-01 | Phase 4 | Pending |
+| ARCH-02 | Phase 3 | Pending |
+| ARCH-03 | Phase 4 | Pending |
+| ARCH-04 | Phase 3 | Pending |
 
 **Coverage:**
-- v1 requirements: 23 total
-- Mapped to phases: 0
-- Unmapped: 23 ⚠️
+- v1 requirements: 22 total
+- Mapped to phases: 22
+- Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-10-19*
-*Last updated: 2026-10-19 after initial definition*
+*Last updated: 2026-10-19 after roadmap creation (traceabilité remplie ; total corrigé de 23 à 22 besoins v1)*
