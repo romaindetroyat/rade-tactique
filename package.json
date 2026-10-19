@@ -2,9 +2,22 @@
   "name": "rade-tactique",
   "private": true,
   "type": "module",
-  "description": "Rade Tactique \u2014 PWA statique + fonction /api/voice (compr\u00e9hension des relev\u00e9s de vent dict\u00e9s)",
+  "description": "Rade Tactique — PWA statique + fonction /api/voice (compréhension des relevés de vent dictés)",
+  "engines": {
+    "node": "24.x"
+  },
+  "scripts": {
+    "test": "node --test --import ./tests/helpers/setup.mjs \"tests/**/*.test.mjs\"",
+    "stamp": "node tools/stamp.mjs",
+    "release": "node tools/stamp.mjs --release",
+    "check": "node tools/stamp.mjs --check && npm test",
+    "gate": "if [ \"$RT_GATE_BYPASS\" = \"1\" ]; then echo '⚠ Porte contournée (RT_GATE_BYPASS=1) : tests non lancés' >&2; node tools/stamp.mjs --check; else npm run check; fi"
+  },
   "dependencies": {
-    "openai": "^7.36.0",
-    "@vercel/functions": "^3.10.1"
+    "@vercel/functions": "^3.10.1",
+    "openai": "^7.36.0"
+  },
+  "devDependencies": {
+    "linkedom": "0.18.13"
   }
 }

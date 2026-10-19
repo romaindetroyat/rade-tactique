@@ -16,9 +16,10 @@ import { parseWind, listen, say } from './voice.js';
 import { Recorder, listTracks, getTrack, deleteTrack, saveTrack, analyzeTrack, exportGPX, fromGPX } from './track.js';
 import { shroudsFor } from './tuning.js';
 import { createStartMode } from './startmode.js';
+import { initUpdates } from './swupdate.js';
+import { isActive, isRaceDay, lockState } from './racelock.js';
 import { detect as dbDetect, ask as dbAsk, askModes as dbAskModes, analyze as dbAnalyze, narrative as dbNarrative, buildReport as dbBuild, shareReport as dbShare } from './debrief.js';
 
-export const APP_VERSION = 'v25 · accès équipage';
 const $ = (s, r = document) => r.querySelector(s);
 function toast(msg) {
   let t = document.getElementById('toast');
@@ -81,16 +82,11 @@ async function init() {
   refreshWeather();
   refreshLive();
   setInterval(refreshLive, 5 * 60000);
-  if ('serviceWorker' in navigator) {
-    // mise à jour sans intervention : nouvelle version détectée → rechargement unique
-    const had = !!navigator.serviceWorker.controller;
-    let reloaded = false;
-    navigator.serviceWorker.addEventListener('controllerchange', () => { if (had && !reloaded) { reloaded = true; location.reload(); } });
-    navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then((reg) => {
-      reg.update().catch(() => {});
-      document.addEventListener('visibilitychange', () => { if (!document.hidden) reg.update().catch(() => {}); });
-    }).catch(() => {});
-  }
+  // mise à jour différée : bandeau hors course, application sur geste seulement (js/swupdate.js, js/racelock.js)
+  updates = initUpdates({ isLocked: () => raceLock().locked, onAvailable: showUpdateBar, onHidden: hideUpdateBar });
+  setInterval(raceTick, 5000);
+  addEventListener('pagehide', saveRaceActivity);
+  document.addEventListener('visibilitychange', () => { if (document.hidden) saveRaceActivity(); });
 }
 
 async function refreshWeather() {
@@ -113,7 +109,7 @@ function status(msg) {
   if (!data) { el.textContent = 'Pas de prévision'; return; }
   const ago = Math.round((Date.now() - data.fetched) / 60000);
   const when = ago < 1 ? 'à l’instant' : ago < 120 ? `il y a ${ago} min` : `le ${new Date(data.fetched).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })}`;
-  el.textContent = `${APP_VERSION} · ${S.src === 'manual' ? 'vent manuel' : `prévisions ${data.snapshot ? 'embarquées' : 'màj'} ${when}`}`;
+  el.textContent = S.src === 'manual' ? 'vent manuel' : `prévisions ${data.snapshot ? 'embarquées' : 'màj'} ${when}`;
 }
 
 // ───────────────────────── vent de base
@@ -629,6 +625,42 @@ function renderCourse() {
   }));
 }
 
+// ───────────────────────── MISE À JOUR DIFFÉRÉE ET VERROU « EN COURSE »
+let updates = null;
+const RL = store.get('rade.racelock', {});     // { lastActiveAt, finishedAt } : survit au rechargement et à la relance iOS
+let rlSavedAt = 0, wasLocked = false;
+const saveRL = (now = Date.now()) => { rlSavedAt = now; store.set('rade.racelock', RL); };
+const raceActive = (now) => isActive({ now, timerEnd: timer.end, startModeOpen: startMode.isOpen(), recording: recorder.active, gpsOn: gps?.watch != null });
+function raceLock(now = Date.now()) {
+  return lockState({ now, active: raceActive(now), raceFrom: IC?.date || null, raceTo: IC?.dateEnd || IC?.date || null, lastActiveAt: RL.lastActiveAt ?? null, finishedAt: RL.finishedAt ?? null });
+}
+function saveRaceActivity() { const now = Date.now(); if (raceActive(now)) { RL.lastActiveAt = now; saveRL(now); } }
+function raceTick() {
+  const now = Date.now();
+  if (raceActive(now)) { RL.lastActiveAt = now; if (now - rlSavedAt >= 30000) saveRL(now); }
+  const locked = raceLock(now).locked;
+  updates?.refresh();
+  if (wasLocked && !locked) updates?.check();    // le téléchargement était suspendu pendant le verrou
+  wasLocked = locked;
+}
+// Bandeau discret en haut ; texte posé par textContent, jamais en HTML (la note vient du worker)
+function showUpdateBar(build) {
+  let el = document.getElementById('updbar');
+  if (!el) {
+    el = document.createElement('div'); el.id = 'updbar'; el.setAttribute('role', 'status'); document.body.appendChild(el);
+  }
+  if (el.dataset.bid !== String(build.id)) {
+    el.dataset.bid = String(build.id);
+    const msg = document.createElement('span'); msg.textContent = `Nouvelle version v${build.n} · ${build.note}`;
+    const btn = document.createElement('button'); btn.className = 'btn small acc'; btn.textContent = 'Mettre à jour';
+    btn.addEventListener('click', () => { if (!updates?.apply()) toast('Course en cours : mise à jour reportée'); });
+    el.replaceChildren(msg, btn);
+  }
+  el.classList.toggle('crit', !!build.critical);
+  el.hidden = false;
+}
+function hideUpdateBar() { const el = document.getElementById('updbar'); if (el) el.hidden = true; }
+
 // ───────────────────────── DÉPART
 let timer = { end: null, running: false, iv: null, beeps: new Set() };
 const startMode = createStartMode({
@@ -747,12 +779,16 @@ const recorder = new Recorder();
 let rest = null;
 function renderLive() {
   const el = $('section[data-tab=live]');
-  el.innerHTML = `<div class="card" id="liveGps"></div>
+  // jour de régate (D-15) : « Course finie » lève le verrou de mise à jour ; il n’arrête ni chrono, ni trace, ni GPS
+  const raceCard = isRaceDay({ now: Date.now(), raceFrom: IC?.date || null, raceTo: IC?.dateEnd || IC?.date || null })
+    ? `<div class="card"><button class="btn alt" id="raceDone">🏁 Course finie — retour au port</button><div class="small muted" style="margin-top:6px">Permet d’appliquer une mise à jour en attente. Le chrono, la trace et le GPS ne sont pas arrêtés.</div></div>` : '';
+  el.innerHTML = `${raceCard}<div class="card" id="liveGps"></div>
     <div class="card"><h3><span>Trace ${tip('Enregistre votre position toutes les 1–2 s pendant la course. L’écran reste allumé pendant l’enregistrement (sur iPhone, le GPS s’arrête si l’écran se verrouille). Les traces se retrouvent dans l’onglet Traces.')}</span></h3><div id="liveRec"></div></div>
     <div class="card timer"><div class="small muted">Chrono</div><div class="clock" id="liveClock" style="font-size:40px">—</div></div>
     <div class="card" id="liveNav"></div>
     <div class="card"><h3><span>Suite du parcours ${tip('Recalcule les bords restants depuis votre position GPS, à l’heure actuelle, avec le modèle retenu par vos relevés et l’ajustement sur le dernier relevé. Fait automatiquement après chaque nouveau relevé si le GPS est actif.')}</span></h3><div id="livePlan"></div></div>
     <details class="card obsbox" open><summary><span>🌬 Relevé de vent</span><small>sans quitter l’onglet</small></summary><div class="obs-card"></div></details>`;
+  $('#raceDone')?.addEventListener('click', () => { RL.finishedAt = Date.now(); saveRL(); toast('Course finie notée'); raceTick(); });
   renderLiveNav(); renderPlan(); renderObsAll();
   if (timer.iv) tickTimer();
 }
@@ -1021,7 +1057,7 @@ function renderIC() {
     <input type="file" id="icFile" accept="application/pdf,.pdf,.txt,text/plain" hidden>
     <div class="small muted" id="icMsg" style="margin-top:6px">L’app lit le PDF des IC, propose la fiche (date, heures, VHF, Comité, zone, points clés) : vérifiez puis enregistrez.</div></div>`;
   if (icDraft) html += eventForm(icDraft);
-  html += `<div class="card"><h3>${esc(IC.event)} <small>${IC.date ? esc(dayName(IC.date)) : 'date à préciser'}</small></h3>
+  html += `<div class="card"><h3>${esc(IC.event)} <small>${IC.date ? (IC.dateEnd ? `du ${esc(dayName(IC.date))} au ${esc(dayName(IC.dateEnd))}` : esc(dayName(IC.date))) : 'date à préciser'}</small></h3>
     <div class="kpis"><div class="kpi"><b>${esc(IC.firstWarning || '—')}</b><span>1er avertissement</span></div><div class="kpi"><b>${esc(IC.lastFinishSignal || '—')}</b><span>limite arrivée du 1er</span></div><div class="kpi"><b>VHF ${esc(IC.vhf ?? '—')}</b><span>canal de course</span></div></div>
     <p class="small">${IC.committee ? `Comité : ${tel ? `<a href="tel:${tel.replace(/\D/g, '')}">${esc(IC.committee)}</a>` : esc(IC.committee)}<br>` : ''}${IC.zone ? `Zone : ${esc(IC.zone)}<br>` : ''}${IC.id === 'snpm-2026' ? 'Avis : <a href="https://chat.whatsapp.com/J2W7onZ86t9AnqJJliPUSU" target="_blank" rel="noopener">WhatsApp « CVAT Tableau Officiel »</a>' : ''}</p>
     ${IC.firstWarning && IC.date ? `<button class="btn small alt" id="evUse">Caler le départ sur ces IC (${esc(dayName(IC.date))}, ${esc(IC.firstWarning)} + 5 min)</button>` : ''}</div>
@@ -1035,9 +1071,9 @@ function renderIC() {
     <div class="small muted" style="margin-top:6px">« approx » = position relevée sur les cartes du cahier ou sur OpenStreetMap : vérifier sur zone, le Comité fait foi.</div></div>
   <div class="card"><h3>Dangers</h3><ul class="tips small"><li><b>Zone interdite</b> de la presqu’île de Saint-Mandrier (zone Marine nationale, rouge sur la carte).</li>${DANGERS.map((d) => `<li><b>${esc(d.name)}</b> (${fmtLat(d.lat)} ${fmtLon(d.lon)}) : ${esc(d.note)}</li>`).join('')}</ul></div>`;
   el.innerHTML = html;
-  $('#evSel').onchange = (e) => { setCurrent(e.target.value); icDraft = null; IC = currentEvent(); renderIC(); renderDaySeg(); renderBrief(); };
+  $('#evSel').onchange = (e) => { setCurrent(e.target.value); icDraft = null; IC = currentEvent(); renderIC(); renderDaySeg(); renderBrief(); renderLive(); };
   $('#evEdit').onclick = () => { icDraft = { ...IC }; renderIC(); };
-  $('#evDel')?.addEventListener('click', (e) => { if (e.target.dataset.c !== '1') { e.target.dataset.c = '1'; e.target.textContent = 'Confirmer la suppression'; return; } removeEvent(IC.id); renderIC(); renderDaySeg(); renderBrief(); });
+  $('#evDel')?.addEventListener('click', (e) => { if (e.target.dataset.c !== '1') { e.target.dataset.c = '1'; e.target.textContent = 'Confirmer la suppression'; return; } removeEvent(IC.id); renderIC(); renderDaySeg(); renderBrief(); renderLive(); });
   $('#evUse')?.addEventListener('click', () => {
     const [h, m] = IC.firstWarning.split(':').map(Number);
     S.startTime = h + (m + 5) / 60; S.hour = Math.floor(S.startTime * 4) / 4;

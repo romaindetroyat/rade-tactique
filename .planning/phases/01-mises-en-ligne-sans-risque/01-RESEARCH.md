@@ -295,7 +295,7 @@ Ces valeurs diffèrent un peu du rapport publié (97 / 104 / 74 %, vent du modè
 "installCommand": "npm ci",
 "buildCommand": "npm run check"
 ```
-Ne **pas** fixer `outputDirectory` ni créer de dossier `public` : le préréglage « Other » sert `public` s'il existe, sinon `.` [CITED: vercel.com/docs/builds/configure-a-build#output-directory]. `buildCommand` du `vercel.json` remplace celui du tableau de bord [CITED: vercel.com/docs/project-configuration/vercel-json#buildcommand] ; l'installation inclut les `devDependencies` [CITED: configure-a-build, Install Command]. Quand un déploiement de production **réussit**, Vercel pointe les domaines de production vers lui [CITED: vercel.com/docs/deployments/environments, Production Environment] : un build en échec ne remplace donc pas la production.
+**Correction constatée à l’exécution (19/10/2026)** : avec un `buildCommand`, le préréglage « Other » échoue sans `outputDirectory` ; il faut `"outputDirectory": "."` (vérifié sur Vercel). Ne pas créer de dossier `public`.
 
 **Issue de secours (discrétion) :** `package.json` `check` délègue à un garde qui, si `RT_GATE_BYPASS=1` est défini dans les variables d'environnement du projet pour **un** redéploiement, affiche un avertissement et ne lance que la vérification de syntaxe. Traçable (changement de variable dans le tableau de bord), jamais par défaut. Sinon : « Promote » d'un déploiement précédent réussi depuis le tableau de bord. Notification : l'échec de build apparaît sur le commit GitHub et dans le tableau de bord ; l'envoi d'un e-mail est un comportement par défaut de Vercel [ASSUMED, à confirmer avec Romain].
 

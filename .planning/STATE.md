@@ -1,19 +1,19 @@
 ---
 gsd_state_version: "1.0"
-current_phase: 1
-current_phase_name: Mises en ligne sans risque
-status: executing
-stopped_at: Phase 1 context gathered
-last_updated: "2026-10-19T10:58:41.207Z"
+current_phase: 2
+current_phase_name: Fiable et juste en mer
+status: planning
+stopped_at: Phase 1 complete, ready to plan Phase 2
+last_updated: "2026-10-19T12:18:08.971Z"
 last_activity: 2026-10-19
-last_activity_desc: Feuille de route créée (4 phases, 22 besoins v1 reliés)
-state_head: b1f265689d8a791b2501413c8fc54ed914eb7fe7
+last_activity_desc: Phase 1 complete, transitioned to Phase 2
+state_head: 0924efdad40255d702cb33b3431b5d9559220cee
 progress:
   total_phases: 4
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 4
-  completed_plans: 0
-  percent: 0
+  completed_plans: 4
+  percent: 25
 ---
 
 # Project State
@@ -23,21 +23,21 @@ progress:
 See: .planning/PROJECT.md (updated 2026-10-19)
 
 **Core value:** Le jour de la régate, l'équipage peut ouvrir l'épreuve, s'en servir en mer sans que rien ne lâche, et retrouver ensuite le débrief : des conseils et des chiffres justes, fiables sur l'eau, et partagés par tout l'équipage.
-**Current focus:** Phase 1 - Mises en ligne sans risque
+**Current focus:** Phase 1 — Mises en ligne sans risque
 
 ## Current Position
 
-Phase: 1 (Mises en ligne sans risque) — READY TO EXECUTE
-Plan: 0 of TBD in current phase
-Status: Ready to execute
-Last activity: 2026-10-19 - Feuille de route créée (4 phases, 22 besoins v1 reliés)
+Phase: 2 — Fiable et juste en mer
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-10-19 — Phase 1 complete, transitioned to Phase 2
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [███░░░░░░░] 25%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 0
+- Total plans completed: 4
 - Average duration: -
 - Total execution time: 0 hours
 
@@ -45,11 +45,19 @@ Progress: [░░░░░░░░░░] 0%
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| - | - | - | - |
+| 1 | 4 | - | - |
 
 **Recent Trend:**
 - Last 5 plans: -
 - Trend: -
+
+**Per-Plan Metrics:**
+
+| Plan | Duration | Tasks | Files |
+|------|----------|-------|-------|
+| Phase 01 P01 | 5 min | 3 tasks | 11 files |
+| Phase 01 P02 | 3 min | 2 tasks | 7 files |
+| Phase 01 P03 | 13 min | 2 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -63,6 +71,12 @@ Décisions récentes qui orientent le travail en cours :
 - [Feuille de route] : JUST-01 et JUST-02 (bouées) vont en phase 2 pour la régate CVAT ; REG-04 (marques lues dans les IC à confirmer) réutilise ensuite l'état « confirmée / non confirmée ».
 - [Feuille de route] : ARCH-02 (vent et stratégie du jour figés, liste et fiche) et ARCH-04 (GPX rattaché, débrief lancé) vont en phase 3, en local : une prévision non figée avant la régate est perdue. La phase 4 ne porte que le partage en ligne (ARCH-01, ARCH-03).
 - [Feuille de route] : la phase 4 est coupable ; si elle n'est pas prête au gel du 2 novembre, la régate se court avec l'archive locale et le partage est livré après.
+- [Phase 01]: Référence SNPM mesurée avec tStart = départ détecté 09:43:42Z (D-14), validation par Romain en fin de phase
+- [Phase 01]: Matcher d'accès : acces.html, manifest.webmanifest et sw.js ancrés par $ (noms voisins désormais privés)
+- [Phase 01]: pdf.js : PDF_OPTIONS gelé isEvalSupported false + garde statique sur getDocument(
+- [Phase 01]: 01-02 : pdf.js précaché (import d'IC hors réseau) ; stamp --check strict seulement en production ou RT_STRICT=1 ; le hachage de version exclut release.json et js/version.js
+- [Phase 01]: Bandeau de mise à jour placé sous la barre du haut (ne masque ni ⟳ ni ?), texte posé par textContent
+- [Phase 01]: Verrou : « course finie » et inactivité ne comptent que le même jour de Paris (régate de plusieurs jours, D-15) ; état dans localStorage rade.racelock
 
 ### Pending Todos
 
@@ -87,6 +101,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-10-19T09:57:16.047Z
-Stopped at: Phase 1 context gathered
-Resume file: .planning/phases/01-mises-en-ligne-sans-risque/01-CONTEXT.md
+Last session: 2026-10-19T11:31:04.153Z
+Stopped at: Phase 1 complete, ready to plan Phase 2
+Resume file: None

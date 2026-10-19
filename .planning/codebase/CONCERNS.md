@@ -199,8 +199,7 @@ last_mapped_at: 2026-10-19
 
 **OpenAI SDK and model dependency:**
 - Packages: `openai` (`^7.36.0`) is imported in `api/rules.js`, `api/voice.js`, `api/debrief.js`; `@vercel/functions` (`^3.10.1`) in `middleware.js`. Both are declared in `package.json`.
-- Risk: caret ranges and no committed lockfile (none is present in the repository) mean the resolved versions can change between deploys.
-- Migration plan: commit a lockfile and pin the major versions deliberately.
+- Resolved in phase 1: `package-lock.json` committed, `npm ci` on Vercel.
 
 ## Missing Critical Features
 

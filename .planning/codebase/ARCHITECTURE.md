@@ -50,7 +50,7 @@ External data is fetched directly by the browser (Open-Meteo, Pioupiou / OpenWin
 - Heavy domain logic lives in pure functions (`route()` in `js/router.js`, `analyzeLeg()` in `js/tactics.js`, `WindField` in `js/wind.js`) that take inputs and return data; `js/app.js` wires them to the DOM.
 - Application state is one mutable object `S` in `js/app.js` (default values in `DEF`), persisted to `localStorage` key `rade.state` via `persist()`.
 - Only three serverless functions exist, and they are stateless: the client sends data and receives an interpretation. All computation of numbers stays client side ("L'app calcule tous les chiffres").
-- Offline-first shell: `sw.js` precaches a fixed `SHELL` list and serves network-first with cache fallback.
+- Offline-first shell: `sw.js` precaches the generated `SHELL` list and serves it cache-first; other same-origin GET requests are network-first with cache fallback. A new version waits and is applied only on the crew member's gesture, never during a race (`js/swupdate.js`, `js/racelock.js`).
 
 ## Layers
 
@@ -115,8 +115,8 @@ External data is fetched directly by the browser (Open-Meteo, Pioupiou / OpenWin
 
 ### Service worker / install path
 
-1. `index.html` links `manifest.webmanifest`; `sw.js` precaches `SHELL` under cache name `VERSION` (`rade-v25`).
-2. Fetch handler: network-first with `cache: 'no-cache'`, store successful same-origin responses, fall back to cache, then `index.html`. Requests whose path contains `/api/` are not intercepted.
+1. `index.html` links `manifest.webmanifest`; `sw.js` precaches the generated `SHELL` under cache name `VERSION` (`rade-<hash>`, derived from the content by `tools/stamp.mjs`).
+2. Fetch handler: files of the `SHELL` come from the cache first; other same-origin GET requests are network-first, successful responses are stored, then the cache, then `index.html` as fallback. Requests whose path contains `/api/` are not intercepted.
 
 **State Management:**
 - One module-level object `S` in `js/app.js`, seeded from `DEF`, with `persist()` writing only keys present in `DEF`.
@@ -179,7 +179,7 @@ External data is fetched directly by the browser (Open-Meteo, Pioupiou / OpenWin
 - **Threading:** single-threaded main thread. Timers use `setInterval` (`startTimer`) and `setTimeout` (debounced analysis); no Web Workers are used.
 - **Global state:** `js/app.js` holds the mutable global `S` and several module-level `let` caches. `localStorage` key `rade.state` and IndexedDB database `rade-traces` are shared storage.
 - **Circular imports:** none observed in the module list; `js/tactics.js` depends on `js/router.js`, which depends on `js/polar.js` and `js/geo.js` only.
-- **Build:** none. Any new module must be added to the `SHELL` list in `sw.js` to be available offline, and the version string must be bumped (`VERSION` in `sw.js`, `APP_VERSION` in `js/app.js`, currently `v25`).
+- **Build:** no build step for the app. `npm run stamp` regenerates the `SHELL` list and the version (`sw.js` block, `js/version.js`) from the files on disk, `npm run release` publishes a new version (`release.json`), and `npm run check` refuses stale generated files or failing tests. Operating rule: no production deployment within 48 h before a regatta or during a race, except a critical fix applied off the water.
 - **Deployment headers:** `vercel.json` forces `no-cache` on the HTML, JS, CSS, data and service worker.
 - **Serverless timeout:** `api/debrief.js` and `api/rules.js` set `maxDuration` 60 s in `vercel.json`.
 
@@ -191,11 +191,10 @@ External data is fetched directly by the browser (Open-Meteo, Pioupiou / OpenWin
 **Why it's wrong here:** every change touches the same global `S`; there is no test seam for the controller.
 **Do this instead:** keep new computation in its own `js/*.js` module with exported pure functions (as `js/router.js` and `js/tactics.js` do), and call it from `js/app.js` with a thin renderer.
 
-### Manually duplicated asset list
+### Manually duplicated asset list (resolved in phase 1)
 
-**What happens:** the `SHELL` array in `sw.js` must be edited by hand whenever a file is added to `js/`, `data/` or `vendor/`.
-**Why it's wrong here:** a missing entry silently breaks offline use; the version string is also hand-maintained.
-**Do this instead:** add the new file to `SHELL`, and bump `VERSION` in `sw.js` together with `APP_VERSION` in `js/app.js`.
+**What happened:** the `SHELL` array in `sw.js` and the version strings were edited by hand.
+**Now:** `tools/stamp.mjs` generates the `SHELL` list and the version; after adding or changing a file, run `npm run stamp` (and `npm run release -- "ce qui change"` for a new version). `npm run check` fails if the generated files are stale. Never edit the generated block of `sw.js` or `js/version.js` by hand.
 
 ### Duplicated date helpers
 

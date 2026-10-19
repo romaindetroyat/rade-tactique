@@ -11,9 +11,10 @@ const EQUIPAGE = {
 const COOKIE = 'rt_acces';
 const MAX_AGE = 400 * 24 * 3600; // durée maximale admise par les navigateurs
 
-// Restent publics : la page de connexion, ce qu'il faut pour installer l'app, le service worker et les rapports partagés
+// Restent publics : trois noms EXACTS (page de connexion, manifeste, service worker) et les dossiers icons/ et rapports/.
+// Les trois noms sont ancrés par « $ » : /sw.js.map, /sw.jsx, /acces.html.bak… restent privés.
 export const config = {
-  matcher: ['/((?!acces\\.html|manifest\\.webmanifest|sw\\.js|icons/|rapports/).*)'],
+  matcher: ['/((?!acces\\.html$|manifest\\.webmanifest$|sw\\.js$|icons/|rapports/).*)'],
 };
 
 async function membre(code) {

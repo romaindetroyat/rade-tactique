@@ -1,5 +1,7 @@
 // Aide : infobulles (survol ou ⓘ), guide de démarrage, partage de l'app (lien, QR code, parcours).
 
+import { BUILD } from './version.js';
+
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 // Petit bouton ⓘ à placer à côté d'un titre
@@ -94,7 +96,10 @@ export const GUIDE = `
 <p class="small"><b>Installer l’app</b> : sur iPhone, ouvrez le lien dans Safari puis Partager → « Sur l’écran d’accueil ». Sur Android, menu ⋮ → « Installer l’application ».</p>
 <p class="small muted">Le vent local est un modèle simplifié pour la tactique : il donne les tendances (pression, bascules, dévents). Il ne remplace pas l’observation du plan d’eau. Les positions marquées « approx » sont à vérifier sur zone ; le Comité fait foi.</p>`;
 
-export function openGuide() { modal(GUIDE, 'guide'); }
+// La version vient de js/version.js (généré) ; la note est affichée échappée. Rien n’est envoyé au serveur.
+export function openGuide() {
+  modal(`${GUIDE}<p class="small muted" id="appVersion">Version ${esc(BUILD.label)} — ${esc(BUILD.note)}</p>`, 'guide');
+}
 
 export function maybeWelcome() {
   let seen = false;

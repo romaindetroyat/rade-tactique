@@ -8,8 +8,8 @@ last_mapped_at: 2026-10-19
 
 ## Current State
 
-- No committed test suite. No test files (`*.test.*`, `*.spec.*`) exist in the repository.
-- No test framework in `package.json` (dependencies are `openai` and `@vercel/functions` only; no `scripts` block).
+- Since phase 1 (Oct 2026): `node:test` suite in `tests/*.test.mjs` (reference replay of the Coupe SNPM, calculations, access control, PDF import, service worker, race lock, stamp). Run `npm test`; `npm run check` also verifies generated files; Vercel runs `npm run gate` before every deployment.
+- The notes below describe the pre-phase-1 state and remain as background.
 - No CI configuration in the repository (`.github/`, `vercel.json` has no test hooks).
 - Verification so far is ad hoc and happens outside the repository:
   - `node --check <file>` for syntax on changed JavaScript files.
