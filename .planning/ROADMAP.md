@@ -98,14 +98,14 @@ Plans:
   4. Le vent et la stratégie du jour (prévisions, relevés, route conseillée) sont figés dans la régate sans geste de l'équipage ; la liste des régates par saison mène à une fiche qui réunit ce vent du jour, les traces, le débrief, l'analyse polaire, le rapport et l'auteur de chaque élément.
   5. Un GPX d'Open GPX Tracker importé après la course, pauses comprises, se rattache tout seul à la régate du jour et lance le débrief, sans relier les pauses par une ligne droite.
 
-**Plans:** 1/7 plans executed (v28 : plans 01 à 05 ; v29 : plans 06 et 07)
+**Plans:** 2/7 plans executed (v28 : plans 01 à 05 ; v29 : plans 06 et 07)
 
 Plans:
 **Wave 1**
 - [x] 03-01-PLAN.md — Régates : création en trois champs, statut et liste par saison, reprise des fiches, verrou lu dans la régate du jour, manches, auteur par `GET /api/membre` (vague 1)
 
 **Wave 2** *(blocked on Wave 1 completion)*
-- [ ] 03-02-PLAN.md — IC CVAT relues champ par champ : extraits de `parseIC`, puces de vraisemblance, rien sans « Valider les IC » (vague 2)
+- [x] 03-02-PLAN.md — IC CVAT relues champ par champ : extraits de `parseIC`, puces de vraisemblance, rien sans « Valider les IC » (vague 2)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 - [ ] 03-03-PLAN.md — Vent et route du jour figés sans geste (sceau au premier signal), fiche « Vent du jour », débrief tardif sur le vent figé (vague 3)
@@ -147,5 +147,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 |-------|----------------|--------|-----------|
 | 1. Mises en ligne sans risque | 4/4 | Complete    | 2026-10-19 |
 | 2. Fiable et juste en mer | 5/5 | Complete    | 2026-10-19 |
-| 3. Ouvrir une régate | 1/7 | In Progress | - |
+| 3. Ouvrir une régate | 2/7 | In Progress | - |
 | 4. Archive partagée | 0/TBD | Not started | - |

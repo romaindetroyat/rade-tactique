@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 3
 current_phase_name: Ouvrir une régate
 status: executing
-stopped_at: Completed 03-01-PLAN.md
-last_updated: "2026-10-19T20:24:12.709Z"
+stopped_at: Completed 03-02-PLAN.md
+last_updated: "2026-10-19T20:40:36.284Z"
 last_activity: 2026-10-19
 last_activity_desc: Phase 3 execution started
-state_head: 43a2aa0bd7a5cbbfa8fe33ef3f370ff5c7c1598f
+state_head: 593c4997189d4e8e1f78d05077b96a79d7c9fe19
 progress:
   total_phases: 4
   completed_phases: 2
   total_plans: 16
-  completed_plans: 10
+  completed_plans: 11
   percent: 50
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-10-19)
 ## Current Position
 
 Phase: 3 (Ouvrir une régate) — EXECUTING
-Plan: 2 of 7
+Plan: 3 of 7
 Status: Ready to execute
 Last activity: 2026-10-19 — Phase 3 execution started
 
@@ -65,6 +65,7 @@ Progress: [█████░░░░░] 50%
 | Phase 02 P04 | 13 min | 2 tasks | 10 files |
 | Phase 02 P05 | 25 min | 1 tasks | 4 files |
 | Phase 03 P01 | 20 min | 3 tasks | 10 files |
+| Phase 03 P02 | 14 min | 2 tasks | 11 files |
 
 ## Accumulated Context
 
@@ -100,6 +101,7 @@ Décisions récentes qui orientent le travail en cours :
 - [Phase 03]: 03-01 : statut, verrou et saison calculés au jour de Paris ; rade.events.v1 jamais écrite (index rade.regates.v1, reprise idempotente, Coupe SNPM semée sur appareil neuf)
 - [Phase 03]: 03-01 : auteur = réponse GET /api/membre du middleware (prénom seul, no-store), copie rade.membre.v1 hors réseau, by: null complété au premier succès ; l'étiquette n'est pas une autorité (phase 4)
 - [Phase 03]: 03-01 : l'horloge de Playwright vide performance.mark ; l'outil de bout en bout relève les marques par window.__marks ; codes de sortie stricts décidés par verdict()
+- [Phase 03]: Relecture des IC : brouillon en mémoire, écriture unique par applyReview sur « Valider les IC » ; extraits tirés du texte nettoyé ; puces ✓ ⚠ ✕, une valeur impossible bloque la validation — D-02, D-03 : rien de deviné ni de retenu sans contrôle humain
 
 ### Pending Todos
 
@@ -124,6 +126,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-10-19T20:24:12.541Z
-Stopped at: Completed 03-01-PLAN.md
+Last session: 2026-10-19T20:40:36.104Z
+Stopped at: Completed 03-02-PLAN.md
 Resume file: None
