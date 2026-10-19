@@ -135,3 +135,60 @@ export function groupBySeason(list, now) {
   return [...seasons.values()].sort((a, b) => b.season.localeCompare(a.season))
     .map(({ season, groups }) => ({ season, groups: order.filter((st) => groups.has(st)).map((st) => ({ status: st, label: STATUS_LABEL[st], items: groups.get(st).slice().sort(cmp(st)) })) }));
 }
+
+// ───────────────────────── manches
+
+// Jours de la régate (premier au dernier), AAAA-MM-JJ
+export function daysOf(r) {
+  if (!isDate(r?.dateStart)) return [];
+  const out = [], end = isDate(lastDay(r)) ? lastDay(r) : r.dateStart;
+  for (let t = Date.parse(r.dateStart + 'T12:00:00Z'), i = 0; i < 31; t += 864e5, i++) { const d = new Date(t).toISOString().slice(0, 10); if (d > end) break; out.push(d); }
+  return out;
+}
+// Ordre des manches : jour, puis heure ; une manche sans heure après celles du même jour qui en ont une
+const raceOrder = (a, b) => String(a.date).localeCompare(String(b.date)) || (a.time ? 0 : 1) - (b.time ? 0 : 1) || String(a.time).localeCompare(String(b.time));
+
+// Ajoute une manche : { date, time, courseId, cls, laps, note }. `courses` = parcours connus ([{ id }]). Un parcours vide est accepté (à préciser).
+export function addRace(r, race = {}, { now = Date.now(), by = null, courses = [] } = {}) {
+  const errors = {};
+  const date = race.date ? String(race.date) : r.dateStart;
+  if (!daysOf(r).includes(date)) errors.date = 'Ce jour ne fait pas partie de la régate.';
+  const time = String(race.time ?? '').trim();
+  if (time && !isTime(time)) errors.time = 'Heure impossible (HH:MM).';
+  let courseId = null;
+  if (race.courseId != null && race.courseId !== '') {
+    const c = courses.find((x) => String(x.id) === String(race.courseId));
+    if (c) courseId = c.id; else errors.courseId = 'Parcours inconnu.';
+  }
+  const cls = race.cls == null || race.cls === '' ? 'G' : String(race.cls);
+  if (cls !== 'G' && cls !== 'P') errors.cls = 'Classe G ou P.';
+  const lapsRaw = race.laps == null || race.laps === '' ? 2 : Number(race.laps);
+  if (!Number.isInteger(lapsRaw) || lapsRaw < 1 || lapsRaw > 4) errors.laps = 'Tours : de 1 à 4.';
+  const note = String(race.note ?? '').trim();
+  if (note.length > MAX_NOTE) errors.note = `Note trop longue (${MAX_NOTE} caractères au plus).`;
+  if (Object.keys(errors).length) return { ok: false, regatta: r, errors };
+  // la manche choisie (sel) suit sa nouvelle place : chaque manche porte une étiquette temporaire d’origine pendant le tri
+  const tagged = [...(r.races || []).map((m) => ({ ...m, _o: m.n })), { n: 0, date, time, courseId, cls, laps: lapsRaw, note, by, at: now, _o: 0 }];
+  const sorted = tagged.sort(raceOrder);
+  const races = sorted.map(({ _o, ...m }, i) => ({ ...m, n: i + 1 }));
+  const next = { ...r, races };
+  if (r.sel != null) { const i = sorted.findIndex((m) => m._o === r.sel); if (i >= 0) next.sel = i + 1; else delete next.sel; }
+  return { ok: true, regatta: next, errors };
+}
+// Retire la manche n et renumérote ; la manche choisie suit sa nouvelle place (ou disparaît avec elle)
+export function removeRace(r, n) {
+  const races = (r.races || []).filter((m) => m.n !== n).map((m, i) => ({ ...m, n: i + 1 }));
+  const next = { ...r, races };
+  if (r.sel != null && r.sel !== n) next.sel = r.sel > n ? r.sel - 1 : r.sel; else delete next.sel;
+  return next;
+}
+// Réglages de l’app pour une manche : l’heure de départ = signal d’avertissement + 5 min (comme « Caler le départ sur ces IC »)
+export function raceSettings(race) {
+  const out = {};
+  if (race.courseId != null && race.courseId !== '') out.courseId = race.courseId;
+  if (race.cls) out.cls = race.cls;
+  if (race.laps) out.laps = race.laps;
+  if (race.date) out.day = race.date;
+  if (isTime(race.time)) { const [h, m] = race.time.split(':').map(Number); out.startTime = (h * 60 + m + 5) / 60; }
+  return out;
+}

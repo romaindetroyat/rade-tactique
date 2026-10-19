@@ -191,6 +191,10 @@ button.rg.on { border-color: var(--accent); background: #fff8ef; }
 .rg .rgm { display: block; font-size: 12.5px; color: var(--mute); }
 .rg .rgb { display: flex; align-items: center; gap: 6px; margin-top: 3px; }
 .rgerr { color: var(--bad); font-size: 12.5px; margin-top: 3px; }
+.rgraces h4, .rgrform h4 { margin: 12px 0 4px; font-size: 14px; }
+.rgrace { border-left: 4px solid #cfd8e2; padding: 6px 10px; margin: 6px 0; background: #f8fafc; border-radius: 0 10px 10px 0; }
+.rgrace.on { border-left-color: var(--accent); background: #fff8ef; }
+.rgrform { margin-top: 10px; padding-top: 4px; border-top: 1px solid var(--line); }
 table.t tr.sel td { background: #fff3e0; font-weight: 600; }
 .bar { display: block; height: 8px; border-radius: 4px; background: linear-gradient(90deg, var(--ok) var(--w), #e3e8ee var(--w)); min-width: 60px; }
 @media (max-width: 420px) { .obs-grid { grid-template-columns: 1fr; } .dial { max-width: 210px; } }

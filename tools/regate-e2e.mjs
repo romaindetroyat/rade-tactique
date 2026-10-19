@@ -148,7 +148,58 @@ async function creer({ browser, base }) {
   await ctx.close();
 }
 
-const SCENARIOS = { creer };
+// Ajoute une manche par l’interface : « ＋ Ajouter une manche », heure du signal, parcours, classe, tours, « Ajouter la manche »
+async function ajouteManche(page, { heure, parcours, cls, tours }) {
+  const avant = await page.locator('section[data-tab=ic] .rgrace').count();
+  await page.click('#rcNew');
+  await page.fill('#rcTime', heure);
+  await page.selectOption('#rcCourse', parcours);
+  await page.selectOption('#rcCls', cls);
+  await page.selectOption('#rcLaps', tours);
+  await page.click('#rcAdd');
+  await page.waitForSelector('#rcForm', { state: 'detached', timeout: 10000 });
+  assert.equal(await page.locator('section[data-tab=ic] .rgrace').count(), avant + 1, 'la manche doit apparaître dans la fiche');
+}
+const reglages = (page) => page.evaluate(() => ({ parcours: document.querySelector('#cSel')?.value, cls: document.querySelector('#cCls')?.value, depart: document.querySelector('#cStart')?.value }));
+
+// REG-02 : plusieurs manches dans une journée, chacune avec son parcours ; « Choisir cette manche » cale le départ
+async function manche({ browser, base }) {
+  const ctx = await ouvreContexte(browser, { heure: '2026-11-07T08:30:00Z' });        // samedi 07/11/2026 09:30 à Paris
+  const { page, erreurs } = await ouvrePage(ctx);
+  await ouvreApp(page, base);
+  await creeRegate(page, { nom: 'Régate des manches', debut: '2026-11-07', club: 'CVAT' });
+  await ajouteManche(page, { heure: '10:55', parcours: '5', cls: 'G', tours: '2' });
+  await ajouteManche(page, { heure: '13:25', parcours: '3', cls: 'P', tours: '1' });
+  const lignes = await page.locator('section[data-tab=ic] .rgrace').allTextContents();
+  assert.match(lignes[0], /Manche 1[\s\S]*10:55[\s\S]*classe G[\s\S]*2 tours/);
+  assert.match(lignes[1], /Manche 2[\s\S]*13:25[\s\S]*classe P[\s\S]*1 tour(?!s)/);
+
+  // première manche : parcours 5, classe G, départ à 11:00 (10:55 + 5 min)
+  await page.click('[data-race="1"]');
+  await page.click('#tabs button[data-tab=course]');
+  assert.deepEqual(await reglages(page), { parcours: '5', cls: 'G', depart: '11:00' });
+  // seconde manche : parcours 3, classe P, départ à 13:30 (13:25 + 5 min)
+  await page.click('#tabs button[data-tab=ic]');
+  await page.click('[data-race="2"]');
+  await page.click('#tabs button[data-tab=course]');
+  assert.deepEqual(await reglages(page), { parcours: '3', cls: 'P', depart: '13:30' });
+  const etat = await page.evaluate(() => ({ s: JSON.parse(localStorage.getItem('rade.state')), idx: JSON.parse(localStorage.getItem('rade.regates.v1')) }));
+  assert.equal(etat.s.courseId, 3); assert.equal(etat.s.cls, 'P'); assert.equal(etat.s.startTime, 13.5); assert.equal(etat.s.day, '2026-11-07');
+  const reg = etat.idx.list.find((r) => r.id === etat.idx.current);
+  assert.equal(reg.sel, 2, 'la manche choisie est gardée avec la régate');
+  assert.deepEqual(reg.races.map((m) => [m.n, m.time, m.courseId, m.cls, m.laps]), [[1, '10:55', 5, 'G', 2], [2, '13:25', 3, 'P', 1]]);
+
+  // après un rechargement : les deux manches et le choix sont là
+  await ouvreApp(page, base);
+  await page.click('#tabs button[data-tab=ic]');
+  assert.equal(await page.locator('section[data-tab=ic] .rgrace').count(), 2);
+  assert.equal(await page.locator('section[data-tab=ic] .rgrace.on').count(), 1);
+  assert.match(await page.locator('section[data-tab=ic] .rgrace.on').textContent(), /Manche 2/);
+  sansErreur(erreurs, 'pendant le scénario');
+  await ctx.close();
+}
+
+const SCENARIOS = { creer, manche };
 
 // ───────────────────────── lancement
 

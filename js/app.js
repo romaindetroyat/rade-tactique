@@ -5,7 +5,7 @@ import { Terrain, toXY, toLL, NM, bearingXY, distXY, norm360, norm180, fmtBrg, f
 import { WindField, speedColor } from './wind.js';
 import { MARKS, COURSES, LINE_PRESETS, FORBIDDEN_ZONE, DANGERS } from './courses.js';
 import { pdfText, parseIC, eventForm, readForm } from './events.js';
-import { migrate, saveRegattas, createRegatta, upsertRegatta, removeRegatta, setCurrent as setCurrentRegatta, currentRegatta, icOf, groupBySeason, lockDates, seasonOf } from './regates.js';
+import { migrate, saveRegattas, createRegatta, upsertRegatta, removeRegatta, setCurrent as setCurrentRegatta, currentRegatta, icOf, groupBySeason, lockDates, seasonOf, daysOf, addRace, removeRace, raceSettings } from './regates.js';
 import { listHTML, newRegattaFormHTML, sheetHTML } from './regview.js';
 import { fetchAll, cached, snapshot, consensus, gridPoints, marineAt, fetchLive, MODELS, WMO, CENTER } from './weather.js';
 import { buildLegs, analyzeLeg, markAdvice, analyzeStart, trendOf, rankCourses, regimeOf, sideName, summarizeTime } from './tactics.js';
@@ -1494,9 +1494,26 @@ function bindMarksEdit(el) {
 // ───────────────────────── RÉGATES ET IC
 let icDraft = null;                          // fiche IC en cours de relecture (import ou « Modifier »)
 let rgDraft = null, rgErr = {};              // formulaire « Nouvelle régate » ouvert : sa saisie survit à un redessin
-const icBusy = () => !!(rgDraft || icDraft);
+let raceDraft = null, raceErr = {};          // formulaire « Nouvelle manche » ouvert
+const icBusy = () => !!(rgDraft || icDraft || raceDraft);
+const courseList = () => COURSES.map(({ id, title }) => ({ id, title }));
 // Après un changement de régate courante ou de ses données : tout ce qui lit IC ou le verrou est redessiné
 function afterRegChange() { renderIC(); renderDaySeg(); renderBrief(); renderLive(); }
+// « Choisir cette manche » (geste) : cale parcours, classe, tours, jour et heure de départ (avertissement + 5 min) comme « Caler le départ sur ces IC »
+function chooseRace(n) {
+  const reg = currentRegatta(REG), m = reg?.races.find((x) => x.n === n);
+  if (!m) return;
+  const set = raceSettings(m);
+  if (set.courseId != null && COURSES.some((c) => c.id === set.courseId) && S.courseId !== set.courseId) { S.courseId = set.courseId; selLeg = null; S.lineOverride = null; }
+  if (set.cls) S.cls = set.cls;
+  if (set.laps) S.laps = set.laps;
+  if (set.startTime != null) { S.startTime = set.startTime; S.hour = Math.floor(S.startTime * 4) / 4; }
+  if (set.day && set.day >= today()) S.day = set.day;
+  saveReg(upsertRegatta(REG, { ...reg, sel: n }));         // la manche choisie est gardée avec la régate
+  persist(); renderCourse(); updateAll(); renderIC();
+  const c = COURSES.find((x) => x.id === S.courseId);
+  toast(`Manche ${n} : ${c?.title || 'parcours'}, ${m.time ? `départ ${hhmm(S.startTime)} le ${dayName(S.day)}` : 'heure de départ inchangée (signal inconnu)'}`);
+}
 function renderIC() {
   const el = $('section[data-tab=ic]');
   const cur = currentRegatta(REG), now = Date.now();
@@ -1505,7 +1522,7 @@ function renderIC() {
   let html = `<div class="card"><h3><span>Régates ${tip('Chaque régate a sa fiche : jours, manches, Instructions de Course. La régate choisie fixe le jour 🏁, l’heure de départ par défaut et les points clés affichés. Classées par saison, puis Aujourd’hui, À venir, Passées.')}</span><button type="button" class="btn acc small" id="rgNew">＋ Nouvelle régate</button></h3>
     ${listHTML(groupBySeason(REG.list, now), { currentId: cur?.id ?? null, now })}</div>`;
   if (rgDraft) html += newRegattaFormHTML(rgDraft, rgErr);
-  html += sheetHTML(cur, { now });
+  html += sheetHTML(cur, { now, courses: courseList(), raceDraft, raceErrors: raceErr });
   if (icDraft) html += eventForm(icDraft);
   html += `<div class="card"><h3>Instructions de course <small>${cur?.ic ? `lues ${esc(cur.ic.read === 'motifs' ? 'depuis le PDF' : cur.ic.read === 'reprise' ? 'sur une ancienne fiche' : 'à la main')}` : 'à importer'}</small></h3>
     <div class="btns" style="margin:0 0 6px"><label class="btn acc small" for="icFile" style="cursor:pointer">＋ Importer des IC (PDF)</label><button class="btn alt small" id="evEdit">Modifier</button></div>
@@ -1546,6 +1563,29 @@ function renderIC() {
     $('#rgCreate').onclick = create;
     $('#rgCancel').onclick = () => { rgDraft = null; rgErr = {}; renderIC(); };
   }
+  // manches : ajout, suppression (deux touches), choix (cale parcours, classe, tours, jour et heure de départ)
+  $('#rcNew')?.addEventListener('click', () => {
+    const jours = daysOf(cur), auj = parisClock(Date.now()).date;
+    raceDraft = { date: jours.includes(auj) ? auj : cur.dateStart, time: '', courseId: String(S.courseId), cls: S.cls, laps: String(Math.min(4, S.laps)), note: '' }; raceErr = {};
+    renderIC(); $('#rcTime')?.focus();
+  });
+  if (raceDraft) {
+    const sync = () => { raceDraft = { date: $('#rcDate').value, time: $('#rcTime').value, courseId: $('#rcCourse').value, cls: $('#rcCls').value, laps: $('#rcLaps').value, note: $('#rcNote').value }; };
+    for (const id of ['#rcDate', '#rcTime', '#rcCourse', '#rcCls', '#rcLaps', '#rcNote']) { $(id).addEventListener('input', sync); $(id).addEventListener('change', sync); }
+    $('#rcAdd').onclick = () => {
+      sync();
+      const r = addRace(cur, raceDraft, { now: Date.now(), by: null, courses: COURSES });
+      if (!r.ok) { raceErr = r.errors; renderIC(); return; }
+      raceDraft = null; raceErr = {};
+      saveReg(upsertRegatta(REG, r.regatta)); renderIC(); toast(`Manche ajoutée (${r.regatta.races.length} dans la régate)`);
+    };
+    $('#rcCancel').onclick = () => { raceDraft = null; raceErr = {}; renderIC(); };
+  }
+  $$('[data-race]', el).forEach((b) => b.addEventListener('click', () => chooseRace(+b.dataset.race)));
+  $$('[data-rmrace]', el).forEach((b) => b.addEventListener('click', () => {
+    if (b.dataset.c !== '1') { b.dataset.c = '1'; b.textContent = 'Supprimer ?'; return; }
+    saveReg(upsertRegatta(REG, removeRace(cur, +b.dataset.rmrace))); renderIC();
+  }));
   $('#evEdit').onclick = () => { icDraft = { ...IC }; renderIC(); };
   $('#evDel')?.addEventListener('click', (e) => { if (e.target.dataset.c !== '1') { e.target.dataset.c = '1'; e.target.textContent = 'Confirmer la suppression'; return; } icDraft = null; saveReg(removeRegatta(REG, cur.id)); afterRegChange(); });
   $('#evUse')?.addEventListener('click', () => {
