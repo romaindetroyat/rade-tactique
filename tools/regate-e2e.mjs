@@ -825,7 +825,7 @@ async function main() {
             new Promise((_, ko) => { minuterie = setTimeout(() => ko(new Error(`délai dépassé (${DELAI_MS / 1000} s)`)), DELAI_MS); }),
           ]);
           console.log(`OK ${nom}`); ok.push(nom);
-        } catch (e) { console.log(`ÉCHEC ${nom} : ${String(e.message || e).split('\n')[0].slice(0, 400)}`); } finally { clearTimeout(minuterie); }
+        } catch (e) { console.log(`ÉCHEC ${nom} : ${String(e.message || e).split('\n')[0].slice(0, 400)}${e && 'actual' in e && 'expected' in e ? ` — obtenu ${JSON.stringify(e.actual)?.slice(0, 200)}, attendu ${JSON.stringify(e.expected)?.slice(0, 200)}` : ''}${e?.stack ? ` @ ${String(e.stack).split('\n').find((l) => /regate-e2e/.test(l))?.trim().slice(-60) ?? ''}` : ''}`); } finally { clearTimeout(minuterie); }
       }
     }
   } catch (e) {
