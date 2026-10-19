@@ -4,8 +4,8 @@ import { report, note, setContext } from './journal.js';
 import { Terrain, toXY, toLL, NM, bearingXY, distXY, norm360, norm180, fmtBrg, fmtNm, fmtLat, fmtLon, cardinal } from './geo.js';
 import { WindField, speedColor } from './wind.js';
 import { MARKS, COURSES, LINE_PRESETS, FORBIDDEN_ZONE, DANGERS } from './courses.js';
-import { pdfText, parseIC } from './events.js';
-import { reviewFromParse, reviewFromRegatta, setValue, setKeep, canValidate, checksFor, applyReview, reviewHTML, chipOf, validatedHTML } from './icread.js';
+import { pdfText, parseIC, cleanText } from './events.js';
+import { reviewFromParse, reviewFromRegatta, reviewFromApi, setValue, setKeep, canValidate, checksFor, applyReview, reviewHTML, chipOf, validatedHTML } from './icread.js';
 import { migrate, saveRegattas, createRegatta, upsertRegatta, removeRegatta, setCurrent as setCurrentRegatta, currentRegatta, todayRegatta, icOf, groupBySeason, lockDates, daysOf, addRace, removeRace, raceSettings, membre, saveMembre, backfillAuthor } from './regates.js';
 import { THROTTLE_MS, slotKey, freezeAction, obsNeedsCopy, stratNeedsCopy, sliceDays, freezeSummary, strategySummary, compactStrategy, windSourceKind, frozenLabel } from './gel.js';
 import { putSlot, getSlot } from './regstore.js';
@@ -1721,6 +1721,11 @@ async function refreshMembre() {
   } catch (e) { note('membre', 'prénom indisponible : ' + (e?.message || e)); } finally { clearTimeout(to); }
 }
 let icDraft = null;                          // relecture des IC en cours (import ou « Modifier »), en mémoire de la page seulement : rien n’est écrit avant « Valider les IC »
+// Lecture par l’IA (plan 03-06) : `imported` = numéro de l’import qui a ouvert la relecture (un autre import, « Annuler » ou « Modifier » rend la réponse en attente caduque) ;
+// `icSrc` = le texte du PDF importé, en mémoire seulement. Le texte ne part chez OpenAI (via /api/ic) que sur le geste « Lire avec l’IA ».
+let icSrc = null, iaSeq = 0, iaCtl = null, iaBusy = false, iaMsg = '';
+const IA_TIMEOUT_MS = 70000;                 // un peu plus que maxDuration (60 s) de la fonction
+const iaState = () => ({ show: !!(icDraft?.imported && icDraft.read === 'motifs' && icSrc), enabled: !iaBusy, busy: iaBusy, msg: iaMsg });
 let rgDraft = null, rgErr = {};              // formulaire « Nouvelle régate » ouvert : sa saisie survit à un redessin
 let raceDraft = null, raceErr = {};          // formulaire « Nouvelle manche » ouvert
 const icBusy = () => !!(rgDraft || icDraft || raceDraft);
@@ -1752,7 +1757,7 @@ function renderIC() {
     <div class="small muted" id="rgWho" style="margin-top:6px">${who() ? `Vous : ${esc(who())}` : 'Vous : — (prénom donné à la prochaine connexion)'}</div></div>`;
   if (rgDraft) html += newRegattaFormHTML(rgDraft, rgErr);
   html += sheetHTML(cur, { now, courses: courseList(), raceDraft, raceErrors: raceErr });
-  if (icDraft) html += reviewHTML(icDraft, icChecks());
+  if (icDraft) html += reviewHTML(icDraft, icChecks(), { ia: iaState() });
   html += `<div class="card"><h3>Instructions de course <small>${cur?.ic ? 'validées' : 'à importer'}</small></h3>
     <div class="btns" style="margin:0 0 6px"><label class="btn acc small" for="icFile" style="cursor:pointer">＋ Importer des IC (PDF)</label><button class="btn alt small" id="evEdit">Modifier</button></div>
     <input type="file" id="icFile" accept="application/pdf,.pdf,.txt,text/plain" hidden>
@@ -1836,7 +1841,8 @@ function renderIC() {
     $('#icMsg').textContent = 'Lecture des IC…';
     try {
       const text = /\.pdf$/i.test(f.name) || f.type === 'application/pdf' ? await pdfText(f) : await f.text();
-      icDraft = reviewFromParse(parseIC(text, f.name), { source: f.name, text, regatta: cur });
+      iaCtl?.abort(); iaBusy = false; iaMsg = ''; icSrc = { text };
+      icDraft = { ...reviewFromParse(parseIC(text, f.name), { source: f.name, text, regatta: cur }), imported: ++iaSeq };
       renderIC(); $('#icReview')?.scrollIntoView({ behavior: 'smooth' });
     } catch (err) { report('ic', err); $('#icMsg').textContent = 'Lecture impossible : ' + err.message + '. Vous pouvez saisir la fiche à la main (Modifier).'; }
   };
@@ -1845,8 +1851,42 @@ function renderIC() {
     $$('input[data-f]', el).forEach((inp) => inp.addEventListener('input', () => { icDraft = setValue(icDraft, inp.dataset.f, inp.value); paintReview(); }));
     $$('input[data-kr]', el).forEach((cb) => cb.addEventListener('change', () => { icDraft = setKeep(icDraft, +cb.dataset.kr, cb.checked); }));
     $('#icValidate').onclick = validateIC;
-    $('#icCancel').onclick = () => { icDraft = null; renderIC(); };
+    $('#icCancel').onclick = () => { iaCtl?.abort(); iaBusy = false; iaMsg = ''; icDraft = null; renderIC(); };
+    $('#icIa')?.addEventListener('click', () => { readWithAI(); });
   }
+}
+
+// Met à jour le bouton « Lire avec l’IA » et son message sans reconstruire la carte
+function paintIa() {
+  const b = $('#icIa'), m = $('#icIaMsg'), st = iaState();
+  if (b) b.disabled = !st.enabled;
+  if (m) m.textContent = st.msg;
+}
+// « Lire avec l’IA » (geste) : le texte des IC, et lui seul, part à /api/ic (cookie de la page vers CE site, jamais vers OpenAI) ; la réponse arrive déjà
+// vérifiée mot pour mot et remplace la relecture ouverte ; rien n’entre dans la régate avant « Valider les IC ». Un seul appel par geste.
+async function readWithAI() {
+  const token = icDraft?.imported;
+  if (!token || iaBusy || !icSrc) return;
+  const ctl = iaCtl = new AbortController();
+  let timedOut = false;
+  const to = setTimeout(() => { timedOut = true; ctl.abort(); }, IA_TIMEOUT_MS);
+  iaBusy = true; iaMsg = 'Lecture par l’IA… (jusqu’à une minute)'; paintIa();
+  try {
+    const r = await fetch('/api/ic', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: cleanText(icSrc.text) }), signal: ctl.signal });
+    const body = await r.json().catch(() => { /* corps illisible : traité comme une erreur juste après */ return null; });
+    if (icDraft?.imported !== token) return;                       // relecture fermée ou remplacée entre-temps
+    if (!r.ok || !body || typeof body !== 'object') { const e = new Error('HTTP ' + r.status); e.status = r.status; throw e; }
+    icDraft = { ...reviewFromApi(body, { source: icDraft.source, text: icSrc.text, regatta: currentRegatta(REG) }), imported: token };
+    iaMsg = '';
+  } catch (err) {
+    if (icDraft?.imported !== token) return;
+    report('ic-ia', timedOut ? 'délai de 70 s dépassé' : err?.status ? 'HTTP ' + err.status : err?.name || 'erreur');   // jamais le texte des IC
+    iaMsg = 'La lecture par l’IA a échoué : relisez et corrigez à la main (rien n’a été modifié).';
+  } finally {
+    clearTimeout(to);
+    if (iaCtl === ctl) iaBusy = false;
+  }
+  if (icDraft?.imported === token) { renderIC(); $('#icReview')?.scrollIntoView({ behavior: 'smooth' }); }
 }
 
 // Contrôles de vraisemblance de la relecture ouverte ; la carte (terrain) sert dès qu'elle est chargée, sinon seules les bornes comptent

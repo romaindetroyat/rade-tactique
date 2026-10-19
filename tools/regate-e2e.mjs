@@ -784,7 +784,123 @@ async function depuisIC({ browser, base }) {
   await ctx.close();
 }
 
-const SCENARIOS = { creer, manche, auteur, ic, 'depuis-ic': depuisIC, vraisemblance, gel, 'debrief-tardif': debriefTardif, gpx, 'gpx-choix': gpxChoix };
+// ───────────────────────── lecture des IC d'un autre club par l'IA (plan 03-06)
+
+// Texte fabriqué d'un autre club (D-06 : aucun PDF réel d'un autre club) : même forme que les IC SNPM, club renommé, « 10:30 », « VHF 69 »
+const TEXTE_AUTRE_CLUB = `Instructions de Course
+
+Coupe de la Société Nautique de Marseille Sud
+
+dimanche 18 octobre 2026
+
+5. PROGRAMME DES COURSES dimanche 18 octobre 2026
+
+5.1 Heure du premier signal d’avertissement : 10:30
+
+5.2 Heure limite du signal d’arrivée du premier : 16:00
+
+7. DEFINITION DE L’EMPLACEMENT DE LA ZONE DE COURSE
+
+de la rade de Marseille, au large de la Pointe Rouge
+
+17.3 Canal de vacation Radio : VHF 69
+
+Président du comité de course : Marie DUPONT
+
+Téléphone ou sms : 06 12 34 56 78
+
+Tout concurrent qui abandonne doit en informer le comité de course sur le canal VHF dans les plus brefs délais.
+
+Le port du gilet de sauvetage est obligatoire pendant toute la durée de la course sur Marseille.
+`;
+const importeTexte = async (page, texte, nom = 'ic-autre-club.txt') => {
+  await page.setInputFiles('#icFile', { name: nom, mimeType: 'text/plain', buffer: Buffer.from(texte, 'utf8') });
+  await page.waitForSelector('#icReview', { timeout: 60000 });
+};
+
+// Sert POST /api/ic avec la VRAIE fonction serveur (api/ic.js, vérification mot pour mot comprise) et un client OpenAI simulé : aucun réseau, aucune clé réelle.
+// `sortie(texteEnvoye)` rend ce que dirait le modèle. Rend l'état observé : demandes reçues, corps, arguments donnés au client simulé.
+async function serviaIA(ctx, sortie) {
+  const { createHandler } = await import('../api/ic.js');
+  process.env.OPENAI_API_KEY ||= 'cle-de-test';
+  const etat = { demandes: [], corps: [], enTetes: [], client: [] };
+  const client = { responses: { create: async (args) => { etat.client.push(args); return { status: 'completed', output_text: JSON.stringify(sortie(args.input)) }; } } };
+  const handler = createHandler({ openai: client });
+  await ctx.route('**/api/ic', async (route) => {
+    const req = route.request();
+    etat.demandes.push(req.method());
+    const corps = JSON.parse(req.postData() || 'null');
+    etat.corps.push(corps); etat.enTetes.push(req.headers());
+    const out = { code: 200, body: null, status(c) { out.code = c; return out; }, json(b) { out.body = b; return out; }, setHeader() { return out; } };
+    await handler({ method: req.method(), headers: req.headers(), body: corps }, out);
+    await route.fulfill({ status: out.code, contentType: 'application/json', body: JSON.stringify(out.body) });
+  });
+  return etat;
+}
+const vide = () => ({ value: null, excerpt: null });
+const sortieIA = (surcharge) => ({
+  event: vide(), club: vide(), dateStart: vide(), dateEnd: vide(), firstWarning: vide(), lastFinish: vide(), vhf: vide(), committee: vide(), zone: vide(),
+  startLine: vide(), finishLine: vide(), penalty: vide(), races: [], marks: [], courses: [], specialRules: [], ...surcharge,
+});
+// Extrait copié du texte reçu par le « modèle » (la première occurrence de l'expression)
+const copie = (input, re) => { const m = re.exec(input); if (!m) throw new Error('extrait introuvable dans le texte de test : ' + re); return m[0]; };
+
+// REG-03 (autre club, D-01, D-02) : « Lire avec l'IA » sur geste ; les valeurs prouvées reviennent avec leur extrait, l'invention est vidée et signalée ; rien sans validation
+async function ia({ browser, base }) {
+  const ctx = await ouvreContexte(browser, { heure: '2026-10-19T08:30:00Z' });        // lundi 19/10/2026 10 h 30 à Paris
+  const { page, erreurs } = await ouvrePage(ctx);
+  const etat = await serviaIA(ctx, (input) => sortieIA({
+    event: { value: 'Coupe de la Société Nautique de Marseille Sud', excerpt: copie(input, /Coupe de la Société Nautique de Marseille Sud/) },
+    dateStart: { value: '2026-10-18', excerpt: copie(input, /dimanche 18 octobre 2026/) },
+    firstWarning: { value: '10:30', excerpt: copie(input, /Heure du premier signal d’avertissement : 10:30/) },
+    lastFinish: { value: '16:00', excerpt: copie(input, /Heure limite du signal d’arrivée du premier : 16:00/) },
+    vhf: { value: '69', excerpt: copie(input, /Canal de vacation Radio : VHF 69/) },
+    committee: { value: 'Jean MARTIN', excerpt: 'Président du comité de course : Jean MARTIN' },           // extrait inventé : le texte dit Marie DUPONT
+    zone: { value: 'au large de la Pointe Rouge', excerpt: copie(input, /de la rade de Marseille, au large de la Pointe Rouge/) },
+  }));
+  await ouvreApp(page, base);
+  await creeRegate(page, { nom: 'Régate autre club', debut: '2026-10-19', club: 'SNM' });
+  await importeTexte(page, TEXTE_AUTRE_CLUB);
+  assert.equal(etat.demandes.length, 0, 'rien n’est envoyé à l’import : seul le geste « Lire avec l’IA » envoie');
+  let rel = await lireRelecture(page);
+  assert.match(rel.committee.valeur, /Marie DUPONT/, 'la lecture par motifs a lu le Comité avant l’IA');
+  const bouton = page.locator('#icIa');
+  assert.equal(await bouton.count(), 1, 'bouton « Lire avec l’IA » dans la relecture d’un fichier importé');
+  assert.match(await bouton.textContent(), /Lire avec l’IA \(le texte part chez OpenAI\)/);
+
+  await bouton.click();
+  await page.waitForFunction(() => document.querySelector('#icReview')?.textContent.includes('lecture par l’IA (OpenAI)'), null, { timeout: 30000 });
+  assert.equal(etat.demandes.length, 1, 'un seul appel par geste');
+  assert.deepEqual(Object.keys(etat.corps[0]), ['text'], 'le corps ne porte que le texte des IC');
+  assert.ok(!JSON.stringify(etat.client).match(/cookie|rt_acces/i), 'rien de la requête ne part chez OpenAI');
+  assert.equal(etat.client[0].text.format.strict, true);
+  rel = await lireRelecture(page);
+  assert.equal(rel.firstWarning.valeur, '10:30'); assert.match(rel.firstWarning.extrait, /^Extrait : .*10:30/);
+  assert.equal(rel.vhf.valeur, '69'); assert.match(rel.vhf.extrait, /VHF 69/);
+  assert.equal(rel.dateStart.valeur, '2026-10-18'); assert.match(rel.dateStart.extrait, /18 octobre 2026/);
+  assert.equal(rel.committee.valeur, '', 'extrait inventé : la valeur du modèle n’est jamais affichée');
+  assert.match(rel.committee.puceTexte, /extrait introuvable dans le texte/);
+  assert.match(rel.committee.puce, /\bmid\b/);
+  assert.doesNotMatch(await page.locator('#icReview').textContent(), /Jean MARTIN/, 'la valeur inventée n’apparaît nulle part');
+  assert.match(rel.firstWarning.puce, /\bgood\b/, 'mêmes puces de vraisemblance que la lecture CVAT');
+  assert.equal(await page.locator('#icIa').count(), 0, 'plus de bouton une fois la lecture IA faite');
+  // la lecture n'a rien retenu
+  assert.equal((await regateCourante(page)).ic, null, 'rien n’entre avant « Valider les IC »');
+  assert.match(await page.locator('#icVal').textContent(), /Pas encore d’IC validées/);
+
+  await page.click('#icValidate');
+  await page.waitForSelector('#icReview', { state: 'detached', timeout: 10000 });
+  const reg = await regateCourante(page);
+  assert.equal(reg.ic.read, 'ia'); assert.equal(typeof reg.ic.validated.at, 'number');
+  assert.equal(reg.ic.fields.vhf, 69); assert.equal(reg.ic.fields.firstWarning, '10:30'); assert.equal(reg.ic.fields.committee, '');
+  assert.match(reg.ic.excerpts.firstWarning, /10:30/);
+  assert.match(await page.locator('#icVal').textContent(), /^IC validées.* le \d\d\/\d\d \(lecture par l’IA\)$/);
+  assert.equal(etat.demandes.length, 1, 'aucun autre appel');
+  sansErreur(erreurs, 'pendant le scénario');
+  await ctx.close();
+}
+
+const SCENARIOS = { creer, manche, auteur, ic, 'depuis-ic': depuisIC, vraisemblance, gel, 'debrief-tardif': debriefTardif, gpx, 'gpx-choix': gpxChoix, ia };
 
 // ───────────────────────── lancement
 

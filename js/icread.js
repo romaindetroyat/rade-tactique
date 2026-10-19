@@ -1,11 +1,14 @@
 // Relecture des IC champ par champ (D-02, D-03). Module pur, sans DOM ni stockage : un brouillon en mémoire de la page (`review`)
-// est fabriqué depuis un lecteur (motifs de parseIC aujourd’hui, l’IA d’un autre club plus tard) ou depuis la régate (« Modifier »).
+// est fabriqué depuis un lecteur (motifs de parseIC, ou l’IA pour un autre club : réponse déjà vérifiée par api/ic.js) ou depuis la régate (« Modifier »).
 // Chaque valeur garde son extrait d’origine (la phrase du PDF qui l’a produite). Rien n’entre dans la régate avant `applyReview`,
 // appelé sur le geste « Valider les IC » : le brouillon ne touche jamais le stockage. Tout texte affiché passe par escHTML.
 //
-// Forme d’une relecture : { source, read, text, fields: [{ key, label, kind, value, orig, excerpt, edited }], keyRules: [{ value, keep }] }
+// Forme d’une relecture : { source, read, text, fields: [{ key, label, kind, value, orig, excerpt, flag, edited }], keyRules: [{ value, keep, verified? }], races, marks, courses }
 //   value  = ce que l’équipier voit dans le champ ('' si la lecture n’a rien trouvé : jamais deviné) ; orig = la valeur au départ
 //   excerpt = extrait d’origine (null si la valeur n’a pas été lue dans le texte) ; edited = vrai si l’équipier a changé la valeur
+//   flag = (lecture par l’IA) pourquoi la valeur est vide : « extrait introuvable dans le texte » ou « la valeur ne figure pas dans l’extrait »
+//   keyRules[].verified === false = règle lue par l’IA dont l’extrait n’est pas dans le texte : grisée, jamais cochée
+//   races = manches lues par l’IA [{ date, time, label, excerpt, verified, keep }] ; marks, courses = bouées et parcours lus, gardés tels quels
 
 import { escHTML } from './regview.js';
 import { isDate, seasonOf, MAX_NAME, MAX_IC_TEXT } from './regates.js';
@@ -23,8 +26,8 @@ export const FIELDS = Object.freeze([
   { key: 'zone', label: 'Zone de course', kind: 'text' },
 ].map(Object.freeze));
 const MAX_FIELD = 200;                                     // longueur d’une valeur saisie
-const READ_LONG = { motifs: 'par motifs (CVAT, hors réseau)', saisie: 'saisie à la main', reprise: 'reprise d’une ancienne fiche' };
-const READ_SHORT = { motifs: 'par motifs', saisie: 'saisie', reprise: 'reprise' };
+const READ_LONG = { motifs: 'par motifs (CVAT, hors réseau)', saisie: 'saisie à la main', reprise: 'reprise d’une ancienne fiche', ia: 'par l’IA (OpenAI) : vérifiez chaque valeur' };
+const READ_SHORT = { motifs: 'par motifs', saisie: 'saisie', reprise: 'reprise', ia: 'par l’IA' };
 export const NOT_READ = 'non lu dans le texte';
 
 const str = (v) => (v == null ? '' : String(v).trim());
@@ -32,11 +35,13 @@ const valueOf = (review, key) => str(review?.fields?.find((f) => f.key === key)?
 
 // ───────────────────────── fabrication d’une relecture
 
-function build(values, excerpts, { source, read, text, keyRules }) {
+// keyRules : des textes (cochés au départ) ou des objets { value, keep, verified } ; flags : { clé: raison } pour les champs vides signalés
+function build(values, excerpts, { source, read, text, keyRules, flags = {}, extra = {} }) {
   return {
     source: String(source ?? ''), read, text: String(text ?? '').slice(0, MAX_IC_TEXT),
-    fields: FIELDS.map((d) => { const v = str(values[d.key]); return { ...d, value: v, orig: v, excerpt: excerpts[d.key] || null, edited: false }; }),
-    keyRules: (keyRules || []).map((value) => ({ value: String(value), keep: true })),
+    fields: FIELDS.map((d) => { const v = str(values[d.key]); return { ...d, value: v, orig: v, excerpt: excerpts[d.key] || null, flag: flags[d.key] || null, edited: false }; }),
+    keyRules: (keyRules || []).map((k) => (k && typeof k === 'object' ? { value: String(k.value), keep: !!k.keep, ...(k.verified === false ? { verified: false } : {}) } : { value: String(k), keep: true })),
+    races: [], marks: [], courses: [], ...extra,
   };
 }
 
@@ -55,13 +60,35 @@ export function reviewFromRegatta(r) {
   return build(values, r?.ic?.excerpts || {}, { source: r?.ic?.source, read: r?.ic?.read || 'saisie', text: r?.ic?.text, keyRules: f.keyRules });
 }
 
+// Depuis la réponse de /api/ic (déjà vérifiée côté serveur : extrait retrouvé dans le texte envoyé ET valeur retrouvée dans l’extrait). Une valeur
+// vide y est accompagnée de sa raison (`flag`) ; une règle ou une manche non vérifiée est grisée et non cochée. Une règle vérifiée est montrée
+// avec le texte de son extrait (celui du PDF), pas avec la reformulation du modèle. `regatta` (facultatif) : le dernier jour déjà connu est repris.
+const FROM_API = { event: 'event', dateStart: 'dateStart', dateEnd: 'dateEnd', firstWarning: 'firstWarning', lastFinishSignal: 'lastFinish', vhf: 'vhf', committee: 'committee', zone: 'zone' };
+export function reviewFromApi(a, { source = '', text, regatta = null } = {}) {
+  const values = {}, excerpts = {}, flags = {};
+  for (const [key, src] of Object.entries(FROM_API)) {
+    const x = a?.[src] || {};
+    values[key] = x.value ?? '';
+    excerpts[key] = x.excerpt ?? null;
+    if (x.flag) flags[key] = String(x.flag);
+  }
+  if (!str(values.dateEnd) && !flags.dateEnd && regatta?.dateEnd) { values.dateEnd = regatta.dateEnd; excerpts.dateEnd = null; }
+  const list = (v) => (Array.isArray(v) ? v : []);
+  const keyRules = list(a?.specialRules)
+    .map((r) => (r?.verified ? { value: str(r.excerpt), keep: true } : { value: str(r?.value), keep: false, verified: false }))
+    .filter((k) => k.value !== '');
+  const races = list(a?.races).map((r) => ({ date: str(r?.date), time: str(r?.warning), label: str(r?.label), excerpt: r?.verified ? str(r.excerpt) : null, verified: !!r?.verified, keep: !!r?.verified }));
+  const clone = (v) => list(v).map((x) => ({ ...x }));
+  return build(values, excerpts, { source, read: 'ia', text, keyRules, flags, extra: { races, marks: clone(a?.marks), courses: clone(a?.courses), truncated: !!a?.truncated } });
+}
+
 // Nouvel objet : la valeur d’un champ change, `edited` dit si elle diffère de celle du départ (son extrait ne la décrit alors plus)
 export function setValue(review, key, value) {
   const v = String(value ?? '').slice(0, MAX_FIELD);
   return { ...review, fields: review.fields.map((f) => (f.key === key ? { ...f, value: v, edited: v.trim() !== f.orig } : f)) };
 }
 export function setKeep(review, i, keep) {
-  return { ...review, keyRules: review.keyRules.map((k, j) => (j === i ? { ...k, keep: !!keep } : k)) };
+  return { ...review, keyRules: review.keyRules.map((k, j) => (j === i && k.verified !== false ? { ...k, keep: !!keep } : k)) };   // une règle non vérifiée ne se coche pas
 }
 
 // ───────────────────────── vraisemblance et validation
@@ -71,11 +98,11 @@ export function setKeep(review, i, keep) {
 const GRAVITE = { ok: 0, warn: 1, bad: 2 };
 const pire = (a, b) => (GRAVITE[b.level] > GRAVITE[a.level] ? b : a);
 export function checksFor(review, { now = Date.now() } = {}) {
-  const vide = review.read === 'motifs' ? NOT_READ : 'valeur vide';
+  const lu = review.read === 'motifs' || review.read === 'ia';          // une lecture automatique dit « non lu dans le texte » ; la saisie, « valeur vide »
   const out = {};
   for (const f of review.fields) {
     const x = str(f.value);
-    if (x === '') { out[f.key] = f.key === 'dateEnd' ? { level: 'ok', msg: '' } : { level: 'warn', msg: vide }; continue; }
+    if (x === '') { out[f.key] = f.key === 'dateEnd' && !f.flag ? { level: 'ok', msg: '' } : { level: 'warn', msg: f.flag || (lu ? NOT_READ : 'valeur vide') }; continue; }
     switch (f.key) {
       case 'dateStart': out[f.key] = checkDate(x, { now }); break;
       case 'dateEnd': out[f.key] = checkDateEnd(valueOf(review, 'dateStart'), x); break;
@@ -136,14 +163,27 @@ function fieldHTML(f, check) {
     + `<span class="${chip.cls}" data-chip="${escHTML(f.key)}"${chip.text ? '' : ' hidden'}>${escHTML(chip.text)}</span>${ex}${sans}</div>`;
 }
 
+// Bloc « Lire avec l’IA » de la relecture d’un PDF importé : ia = { show, enabled, msg } (décidé par la page ; rien n’est envoyé sans le geste)
+const IA_LABEL = 'Lire avec l’IA (le texte part chez OpenAI)';
+function iaHTML(ia) {
+  if (!ia?.show) return '';
+  return `<div class="btns icia"><button type="button" class="btn alt small" id="icIa"${ia.enabled ? '' : ' disabled'}>${IA_LABEL}</button></div><div class="small muted" id="icIaMsg" aria-live="polite">${escHTML(ia.msg || '')}</div>`;
+}
+
 // Carte « Relecture des IC » ; checks : { clé: { level, msg } } (vide : pas de puces). Le bouton « Valider les IC » est désactivé si canValidate est faux.
-export function reviewHTML(review, checks = {}) {
+// opts.ia : bloc « Lire avec l’IA » (voir iaHTML).
+export function reviewHTML(review, checks = {}, opts = {}) {
   const ok = canValidate(review, checks);
   const rules = review.keyRules.length
-    ? `<div class="icrules"><h4>Points clés <small>décochez ceux à ne pas garder</small></h4>${review.keyRules.map((k, i) => `<label class="small icrule"><input type="checkbox" data-kr="${i}"${k.keep ? ' checked' : ''}> ${escHTML(k.value)}</label>`).join('')}</div>`
+    ? `<div class="icrules"><h4>Points clés <small>décochez ceux à ne pas garder</small></h4>${review.keyRules.map((k, i) => (k.verified === false
+      ? `<label class="small icrule icoff"><input type="checkbox" data-kr="${i}" disabled> ${escHTML(k.value)} <em>(extrait introuvable dans le texte : non retenu)</em></label>`
+      : `<label class="small icrule"><input type="checkbox" data-kr="${i}"${k.keep ? ' checked' : ''}> ${escHTML(k.value)}</label>`)).join('')}</div>`
     : '';
+  const tronque = review.truncated ? '<div class="small muted icex">Texte long : seuls les 50 000 premiers caractères ont été lus par l’IA.</div>' : '';
   return `<div class="card" id="icReview"><h3>Relecture des IC <small>rien n’est retenu avant « Valider les IC »</small></h3>`
     + `<div class="small muted">Source : ${escHTML(review.source || 'saisie')} · lecture ${escHTML(READ_LONG[review.read] || READ_LONG.saisie)}</div>`
+    + iaHTML(opts.ia)
+    + tronque
     + review.fields.map((f) => fieldHTML(f, checks[f.key])).join('')
     + rules
     + `<div class="rgerr" id="icBlock"${ok ? ' hidden' : ''}>${BLOCK_MSG}</div>`

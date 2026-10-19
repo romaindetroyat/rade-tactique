@@ -8,7 +8,7 @@ import { ROOT } from './helpers/setup.mjs';
 import { parseIC } from '../js/events.js';
 import { createRegatta } from '../js/regates.js';
 import {
-  FIELDS, NOT_READ, checksFor, reviewFromParse, reviewFromRegatta, setValue, setKeep, canValidate, applyReview, reviewHTML, chipOf, validatedHTML,
+  FIELDS, NOT_READ, checksFor, reviewFromParse, reviewFromRegatta, reviewFromApi, setValue, setKeep, canValidate, applyReview, reviewHTML, chipOf, validatedHTML,
 } from '../js/icread.js';
 
 const deepFreeze = (o) => { if (o && typeof o === 'object' && !Object.isFrozen(o)) { Object.freeze(o); Object.values(o).forEach(deepFreeze); } return o; };
@@ -313,4 +313,111 @@ test('garde statique : app.js calcule les contrôles à l’ouverture de la rele
   const app = readFileSync(ROOT + 'js/app.js', 'utf8');
   assert.ok((app.match(/checksFor\(/g) || []).length >= 1, 'checksFor( absent de js/app.js');
   assert.ok(/isLand/.test(app.slice(app.indexOf('checksFor('))), 'isLand fourni dès que le terrain est chargé');
+});
+
+// ───────────────────────── lecture par l’IA (plan 03-06) : la réponse de /api/ic, déjà vérifiée côté serveur, entre dans la même relecture
+
+const REPONSE = () => ({
+  event: { value: 'Coupe de la Société Nautique de Marseille Sud', excerpt: 'Coupe de la Société Nautique de Marseille Sud' },
+  club: { value: null, excerpt: null },
+  dateStart: { value: '2026-10-18', excerpt: 'dimanche 18 octobre 2026' },
+  dateEnd: { value: null, excerpt: null },
+  firstWarning: { value: '10:55', excerpt: '5.1 Heure du premier signal d’avertissement : 10:55' },
+  lastFinish: { value: null, excerpt: null, flag: 'extrait introuvable dans le texte' },
+  vhf: { value: null, excerpt: 'Canal de vacation Radio : VHF 69', flag: 'la valeur ne figure pas dans l’extrait' },
+  committee: { value: 'Marie DUPONT', excerpt: 'Président du comité de course : Marie DUPONT' },
+  zone: { value: null, excerpt: null },
+  races: [
+    { date: '2026-10-18', warning: '10:55', label: 'Manche 1', excerpt: 'dimanche 18 octobre 2026 Heure du premier signal d’avertissement : 10:55', verified: true },
+    { date: '2026-10-18', warning: '14:30', label: 'Manche inventée', excerpt: null, verified: false },
+  ],
+  marks: [{ name: 'Bouée A', position: '43°04,5 N', excerpt: null, verified: false }],
+  courses: [],
+  specialRules: [
+    { value: 'Les abandons se signalent au comité', excerpt: 'Tout concurrent qui abandonne doit en informer le comité de course', verified: true },
+    { value: 'Règle inventée par le modèle', excerpt: null, verified: false },
+  ],
+  flags: 4, truncated: true, model: 'gpt-5.5',
+});
+const parApi = (extra = {}) => reviewFromApi({ ...REPONSE(), ...extra }, { source: 'ic-marseille.pdf', text: AUTRE_CLUB });
+
+test('reviewFromApi : read ia, mêmes champs que la lecture CVAT ; valeurs vérifiées avec leur extrait, champs signalés vides avec leur raison', () => {
+  const rv = parApi();
+  assert.equal(rv.read, 'ia'); assert.equal(rv.source, 'ic-marseille.pdf');
+  assert.deepEqual(rv.fields.map((f) => f.key), FIELDS.map((f) => f.key), 'la même relecture champ par champ');
+  assert.equal(val(rv, 'event'), 'Coupe de la Société Nautique de Marseille Sud');
+  assert.equal(val(rv, 'dateStart'), '2026-10-18'); assert.equal(champ(rv, 'dateStart').excerpt, 'dimanche 18 octobre 2026');
+  assert.equal(val(rv, 'firstWarning'), '10:55'); assert.match(champ(rv, 'firstWarning').excerpt, /10:55/);
+  assert.equal(val(rv, 'committee'), 'Marie DUPONT');
+  assert.equal(val(rv, 'lastFinishSignal'), '', 'extrait introuvable : vide'); assert.equal(champ(rv, 'lastFinishSignal').flag, 'extrait introuvable dans le texte');
+  assert.equal(champ(rv, 'lastFinishSignal').excerpt, null);
+  assert.equal(val(rv, 'vhf'), '', 'valeur absente de l’extrait : vide, jamais la valeur du modèle');
+  assert.equal(champ(rv, 'vhf').flag, 'la valeur ne figure pas dans l’extrait'); assert.match(champ(rv, 'vhf').excerpt, /VHF 69/, 'l’extrait reste affiché');
+  assert.equal(val(rv, 'zone'), ''); assert.equal(champ(rv, 'zone').flag, null, 'rien lu, rien à signaler de plus que « non lu »');
+  for (const f of rv.fields) assert.equal(f.edited, false);
+  assert.equal(rv.truncated, true);
+  assert.equal(JSON.stringify(rv).includes('Règle inventée par le modèle'), true, 'une règle non vérifiée reste visible, grisée');
+});
+
+test('reviewFromApi : le dernier jour déjà connu de la régate est repris ; une raison de signalement n’est pas écrasée', () => {
+  const r = { ...regate(), dateEnd: '2026-10-20' };
+  assert.equal(val(reviewFromApi(REPONSE(), { regatta: r }), 'dateEnd'), '2026-10-20');
+  const flagged = REPONSE(); flagged.dateEnd = { value: null, excerpt: null, flag: 'extrait introuvable dans le texte' };
+  assert.equal(val(reviewFromApi(flagged, { regatta: r }), 'dateEnd'), '');
+});
+
+test('reviewFromApi : règles particulières vérifiées cochées (texte de l’extrait), non vérifiées décochées et non cochables ; manches de même', () => {
+  const rv = parApi();
+  assert.deepEqual(rv.keyRules, [
+    { value: 'Tout concurrent qui abandonne doit en informer le comité de course', keep: true },
+    { value: 'Règle inventée par le modèle', keep: false, verified: false },
+  ]);
+  assert.deepEqual(setKeep(rv, 1, true).keyRules[1], { value: 'Règle inventée par le modèle', keep: false, verified: false }, 'une règle non vérifiée ne se coche pas');
+  assert.equal(setKeep(rv, 0, false).keyRules[0].keep, false);
+  assert.deepEqual(rv.races.map((m) => [m.date, m.time, m.label, m.verified, m.keep]), [['2026-10-18', '10:55', 'Manche 1', true, true], ['2026-10-18', '14:30', 'Manche inventée', false, false]]);
+  assert.equal(rv.races[1].excerpt, null);
+  assert.deepEqual(rv.marks.map((m) => m.verified), [false]);
+  const reg = applyReview(regate(), rv, { by: 'Teiva', at: 5 });
+  assert.deepEqual(reg.ic.fields.keyRules, ['Tout concurrent qui abandonne doit en informer le comité de course'], 'seules les règles vérifiées entrent');
+  assert.equal(reg.ic.read, 'ia');
+});
+
+test('relecture ia : mêmes puces que la lecture CVAT, la raison du signalement en tête ; rien n’entre avant applyReview ; contrôles de vraisemblance inchangés', () => {
+  const rv = parApi();
+  const c = verif(rv);
+  assert.equal(c.lastFinishSignal.level, 'warn'); assert.equal(c.lastFinishSignal.msg, 'extrait introuvable dans le texte');
+  assert.equal(c.vhf.level, 'warn'); assert.equal(c.vhf.msg, 'la valeur ne figure pas dans l’extrait');
+  assert.equal(c.zone.msg, NOT_READ);
+  assert.equal(c.firstWarning.level, 'ok'); assert.equal(c.dateEnd.level, 'ok', 'le dernier jour reste facultatif');
+  assert.equal(verif(setValue(rv, 'vhf', '99')).vhf.level, 'bad', 'une valeur saisie par-dessus est jugée comme avant');
+  assert.equal(canValidate(rv, c), true, 'des champs vides signalés ne bloquent pas');
+  const avant = regate(); const copie = structuredClone(avant);
+  const apres = applyReview(avant, rv, { by: 'Teiva', at: 7 });
+  assert.deepEqual(avant, copie, 'applyReview ne modifie pas la régate d’origine');
+  assert.equal(apres.ic.read, 'ia'); assert.deepEqual(apres.ic.validated, { by: 'Teiva', at: 7 });
+  assert.equal(apres.ic.fields.firstWarning, '10:55'); assert.equal(apres.ic.fields.vhf, null); assert.equal(apres.ic.fields.lastFinishSignal, '');
+  assert.match(apres.ic.excerpts.firstWarning, /10:55/);
+});
+
+test('vue relecture ia : mention « lecture par l’IA (OpenAI) », puce de la raison, règles grisées, tout échappé (XSS par un extrait ou un nom)', () => {
+  const rep = REPONSE();
+  rep.event = { value: '<img src=x onerror="window.__xss=1">', excerpt: 'Coupe <script>window.__xss=1</script> Marseille' };
+  rep.specialRules[1].value = '<b onclick="x()">piège</b>';
+  const rv = reviewFromApi(rep, { source: '<i>fichier</i>.pdf', text: AUTRE_CLUB });
+  const { document } = parseHTML(`<div>${reviewHTML(rv, verif(rv))}</div>`);
+  assert.match(document.querySelector('#icReview').textContent, /lecture par l’IA \(OpenAI\) : vérifiez chaque valeur/);
+  assert.match(document.querySelector('[data-chip=lastFinishSignal]').textContent, /^⚠ extrait introuvable dans le texte/);
+  assert.match(document.querySelector('[data-chip=vhf]').textContent, /ne figure pas dans l’extrait/);
+  assert.equal(document.querySelectorAll('img, script, b, i').length, 0, 'aucune balise venue du modèle ou du fichier');
+  assert.equal(document.querySelector('#icf-event').getAttribute('value'), '<img src=x onerror="window.__xss=1">', 'la valeur reste du texte');
+  const regles = [...document.querySelectorAll('.icrule')];
+  assert.equal(regles.length, 2);
+  assert.equal(regles[0].querySelector('input').hasAttribute('checked'), true); assert.equal(regles[0].querySelector('input').hasAttribute('disabled'), false);
+  assert.match(regles[1].className, /\bicoff\b/); assert.equal(regles[1].querySelector('input').hasAttribute('checked'), false); assert.equal(regles[1].querySelector('input').hasAttribute('disabled'), true);
+  assert.match(document.querySelector('#icReview').textContent, /seuls les 50 000 premiers caractères/);
+});
+
+test('validatedHTML : « lecture par l’IA » quand ic.read vaut ia', () => {
+  const at = Date.parse('2026-10-19T08:30:00Z');
+  assert.equal(validatedHTML({ validated: { by: 'Thibaud', at }, read: 'ia' }), 'IC validées par Thibaud le 19/10 (lecture par l’IA)');
 });

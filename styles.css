@@ -210,6 +210,7 @@ button.rg.on { border-color: var(--accent); background: #fff8ef; }
 .icrules h4 { margin: 12px 0 4px; font-size: 14px; }
 .icrule { display: block; margin: 0 0 6px; overflow-wrap: anywhere; }
 .icrule input { margin-right: 6px; }
+.icrule.icoff { opacity: .55; }
 #icBlock { margin: 8px 0 0; font-weight: 600; }
 button.btn:disabled { opacity: .45; }
 table.t tr.sel td { background: #fff3e0; font-weight: 600; }
