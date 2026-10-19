@@ -151,6 +151,7 @@ export function createStartMode(api) {
             <div class="sm-stepper"><span>GPS → étrave</span><button data-a="bm">−</button><b id="smBowV">5 m</b><button data-a="bp">+</button></div>
             <div class="sm-grid2"><button data-a="voice" id="smVoice">Voix</button><button data-a="sun" id="smSun">Plein soleil</button></div>
             <div class="sm-grid2"><button data-a="bips" id="smBips">Bips</button><button data-a="help" id="smHelpBtn">Aide</button></div>
+            <button data-a="rules" class="sm-wide">Règles du départ (P, I, U, Z, noir)</button>
             <small class="sm-hint" id="smPinged"></small></div>
         </div>
       </div>`;
@@ -193,6 +194,7 @@ export function createStartMode(api) {
     if (a === 'clock') { if (T.end && T.end > Date.now() - 600000) { const r = (T.end - Date.now()) / 1000; T.end = Date.now() + Math.round(r / 60) * 60000; api.beep(1000, 0.1); } return; }
     if (a === 'bips') { api.S.startBips = !(api.S.startBips ?? true); api.persist(); updateToggles(); return; }
     if (a === 'help') { $('#smSheet').hidden = true; return api.help?.(); }
+    if (a === 'rules') { $('#smSheet').hidden = true; return window.open('regles.html#depart', '_blank', 'noopener'); }
     if (a === 'go') { if (!T.end || T.end < Date.now() - 600000) setT(300); else { const r = (T.end - Date.now()) / 1000; T.end = Date.now() + Math.round(r / 60) * 60000; api.beep(1000, 0.1); } }
     else if (a === 't5' || a === 't4' || a === 't1') { setT(a === 't5' ? 300 : a === 't4' ? 240 : 60); $('#smSheet').hidden = true; }
     else if (a === 'sync' && T.end) { const r = (T.end - Date.now()) / 1000; T.end = Date.now() + Math.round(r / 60) * 60000; api.beep(1000, 0.1); }

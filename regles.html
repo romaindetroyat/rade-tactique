@@ -1,0 +1,624 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Règles de course</title>
+<meta name="description" content="Les règles de course à la voile 2025-2028 expliquées simplement pour l’équipage J80 : départs (P, I, U, Z, noir), priorités, bouées, arrivée, pénalités. Schémas et références officielles en français et en anglais.">
+<link rel="icon" href="icons/favicon-32.png" sizes="32x32">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<style>
+/* Même charte que guide.html : sommaire collant, fiches par règle, schémas « vent en haut » */
+:root {
+  --bg: #f4f7f9; --surface: #ffffff; --ink: #0f2230; --muted: #566a78; --line: #d5dfe6;
+  --sea: #0b6e8c; --accent: #e8590c; --good: #1f9d55; --bad: #e03131; --chip: #e6eef3; --tip: #fff6e6; --tipline: #f0c78a;
+  --quote: #f0f5f8;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0a1820; --surface: #10222d; --ink: #e6eff4; --muted: #95aab7; --line: #24404f;
+  --sea: #4cc3e0; --accent: #ff8a3d; --good: #51cf66; --bad: #ff6b6b; --chip: #19323f; --tip: #2a2412; --tipline: #6b5420; --quote: #0c1b24; color-scheme: dark } }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 17px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif; }
+header.hero { background: #0b2231; color: #fff; padding: calc(env(safe-area-inset-top, 0px) + 28px) max(18px, env(safe-area-inset-right, 0px)) 28px max(18px, env(safe-area-inset-left, 0px)); }
+.hero .in { max-width: 920px; margin: 0 auto; display: grid; grid-template-columns: auto 1fr; gap: 18px; align-items: center; }
+.hero img { width: 76px; height: 76px; border-radius: 18px; box-shadow: 0 4px 16px rgba(0,0,0,.4); }
+.hero h1 { margin: 0; font-size: clamp(28px, 6vw, 42px); line-height: 1.05; }
+.hero p { margin: 6px 0 0; color: #b9cfdc; }
+.hero .links { margin-top: 12px; display: flex; flex-wrap: wrap; gap: 8px; }
+.hero a.open { display: inline-block; background: #ff8a1c; color: #000; font-weight: 800; text-decoration: none; padding: 12px 18px; border-radius: 12px; }
+.hero a.sec { background: #18394b; color: #fff; }
+nav.toc { position: sticky; top: 0; z-index: 5; background: var(--surface); border-bottom: 1px solid var(--line); overflow-x: auto; white-space: nowrap; padding: 0 max(12px, env(safe-area-inset-right, 0px)) 0 max(12px, env(safe-area-inset-left, 0px)); }
+nav.toc a { display: inline-block; padding: 13px 12px; color: var(--muted); text-decoration: none; font-weight: 700; font-size: 15px; border-bottom: 3px solid transparent; }
+nav.toc a:hover, nav.toc a:focus { color: var(--ink); border-color: var(--accent); }
+main { max-width: 920px; margin: 0 auto; padding: 8px max(16px, env(safe-area-inset-right, 0px)) 60px max(16px, env(safe-area-inset-left, 0px)); }
+section { padding-top: 26px; scroll-margin-top: 54px; }
+h2 { font-size: 27px; margin: 0 0 4px; display: flex; gap: 12px; align-items: baseline; }
+h2 .n { font-size: 15px; color: #fff; background: var(--sea); border-radius: 999px; padding: 2px 10px; }
+h2 + .lead { color: var(--muted); margin: 0 0 14px; }
+h3 { font-size: 19px; margin: 0 0 6px; }
+h3 .r { font-size: 13px; font-weight: 800; color: var(--sea); background: var(--chip); border-radius: 999px; padding: 2px 9px; margin-left: 6px; vertical-align: 2px; white-space: nowrap; }
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; min-width: 0; }
+.card ol, .card ul { margin: 6px 0 0; padding-left: 20px; display: grid; gap: 5px; }
+.card p { margin: 6px 0 0; }
+.wide { grid-column: 1 / -1; }
+.say { font-size: 19px; font-weight: 800; margin: 2px 0 4px; }
+.say .g { color: var(--good); } .say .b { color: var(--bad); }
+.tip { background: var(--tip); border: 1px solid var(--tipline); border-radius: 12px; padding: 12px 16px; margin-top: 12px; }
+.tip b:first-child { color: var(--accent); }
+figure { margin: 10px 0 0; }
+figure svg { display: block; width: 100%; max-width: 560px; height: auto; margin: 0 auto; }
+figcaption { text-align: center; font-size: 14px; color: var(--muted); margin-top: 4px; }
+.ref { margin-top: 10px; display: grid; gap: 6px; }
+.ref blockquote { margin: 0; background: var(--quote); border-left: 4px solid var(--sea); border-radius: 0 10px 10px 0; padding: 8px 12px; font-size: 15px; }
+.ref blockquote.en { border-left-color: #8a6bd1; font-style: italic; }
+.ref .lg { display: inline-block; font: 800 11px/1 system-ui, sans-serif; font-style: normal; letter-spacing: .08em; color: #fff; background: var(--sea); border-radius: 4px; padding: 3px 5px; margin-right: 6px; vertical-align: 1px; }
+.ref .en .lg { background: #8a6bd1; }
+.ref .plain .lg { background: var(--muted); }
+table { border-collapse: collapse; width: 100%; font-size: 15.5px; }
+.tbl { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; }
+th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { background: var(--chip); font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+tr:last-child td { border-bottom: 0; }
+td.flag { width: 64px; }
+td.flag svg { width: 52px; height: 35px; display: block; border: 1px solid #0003; }
+.v { font-weight: 800; }
+.v.ok { color: var(--good); } .v.ko { color: var(--bad); }
+dl.voc { margin: 0; display: grid; gap: 8px; }
+dl.voc dt { font-weight: 800; }
+dl.voc dd { margin: 0 0 4px; color: var(--ink); }
+dl.voc dd small { color: var(--muted); }
+details.q { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 12px 16px; }
+details.q + details.q { margin-top: 10px; }
+details.q summary { cursor: pointer; font-weight: 700; }
+details.q[open] summary { margin-bottom: 6px; }
+.memo { background: #0b2231; color: #fff; border-radius: 16px; padding: 16px 18px; }
+.memo h3 { color: #ffb366; }
+.memo ol { margin: 6px 0 0; padding-left: 22px; display: grid; gap: 6px; }
+.memo b { color: #ffd8a8; }
+footer { color: var(--muted); font-size: 14px; text-align: center; padding: 20px; max-width: 920px; margin: 0 auto; }
+a { color: var(--sea); }
+@media (max-width: 520px) { body { font-size: 16px; } .hero .in { grid-template-columns: 1fr; } .hero img { width: 60px; height: 60px; } h2 { font-size: 23px; } .card { padding: 14px; } }
+@media print { nav.toc, .hero .links { display: none; } section { break-inside: avoid-page; } }
+</style>
+</head>
+<body>
+<!-- Éléments de dessin partagés par tous les schémas : coque de J80 étrave en haut (vert = prioritaire, rouge = doit s'écarter), bôme côté sous le vent -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <path id="hull" d="M0,-14 C5.5,-9 6,2 4.5,14 L-4.5,14 C-6,2 -5.5,-9 0,-14Z" stroke="#0f2230" stroke-width="1.2"/>
+    <g id="bS"><use href="#hull"/><line x1="0" y1="-4" x2="-3.5" y2="12" stroke="#0f2230" stroke-width="2.4" stroke-linecap="round"/></g>
+    <g id="bP"><use href="#hull"/><line x1="0" y1="-4" x2="3.5" y2="12" stroke="#0f2230" stroke-width="2.4" stroke-linecap="round"/></g>
+    <g id="bSd"><use href="#hull"/><line x1="0" y1="-4" x2="-12" y2="4" stroke="#0f2230" stroke-width="2.4" stroke-linecap="round"/></g>
+    <g id="bPd"><use href="#hull"/><line x1="0" y1="-4" x2="12" y2="4" stroke="#0f2230" stroke-width="2.4" stroke-linecap="round"/></g>
+    <g id="bW"><use href="#hull"/><line x1="0" y1="-4" x2="0" y2="13" stroke="#0f2230" stroke-width="2.4" stroke-linecap="round"/></g>
+    <g id="wind"><text x="0" y="0" text-anchor="middle" font-size="11" font-weight="800" fill="#0b6e8c" font-family="system-ui,sans-serif">VENT</text><line x1="0" y1="5" x2="0" y2="26" stroke="#0b6e8c" stroke-width="3.5"/><path d="M-7,22 L0,34 L7,22Z" fill="#0b6e8c"/></g>
+    <g id="mark"><circle r="6" fill="#ff8a1c" stroke="#7a3d00" stroke-width="1.5"/></g>
+    <g id="cb"><rect x="-16" y="-7" width="32" height="14" rx="4" fill="#f8f9fa" stroke="#0f2230" stroke-width="1.4"/><line x1="0" y1="-7" x2="0" y2="-22" stroke="#0f2230" stroke-width="1.5"/></g>
+    <marker id="aG" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10Z" fill="#1f9d55"/></marker>
+    <marker id="aR" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10Z" fill="#e03131"/></marker>
+    <marker id="aK" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10Z" fill="#0f2230"/></marker>
+  </defs>
+</svg>
+
+<header class="hero"><div class="in">
+  <img src="icons/logo.png" alt="">
+  <div><h1>Les règles de course</h1><p>Ce qu’il faut savoir à bord d’un J80 : départs, priorités, bouées, arrivée et pénalités. En langage simple, avec des schémas et les textes officiels (RCV / RRS 2025-2028).</p>
+  <div class="links"><a class="open" href="./">Ouvrir l’app</a><a class="open sec" href="guide.html">Guide de l’équipage</a></div></div>
+</div></header>
+
+<nav class="toc" aria-label="Sommaire">
+  <a href="#memo">L’essentiel</a><a href="#lire">Lire les schémas</a><a href="#depart">Départ</a><a href="#priorites">Priorités</a><a href="#bouees">Bouées</a><a href="#obstacles">Obstacles</a><a href="#arrivee">Arrivée</a><a href="#penalites">Pénalités</a><a href="#quiz">Testez-vous</a><a href="#textes">Textes officiels</a>
+</nav>
+
+<main>
+<section id="memo">
+  <h2><span class="n">★</span> L’essentiel en 30 secondes</h2>
+  <p class="lead">Huit réflexes qui couvrent l’immense majorité des situations sur l’eau.</p>
+  <div class="memo">
+    <ol>
+      <li><b>Tribord amures passe.</b> Bâbord s’écarte : il passe derrière ou il vire (règle 10).</li>
+      <li><b>Même bord, côte à côte : celui sous le vent passe.</b> Celui au vent s’écarte (règle 11).</li>
+      <li><b>Même bord, l’un derrière l’autre : celui de devant passe.</b> Celui qui rattrape s’écarte (règle 12).</li>
+      <li><b>Quand on vire, on n’a plus aucun droit</b> jusqu’à être revenu au près (règle 13).</li>
+      <li><b>Le prioritaire ne fait pas de piège :</b> s’il change de route, il laisse à l’autre la place de s’écarter (règles 15 et 16). <b>Et tout le monde évite le contact</b> (règle 14).</li>
+      <li><b>À la bouée, tout se décide à l’entrée de la zone (3 longueurs, 24 m en J80)</b> : le bateau intérieur engagé, ou le premier entré, a droit à la place (règle 18).</li>
+      <li><b>Au départ, regardez le pavillon préparatoire</b> : P on peut replonger ; I il faut faire le tour par une extrémité ; Z 20 % de pénalité ; U ou noir : disqualifié (règle 30).</li>
+      <li><b>Une faute ? Un tour tout de suite</b> (un virement + un empannage, IC CVAT). Toucher une bouée : un tour aussi (règles 31 et 44).</li>
+    </ol>
+  </div>
+</section>
+
+<section id="lire">
+  <h2><span class="n">0</span> Lire les schémas et les mots</h2>
+  <p class="lead">Dans tous les schémas, le vent vient du haut de l’image.</p>
+  <div class="cards">
+    <div class="card">
+      <figure>
+        <svg viewBox="0 0 340 120" role="img" aria-label="Légende des schémas">
+          <rect width="340" height="120" rx="12" fill="#dcecf4"/>
+          <use href="#wind" x="34" y="22"/>
+          <use href="#bS" fill="#1f9d55" transform="translate(100,62)"/>
+          <text x="100" y="98" text-anchor="middle" font-size="12" font-family="system-ui,sans-serif" fill="#0f2230">prioritaire</text>
+          <use href="#bP" fill="#e03131" transform="translate(176,62)"/>
+          <text x="176" y="98" text-anchor="middle" font-size="12" font-family="system-ui,sans-serif" fill="#0f2230">doit s’écarter</text>
+          <circle cx="270" cy="60" r="36" fill="none" stroke="#e8590c" stroke-width="1.5" stroke-dasharray="5 4"/>
+          <use href="#mark" x="270" y="60"/>
+          <text x="270" y="112" text-anchor="middle" font-size="12" font-family="system-ui,sans-serif" fill="#0f2230">bouée + zone</text>
+        </svg>
+        <figcaption>Le trait noir sur le bateau est la bôme : elle est toujours du côté opposé au vent.</figcaption>
+      </figure>
+    </div>
+    <div class="card">
+      <h3>Les mots qui comptent</h3>
+      <dl class="voc">
+        <dt>Tribord / bâbord amures</dt><dd>Le vent arrive par la droite (tribord) ou par la gauche (bâbord) du bateau. <small>Au portant, c’est le côté opposé à la bôme.</small></dd>
+        <dt>Au vent / sous le vent</dt><dd>Des deux bateaux côte à côte, celui « au vent » est le plus près du vent, l’autre est « sous le vent ».</dd>
+        <dt>Engagés</dt><dd>Aucun des deux n’est entièrement derrière l’autre : on trace une ligne perpendiculaire au bateau de devant, au ras de son tableau arrière ; si l’étrave de l’autre la dépasse, ils sont engagés.</dd>
+        <dt>Se maintenir à l’écart</dt><dd>Laisser l’autre faire sa route sans avoir à manœuvrer pour vous éviter.</dd>
+        <dt>Place</dt><dd>L’espace dont un bateau a besoin pour manœuvrer correctement, en bon marin, dans les conditions du moment.</dd>
+        <dt>Route normale</dt><dd>La route qu’on suivrait pour finir au plus vite s’il n’y avait pas l’autre bateau.</dd>
+      </dl>
+    </div>
+  </div>
+</section>
+
+<section id="depart">
+  <h2><span class="n">1</span> Le départ</h2>
+  <p class="lead">Le pavillon hissé avec le signal préparatoire (H−4) dit ce qui arrive si vous êtes trop tôt dans la dernière minute.</p>
+  <div class="cards">
+    <div class="card wide">
+      <h3>La séquence <span class="r">règle 26</span></h3>
+      <div class="tbl"><table>
+        <tr><th>Temps</th><th>Signal</th><th>À bord</th></tr>
+        <tr><td><b>H−5</b></td><td>Pavillon de classe + 1 son</td><td>Avertissement : lancer le chrono (mode départ de l’app).</td></tr>
+        <tr><td><b>H−4</b></td><td>P, I, Z, U ou noir + 1 son</td><td>Préparatoire : lire le pavillon, il fixe la règle de la dernière minute.</td></tr>
+        <tr><td><b>H−1</b></td><td>Préparatoire affalé + 1 son long</td><td>Dernière minute : les pénalités I, Z, U et noir s’appliquent maintenant.</td></tr>
+        <tr><td><b>H</b></td><td>Pavillon de classe affalé + 1 son</td><td>Départ. C’est le pavillon qui fait foi, pas le son.</td></tr>
+      </table></div>
+    </div>
+    <div class="card wide">
+      <h3>Le triangle de la dernière minute <span class="r">règle 30</span></h3>
+      <figure>
+        <svg viewBox="0 0 340 270" role="img" aria-label="Triangle formé par la ligne de départ et la première marque">
+          <rect width="340" height="270" rx="12" fill="#dcecf4"/>
+          <use href="#wind" x="34" y="22"/>
+          <polygon points="80,200 270,200 175,40" fill="#ff8a1c" fill-opacity=".18" stroke="#e8590c" stroke-width="1.5" stroke-dasharray="6 4"/>
+          <line x1="80" y1="200" x2="270" y2="200" stroke="#0f2230" stroke-width="1.6" stroke-dasharray="7 4"/>
+          <line x1="10" y1="200" x2="80" y2="200" stroke="#0f2230" stroke-opacity=".45" stroke-width="1.2" stroke-dasharray="2 4"/>
+          <line x1="270" y1="200" x2="332" y2="200" stroke="#0f2230" stroke-opacity=".45" stroke-width="1.2" stroke-dasharray="2 4"/>
+          <use href="#mark" x="80" y="200"/><use href="#mark" x="175" y="40"/><use href="#cb" x="286" y="205"/>
+          <text x="175" y="30" text-anchor="middle" font-size="12" font-family="system-ui,sans-serif" fill="#0f2230">1re marque</text>
+          <text x="80" y="220" text-anchor="middle" font-size="12" font-family="system-ui,sans-serif" fill="#0f2230">bouée</text>
+          <text x="290" y="228" text-anchor="middle" font-size="12" font-family="system-ui,sans-serif" fill="#0f2230">Comité</text>
+          <text x="22" y="194" font-size="10.5" font-family="system-ui,sans-serif" fill="#0f2230" fill-opacity=".7">extension</text>
+          <text x="175" y="150" text-anchor="middle" font-size="12.5" font-weight="700" font-family="system-ui,sans-serif" fill="#a83c00">triangle</text>
+          <text x="175" y="252" text-anchor="middle" font-size="12" font-family="system-ui,sans-serif" fill="#0f2230">côté pré-départ (où l’on doit être au signal)</text>
+          <use href="#bS" fill="#e03131" transform="translate(150,175) rotate(-45)"/>
+          <path d="M140,188 C110,206 50,196 40,212 C34,226 80,238 112,224" fill="none" stroke="#e03131" stroke-width="2" stroke-dasharray="5 4" marker-end="url(#aR)"/>
+          <use href="#bS" fill="#1f9d55" transform="translate(230,222) rotate(-45)"/>
+        </svg>
+        <figcaption>Le bateau rouge est dans le triangle pendant la dernière minute. Sous pavillon I, il doit ressortir en contournant une extrémité (pointillés rouges) avant de prendre le départ.</figcaption>
+      </figure>
+    </div>
+    <div class="card wide">
+      <h3>Quel pavillon, quelle conséquence <span class="r">règles 29 et 30</span></h3>
+      <div class="tbl"><table>
+        <tr><th></th><th>Pavillon</th><th>Si vous êtes trop tôt (dernière minute)</th><th>Et si le départ est redonné ?</th></tr>
+        <tr><td class="flag"><svg viewBox="0 0 48 32" aria-label="Pavillon P"><rect width="48" height="32" fill="#1c4aa1"/><rect x="16" y="10.5" width="16" height="11" fill="#fff"/></svg></td>
+          <td><b>P</b><br><small>la règle de base</small></td><td><span class="v ok">On peut replonger.</span> Si une partie de la coque est au-delà de la ligne au signal de départ, il suffit de revenir entièrement côté pré-départ puis de repartir (pavillon X de rappel individuel). Sinon : OCS.</td><td>Rien n’est retenu.</td></tr>
+        <tr><td class="flag"><svg viewBox="0 0 48 32" aria-label="Pavillon I"><rect width="48" height="32" fill="#ffd43b"/><circle cx="24" cy="16" r="9" fill="#111"/></svg></td>
+          <td><b>I</b><br><small>règle du « tour par les bouts »</small></td><td><span class="v ko">On ne replonge plus.</span> Si la coque est dans le triangle pendant la dernière minute, il faut ressortir en passant au-delà d’une extrémité de la ligne (extension) avant de prendre le départ. Sinon : OCS.</td><td>Rien n’est retenu.</td></tr>
+        <tr><td class="flag"><svg viewBox="0 0 48 32" aria-label="Pavillon Z"><polygon points="0,0 48,0 24,16" fill="#ffd43b"/><polygon points="48,0 48,32 24,16" fill="#1c4aa1"/><polygon points="48,32 0,32 24,16" fill="#e03131"/><polygon points="0,32 0,0 24,16" fill="#111"/></svg></td>
+          <td><b>Z</b><br><small>pénalité de 20 %</small></td><td><span class="v ko">Pénalité de 20 % des points (ZFD)</span>, sans instruction, si la coque est dans le triangle pendant la dernière minute, même si on revient.</td><td><b>Retenue</b>, et 20 % de plus si on recommence (sauf report ou annulation avant le signal de départ).</td></tr>
+        <tr><td class="flag"><svg viewBox="0 0 48 32" aria-label="Pavillon U"><rect width="48" height="32" fill="#fff"/><rect width="24" height="16" fill="#e03131"/><rect x="24" y="16" width="24" height="16" fill="#e03131"/></svg></td>
+          <td><b>U</b><br><small>disqualification</small></td><td><span class="v ko">Disqualifié (UFD)</span>, sans instruction, si la coque est dans le triangle pendant la dernière minute.</td><td><b>Effacée</b> : on peut courir le nouveau départ.</td></tr>
+        <tr><td class="flag"><svg viewBox="0 0 48 32" aria-label="Pavillon noir"><rect width="48" height="32" fill="#111"/></svg></td>
+          <td><b>Noir</b><br><small>disqualification ferme</small></td><td><span class="v ko">Disqualifié (BFD)</span>, sans instruction, si la coque est dans le triangle pendant la dernière minute.</td><td><b>Maintenue</b> : votre numéro est affiché et vous n’avez pas le droit de courir le nouveau départ.</td></tr>
+        <tr><td class="flag"><svg viewBox="0 0 48 32" aria-label="Pavillon X"><rect width="48" height="32" fill="#fff"/><rect x="20" width="8" height="32" fill="#1c4aa1"/><rect y="12" width="48" height="8" fill="#1c4aa1"/></svg></td>
+          <td><b>X</b><br><small>rappel individuel</small></td><td colspan="2">Hissé avec 1 son juste après le départ : un ou plusieurs bateaux sont partis trop tôt. Ceux qui sont concernés reviennent côté pré-départ et repartent. Le Comité ne donne pas les numéros : en cas de doute, revenez.</td></tr>
+        <tr><td class="flag"><svg viewBox="0 0 48 32" aria-label="Premier substitut"><polygon points="0,0 48,16 0,32" fill="#ffd43b" stroke="#1c4aa1" stroke-width="6" stroke-linejoin="round"/></svg></td>
+          <td><b>1er substitut</b><br><small>rappel général</small></td><td colspan="2">Hissé avec 2 sons : tout le monde revient, la procédure reprend. Le nouvel avertissement est donné 1 minute après l’affalé.</td></tr>
+      </table></div>
+      <p class="small" style="color:var(--muted)">« Dans le triangle » : n’importe quelle partie de la coque, pendant la dernière minute. Le triangle est formé par les deux extrémités de la ligne et la première marque.</p>
+      <div class="ref">
+        <blockquote class="en"><span class="lg">EN</span>« If flag I has been displayed, and any part of a boat’s hull is in the triangle formed by the ends of the starting line and the first mark during the last minute before her starting signal, she shall then sail across an extension to the pre-start side before starting. » — RRS 30.1</blockquote>
+        <blockquote class="plain"><span class="lg">FR</span>En clair : pavillon I, il faut revenir en contournant une extrémité de la ligne. Texte officiel : RCV 30.1 (Pénalité I), 30.2 (Z), 30.3 (U), 30.4 (noir), 29.1 (rappel individuel), 29.2 (rappel général).</blockquote>
+      </div>
+    </div>
+    <div class="card">
+      <h3>Priorités avant le départ</h3>
+      <p>Les règles de priorité s’appliquent <b>dès le signal préparatoire</b> : tribord/bâbord, au vent/sous le vent, tout fonctionne comme en course. Le bateau qui arrive par derrière sous le vent ne peut pas lofer au-dessus du près s’il s’est engagé à moins de deux longueurs (règle 17).</p>
+    </div>
+    <div class="card">
+      <h3>Le Comité est une bouée</h3>
+      <p>Le bateau Comité est une marque de départ : pas de place à la marque pour le bateau qui veut s’y glisser au départ (la règle 18 ne s’applique pas à une marque de départ entourée d’eau navigable, à l’approche de la ligne pour partir). Le « bateau au vent » qui veut passer entre le Comité et un bateau sous le vent n’a aucun droit.</p>
+    </div>
+  </div>
+</section>
+
+<section id="priorites">
+  <h2><span class="n">2</span> Les priorités entre bateaux</h2>
+  <p class="lead">Une seule question : qui doit s’écarter ? Les règles 10, 11 et 12 répondent dans tous les cas.</p>
+  <div class="cards">
+    <div class="card">
+      <h3>Bâbord contre tribord <span class="r">règle 10</span></h3>
+      <p class="say"><span class="g">Tribord passe</span>, <span class="b">bâbord s’écarte</span>.</p>
+      <figure>
+        <svg viewBox="0 0 340 230" role="img" aria-label="Croisement bâbord contre tribord">
+          <rect width="340" height="230" rx="12" fill="#dcecf4"/>
+          <use href="#wind" x="34" y="22"/>
+          <path d="M248,140 L170,62" stroke="#1f9d55" stroke-width="2" stroke-dasharray="4 4" fill="none" marker-end="url(#aG)"/>
+          <path d="M100,150 C160,198 262,204 300,160" stroke="#e03131" stroke-width="2" stroke-dasharray="5 4" fill="none" marker-end="url(#aR)"/>
+          <use href="#bS" fill="#1f9d55" transform="translate(255,148) rotate(-45)"/>
+          <use href="#bP" fill="#e03131" transform="translate(92,142) rotate(45)"/>
+          <text x="270" y="128" font-size="12" font-family="system-ui,sans-serif" fill="#0f2230">T (tribord)</text>
+          <text x="40" y="180" font-size="12" font-family="system-ui,sans-serif" fill="#0f2230">B (bâbord)</text>
+          <text x="170" y="218" text-anchor="middle" font-size="12" font-family="system-ui,sans-serif" fill="#0f2230">B passe derrière T (ou vire avant)</text>
+        </svg>
+      </figure>
+      <ul>
+        <li>B annonce tôt : « je passe derrière » ou vire suffisamment tôt pour ne pas gêner.</li>
+        <li>T peut héler « Tribord ! » mais n’est pas obligé de garder sa route : s’il change de cap, il laisse à B la place de s’écarter (règle 16).</li>
+        <li>B peut proposer « Passe ! » à T : T n’est pas obligé d’accepter.</li>
+      </ul>
+      <div class="ref">
+        <blockquote><span class="lg">FR</span>« Quand des bateaux sont sur des bords opposés, un bateau bâbord amures doit se maintenir à l’écart d’un bateau tribord amures. » — RCV 10</blockquote>
+        <blockquote class="en"><span class="lg">EN</span>« When boats are on opposite tacks, a port-tack boat shall keep clear of a starboard-tack boat. » — RRS 10</blockquote>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Au vent contre sous le vent <span class="r">règle 11</span></h3>
+      <p class="say">Même bord, engagés : <span class="g">sous le vent passe</span>, <span class="b">au vent s’écarte</span>.</p>
+      <figure>
+        <svg viewBox="0 0 340 230" role="img" aria-label="Deux bateaux engagés sur le même bord">
+          <rect width="340" height="230" rx="12" fill="#dcecf4"/>
+          <use href="#wind" x="34" y="22"/>
+          <use href="#bS" fill="#1f9d55" transform="translate(160,150) rotate(-45)"/>
+          <use href="#bS" fill="#e03131" transform="translate(198,124) rotate(-45)"/>
+          <path d="M150,140 L106,96" stroke="#1f9d55" stroke-width="2" stroke-dasharray="4 4" fill="none" marker-end="url(#aG)"/>
+          <path d="M188,114 C170,92 158,80 140,72" stroke="#e03131" stroke-width="2" stroke-dasharray="5 4" fill="none" marker-end="url(#aR)"/>
+          <text x="100" y="186" font-size="12" font-family="system-ui,sans-serif" fill="#0f2230">sous le vent</text>
+          <text x="214" y="150" font-size="12" font-family="system-ui,sans-serif" fill="#0f2230">au vent</text>
+          <text x="170" y="216" text-anchor="middle" font-size="12" font-family="system-ui,sans-serif" fill="#0f2230">Le bateau sous le vent peut lofer : l’autre doit suivre</text>
+        </svg>
+      </figure>
+      <ul>
+        <li>Le bateau sous le vent peut lofer (remonter vers le vent), mais en laissant à l’autre le temps et la place de réagir (règle 16).</li>
+        <li><b>Exception, règle 17</b> : s’il s’est engagé sous le vent <b>en arrivant par derrière</b>, à moins de deux longueurs (16 m en J80), il ne peut pas monter au-dessus de sa route normale (au près : pas au-dessus du près). Il garde la priorité, mais pas le droit de « tasser ».</li>
+      </ul>
+      <div class="ref">
+        <blockquote><span class="lg">FR</span>« Quand des bateaux sont sur le même bord et engagés, un bateau au vent doit se maintenir à l’écart d’un bateau sous le vent. » — RCV 11</blockquote>
+        <blockquote class="en"><span class="lg">EN</span>« When boats are on the same tack and overlapped, a windward boat shall keep clear of a leeward boat. » — RRS 11</blockquote>
+        <blockquote class="en"><span class="lg">EN</span>« If a boat clear astern becomes overlapped within two of her hull lengths to leeward of a boat on the same tack, she shall not sail above her proper course while they remain on the same tack and overlapped within that distance, unless in doing so she promptly sails astern of the other boat. » — RRS 17</blockquote>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Derrière contre devant <span class="r">règle 12</span></h3>
+      <p class="say">Même bord, non engagés : <span class="g">devant passe</span>, <span class="b">derrière s’écarte</span>.</p>
+      <figure>
+        <svg viewBox="0 0 340 230" role="img" aria-label="Bateau en route libre derrière et bateaux engagés">
+          <rect width="340" height="230" rx="12" fill="#dcecf4"/>
+          <use href="#wind" x="34" y="22"/>
+          <line x1="66" y1="146" x2="138" y2="74" stroke="#0f2230" stroke-width="1.2" stroke-dasharray="3 3"/>
+          <use href="#bS" fill="#1f9d55" transform="translate(92,100) rotate(-45)"/>
+          <use href="#bS" fill="#e03131" transform="translate(124,134) rotate(-45)"/>
+          <text x="92" y="200" text-anchor="middle" font-size="12" font-weight="700" font-family="system-ui,sans-serif" fill="#0f2230">non engagés</text>
+          <text x="92" y="216" text-anchor="middle" font-size="11.5" font-family="system-ui,sans-serif" fill="#0f2230">règle 12 : derrière s’écarte</text>
+          <line x1="226" y1="146" x2="298" y2="74" stroke="#0f2230" stroke-width="1.2" stroke-dasharray="3 3"/>
+          <use href="#bS" fill="#e03131" transform="translate(252,100) rotate(-45)"/>
+          <use href="#bS" fill="#1f9d55" transform="translate(256,124) rotate(-45)"/>
+          <text x="250" y="200" text-anchor="middle" font-size="12" font-weight="700" font-family="system-ui,sans-serif" fill="#0f2230">engagés</text>
+          <text x="250" y="216" text-anchor="middle" font-size="11.5" font-family="system-ui,sans-serif" fill="#0f2230">règle 11 : au vent s’écarte</text>
+        </svg>
+        <figcaption>La ligne pointillée passe au ras du tableau arrière du bateau de devant. Dès que l’étrave de l’autre la dépasse, ils sont engagés.</figcaption>
+      </figure>
+      <div class="ref">
+        <blockquote><span class="lg">FR</span>« Quand des bateaux sont sur le même bord et non engagés, un bateau en route libre derrière doit se maintenir à l’écart d’un bateau en route libre devant. » — RCV 12</blockquote>
+        <blockquote class="en"><span class="lg">EN</span>« When boats are on the same tack and not overlapped, a boat clear astern shall keep clear of a boat clear ahead. » — RRS 12</blockquote>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>En virant de bord <span class="r">règle 13</span></h3>
+      <p class="say"><span class="b">Celui qui vire n’a plus de droits</span> tant qu’il n’est pas revenu au près.</p>
+      <figure>
+        <svg viewBox="0 0 340 230" role="img" aria-label="Bateau en train de virer">
+          <rect width="340" height="230" rx="12" fill="#dcecf4"/>
+          <use href="#wind" x="34" y="22"/>
+          <use href="#bS" fill="#1f9d55" transform="translate(250,150) rotate(-45)"/>
+          <path d="M240,140 L178,78" stroke="#1f9d55" stroke-width="2" stroke-dasharray="4 4" fill="none" marker-end="url(#aG)"/>
+          <use href="#bW" fill="#e03131" transform="translate(150,120)"/>
+          <path d="M120,168 C138,150 146,140 150,136" stroke="#e03131" stroke-width="2" fill="none"/>
+          <path d="M152,104 C152,92 140,84 128,78" stroke="#e03131" stroke-width="2" stroke-dasharray="5 4" fill="none" marker-end="url(#aR)"/>
+          <text x="96" y="186" font-size="12" font-family="system-ui,sans-serif" fill="#0f2230">bout au vent</text>
+          <text x="170" y="216" text-anchor="middle" font-size="12" font-family="system-ui,sans-serif" fill="#0f2230">Virer sous l’étrave de T, c’est s’exposer à la faute</text>
+        </svg>
+      </figure>
+      <ul>
+        <li>Le virement commence quand l’étrave passe le lit du vent et finit quand le bateau est au près sur le nouveau bord.</li>
+        <li>Pendant ce temps, il s’écarte de tout le monde, même d’un bateau qu’il avait à rattraper.</li>
+        <li>Une fois au près, il devient prioritaire selon 10, 11 ou 12, mais il doit d’abord laisser la place à l’autre de s’écarter (règle 15).</li>
+      </ul>
+      <div class="ref">
+        <blockquote><span class="lg">FR</span>« Après avoir dépassé la position bout au vent, un bateau doit se maintenir à l’écart des autres bateaux jusqu’à ce qu’il soit au près. » — RCV 13</blockquote>
+        <blockquote class="en"><span class="lg">EN</span>« After a boat passes head to wind, she shall keep clear of other boats until she is on a close-hauled course. » — RRS 13</blockquote>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Les règles de bon sens <span class="r">règles 14, 15, 16</span></h3>
+      <ul>
+        <li><b>Éviter le contact (14)</b> : tout le monde, prioritaire compris, doit éviter le contact si c’est raisonnablement possible. Le prioritaire n’est pénalisé que s’il y a dommage ou blessure.</li>
+        <li><b>Acquérir la priorité (15)</b> : celui qui devient prioritaire (en virant, en s’engageant sous le vent…) laisse d’abord à l’autre la place de s’écarter. Pas de piège.</li>
+        <li><b>Changer de route (16)</b> : le prioritaire peut changer de cap, mais en laissant à l’autre la place de s’écarter. Au près, un tribord ne peut pas abattre sur un bâbord qui passe derrière lui pour le coincer.</li>
+      </ul>
+      <div class="ref">
+        <blockquote><span class="lg">FR</span>« Un bateau doit éviter le contact avec un autre bateau si cela est raisonnablement possible. » — RCV 14</blockquote>
+        <blockquote class="en"><span class="lg">EN</span>« A boat shall avoid contact with another boat if reasonably possible. » — RRS 14</blockquote>
+        <blockquote><span class="lg">FR</span>« Quand un bateau prioritaire modifie sa route, il doit laisser à l’autre bateau la place de se maintenir à l’écart. » — RCV 16.1</blockquote>
+        <blockquote class="en"><span class="lg">EN</span>« When a right-of-way boat changes course, she shall give the other boat room to keep clear. » — RRS 16.1</blockquote>
+        <blockquote class="en"><span class="lg">EN</span>« When a boat acquires right of way, she shall initially give the other boat room to keep clear, unless she acquires right of way because of the other boat’s actions. » — RRS 15</blockquote>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Nouveau en 2025 : le « slam dunk » <span class="r">règle 17</span></h3>
+      <p>Un tribord vire juste au vent d’un bâbord qui vient de passer derrière lui. Si le bâbord s’engage sous le vent pendant ce virement, il ne peut plus lofer au-dessus du près : l’exception qui le lui permettait a été supprimée en 2025.</p>
+      <div class="tip"><b>À retenir :</b> sous le vent après être arrivé par derrière à moins de deux longueurs, on garde la priorité mais on reste sur sa route normale.</div>
+    </div>
+  </div>
+</section>
+
+<section id="bouees">
+  <h2><span class="n">3</span> Les passages de bouées</h2>
+  <p class="lead">La zone fait trois longueurs autour de la bouée, soit 24 m en J80. Tout se joue au moment où le premier des deux bateaux y entre.</p>
+  <div class="cards">
+    <div class="card">
+      <h3>Engagés à l’entrée de la zone <span class="r">règle 18.2</span></h3>
+      <p class="say"><span class="g">L’intérieur a droit à la place</span> ; <span class="b">l’extérieur la lui donne</span>.</p>
+      <figure>
+        <svg viewBox="0 0 340 260" role="img" aria-label="Bateaux engagés entrant dans la zone d’une bouée à laisser à bâbord">
+          <rect width="340" height="260" rx="12" fill="#dcecf4"/>
+          <use href="#wind" x="34" y="22"/>
+          <circle cx="226" cy="172" r="84" fill="#ff8a1c" fill-opacity=".07" stroke="#e8590c" stroke-width="1.5" stroke-dasharray="6 4"/>
+          <use href="#mark" x="226" y="172"/>
+          <path d="M196,104 L198,160 Q202,206 240,200 L268,168" stroke="#1f9d55" stroke-width="2" stroke-dasharray="4 4" fill="none" marker-end="url(#aG)"/>
+          <path d="M160,104 L163,172 Q170,236 236,232 L292,196" stroke="#e03131" stroke-width="2" stroke-dasharray="5 4" fill="none" marker-end="url(#aR)"/>
+          <use href="#bPd" fill="#1f9d55" transform="translate(196,90) rotate(180)"/>
+          <use href="#bPd" fill="#e03131" transform="translate(160,90) rotate(180)"/>
+          <text x="214" y="62" font-size="12" font-family="system-ui,sans-serif" fill="#0f2230">intérieur</text>
+          <text x="80" y="62" font-size="12" font-family="system-ui,sans-serif" fill="#0f2230">extérieur</text>
+          <text x="12" y="250" font-size="11" font-family="system-ui,sans-serif" fill="#a83c00">zone = 3 longueurs (24 m)</text>
+        </svg>
+        <figcaption>Bouée à laisser à bâbord. Même si l’extérieur est sous le vent (prioritaire en règle 11), il doit laisser à l’intérieur la place de passer la bouée et de reprendre sa route.</figcaption>
+      </figure>
+      <ul>
+        <li>La situation est « photographiée » quand le premier bateau entre dans la zone. Elle vaut jusqu’à ce que le bateau qui a droit à la place ait passé la bouée.</li>
+        <li>« Place à la marque » : de quoi aller à la bouée, la contourner en bon marin et la laisser derrière soi. Pas de quoi faire un grand arrondi tactique qui gênerait l’autre.</li>
+        <li>Si l’intérieur doit empanner pour suivre sa route, il ne s’éloigne pas plus que nécessaire de la bouée avant d’empanner (règle 18.4).</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h3>Non engagés à l’entrée <span class="r">règle 18.2, version 2025</span></h3>
+      <p class="say"><span class="g">Le premier entré a droit à la place</span>, même si l’autre est devant.</p>
+      <figure>
+        <svg viewBox="0 0 340 260" role="img" aria-label="Le premier bateau entré dans la zone a droit à la place">
+          <rect width="340" height="260" rx="12" fill="#dcecf4"/>
+          <use href="#wind" x="34" y="22"/>
+          <circle cx="210" cy="172" r="84" fill="#ff8a1c" fill-opacity=".07" stroke="#e8590c" stroke-width="1.5" stroke-dasharray="6 4"/>
+          <use href="#mark" x="210" y="172"/>
+          <use href="#bPd" fill="#1f9d55" transform="translate(176,108) rotate(180)"/>
+          <use href="#bPd" fill="#e03131" transform="translate(226,56) rotate(180)"/>
+          <path d="M176,124 L180,164 Q186,204 222,200" stroke="#1f9d55" stroke-width="2" stroke-dasharray="4 4" fill="none" marker-end="url(#aG)"/>
+          <path d="M226,72 L228,92" stroke="#e03131" stroke-width="2" stroke-dasharray="5 4" fill="none"/>
+          <text x="96" y="114" font-size="12" font-family="system-ui,sans-serif" fill="#0f2230">entré 1er</text>
+          <text x="244" y="52" font-size="12" font-family="system-ui,sans-serif" fill="#0f2230">pas encore</text>
+          <text x="244" y="66" font-size="12" font-family="system-ui,sans-serif" fill="#0f2230">dans la zone</text>
+          <text x="170" y="248" text-anchor="middle" font-size="12" font-family="system-ui,sans-serif" fill="#0f2230">Le rouge ne pourra pas « s’engouffrer » à l’intérieur</text>
+        </svg>
+      </figure>
+      <ul>
+        <li>Un bateau qui rattrape par derrière et s’engage à l’intérieur <b>une fois dans la zone</b> n’a pas droit à la place.</li>
+        <li>C’est le changement majeur de 2025 : on ne regarde plus seulement l’engagement mais qui atteint la zone en premier.</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h3>Virer dans la zone <span class="r">règle 18.3</span></h3>
+      <p class="say"><span class="b">Virer de bâbord à tribord dans la zone</span> d’une bouée à laisser à bâbord = plus de droit à la place.</p>
+      <figure>
+        <svg viewBox="0 0 340 250" role="img" aria-label="Virement dans la zone de la bouée au vent">
+          <rect width="340" height="250" rx="12" fill="#dcecf4"/>
+          <use href="#wind" x="34" y="22"/>
+          <circle cx="132" cy="84" r="84" fill="#ff8a1c" fill-opacity=".07" stroke="#e8590c" stroke-width="1.5" stroke-dasharray="6 4"/>
+          <use href="#mark" x="132" y="84"/>
+          <use href="#bS" fill="#1f9d55" transform="translate(228,170) rotate(-45)"/>
+          <path d="M218,160 L150,94" stroke="#1f9d55" stroke-width="2" stroke-dasharray="4 4" fill="none" marker-end="url(#aG)"/>
+          <path d="M100,206 L146,160 C154,152 160,152 166,156" stroke="#e03131" stroke-width="2" fill="none"/>
+          <use href="#bW" fill="#e03131" transform="translate(176,150) rotate(-15)"/>
+          <text x="332" y="206" text-anchor="end" font-size="12" font-family="system-ui,sans-serif" fill="#0f2230">T arrive à la bouée</text>
+          <text x="60" y="214" font-size="12" font-family="system-ui,sans-serif" fill="#0f2230">B vire dans la zone</text>
+          <text x="170" y="240" text-anchor="middle" font-size="12" font-family="system-ui,sans-serif" fill="#0f2230">B se retrouve à l’intérieur : il n’a pas droit à la place</text>
+        </svg>
+      </figure>
+      <ul>
+        <li>B ne doit pas obliger T à monter au-dessus du près pour l’éviter, et ne peut pas réclamer la place à l’intérieur.</li>
+        <li>Depuis 2025, cela vaut même si l’autre bateau a lui aussi viré dans la zone.</li>
+        <li>Le bon réflexe en J80 : arriver sur la lay-line tribord avant la zone, surtout avec une flotte compacte.</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h3>Quand la règle 18 ne s’applique pas <span class="r">règle 18.1</span></h3>
+      <ul>
+        <li><b>Au près, entre bâbord et tribord</b>, à la bouée au vent : c’est la règle 10 qui joue, tribord passe. Un bâbord qui arrive sur la bouée doit laisser passer tous les tribords.</li>
+        <li>Entre un bateau qui s’approche de la ligne pour prendre le départ et un autre, à une marque de départ (Comité, bouée de départ).</li>
+        <li>Quand la « bouée » est un obstacle continu, comme une digue : c’est alors la règle 19 qui s’applique.</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h3>Toucher une bouée <span class="r">règle 31</span></h3>
+      <p>Il est interdit de toucher la bouée de départ avant de partir, une bouée qui commence, limite ou termine le bord en cours, et une bouée d’arrivée après avoir fini. <b>Pénalité : un tour</b> (un virement + un empannage), dès que possible, en se dégageant des autres.</p>
+      <div class="ref">
+        <blockquote class="en"><span class="lg">EN</span>« While racing, a boat shall not touch a starting mark before starting, a mark that begins, bounds or ends the leg of the course on which she is sailing, or a finishing mark after finishing. » — RRS 31</blockquote>
+        <blockquote class="plain"><span class="lg">FR</span>Texte officiel : RCV 31, « Toucher une marque ». Pénalité : RCV 44.1 et 44.2.</blockquote>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="obstacles">
+  <h2><span class="n">4</span> Côtes, digues et obstacles</h2>
+  <p class="lead">Dans la rade : Grande Jetée, digues, quais, bateaux au mouillage, zone interdite de Saint-Mandrier.</p>
+  <div class="cards">
+    <div class="card">
+      <h3>Passer un obstacle <span class="r">règle 19</span></h3>
+      <p>Entre deux bateaux engagés qui arrivent sur un obstacle, le bateau prioritaire choisit de quel côté passer. Le bateau à l’extérieur laisse à l’intérieur la place de passer entre lui et l’obstacle. Le long d’un obstacle continu (une digue), un bateau qui arrive par derrière ne peut s’engager entre l’autre et la digue que s’il y a la place de passer à ce moment-là.</p>
+    </div>
+    <div class="card">
+      <h3>Demander à virer <span class="r">règle 20</span></h3>
+      <p>Au près, coincé par un obstacle (la côte, une digue) avec un bateau au vent : hélez <b>« De l’eau pour virer ! »</b> (en anglais <i>« Room to tack »</i>). L’autre doit soit virer, soit répondre « Vire ! » et vous laisser la place. Ne hélez que si vous en avez réellement besoin pour éviter l’obstacle, et laissez à l’autre le temps de réagir.</p>
+    </div>
+  </div>
+</section>
+
+<section id="arrivee">
+  <h2><span class="n">5</span> La ligne d’arrivée</h2>
+  <p class="lead">On a fini dès que n’importe quelle partie de la coque coupe la ligne, en venant du parcours.</p>
+  <div class="cards">
+    <div class="card">
+      <figure>
+        <svg viewBox="0 0 340 240" role="img" aria-label="Franchissement de la ligne d’arrivée">
+          <rect width="340" height="240" rx="12" fill="#dcecf4"/>
+          <use href="#wind" x="34" y="22"/>
+          <line x1="80" y1="96" x2="262" y2="96" stroke="#0f2230" stroke-width="1.6" stroke-dasharray="7 4"/>
+          <use href="#mark" x="80" y="96"/><use href="#cb" x="278" y="101"/>
+          <rect x="278" y="76" width="11" height="8" fill="#1c4aa1"/>
+          <text x="278" y="128" text-anchor="middle" font-size="12" font-family="system-ui,sans-serif" fill="#0f2230">Comité</text>
+          <text x="170" y="84" text-anchor="middle" font-size="12" font-family="system-ui,sans-serif" fill="#0f2230">ligne d’arrivée</text>
+          <text x="170" y="226" text-anchor="middle" font-size="12" font-family="system-ui,sans-serif" fill="#0f2230">côté parcours</text>
+          <use href="#bS" fill="#1f9d55" transform="translate(196,104) rotate(-20)"/>
+          <text x="214" y="150" font-size="11.5" font-family="system-ui,sans-serif" fill="#0f2230">l’étrave coupe :</text>
+          <text x="214" y="164" font-size="11.5" font-family="system-ui,sans-serif" fill="#0f2230">arrivé</text>
+          <use href="#bS" fill="#e03131" transform="translate(92,84) rotate(-30)"/>
+          <path d="M96,66 C120,46 66,30 52,58 C42,80 54,116 72,140 C92,166 118,140 112,104" stroke="#e03131" stroke-width="2" stroke-dasharray="5 4" fill="none" marker-end="url(#aR)"/>
+          <text x="20" y="182" font-size="11.5" font-family="system-ui,sans-serif" fill="#0f2230">a touché la bouée :</text>
+          <text x="20" y="196" font-size="11.5" font-family="system-ui,sans-serif" fill="#0f2230">un tour, puis recouper</text>
+        </svg>
+      </figure>
+    </div>
+    <div class="card">
+      <h3>Ce qu’il faut savoir <span class="r">définition « Finir », règle 28</span></h3>
+      <ul>
+        <li>Pas besoin de franchir complètement la ligne : dès que l’étrave coupe, c’est fini. On peut ensuite repartir de n’importe quel côté.</li>
+        <li>Vous n’avez <b>pas</b> fini si, après avoir coupé, vous faites une pénalité, si vous corrigez une erreur de parcours ou si vous continuez le parcours. Il faut alors recouper la ligne.</li>
+        <li>Vous êtes encore en course tant que vous n’avez pas dégagé la ligne et ses bouées : les priorités et la règle 31 s’appliquent toujours.</li>
+        <li>Fin de course au près dans la pétole : aller chercher l’extrémité la plus au vent de la ligne (le même calcul de biais qu’au départ).</li>
+        <li><b>CVAT</b> : la ligne est entre le mât du Comité (pavillon bleu) et la bouée indiquée par les IC. Le parcours peut être réduit à une porte de pointage (2e substitut + pavillon de classe, voir l’onglet IC de l’app).</li>
+      </ul>
+      <div class="ref">
+        <blockquote class="en"><span class="lg">EN</span>« A boat finishes when, after her starting signal, any part of her hull crosses the finishing line from the course side. » — RRS, Definitions, Finish</blockquote>
+        <blockquote class="plain"><span class="lg">FR</span>Texte officiel : RCV, Définitions, « Finir » et « Effectuer le parcours » ; règle 28.</blockquote>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="penalites">
+  <h2><span class="n">6</span> Pénalités et réclamations</h2>
+  <p class="lead">Mieux vaut un tour tout de suite qu’une disqualification le soir.</p>
+  <div class="cards">
+    <div class="card">
+      <h3>Faire son tour <span class="r">règle 44</span></h3>
+      <figure>
+        <svg viewBox="0 0 340 200" role="img" aria-label="Tour de pénalité : un virement et un empannage">
+          <rect width="340" height="200" rx="12" fill="#dcecf4"/>
+          <use href="#wind" x="34" y="22"/>
+          <path d="M170,170 C110,170 110,60 170,60 C230,60 230,170 176,170" stroke="#0f2230" stroke-width="2.2" fill="none" marker-end="url(#aK)"/>
+          <use href="#bP" fill="#1f9d55" transform="translate(170,60) rotate(90)"/>
+          <text x="114" y="119" text-anchor="end" font-size="12" font-weight="700" font-family="system-ui,sans-serif" fill="#0f2230">virement</text>
+          <text x="114" y="133" text-anchor="end" font-size="11" font-family="system-ui,sans-serif" fill="#0f2230">(face au vent)</text>
+          <text x="228" y="119" font-size="12" font-weight="700" font-family="system-ui,sans-serif" fill="#0f2230">empannage</text>
+          <text x="228" y="133" font-size="11" font-family="system-ui,sans-serif" fill="#0f2230">(vent arrière)</text>
+          <text x="170" y="192" text-anchor="middle" font-size="12" font-family="system-ui,sans-serif" fill="#0f2230">1 tour = 360°, dans un sens ou dans l’autre</text>
+        </svg>
+      </figure>
+      <ul>
+        <li><b>IC CVAT : un seul tour</b> (un virement + un empannage) pour une faute de priorité, au lieu des deux tours de la règle de base. Pour une bouée touchée, c’est un tour dans tous les cas.</li>
+        <li>Le faire dès que possible après l’incident, en se dégageant des autres bateaux.</li>
+        <li>Un tour ne suffit pas s’il y a eu blessure, dommage sérieux, ou un avantage significatif : il faut alors abandonner.</li>
+        <li>Les IC CVAT demandent ensuite une reconnaissance écrite : prévenez le Comité à l’arrivée.</li>
+      </ul>
+      <div class="ref">
+        <blockquote class="en"><span class="lg">EN</span>« A boat may take a Two-Turns Penalty when she may have broken one or more rules of Part 2 in an incident while racing. » — RRS 44.1 (penalty changed to one turn by the CVAT sailing instructions)</blockquote>
+        <blockquote class="plain"><span class="lg">FR</span>Texte officiel : RCV 44.1 et 44.2, « Pénalité d’un tour / de deux tours ». Les IC peuvent modifier la règle : ce sont elles qui priment.</blockquote>
+      </div>
+    </div>
+    <div class="card">
+      <h3>Réclamer <span class="r">règle 60</span></h3>
+      <ul>
+        <li>Héler <b>« Je proteste ! »</b> (« Protest ») tout de suite, et hisser le pavillon rouge à la première occasion (obligatoire pour un bateau de plus de 6 m, donc en J80).</li>
+        <li>Si l’autre fait son tour, l’affaire est réglée.</li>
+        <li>Sinon : prévenir le Comité à l’arrivée et déposer la réclamation dans le délai des IC. Notez l’heure, la position et les témoins. La trace GPS de l’app peut aider.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>Exonération <span class="r">règle 43</span></h3>
+      <p>Un bateau obligé d’enfreindre une règle à cause de la faute d’un autre bateau est exonéré : pas de pénalité. Exemple : l’intérieur à une bouée qui touche le bateau extérieur parce que celui-ci ne lui a pas laissé la place.</p>
+    </div>
+  </div>
+</section>
+
+<section id="quiz">
+  <h2><span class="n">7</span> Testez-vous</h2>
+  <p class="lead">Six situations fréquentes en J80. Touchez une question pour voir la réponse.</p>
+  <details class="q"><summary>Au près, nous sommes bâbord et un J80 arrive tribord. Il hèle « Passe ! ». Que faire ?</summary><p>Rien ne vous oblige à passer devant : c’est une invitation, et vous restez responsable si ça touche. S’il change de route après vous l’avoir proposé, il doit vous laisser la place de vous écarter (règle 16). Dans le doute, passez derrière.</p></details>
+  <details class="q"><summary>Préparatoire : pavillon I. À H−40 s nous sommes au-dessus de la ligne. Peut-on replonger par la ligne ?</summary><p>Non. Sous I, un bateau dans le triangle pendant la dernière minute doit revenir en contournant une extrémité de la ligne (règle 30.1). Avec P, on aurait pu replonger directement.</p></details>
+  <details class="q"><summary>Préparatoire : pavillon U, puis rappel général. Nous étions dans le triangle. Sommes-nous disqualifiés ?</summary><p>Non : la pénalité U est effacée si le départ est redonné (règle 30.3). Avec le pavillon noir, elle serait maintenue et vous ne pourriez pas reprendre le départ (règle 30.4). Avec Z, les 20 % seraient maintenus.</p></details>
+  <details class="q"><summary>Bouée sous le vent à laisser à bâbord. Nous sommes engagés à l’intérieur quand l’autre entre dans la zone, mais il est sous le vent. Qui a raison ?</summary><p>Vous. À l’intérieur et engagé à l’entrée dans la zone, vous avez droit à la place à la marque (règle 18.2), même si l’autre est prioritaire en règle 11. Il doit vous laisser passer la bouée.</p></details>
+  <details class="q"><summary>Bouée au vent : nous arrivons bâbord, un tribord est sur la lay-line. On vire dans la zone sous son vent. Avons-nous droit à la place ?</summary><p>Non. Après avoir viré de bâbord à tribord dans la zone, vous n’avez pas droit à la place, et vous ne devez pas l’obliger à monter au-dessus du près (règle 18.3). Il fallait passer derrière lui ou virer avant la zone.</p></details>
+  <details class="q"><summary>Arrivée : on touche la bouée en coupant la ligne. Que faire ?</summary><p>Se dégager, faire un tour (virement + empannage), puis recouper la ligne en venant du parcours. Le premier passage ne compte pas (définition « Finir », règle 31).</p></details>
+</section>
+
+<section id="textes">
+  <h2><span class="n">8</span> Textes officiels</h2>
+  <p class="lead">Ce guide simplifie. En cas de réclamation, seuls comptent les textes officiels, modifiés par l’avis de course et les instructions de course (IC) de l’épreuve.</p>
+  <div class="tbl"><table>
+    <tr><th>Sujet</th><th>Français (RCV 2025-2028)</th><th>English (RRS 2025-2028)</th></tr>
+    <tr><td>Définitions (engagé, route libre derrière, place, zone, finir…)</td><td>Définitions</td><td>Definitions (Overlap, Clear Astern, Room, Mark-Room, Zone, Finish)</td></tr>
+    <tr><td>Bâbord / tribord</td><td>Règle 10 · Sur des bords opposés</td><td>Rule 10 · On Opposite Tacks</td></tr>
+    <tr><td>Au vent / sous le vent</td><td>Règle 11 · Sur le même bord, engagés</td><td>Rule 11 · On the Same Tack, Overlapped</td></tr>
+    <tr><td>Derrière / devant</td><td>Règle 12 · Sur le même bord, non engagés</td><td>Rule 12 · On the Same Tack, Not Overlapped</td></tr>
+    <tr><td>Virement</td><td>Règle 13 · Pendant le virement de bord</td><td>Rule 13 · While Tacking</td></tr>
+    <tr><td>Éviter le contact</td><td>Règle 14</td><td>Rule 14 · Avoiding Contact</td></tr>
+    <tr><td>Acquérir la priorité, changer de route</td><td>Règles 15 et 16</td><td>Rules 15 Acquiring Right of Way, 16 Changing Course</td></tr>
+    <tr><td>Route normale</td><td>Règle 17</td><td>Rule 17 · On the Same Tack; Proper Course</td></tr>
+    <tr><td>Bouées</td><td>Règle 18 · Place à la marque</td><td>Rule 18 · Mark-Room</td></tr>
+    <tr><td>Obstacles</td><td>Règles 19 et 20</td><td>Rules 19 Room to Pass an Obstruction, 20 Room to Tack at an Obstruction</td></tr>
+    <tr><td>Signaux de départ</td><td>Règle 26 · Signaux de course</td><td>Rule 26 · Starting Races; Race Signals</td></tr>
+    <tr><td>Effectuer le parcours</td><td>Règle 28</td><td>Rule 28 · Sailing the Course</td></tr>
+    <tr><td>Rappels</td><td>Règle 29</td><td>Rule 29 · Recalls</td></tr>
+    <tr><td>Pavillons I, Z, U, noir</td><td>Règle 30 · Pénalités de départ</td><td>Rule 30 · Starting Penalties</td></tr>
+    <tr><td>Toucher une marque</td><td>Règle 31</td><td>Rule 31 · Touching a Mark</td></tr>
+    <tr><td>Exonération</td><td>Règle 43</td><td>Rule 43 · Exoneration</td></tr>
+    <tr><td>Tours de pénalité</td><td>Règle 44</td><td>Rule 44 · Penalties at the Time of an Incident</td></tr>
+    <tr><td>Réclamer</td><td>Règle 60</td><td>Rule 60 · Protests</td></tr>
+  </table></div>
+  <div class="cards" style="margin-top:12px">
+    <div class="card"><h3>Où les lire</h3><ul>
+      <li>Français : <a href="https://arbitrage.ffvoile.fr/" target="_blank" rel="noopener">FFVoile, site de l’arbitrage</a> (RCV 2025-2028, prescriptions nationales, livret de jurisprudence).</li>
+      <li>English : <a href="https://www.sailing.org/inside-world-sailing/rules-regulations/racing-rules-of-sailing/" target="_blank" rel="noopener">World Sailing, The Racing Rules of Sailing 2025-2028</a>.</li>
+      <li>Les IC de la régate : onglet <b>IC</b> de l’app.</li>
+    </ul></div>
+    <div class="card"><h3>À propos des citations</h3><p class="small">Les citations sont de courts extraits des règles 2025-2028. Quand le texte français officiel n’est pas cité mot pour mot, la mention « En clair » le résume et renvoie au numéro de règle. Les deux versions ont la même numérotation.</p></div>
+  </div>
+</section>
+</main>
+<footer>Rade Tactique · Règles de course à la voile 2025-2028 expliquées pour l’équipage J80. Ce document n’a pas de valeur officielle.</footer>
+</body>
+</html>

@@ -18,7 +18,7 @@ import { shroudsFor } from './tuning.js';
 import { createStartMode } from './startmode.js';
 import { detect as dbDetect, ask as dbAsk, askModes as dbAskModes, analyze as dbAnalyze, narrative as dbNarrative, buildReport as dbBuild, shareReport as dbShare } from './debrief.js';
 
-export const APP_VERSION = 'v20 · guide de l’équipage';
+export const APP_VERSION = 'v21 · règles de course';
 const $ = (s, r = document) => r.querySelector(s);
 function toast(msg) {
   let t = document.getElementById('toast');
@@ -1025,6 +1025,8 @@ function renderIC() {
     <div class="kpis"><div class="kpi"><b>${esc(IC.firstWarning || '—')}</b><span>1er avertissement</span></div><div class="kpi"><b>${esc(IC.lastFinishSignal || '—')}</b><span>limite arrivée du 1er</span></div><div class="kpi"><b>VHF ${esc(IC.vhf ?? '—')}</b><span>canal de course</span></div></div>
     <p class="small">${IC.committee ? `Comité : ${tel ? `<a href="tel:${tel.replace(/\D/g, '')}">${esc(IC.committee)}</a>` : esc(IC.committee)}<br>` : ''}${IC.zone ? `Zone : ${esc(IC.zone)}<br>` : ''}${IC.id === 'snpm-2026' ? 'Avis : <a href="https://chat.whatsapp.com/J2W7onZ86t9AnqJJliPUSU" target="_blank" rel="noopener">WhatsApp « CVAT Tableau Officiel »</a>' : ''}</p>
     ${IC.firstWarning && IC.date ? `<button class="btn small alt" id="evUse">Caler le départ sur ces IC (${esc(dayName(IC.date))}, ${esc(IC.firstWarning)} + 5 min)</button>` : ''}</div>
+  <div class="card"><h3>Règles de course <small>RCV / RRS 2025-2028</small></h3><p class="small">Départs (P, I, U, Z, noir), priorités, bouées, arrivée et pénalités, en langage simple avec schémas et textes officiels FR / EN.</p>
+    <div class="btns" style="margin:0"><a class="btn acc small" href="regles.html" target="_blank" rel="noopener">📘 Ouvrir les règles</a><a class="btn alt small" href="regles.html#depart" target="_blank" rel="noopener">Pavillons de départ</a><a class="btn alt small" href="regles.html#bouees" target="_blank" rel="noopener">Bouées</a></div></div>
   <div class="card"><h3>Pavillons de classe <small>habituels CVAT</small></h3><table class="t">${IC.classes.map((c) => `<tr><td>${esc(c[0])}</td><td>${esc(c[1])}</td></tr>`).join('')}</table></div>
   <div class="card"><h3>Points clés</h3><ul class="tips small">${(IC.keyRules || []).map((r) => `<li>${esc(r)}</li>`).join('') || '<li>Aucun point clé enregistré.</li>'}</ul>
     ${IC.text ? `<details><summary class="small">Texte complet des IC</summary><pre class="ictext">${esc(IC.text)}</pre></details>` : ''}

@@ -318,3 +318,4 @@ body.startmode-open { overflow: hidden; }
 #startMode.sm-race #smTtl { display: none; }
 #startMode.sm-race .sm-row { grid-template-columns: 1fr 1fr; }
 #startMode > * { min-width: 0; }
+a.btn { text-decoration: none; display: inline-flex; align-items: center; }
