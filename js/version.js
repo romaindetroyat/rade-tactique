@@ -1,2 +1,2 @@
 // Généré par tools/stamp.mjs — ne pas modifier à la main.
-export const BUILD = {"n":27,"date":"2026-10-19","label":"v27 · 19/10","note":"bips à la seconde, voyant, journal, ouverture rapide, bouées à confirmer","critical":false,"id":"4c27d9cd22"};
+export const BUILD = {"n":28,"date":"2026-10-20","label":"v28 · 20/10","note":"régates, IC relues, vent figé, GPX rangé et débrief","critical":false,"id":"4c27d9cd22"};
