@@ -1,11 +1,13 @@
 // FIAB-06 : l’app s’ouvre sur l’interface utile avant tout calcul lourd (gardes statiques sur le texte des sources : l’ouverture en
 // deux temps est un ordre d’appels, la mesure réelle est faite par tools/measure-boot.mjs), et le téléchargement des prévisions abandonne à 10 s.
-import { test } from 'node:test';
+import { test, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { ROOT } from './helpers/setup.mjs';
 import { bodyOf } from './helpers/scan.mjs';
 import { fetchAll, FETCH_TIMEOUT_MS } from '../js/weather.js';
+import { Terrain } from '../js/geo.js';
+import { WindField } from '../js/wind.js';
 
 const src = (f) => readFileSync(ROOT + f, 'utf8');
 const app = src('js/app.js');
@@ -90,3 +92,107 @@ test('prévisions : un réseau muet est abandonné à 10 s avec un message en fr
   } finally { globalThis.fetch = ancien; }
 });
 
+// ── FIAB-06 : le champ de vent est préparé par tranches, sans changer un seul nombre
+
+let T;
+before(async () => { T = await new Terrain().load('data/'); });
+const seul = (dir) => ({ points: [{ x: 0, y: 0, dir, spd: 12, gust: 16 }] });
+const memes = (a, b, msg) => { for (const k of ['fac', 'dev', 'shel', 'blk']) assert.deepEqual(Array.from(a[k]), Array.from(b[k]), `${msg} : ${k}`); };
+
+test('kitSteps : générateur qui cède la main plus de 10 fois et range le même kit que kit()', () => {
+  const F = new WindField(T), ref = new WindField(T);
+  let cedes = 0, r;
+  const g = F.kitSteps(315);
+  while (!(r = g.next()).done) cedes++;
+  assert.ok(cedes > 10, `cède la main ${cedes} fois`);
+  assert.ok(F.kits.has(315), 'le kit est rangé dans le cache');
+  assert.equal(r.value, F.kits.get(315), 'le générateur renvoie le kit rangé');
+  memes(F.kits.get(315), ref.kit(315), 'kitSteps ≡ kit');
+  assert.equal(F.kit(315), F.kits.get(315), 'kit() relit le cache');
+});
+
+test('warm : un seul point de vent à 312° prépare 310° et 315°, identiques à kit() sur un autre WindField', async () => {
+  const F = new WindField(T), ref = new WindField(T);
+  await F.warm(seul(312), 1000);
+  for (const key of [310, 315]) { assert.ok(F.kits.has(key), `clé ${key} préparée`); memes(F.kits.get(key), ref.kit(key), `warm ≡ kit (${key}°)`); }
+  F.compute(seul(312), { localEffects: 1 }); ref.compute(seul(312), { localEffects: 1 });
+  assert.deepEqual(Array.from(F.spd), Array.from(ref.spd), 'compute après warm : mêmes vitesses');
+  assert.deepEqual(Array.from(F.dir), Array.from(ref.dir), 'compute après warm : mêmes directions');
+  assert.equal(F.kits.size, 2, 'aucun kit de plus calculé d’un bloc par compute()');
+});
+
+test('warm : une base à deux points (350° et 10°) couvre toutes les clés de 5°, passage par le Nord compris', async () => {
+  const F = new WindField(T);
+  const base = { points: [{ x: -2000, y: 0, dir: 350, spd: 10 }, { x: 2000, y: 0, dir: 10, spd: 12 }] };
+  const keys = new Set(F.warmKeys(base));
+  for (const k of [350, 355, 0, 5, 10]) assert.ok(keys.has(k), `warmKeys contient ${k}°`);
+  for (const k of [20, 340, 180]) assert.ok(!keys.has(k), `warmKeys ne contient pas ${k}°`);
+  await F.warm(base, 1000);
+  for (const k of keys) assert.ok(F.kits.has(k), `clé ${k}° préparée par warm`);
+  F.compute(base, { localEffects: 1 });
+  assert.equal(F.kits.size, keys.size, 'compute() ne calcule plus aucun kit');
+});
+
+test('warm : une direction pile sur un multiple de 5° garde la clé du dessous (arrondi du calcul)', () => {
+  const F = new WindField(T);
+  const keys = new Set(F.warmKeys(seul(315)));
+  for (const k of [310, 315, 320]) assert.ok(keys.has(k), `${k}°`);
+});
+
+// ── W4 : seuls les recalculs AUTOMATIQUES sont reportés ; un geste ou un relevé de l’équipier calcule tout de suite
+
+const REPORT = /\b(?:heavyPaused|autoHeavy|deferHeavy)\(/;
+
+test('W4 : aucun geste, aucun relevé ne passe par la pause (heavyPaused / autoHeavy / deferHeavy absents de leurs corps)', () => {
+  for (const f of ['updateAll', 'updateDisplayField', 'scheduleAnalysis', 'runAnalysis', 'refreshObs', 'planRest', 'setLineEnd', 'renderObs', 'voiceObs', 'bindShell', 'bindMap', 'computeField', 'renderPlan', 'renderStart', 'renderCourse', 'renderWind']) {
+    const body = bodyOf(app, f);
+    assert.ok(body !== null, `${f} trouvée`);
+    assert.ok(!REPORT.test(body), `${f} ne doit pas être reportée (geste de l’équipier)`);
+  }
+  const reanalyse = /reanalyse:[^\n]*/.exec(app);
+  assert.ok(reanalyse, 'entrée reanalyse de l’api du mode départ');
+  assert.ok(!REPORT.test(reanalyse[0]), 'un ping de ligne est un geste : la réanalyse n’est pas reportée');
+});
+
+test('W4 : autoHeavy( figure dans init et refreshWeather, nulle part ailleurs (liste fermée)', () => {
+  assert.match(bodyOf(app, 'init'), /autoHeavy\(/, 'init');
+  assert.match(bodyOf(app, 'refreshWeather'), /autoHeavy\(/, 'refreshWeather');
+  const bornes = (name) => { const b = bodyOf(app, name), i = app.indexOf(b); return [i, i + b.length]; };
+  const dedans = ['init', 'refreshWeather', 'autoHeavy'].map(bornes);
+  const hors = [...app.matchAll(/\bautoHeavy\(/g)].filter((m) => !dedans.some(([a, z]) => m.index >= a && m.index <= z) && !/function autoHeavy\(/.test(app.slice(m.index - 9, m.index + 10)));
+  assert.deepEqual(hors.map((m) => app.slice(0, m.index).split('\n').length), [], 'autoHeavy appelée hors de init et refreshWeather (lignes)');
+  assert.ok(!REPORT.test(bodyOf(app, 'refreshLive')), 'refreshLive n’est pas un recalcul');
+});
+
+test('W4 : refreshWeather(true) au démarrage seulement ; le bouton ⟳ garde refreshWeather() (geste)', () => {
+  assert.equal((app.match(/refreshWeather\(true\)/g) || []).length, 1, 'un seul appel automatique');
+  assert.match(bodyOf(app, 'bindMap'), /refreshWeather\(\)/, '⟳ : sans argument');
+  assert.match(app, /async function refreshWeather\(auto = false\)/);
+});
+
+test('W4 : deferHeavy range sans doublon, programme une seule minuterie après H+1 min et ne note qu’une fois', () => {
+  const d = bodyOf(app, 'deferHeavy');
+  assert.match(d, /heavyQ\.add\(/, 'file sans doublon');
+  assert.match(d, /note\('calcul', 'reporté après le départ'\)/);
+  assert.match(app, /HEAVY_AFTER_MS/, 'délai après H+1 min');
+  const a = bodyOf(app, 'autoHeavy');
+  assert.match(a, /heavyPaused\(\{ now: Date\.now\(\), timerEnd: timer\.end \}\)/);
+});
+
+// ── computeField mémoïsé : même base, même résultat, aucun recalcul ; toute entrée de la base fait partie de la clé
+
+test('computeField mémoïsé : la clé couvre jour, heure, source, vent manuel, modèle, relevés, intensité du relief et prévisions', () => {
+  const body = bodyOf(app, 'computeField');
+  for (const piece of ['day', 'hour', 'S.src', 'S.manual', 'selectedModel()', 'S.nowcast', 'resid', 'S.localFx', 'data?.fetched', 'S.day']) assert.ok(body.includes(piece), `clé : ${piece}`);
+  assert.match(body, /fieldKey/);
+  assert.match(bodyOf(app, 'refreshObs'), /fieldKey = null/, 'refreshObs écrit dans F : la clé est remise à null');
+  assert.match(bodyOf(app, 'runDebrief'), /fieldKey = null/, 'le débrief écrit dans F : la clé est remise à null');
+});
+
+test('init : le champ de vent est préparé (warm) avant le premier updateAll(), et par tranches', () => {
+  const prep = bodyOf(app, 'prepareField');
+  assert.ok(prep, 'prepareField trouvée');
+  const i1 = prep.indexOf('F.warm(baseAt(S.day, S.hour))'), i2 = prep.indexOf('F.warm(baseAt(S.day, S.startTime))'), iu = prep.indexOf('updateAll()');
+  assert.ok(i1 >= 0 && i2 > i1 && iu > i2, 'warm(hour) puis warm(startTime) puis updateAll()');
+  assert.match(bodyOf(app, 'init'), /autoHeavy\(prepareField\)/);
+});

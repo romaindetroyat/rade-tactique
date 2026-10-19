@@ -4,6 +4,9 @@ export const PARIS = 'Europe/Paris';
 export const MORNING_END_H = 9;             // D-03 : avant 9 h (Paris) le jour de régate, la mise à jour reste possible
 export const IDLE_MS = 3600e3;              // D-02 : retour au port = tout arrêté depuis 1 h
 export const TIMER_GRACE_MS = 3 * 3600e3;   // chrono oublié : actif jusqu’à 3 h après H, puis il rend la main
+export const HEAVY_BEFORE_MS = 6 * 60e3;
+export const HEAVY_AFTER_MS = 60e3;
+export function heavyPaused() { return false; }     // squelette (RED) : le comportement vient avec le GREEN
 
 const FMT = new Intl.DateTimeFormat('en-CA', { timeZone: PARIS, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
 

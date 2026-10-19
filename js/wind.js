@@ -122,6 +122,11 @@ export class WindField {
     return kitObj;
   }
 
+  // squelettes (RED) : le comportement vient avec le GREEN
+  *kitSteps() { /* rien */ }
+  warmKeys() { return []; }
+  async warm() { /* rien */ }
+
   // base : { points: [{x,y,dir,spd,gust}] } (IDW) — un seul point = vent uniforme
   compute(base, opts = {}) {
     const { nx, ny, dx, dy } = this;

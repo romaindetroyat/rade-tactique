@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseHTML } from 'linkedom';
-import { parisClock, isActive, isRaceDay, lockState, TIMER_GRACE_MS } from '../js/racelock.js';
+import { parisClock, isActive, isRaceDay, lockState, TIMER_GRACE_MS, heavyPaused, HEAVY_BEFORE_MS, HEAVY_AFTER_MS } from '../js/racelock.js';
 import { eventForm, readForm } from '../js/events.js';
 
 const t = (s) => Date.parse(s);
@@ -118,4 +118,56 @@ test('D-15 : un dernier jour absent, égal ou antérieur à la date est ignoré'
   assert.equal(lire({ date: '2026-11-07', dateEnd: '2026-11-07' }).dateEnd, '', 'même jour');
   assert.equal(lire({ date: '2026-11-07', dateEnd: '2026-11-05' }).dateEnd, '', 'antérieur');
   assert.equal(lire({ date: '', dateEnd: '2026-11-09' }).dateEnd, '', 'sans date de début');
+});
+
+// ── FIAB-06 : pas de recalcul automatique pendant la séquence de départ (de H−6 min à H+1 min, H = fin du chrono)
+const H = t('2026-11-07T10:00:00Z');       // un signal de départ, heure sans importance : le prédicat est pur
+const pause = (now, timerEnd = H) => heavyPaused({ now, timerEnd });
+
+test('heavyPaused : sans chrono, jamais de pause', () => {
+  assert.equal(heavyPaused({ now: H, timerEnd: null }), false);
+  assert.equal(heavyPaused({ now: H }), false);
+  assert.equal(heavyPaused({ now: 0, timerEnd: undefined }), false);
+});
+
+test('heavyPaused : bornes de la séquence, H−7 min libre, H−6 min pris, H pris, H+1 min pris, H+1 min 1 s libre', () => {
+  assert.equal(pause(H - 7 * 60e3), false);
+  assert.equal(pause(H - 6 * 60e3 - 1), false);
+  assert.equal(pause(H - 6 * 60e3), true);
+  assert.equal(pause(H - 60e3), true);
+  assert.equal(pause(H), true);
+  assert.equal(pause(H + 60e3), true);
+  assert.equal(pause(H + 60e3 + 1000), false);
+});
+
+test('heavyPaused : les constantes sont 6 min avant et 1 min après', () => {
+  assert.equal(HEAVY_BEFORE_MS, 6 * 60e3);
+  assert.equal(HEAVY_AFTER_MS, 60e3);
+});
+
+test('heavyPaused : un chrono lancé tard (Top 4’, Top 1’) est déjà dans la séquence', () => {
+  const now = t('2026-11-07T09:00:00Z');
+  assert.equal(pause(now, now + 4 * 60e3), true);       // Top 4’
+  assert.equal(pause(now, now + 60e3), true);           // Top 1’
+  assert.equal(pause(now, now + 5 * 60e3), true);       // Top 5’ : H−5 min
+  assert.equal(pause(now, now + 7 * 60e3), false);      // à H−7 min, pas encore
+});
+
+test('heavyPaused : un chrono décalé de ±1 min déplace la fenêtre', () => {
+  const now = H - 6 * 60e3 - 30e3;                       // H−6 min 30 s : libre
+  assert.equal(pause(now, H), false);
+  assert.equal(pause(now, H - 60e3), true);              // « −1 min » : H est plus proche, la séquence a commencé
+  assert.equal(pause(H + 90e3, H), false);               // H+1 min 30 s : libre
+  assert.equal(pause(H + 90e3, H + 60e3), true);         // « +1 min » : la pause se prolonge
+});
+
+test('heavyPaused : un chrono oublié depuis des heures ne bloque rien', () => {
+  assert.equal(pause(H + 3 * 3600e3, H), false);
+  assert.equal(pause(H - 3 * 3600e3, H), false);
+});
+
+test('heavyPaused : pur, ne lit ni l’horloge ni le chrono de la page (même résultat quel que soit l’instant réel)', () => {
+  const a = pause(H - 3 * 60e3), b = pause(H - 3 * 60e3);
+  assert.equal(a, b);
+  assert.equal(a, true);
 });
