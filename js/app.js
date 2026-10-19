@@ -3,7 +3,6 @@
 import { report, note, setContext } from './journal.js';
 import { Terrain, toXY, toLL, NM, bearingXY, distXY, norm360, norm180, fmtBrg, fmtNm, fmtLat, fmtLon, cardinal } from './geo.js';
 import { WindField, speedColor } from './wind.js';
-import { Scene3D } from './scene3d.js';
 import { MARKS, COURSES, LINE_PRESETS, FORBIDDEN_ZONE, DANGERS } from './courses.js';
 import { eventsState, currentEvent, setCurrent, upsertEvent, removeEvent, pdfText, parseIC, eventForm, readForm } from './events.js';
 import { fetchAll, cached, snapshot, consensus, gridPoints, marineAt, fetchLive, MODELS, WMO, CENTER } from './weather.js';
@@ -65,29 +64,28 @@ const forbidden = [FORBIDDEN_ZONE.map((p) => toXY(p.lat, p.lon))];
 if (S.polar) { try { setPolar(S.polar.tws, S.polar.twa, S.polar.bsp, S.polar.source); } catch (e) { S.polar = null; report('polaire', e); } }
 
 // ───────────────────────── démarrage
+// En deux temps (FIAB-06). Temps 1, synchrone : onglets, Départ (chrono, « Mode départ »), En course (GPS, trace), voyant, mises à jour
+// différées, puis retrait du splash : rien n’attend le terrain, la 3D ni le champ de vent. Temps 2, après une image : la 3D (import différé,
+// three.js pèse 691 Ko), le terrain, le vent, la carte, puis les prévisions du réseau. Marques performance rt:ui (interface utile) et rt:map.
+const nextFrame = () => new Promise((ok) => {
+  let fait = false;
+  const go = () => { if (!fait) { fait = true; setTimeout(ok, 0); } };
+  requestAnimationFrame(go); setTimeout(go, 250);          // page masquée : pas d’image, on n’attend pas
+});
 async function init() {
   // chrono repris après un rechargement ou une relance d’iOS : l’affichage repart tout de suite, le son revient au premier toucher
   const saved = store.get('rade.timer.v1', null);
   let resumed = false;
   if (saved?.end && Date.now() < saved.end + 10 * 60e3) { timer.end = saved.end; startTimer(); resumed = true; }
   else if (saved?.end) store.set('rade.timer.v1', { end: null });
-  T = await new Terrain().load('data/');
-  F = new WindField(T);
-  scene = new Scene3D($('#view'), T);
-  scene.upAngle = (tws) => optimalAngles(Math.max(1, tws)).up.twa;
-  scene.setDangers(forbidden, DANGERS);
-  scene.onPick = onPick;
-  scene.onCamera = () => { $('#compass .needle').style.transform = `rotate(${-scene.azimuth()}deg)`; };
-  bindUI();
-  initTips();
-  data = cached();
-  const snap = await snapshot();
-  if (snap && (!data || snap.fetched > data.fetched)) data = snap;
-  if (data) { series = consensus(data); refreshObs(); }
-  updateAll();
+  // ── temps 1 : l’interface utile
+  bindShell();
+  renderStart();
+  renderLive();
+  status('Préparation de la carte…');
   $('#splash').classList.add('gone');
+  performance.mark('rt:ui');
   if (resumed) toast('Chrono repris — touchez l’écran pour réactiver le son');
-  maybeWelcome();
   // réactivation au toucher : le contexte audio ne naît ou ne revient que d’un geste (relance d’iOS, écran verrouillé, appel)
   const reveil = () => {
     const w = wake.state(); if (w.wanted && !w.held) wake.retry();            // le verrou d’écran se redemande aussi sur geste
@@ -98,10 +96,6 @@ async function init() {
   const redemande = () => { const w = wake.state(); if (w.wanted && !w.held) wake.retry(); };
   document.addEventListener('visibilitychange', () => { if (!document.hidden) redemande(); });
   setInterval(redemande, 15000);
-  renderTracks();
-  refreshWeather();
-  refreshLive();
-  setInterval(refreshLive, 5 * 60000);
   // mise à jour différée : bandeau hors course, application sur geste seulement (js/swupdate.js, js/racelock.js)
   updates = initUpdates({ isLocked: () => raceLock().locked, onAvailable: showUpdateBar, onHidden: hideUpdateBar });
   setInterval(raceTick, 5000);
@@ -110,6 +104,31 @@ async function init() {
   document.addEventListener('visibilitychange', () => { note('page', document.hidden ? 'masquée' : 'visible'); if (document.hidden) saveRaceActivity(); else { lastProbe = Date.now(); probeNet(); renderRaceBar(); } });
   addEventListener('online', () => { note('reseau', 'en ligne'); probeNet(); });
   addEventListener('offline', () => { net.online = false; note('reseau', 'hors ligne'); renderRaceBar(); });
+  // ── temps 2 : la carte et le vent
+  await nextFrame();
+  data = cached();
+  const snap = await snapshot();
+  if (snap && (!data || snap.fetched > data.fetched)) data = snap;
+  if (data) series = consensus(data);
+  renderStatic();                                      // onglets Prévisions, Vent, J80 et IC : sans la carte
+  const { Scene3D } = await import('./scene3d.js');
+  T = await new Terrain().load('data/');
+  F = new WindField(T);
+  scene = new Scene3D($('#view'), T);
+  scene.upAngle = (tws) => optimalAngles(Math.max(1, tws)).up.twa;
+  scene.setDangers(forbidden, DANGERS);
+  scene.onPick = onPick;
+  scene.onCamera = () => { $('#compass .needle').style.transform = `rotate(${-scene.azimuth()}deg)`; };
+  bindMap();
+  initTips();
+  refreshObs();
+  updateAll();
+  performance.mark('rt:map');
+  maybeWelcome();
+  renderTracks();
+  refreshWeather();
+  refreshLive();
+  setInterval(refreshLive, 5 * 60000);
 }
 
 async function refreshWeather() {
@@ -125,7 +144,7 @@ async function refreshWeather() {
   } finally { b.classList.remove('spin'); }
 }
 async function refreshLive() {
-  try { live = await fetchLive(); scene.setStations(live.filter((s) => s.ageMin < 90)); if ($('section[data-tab=brief]').classList.contains('on')) renderBrief(); } catch { /* balises indisponibles */ }
+  try { live = await fetchLive(); scene?.setStations(live.filter((s) => s.ageMin < 90)); if ($('section[data-tab=brief]').classList.contains('on')) renderBrief(); } catch { /* balises indisponibles */ }
 }
 function status(msg) {
   const el = $('#status');
@@ -162,7 +181,7 @@ const modelLabel = (id) => MODELS.find((m) => m.id === id)?.label || id;
 function refreshObs() {
   ranking = data ? scoreModels(data, dayObs()) : [];
   resid = [];
-  if (!data) return;
+  if (!data || !F) return;                   // sans champ de vent (ouverture en cours), seul le classement des modèles se calcule
   const sel = selectedModel();
   for (const o of dayObs()) {
     const pts = modelPoints(data, o.day, o.h, sel);
@@ -283,11 +302,16 @@ function blend(a, b, t) {
   return { x: a.x, y: a.y, dir: norm360(Math.atan2(ux, uy) * 180 / Math.PI), spd: (1 - t) * a.spd + t * b.spd, gust: (1 - t) * (a.gust ?? a.spd * 1.3) + t * (b.gust ?? b.spd * 1.3) };
 }
 
-function computeField(day, hour) { return F.compute(baseAt(day, hour), { localEffects: S.localFx }); }
+// fieldOn : F porte un vent calculé (avant cela, F.sample() ne donnerait que des zéros : le mode départ affiche « Vent à relever »)
+let fieldOn = false;
+function computeField(day, hour) { F.compute(baseAt(day, hour), { localEffects: S.localFx }); fieldOn = true; return F; }
 
 // ───────────────────────── mises à jour
 let anaTimer = null, anaToken = 0;
+// Ce qui s’affiche sans le terrain ni le champ de vent
+function renderStatic() { renderDaySeg(); renderBrief(); renderWind(); renderIC(); renderJ80Tab(); }
 function updateAll() {
+  if (!F || !scene) return;                  // le temps 2 d’init() appelle updateAll() quand ils existent
   status();
   renderDaySeg();
   $('#hour').value = S.hour; $('#hourLbl').textContent = hhmm(S.hour);
@@ -297,6 +321,7 @@ function updateAll() {
   renderBrief(); renderWind(); renderIC(); renderJ80Tab();
 }
 function updateDisplayField() {
+  if (!F || !scene) return;
   computeField(S.day, S.hour);
   scene.setField(F);
   const c = F.sample(toXY(43.088, 5.962).x, toXY(43.088, 5.962).y);
@@ -306,6 +331,7 @@ function updateDisplayField() {
 function scheduleAnalysis() { clearTimeout(anaTimer); anaTimer = setTimeout(runAnalysis, 120); }
 
 async function runAnalysis() {
+  if (!F || !scene) return;
   const token = ++anaToken;
   const course = COURSES.find((c) => c.id === S.courseId);
   const cls = course.seq[S.cls] ? S.cls : 'G';
@@ -347,6 +373,7 @@ async function runAnalysis() {
   let ord = 0;
   legs.forEach((l) => { if (l.mark !== 'GATE' && l.mark !== 'FINISH') l.order = ++ord; });
   analysis = { course, cls, legs, line: B.line, points: B.points, start, total: t - S.startTime, dist: legs.reduce((s, l) => s + l.dist, 0), trend };
+  applyPendingEnds();
   updateDisplayField();
   drawCourse();
   renderCourse(); renderStart(); renderLive(); renderBrief(); renderJ80Tab();
@@ -370,11 +397,8 @@ function drawCourse() {
 }
 
 // ───────────────────────── interface : liaisons
-function bindUI() {
-  $('#hour').addEventListener('input', (e) => { S.hour = +e.target.value; $('#hourLbl').textContent = hhmm(S.hour); updateDisplayField(); });
-  $('#hour').addEventListener('change', () => { persist(); renderBrief(); });
-  $('#srcSeg').addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; S.src = b.dataset.src; persist(); updateAll(); });
-  $('#refresh').addEventListener('click', () => { refreshWeather(); refreshLive(); });
+// Liaisons de l’interface utile : onglets, aide, partage, poignée du panneau (aucune n’a besoin de la carte)
+function bindShell() {
   $('#helpBtn').addEventListener('click', openGuide);
   $('#shareBtn').addEventListener('click', () => {
     const base = location.origin + location.pathname;
@@ -387,6 +411,14 @@ function bindUI() {
     $$('#content section').forEach((s) => s.classList.toggle('on', s.dataset.tab === b.dataset.tab));
     if (sheet === 'min') setSheet('half');
   });
+  bindSheet();
+}
+// Liaisons de la carte et du champ de vent : après la création de la 3D
+function bindMap() {
+  $('#hour').addEventListener('input', (e) => { S.hour = +e.target.value; $('#hourLbl').textContent = hhmm(S.hour); updateDisplayField(); });
+  $('#hour').addEventListener('change', () => { persist(); renderBrief(); });
+  $('#srcSeg').addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; S.src = b.dataset.src; persist(); updateAll(); });
+  $('#refresh').addEventListener('click', () => { refreshWeather(); refreshLive(); });
   $('#mapBtns').addEventListener('click', (e) => {
     const b = e.target.closest('button'); if (!b) return;
     const v = b.dataset.v;
@@ -405,11 +437,10 @@ function bindUI() {
   $('#rhSpeed').addEventListener('change', (e) => scene.replayControl('speed', +e.target.value));
   $('#rhFollow').addEventListener('click', (e) => { e.currentTarget.classList.toggle('on'); scene.replayControl('follow', e.currentTarget.classList.contains('on')); });
   $('#rhClose').addEventListener('click', stopReplay);
-  bindSheet();
 }
 
 let sheet = 'half';
-function setSheet(s) { sheet = s; const p = $('#panel'); p.classList.toggle('min', s === 'min'); p.classList.toggle('max', s === 'max'); document.body.dataset.sheet = s; setTimeout(() => scene.resize(), 280); }
+function setSheet(s) { sheet = s; const p = $('#panel'); p.classList.toggle('min', s === 'min'); p.classList.toggle('max', s === 'max'); document.body.dataset.sheet = s; setTimeout(() => scene?.resize(), 280); }
 function bindSheet() {
   const g = $('#grab'); let y0 = null;
   g.addEventListener('pointerdown', (e) => { y0 = e.clientY; g.setPointerCapture(e.pointerId); });
@@ -435,6 +466,7 @@ function renderLegend() {
 
 // ───────────────────────── sélection sur la carte
 function onPick(p, screen) {
+  if (!F || !fieldOn) return;                // vent pas encore calculé
   const w = F.sample(p.x, p.y), land = T.isLand(p.x, p.y), pop = $('#pickPop');
   const depth = T.height(p.x, p.y);
   let legInfo = '';
@@ -458,10 +490,18 @@ function onPick(p, screen) {
     pop.hidden = true; scene.clearPick();
   };
 }
+// Ping reçu avant que la ligne soit calculée (le mode départ s’ouvre avant l’analyse) : gardé, puis appliqué dès que l’analyse est prête
+const pendingEnds = {};
 function setLineEnd(which, ll) {
   const cur = S.lineOverride || (analysis ? { cb: toLL(analysis.line.cb.x, analysis.line.cb.y), pin: toLL(analysis.line.pin.x, analysis.line.pin.y) } : null);
-  if (!cur) return;
+  if (!cur) { pendingEnds[which] = { lat: ll.lat, lon: ll.lon }; toast('Ping noté : la ligne se calcule, il sera appliqué dans quelques secondes'); return; }
   cur[which] = { lat: ll.lat, lon: ll.lon };
+  S.lineOverride = cur; persist(); scheduleAnalysis();
+}
+function applyPendingEnds() {
+  if (!pendingEnds.cb && !pendingEnds.pin) return;
+  const cur = S.lineOverride || { cb: toLL(analysis.line.cb.x, analysis.line.cb.y), pin: toLL(analysis.line.pin.x, analysis.line.pin.y) };
+  for (const k of ['cb', 'pin']) if (pendingEnds[k]) { cur[k] = pendingEnds[k]; delete pendingEnds[k]; }
   S.lineOverride = cur; persist(); scheduleAnalysis();
 }
 function openTab(t) { $(`#tabs button[data-tab=${t}]`).click(); }
@@ -721,6 +761,7 @@ const startMode = createStartMode({
   windAt: (p) => {
     const o = dayObs().slice(-1)[0];
     if (o && Date.now() - (o.t ?? 0) < 2 * 3600e3) return { dir: o.dir, spd: o.spd, src: 'dernier relevé' };
+    if (!fieldOn) return null;                 // ouverture en cours : le mode départ affiche « Vent à relever »
     const w = F.sample(p.x, p.y); return { dir: w.dir, spd: w.spd, src: S.src === 'manual' ? 'vent manuel' : 'prévision' };
   },
 });
@@ -1031,8 +1072,8 @@ function startGps() {
     if (p.coords.speed != null && p.coords.speed >= 0) { q.sog = p.coords.speed / 0.5144; q.cog = p.coords.heading >= 0 ? p.coords.heading : (dt > 2 && distXY(o, q) > 2 ? bearingXY(o, q) : null); }
     else if (dt > 2 && distXY(o, q) > 2) { q.sog = distXY(o, q) / dt / 0.5144; q.cog = bearingXY(o, q); }
     gps.pos = q; gps.err = null; gps.errMsg = null;
-    scene.setBoat(q, q.cog);
-    if (follow) { const t = scene.controls.target, off = scene.camera.position.clone().sub(t); t.set(q.x, 0, -q.y); scene.camera.position.copy(t.clone().add(off)); }
+    scene?.setBoat(q, q.cog);
+    if (follow && scene) { const t = scene.controls.target, off = scene.camera.position.clone().sub(t); t.set(q.x, 0, -q.y); scene.camera.position.copy(t.clone().add(off)); }
     if (recorder.active) recorder.add(q);
     autoAdvance();
     renderLiveNav();
@@ -1043,7 +1084,7 @@ function startGps() {
 }
 async function stopGps() {
   if (recorder.active) { const tr = await recorder.stop(); if (tr?.pts.length > 1) toast(`Trace enregistrée (${tr.pts.length} points)`); renderTracks(); }
-  if (gps?.watch != null) navigator.geolocation.clearWatch(gps.watch); gps = null; silence = null; wake.drop('gps'); scene.setBoat(null); renderLive(); renderRaceBar();
+  if (gps?.watch != null) navigator.geolocation.clearWatch(gps.watch); gps = null; silence = null; wake.drop('gps'); scene?.setBoat(null); renderLive(); renderRaceBar();
 }
 function autoAdvance() {
   if (!analysis || !gps?.pos) return;
@@ -1083,12 +1124,12 @@ function renderLiveNav() {
     toast('Enregistrement lancé : gardez l’app ouverte, écran allumé.'); renderLiveNav();
   });
   $('#recStop')?.addEventListener('click', async () => { const tr = await recorder.stop(); toast(tr && tr.pts.length > 1 ? `Trace enregistrée (${tr.pts.length} points) — onglet Traces` : 'Trace trop courte, non enregistrée'); renderLiveNav(); renderTracks(); });
-  if (!A) { n.innerHTML = '<p class="small muted">Choisissez un parcours (onglet Parcours).</p>'; return; }
+  if (!A) { n.innerHTML = '<p class="small muted">Analyse du parcours en cours de calcul…</p>'; return; }
   nextIdx = Math.min(nextIdx, A.legs.length - 1);
   const l = A.legs[nextIdx];
   let html = `<h3>Prochaine marque</h3><select id="nSel">${A.legs.map((x, i) => `<option value="${i}" ${i === nextIdx ? 'selected' : ''}>${x.order ? 'Marque ' + x.order + ' — ' : ''}${esc((/^\d/.test(x.to.name) ? 'n°' : '') + x.to.name)}${x.side ? ' (' + sideName(x.side) + ')' : ''}</option>`).join('')}</select>`;
   if (p) {
-    const brg = bearingXY(p, l.to), d = distXY(p, l.to), w = F.sample(p.x, p.y);
+    const brg = bearingXY(p, l.to), d = distXY(p, l.to), w = fieldOn ? F.sample(p.x, p.y) : { dir: l.wind.dir, spd: l.wind.spd };
     const twaM = norm180(brg - w.dir), { up, down } = optimalAngles(Math.max(1, w.spd));
     const vmc = p.sog != null && p.cog != null ? p.sog * Math.cos((p.cog - brg) * Math.PI / 180) : null;
     const eta = vmc > 0.3 ? d / (vmc * 0.5144) : null;
@@ -1378,5 +1419,7 @@ function renderIC() {
 init().catch((e) => {
   report('demarrage', e);
   console.error(e);
-  $('#splash').innerHTML = `<div><b>Erreur au démarrage</b><small>${esc(e.message)}</small></div>`;
+  const sp = $('#splash');
+  if (!sp.classList.contains('gone')) sp.innerHTML = `<div><b>Erreur au démarrage</b><small>${esc(e.message)}</small></div>`;
+  else status('Carte indisponible : ' + e.message);        // l’interface utile est déjà affichée : le chrono, le mode départ et le GPS restent utilisables
 });

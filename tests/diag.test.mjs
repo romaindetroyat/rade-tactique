@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { ROOT } from './helpers/setup.mjs';
 import { KEY, MAX_ENTRIES, MAX_MSG, MAX_BYTES, scrub, createDiag } from '../js/diag.js';
+import { scan } from './helpers/scan.mjs';
 
 const src = (f) => readFileSync(ROOT + f, 'utf8');
 const mem = () => { const m = new Map(); return { m, getItem: (k) => (m.has(k) ? m.get(k) : null), setItem: (k, v) => { m.set(k, String(v)); }, removeItem: (k) => { m.delete(k); } }; };
@@ -174,30 +175,6 @@ test('garde : le journal est lu en texte, jamais posé en HTML (help.js)', () =>
 });
 
 // ── « aucune erreur avalée » : chaque gestionnaire d’erreur consigne (report / note) ou explique son repli par un commentaire
-
-// Lit un bloc ouvert par `open` en src[from] jusqu’à son pendant, sans se laisser tromper par les chaînes, gabarits et commentaires.
-// Rend { end, comment } : end = position du caractère fermant ; comment = texte des commentaires rencontrés.
-function scan(s, from, open, close) {
-  let depth = 0, comment = '';
-  for (let i = from; i < s.length; i++) {
-    const c = s[i], n = s[i + 1];
-    if (c === '/' && n === '/') { const e = s.indexOf('\n', i); const t = s.slice(i + 2, e < 0 ? s.length : e); comment += t; i = e < 0 ? s.length : e; continue; }
-    if (c === '/' && n === '*') { const e = s.indexOf('*/', i + 2); comment += s.slice(i + 2, e < 0 ? s.length : e); i = e < 0 ? s.length : e + 1; continue; }
-    if (c === '\'' || c === '"') { let j = i + 1; while (j < s.length && s[j] !== c && s[j] !== '\n') j += s[j] === '\\' ? 2 : 1; i = j; continue; }
-    if (c === '`') {
-      let j = i + 1;
-      while (j < s.length && s[j] !== '`') {
-        if (s[j] === '\\') { j += 2; continue; }
-        if (s[j] === '$' && s[j + 1] === '{') { j = scan(s, j + 1, '{', '}').end + 1; continue; }
-        j++;
-      }
-      i = j; continue;
-    }
-    if (c === open) depth++;
-    else if (c === close && --depth === 0) return { end: i, comment };
-  }
-  return { end: s.length, comment };
-}
 
 // Gestionnaires d’erreur d’un texte : blocs `catch` et rappels passés à `.catch(`
 function handlers(s) {

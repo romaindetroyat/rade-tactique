@@ -23,10 +23,19 @@ const OM = 'https://api.open-meteo.com/v1/forecast';
 const save = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* stockage indisponible */ } };
 const load = (k) => { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } };
 
+// Délai de 10 s sur tout téléchargement (en-têtes et corps) : avec un réseau très faible, « Chargement… » et la roue ne tournent pas indéfiniment ;
+// l’erreur suit le chemin habituel (cache, puis instantané embarqué, message « Hors ligne — prévisions du … »).
+export const FETCH_TIMEOUT_MS = 10000;
 async function getJSON(url) {
-  const r = await fetch(url, { cache: 'no-store' });
-  if (!r.ok) throw new Error(`HTTP ${r.status}`);
-  return r.json();
+  const ctl = new AbortController(), to = setTimeout(() => ctl.abort(), FETCH_TIMEOUT_MS);
+  try {
+    const r = await fetch(url, { cache: 'no-store', signal: ctl.signal });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return await r.json();
+  } catch (e) {
+    if (ctl.signal.aborted) throw new Error(`délai dépassé (${FETCH_TIMEOUT_MS / 1000} s)`);
+    throw e;
+  } finally { clearTimeout(to); }
 }
 
 export async function fetchAll() {
