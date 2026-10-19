@@ -18,6 +18,7 @@ import { shroudsFor } from './tuning.js';
 import { createStartMode } from './startmode.js';
 import { initUpdates } from './swupdate.js';
 import { createBeeper, audioAlive, milestones, KEY } from './beeper.js';
+import { MAX_MOVE_M, DOUBT, parseLatLon, loadOverrides, saveOverride, clearOverride, applyOverrides, restoreMark } from './marks.js';
 import { createWakeLock } from './wakelock.js';
 import { computeStatus, lampLabel, actionLabel, GPS_STALE_S } from './status.js';
 import { isActive, isRaceDay, lockState, heavyPaused, HEAVY_AFTER_MS } from './racelock.js';
@@ -34,6 +35,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<
 const hhmm = (h) => `${String(Math.floor(h)).padStart(2, '0')}:${String(Math.round((h % 1) * 60)).padStart(2, '0')}`;
 const arrow = (dir) => `<span class="arr" style="transform:rotate(${dir + 180}deg)">↑</span>`;
 const store = { get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch { return d; /* valeur absente ou illisible : la valeur par défaut */ } }, set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* indisponible */ } } };
+const marksStore = () => { try { return localStorage; } catch { return null; /* stockage indisponible : aucun recalage */ } };
 const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 const addDays = (s, n) => { const d = new Date(s + 'T12:00:00'); d.setDate(d.getDate() + n); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 const dayName = (s) => new Date(s + 'T12:00:00').toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
@@ -73,6 +75,8 @@ const nextFrame = () => new Promise((ok) => {
   requestAnimationFrame(go); setTimeout(go, 250);          // page masquée : pas d’image, on n’attend pas
 });
 async function init() {
+  // recalages de bouées de ce téléphone (D-04) : appliqués ici, une seule fois au démarrage, avant toute vue ; jamais dans les tests
+  try { applyOverrides(MARKS, loadOverrides(marksStore())); } catch (e) { report('bouees', e); }
   // chrono repris après un rechargement ou une relance d’iOS : l’affichage repart tout de suite, le son revient au premier toucher
   const saved = store.get('rade.timer.v1', null);
   let resumed = false;
@@ -410,7 +414,7 @@ function drawCourse() {
     const u = used.get(l.mark) || { side: l.side, orders: [] };
     u.orders.push(l.order); used.set(l.mark, u);
   });
-  const marks = { ...MARKS };
+  const marks = Object.fromEntries(Object.entries(MARKS).map(([k, m]) => [k, { ...m, doubt: DOUBT(m) }]));        // « 3 ? » sur la carte (D-01)
   for (const k of ['A', 'B', 'C', 'D']) if (analysis.points[k]) { const ll = toLL(analysis.points[k].x, analysis.points[k].y); marks[k] = { name: analysis.points[k].name, ...ll, color: '#f5c400' }; }
   scene.setMarks(marks, used);
   scene.setLine(analysis.line, analysis.start.startPoint ? [{ ...analysis.start.startPoint, name: '◆ Départ conseillé' }] : []);
@@ -682,7 +686,7 @@ function renderCourse() {
       const chip = l.type.id === 'pres' ? 'pres' : l.type.sail.startsWith('Spi') ? 'spi' : 'reach';
       const ma = markAdvice(l, A.legs[i + 1]);
       return `<div class="leg ${selLeg === i ? 'sel' : ''}" data-i="${i}">
-        <div class="hd"><span>${l.order ? `<span class="ord">${l.order}</span> ` : ''}${esc((/^\d/.test(l.to.name) ? 'n°' : '') + l.to.name)}${l.lap ? ` <span class="muted small">tour ${l.lap}</span>` : ''}</span>${l.side ? `<span class="chip ${l.side === 'b' ? 'port' : 'stbd'}">${sideName(l.side)}</span>` : ''}</div>
+        <div class="hd"><span>${l.order ? `<span class="ord">${l.order}</span> ` : ''}${esc((/^\d/.test(l.to.name) ? 'n°' : '') + l.to.name)}${l.lap ? ` <span class="muted small">tour ${l.lap}</span>` : ''}</span>${DOUBT(MARKS[l.mark]) ? '<span class="chip mid">position à confirmer</span>' : ''}${l.side ? `<span class="chip ${l.side === 'b' ? 'port' : 'stbd'}">${sideName(l.side)}</span>` : ''}</div>
         <div class="meta">${fmtBrg(l.brg)} · ${fmtNm(l.dist)} · vent ${fmtBrg(l.wind.dir)} ${l.wind.spd.toFixed(0)} nd (raf. ${l.wind.gust.toFixed(0)}) · TWA ${Math.abs(l.twa).toFixed(0)}° · ${hhmm(l.eta0)}→${hhmm(l.eta1)} (${summarizeTime(l.time)})</div>
         <span class="chip ${chip}">${l.type.label}</span><span class="chip">${l.type.sail}</span>
         <ul class="tips">${l.advice.map((a) => `<li>${esc(a)}</li>`).join('')}</ul>
@@ -808,7 +812,7 @@ const startMode = createStartMode({
   setLineEnd: (w, ll) => setLineEnd(w, ll), reanalyse: () => scheduleAnalysis(), help: () => openGuide(),
   audioRelease: () => audioRelease(), testSound: () => testSound(), chronoAlert: () => chronoAlert(), fixAlert: (a) => fixAlert(a),
   status: () => statusView(), fixLamp: (a) => fixLamp(a), lampTouch: (id) => lampTouch(id),
-  firstMark: () => { const l = analysis?.legs?.[0]; return l ? { x: l.to.x, y: l.to.y, name: l.order ? String(l.order) : (l.to.name || '').split(' ')[0] } : null; },
+  firstMark: () => { const l = analysis?.legs?.[0]; return l ? { x: l.to.x, y: l.to.y, name: l.order ? String(l.order) : (l.to.name || '').split(' ')[0], doubt: DOUBT(MARKS[l.mark]) } : null; },
   line: () => S.lineOverride?.cb && S.lineOverride?.pin ? S.lineOverride : analysis ? { cb: toLL(analysis.line.cb.x, analysis.line.cb.y), pin: toLL(analysis.line.pin.x, analysis.line.pin.y) } : null,
   windAt: (p) => {
     const o = dayObs().slice(-1)[0];
@@ -1179,7 +1183,7 @@ function renderLiveNav() {
   if (!A) { n.innerHTML = '<p class="small muted">Analyse du parcours en cours de calcul…</p>'; return; }
   nextIdx = Math.min(nextIdx, A.legs.length - 1);
   const l = A.legs[nextIdx];
-  let html = `<h3>Prochaine marque</h3><select id="nSel">${A.legs.map((x, i) => `<option value="${i}" ${i === nextIdx ? 'selected' : ''}>${x.order ? 'Marque ' + x.order + ' — ' : ''}${esc((/^\d/.test(x.to.name) ? 'n°' : '') + x.to.name)}${x.side ? ' (' + sideName(x.side) + ')' : ''}</option>`).join('')}</select>`;
+  let html = `<h3>Prochaine marque</h3><select id="nSel">${A.legs.map((x, i) => `<option value="${i}" ${i === nextIdx ? 'selected' : ''}>${x.order ? 'Marque ' + x.order + ' — ' : ''}${esc((/^\d/.test(x.to.name) ? 'n°' : '') + x.to.name)}${x.side ? ' (' + sideName(x.side) + ')' : ''}${DOUBT(MARKS[x.mark]) ? ' (à confirmer)' : ''}</option>`).join('')}</select>`;
   if (p) {
     const brg = bearingXY(p, l.to), d = distXY(p, l.to), w = fieldOn ? F.sample(p.x, p.y) : { dir: l.wind.dir, spd: l.wind.spd };
     const twaM = norm180(brg - w.dir), { up, down } = optimalAngles(Math.max(1, w.spd));
@@ -1414,6 +1418,53 @@ function renderJ80Tab() {
   });
 }
 
+// ───────────────────────── bouées : recalage par saisie (JUST-02, D-02 : possible, sans être mise en avant)
+let markEdit = null;                                       // { k, txt, err, ask } : ligne du tableau des marques en cours de saisie
+function marksRow(k, m) {
+  const ed = markEdit?.k === k ? markEdit : null;
+  let html = `<tr><td><b>${esc(k)}</b></td><td>${esc(m.name)}<div class="small muted">${esc(m.note)}</div></td><td class="small">${fmtLat(m.lat)}<br>${fmtLon(m.lon)}<br><span class="muted">${esc(m.src)}</span>${DOUBT(m) ? ' <span class="chip mid">à confirmer</span>' : ''}
+    <div>${ed ? '' : `<button class="btn small alt" data-mkfix="${esc(k)}">Recaler</button>`}${m.base && !ed ? ` <button class="btn small alt" data-mkorig="${esc(k)}">Position d’origine</button>` : ''}</div></td></tr>`;
+  if (ed) {
+    const ask = ed.ask ? `Confirmer : déplacement de ${esc(fmtNm(ed.ask.d))}` : 'Valider';
+    html += `<tr><td colspan="3"><label class="f" for="mkTxt">Nouvelle position de la bouée ${esc(k)} ${esc(m.name)}</label>
+      <input id="mkTxt" type="text" inputmode="text" autocomplete="off" placeholder="43°05.845N 005°56.049E" value="${esc(ed.txt)}">
+      <div class="small" id="mkErr" style="color:var(--bad)">${esc(ed.err || '')}</div>
+      <div class="btns" style="margin:6px 0 0"><button class="btn small acc" id="mkOk">${ask}</button><button class="btn small alt" id="mkNo">Annuler</button></div></td></tr>`;
+  }
+  return html;
+}
+// Applique un recalage validé : mémorisé sur ce téléphone (D-04), appliqué tout de suite à MARKS, puis tout ce qui en dépend est redessiné
+function recalMark(k, ov) {
+  const kept = saveOverride(marksStore(), k, ov);
+  applyOverrides(MARKS, { [k]: ov });
+  refreshMarks();
+  const m = MARKS[k];
+  toast(`Bouée ${k} ${m.name} recalée (${m.src}${ov.src === 'trace' ? ', ±20 m' : ''})${kept ? '' : ' — non gardée après fermeture : mémoire pleine'}`);
+}
+function resetMark(k) {
+  clearOverride(marksStore(), k); restoreMark(MARKS, k);
+  refreshMarks();
+  toast(`Bouée ${k} ${MARKS[k].name} : position d’origine rétablie`);
+}
+function refreshMarks() { markEdit = null; renderIC(); drawCourse(); scheduleAnalysis(); if (traceView) renderTraceDetail(); renderLive(); }
+function submitMark() {
+  const ed = markEdit; if (!ed) return;
+  const r = parseLatLon(ed.txt);
+  if (r.error) { ed.err = r.error; ed.ask = null; renderIC(); return; }
+  const m = MARKS[ed.k], d = distXY(toXY(m.lat, m.lon), toXY(r.lat, r.lon));
+  if (d > MAX_MOVE_M && !(ed.ask && ed.ask.lat === r.lat && ed.ask.lon === r.lon)) { ed.err = ''; ed.ask = { lat: r.lat, lon: r.lon, d }; renderIC(); return; }
+  recalMark(ed.k, { lat: r.lat, lon: r.lon, src: 'saisie', t: Date.now() });
+}
+function bindMarksEdit(el) {
+  $$('[data-mkfix]', el).forEach((b) => b.addEventListener('click', () => { markEdit = { k: b.dataset.mkfix, txt: '', err: '', ask: null }; renderIC(); $('#mkTxt')?.focus(); }));
+  $$('[data-mkorig]', el).forEach((b) => b.addEventListener('click', () => resetMark(b.dataset.mkorig)));
+  if (!markEdit) return;
+  $('#mkTxt').addEventListener('input', (e) => { markEdit.txt = e.target.value; markEdit.err = ''; if (markEdit.ask) { markEdit.ask = null; $('#mkOk').textContent = 'Valider'; } $('#mkErr').textContent = ''; });
+  $('#mkTxt').addEventListener('keydown', (e) => { if (e.key === 'Enter') submitMark(); });
+  $('#mkOk').addEventListener('click', submitMark);
+  $('#mkNo').addEventListener('click', () => { markEdit = null; renderIC(); });
+}
+
 // ───────────────────────── IC
 let icDraft = null;
 function renderIC() {
@@ -1437,10 +1488,11 @@ function renderIC() {
   <div class="card"><h3>Points clés</h3><ul class="tips small">${(IC.keyRules || []).map((r) => `<li>${esc(r)}</li>`).join('') || '<li>Aucun point clé enregistré.</li>'}</ul>
     ${IC.text ? `<details><summary class="small">Texte complet des IC</summary><pre class="ictext">${esc(IC.text)}</pre></details>` : ''}
     ${st.list.length > 1 ? `<button class="btn small alt" id="evDel" style="margin-top:8px">Supprimer cette régate</button>` : ''}</div>
-  <div class="card"><h3>Marques <small>cahier de parcours CVAT</small></h3><table class="t"><tr><th>N°</th><th>Marque</th><th>Position</th></tr>${Object.entries(MARKS).map(([k, m]) => `<tr><td><b>${k}</b></td><td>${esc(m.name)}<div class="small muted">${esc(m.note)}</div></td><td class="small">${fmtLat(m.lat)}<br>${fmtLon(m.lon)}<br><span class="muted">${esc(m.src)}</span></td></tr>`).join('')}</table>
-    <div class="small muted" style="margin-top:6px">« approx » = position relevée sur les cartes du cahier ou sur OpenStreetMap : vérifier sur zone, le Comité fait foi.</div></div>
+  <div class="card"><h3>Marques <small>cahier de parcours CVAT</small></h3><table class="t"><tr><th>N°</th><th>Marque</th><th>Position</th></tr>${Object.entries(MARKS).map(([k, m]) => marksRow(k, m)).join('')}</table>
+    <div class="small muted" style="margin-top:6px">« à confirmer » = position approximative (cartes du cahier ou OpenStreetMap) : à vérifier sur zone, le Comité fait foi. Un recalage reste sur ce téléphone (Safari et l’app installée ne les partagent pas).</div></div>
   <div class="card"><h3>Dangers</h3><ul class="tips small"><li><b>Zone interdite</b> de la presqu’île de Saint-Mandrier (zone Marine nationale, rouge sur la carte).</li>${DANGERS.map((d) => `<li><b>${esc(d.name)}</b> (${fmtLat(d.lat)} ${fmtLon(d.lon)}) : ${esc(d.note)}</li>`).join('')}</ul></div>`;
   el.innerHTML = html;
+  bindMarksEdit(el);
   $('#evSel').onchange = (e) => { setCurrent(e.target.value); icDraft = null; IC = currentEvent(); renderIC(); renderDaySeg(); renderBrief(); renderLive(); };
   $('#evEdit').onclick = () => { icDraft = { ...IC }; renderIC(); };
   $('#evDel')?.addEventListener('click', (e) => { if (e.target.dataset.c !== '1') { e.target.dataset.c = '1'; e.target.textContent = 'Confirmer la suppression'; return; } removeEvent(IC.id); renderIC(); renderDaySeg(); renderBrief(); renderLive(); });

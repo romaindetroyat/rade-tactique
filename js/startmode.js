@@ -77,7 +77,7 @@ export function createStartMode(api) {
     }
     // après le départ : marque suivante et bascules par rapport au vent de référence
     const fm = api.firstMark?.();
-    if (fm) { out.mk = { d: distXY(b, fm), brg: bearingXY(b, fm), name: fm.name }; }
+    if (fm) { out.mk = { d: distXY(b, fm), brg: bearingXY(b, fm), name: fm.name, doubt: !!fm.doubt }; }
     if (w && q.cog != null && q.sog > 1.5) {
       const twa = norm180(q.cog - w.dir), up = optimalAngles(Math.max(2, w.spd)).up.twa;
       if (Math.abs(twa) < 70) {
@@ -334,8 +334,8 @@ export function createStartMode(api) {
     // en course (15 s après le signal) : marque suivante et bascules à la place de la ligne et du temps à brûler
     const lab = (id, t) => { $(id).querySelector('span').textContent = t; };
     if (race) {
-      lab('#smDist', m.mk ? `Marque ${m.mk.name}` : 'Marque suivante');
-      if (m.mk) big('#smDist', m.mk.d >= 1852 ? `${(m.mk.d / 1852).toFixed(1).replace('.', ',')} Nq` : `${Math.round(m.mk.d)} m`, `au ${fmtBrg(m.mk.brg)}`, '');
+      lab('#smDist', m.mk ? `Marque ${m.mk.name}${m.mk.doubt ? ' ?' : ''}` : 'Marque suivante');
+      if (m.mk) big('#smDist', m.mk.d >= 1852 ? `${(m.mk.d / 1852).toFixed(1).replace('.', ',')} Nq` : `${Math.round(m.mk.d)} m`, `au ${fmtBrg(m.mk.brg)}${m.mk.doubt ? '\nposition à confirmer' : ''}`, m.mk.doubt ? 'warn' : '');
       lab('#smBurn', 'Bascule');
       if (m.shift != null) big('#smBurn', `${m.shift >= 0 ? '+' : '−'}${Math.abs(Math.round(m.shift))}°`, Math.abs(m.shift) < 4 ? 'dans l’axe' : m.shift > 0 ? 'ADONNE' : 'REFUSE', Math.abs(m.shift) < 4 ? '' : m.shift > 0 ? 'good' : 'bad');
       else big('#smBurn', '—', 'au près seulement', '');
