@@ -10,7 +10,7 @@ Version visée : prête pour la régate CVAT des 7-9 novembre 2026 (gel du code 
 ### En mer (FIAB)
 
 - [ ] **FIAB-01**: Une mise à jour publiée pendant un chrono ou un enregistrement ne recharge jamais l'app ; un bandeau la propose et elle s'applique hors course
-- [ ] **FIAB-02**: L'équipier peut consulter la version de l'app (numéro et date) dans l'aide
+- [x] **FIAB-02**: L'équipier peut consulter la version de l'app (numéro et date) dans l'aide
 - [ ] **FIAB-03**: Les bips du chrono tombent à la seconde, même quand l'app calcule (planifiés sur l'horloge audio)
 - [ ] **FIAB-04**: L'app prévient si le son est coupé, propose « tester le son » et double chaque bip clé d'un signal visuel plein écran
 - [ ] **FIAB-05**: Un voyant permanent montre le GPS (âge du dernier point), l'écran maintenu, le son et le réseau
@@ -22,7 +22,7 @@ Version visée : prête pour la régate CVAT des 7-9 novembre 2026 (gel du code 
 - [x] **TEST-01**: Des tests automatiques couvrent les calculs (géométrie, polaire, routage, vent, lecture GPX, débrief), avec la Coupe SNPM du 18/10/2026 comme cas de référence
 - [x] **TEST-02**: Un test vérifie que, sans code d'accès, aucune page, aucun fichier ni aucune fonction privée n'est servi
 - [ ] **TEST-03**: Une mise en ligne est bloquée si un test échoue
-- [ ] **TEST-04**: La version de l'app et la liste des fichiers hors réseau sont générées automatiquement, sans oubli possible
+- [x] **TEST-04**: La version de l'app et la liste des fichiers hors réseau sont générées automatiquement, sans oubli possible
 
 ### Justesse (JUST)
 
@@ -96,7 +96,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | FIAB-01 | Phase 1 | Pending |
-| FIAB-02 | Phase 1 | Pending |
+| FIAB-02 | Phase 1 | Complete |
 | FIAB-03 | Phase 2 | Pending |
 | FIAB-04 | Phase 2 | Pending |
 | FIAB-05 | Phase 2 | Pending |
@@ -105,7 +105,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | TEST-01 | Phase 1 | Complete |
 | TEST-02 | Phase 1 | Complete |
 | TEST-03 | Phase 1 | Pending |
-| TEST-04 | Phase 1 | Pending |
+| TEST-04 | Phase 1 | Complete |
 | JUST-01 | Phase 2 | Pending |
 | JUST-02 | Phase 2 | Pending |
 | SECU-01 | Phase 1 | Complete |
