@@ -5,7 +5,10 @@
 
 export const LOOKAHEAD_S = 8;      // fenêtre posée à l’avance : un blocage du fil principal plus court ne fait manquer aucun bip
 export const TICK_MS = 250;        // remplissage de la fenêtre (setInterval : sa précision n’a aucune importance)
-const DRIFT_S = 0.03;              // bip posé dont l’instant dévie de plus de 30 ms : annulé puis reposé
+// Un bip posé dont l’instant dévie de plus de 12 ms (suspension, dérive, saut de l’horloge audio) est annulé puis reposé à chaque tick.
+// Mesuré dans Chromium : l’horloge audio dérive de ~1,5 ms par seconde sur l’heure murale ; avec une tolérance de 30 ms et 8 s d’avance,
+// un bip pouvait sonner à 31-34 ms de l’heure (seuil de la mesure : 30 ms). À 12 ms l’écart au son reste sous ~15 ms.
+const DRIFT_S = 0.012;
 const GRACE_MS = 400;              // aucun bip rejoué avec plus de 400 ms de retard
 
 // Jalons (instants Date en ms) d’un compte à rebours qui finit à endMs. kind : 'min' | 'dix' | 'sec' | 'go'

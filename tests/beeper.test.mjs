@@ -114,16 +114,26 @@ test('au retour d’une suspension, un bip dû depuis moins de 400 ms est encore
   assert.ok(!w.live().some((p) => p.s === 8));
 });
 
-test('un décalage de moins de 30 ms ne repose aucun bip, au-delà si', () => {
+test('un décalage de moins de 12 ms ne repose aucun bip, au-delà si', () => {
   const w = monde({ ct: 4 }), end = T0 + 12000;
   w.advance(5000); w.ctx.currentTime = 9; w.beeper.arm(end);          // H−7 s : bips 7…1 et signal posés à 9…16 s
   const n = w.plays.length; assert.equal(n, 8);
-  w.ctx.currentTime += 0.02; w.beeper.tick();                         // gigue de 20 ms
+  w.ctx.currentTime += 0.008; w.beeper.tick();                        // gigue de 8 ms
   assert.equal(w.plays.length, n); assert.ok(w.plays.every((p) => !p.stopped));
   w.ctx.currentTime += 0.2; w.beeper.tick();                          // 200 ms de décalage
   assert.ok(w.plays.slice(0, n).filter((p) => p.s <= 6).every((p) => p.stopped), 'bips à venir annulés');
   assert.ok(!w.plays[0].stopped, 'le bip déjà sonné n’est pas touché');
   assert.ok(w.plays.length > n, 'et reposés');
+});
+
+test('une dérive lente de l’horloge audio est corrigée avant 15 ms d’écart, même avec 8 s d’avance', () => {
+  const w = monde({ ct: 10 }), end = T0 + 20000;
+  w.beeper.arm(end);
+  for (let i = 0; i < 62; i++) { w.wall += 250; w.ctx.currentTime += 0.25 * 0.996; w.beeper.tick(); }   // l’horloge audio retarde de 4 ms par seconde (pire que le bac à sable : 1,5)
+  const vrai = (s) => w.ctx.currentTime + (end - s * 1000 - w.wall) / 1000;                             // heure réelle d’un jalon dans l’horloge audio
+  const aVenir = w.live().filter((p) => p.when > w.ctx.currentTime);                                    // ceux déjà sonnés ne comptent plus
+  assert.ok(aVenir.length > 3);
+  for (const p of aVenir) assert.ok(Math.abs(p.when - vrai(p.s)) <= 0.015, `bip ${p.s} à ${((p.when - vrai(p.s)) * 1000).toFixed(1)} ms de l’heure réelle`);
 });
 
 test('disarm annule tout, ré-armer repart d’une ardoise vide', () => {
