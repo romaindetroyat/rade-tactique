@@ -900,7 +900,119 @@ async function ia({ browser, base }) {
   await ctx.close();
 }
 
-const SCENARIOS = { creer, manche, auteur, ic, 'depuis-ic': depuisIC, vraisemblance, gel, 'debrief-tardif': debriefTardif, gpx, 'gpx-choix': gpxChoix, ia };
+// D-03 : l'IA seulement quand il le faut, avec le réseau et sur geste ; toute erreur laisse la relecture manuelle ; une manche vérifiée entre, une inventée jamais
+async function iaErreurs({ browser, base }) {
+  const texteIC = (page) => page.locator('#icReview').textContent();
+  const etatBouton = (page) => page.evaluate(() => { const b = document.querySelector('#icIa'); return b ? { desactive: b.disabled, msg: document.querySelector('#icIaMsg')?.textContent ?? '' } : null; });
+  const journal = async (page) => { await page.evaluate(() => window.dispatchEvent(new Event('pagehide'))); return page.evaluate(() => localStorage.getItem('rade.diag.v1') || ''); };
+
+  // 1) IC CVAT bien lues : pas de bouton ; autre club : bouton, inactif hors réseau, de nouveau actif au retour du réseau ; texte mince : inactif ; aucun appel sans geste
+  const ctx = await ouvreContexte(browser, { heure: '2026-10-19T08:30:00Z' });
+  let appels = 0;
+  await ctx.route('**/api/ic', (route) => { appels++; return route.fulfill({ status: 500, contentType: 'application/json', body: '{"error":"inattendu"}' }); });
+  const { page, erreurs } = await ouvrePage(ctx);
+  await ouvreApp(page, base);
+  await creeRegate(page, { nom: 'Régate sans IA', debut: '2026-10-19', club: 'CVAT' });
+  await importeIC(page);
+  assert.equal(await page.locator('#icIa').count(), 0, 'IC CVAT bien lues : aucun bouton « Lire avec l’IA »');
+  assert.match((await lireRelecture(page)).firstWarning.valeur, /10:55/);
+  await page.click('#icCancel');
+  await importeTexte(page, TEXTE_AUTRE_CLUB);
+  let b = await etatBouton(page);
+  assert.deepEqual(b && { desactive: b.desactive, msg: b.msg }, { desactive: false, msg: '' }, 'autre club en ligne : bouton actif');
+  await ctx.setOffline(true);
+  await page.waitForFunction(() => document.querySelector('#icIa')?.disabled === true, null, { timeout: 15000 });
+  assert.equal((await etatBouton(page)).msg, 'Lecture IA indisponible hors réseau : importez les IC avant la régate');
+  await page.fill('#icf-zone', 'Zone saisie hors réseau');                       // la relecture manuelle reste utilisable
+  assert.equal(await page.locator('#icValidate').isEnabled(), true);
+  await ctx.setOffline(false);
+  await page.waitForFunction(() => document.querySelector('#icIa')?.disabled === false, null, { timeout: 20000 });
+  assert.equal((await etatBouton(page)).msg, '', 'réseau revenu : bouton de nouveau actif, sans message');
+  await page.click('#icCancel');
+  await importeTexte(page, 'Texte trop court pour être des instructions de course.');
+  b = await etatBouton(page);
+  assert.deepEqual(b && { desactive: b.desactive, msg: b.msg }, { desactive: true, msg: 'PDF sans texte : saisissez la fiche à la main' });
+  assert.equal(appels, 0, 'aucun appel à /api/ic sans le geste de l’équipier');
+  sansErreur(erreurs, 'sans geste');
+  await ctx.close();
+
+  // 2) erreurs : un message français par cause, la relecture manuelle intacte et validable, rien du texte des IC dans le journal
+  const ctx2 = await ouvreContexte(browser, { heure: '2026-10-19T08:30:00Z' });
+  const reponse = { statut: 503, corps: '{"error":"no_key"}', abandon: false };
+  await ctx2.route('**/api/ic', (route) => (reponse.abandon ? route.abort('failed') : route.fulfill({ status: reponse.statut, contentType: 'application/json', body: reponse.corps })));
+  const { page: p2, erreurs: e2 } = await ouvrePage(ctx2);
+  await ouvreApp(p2, base);
+  await creeRegate(p2, { nom: 'Régate erreurs IA', debut: '2026-10-19', club: 'SNM' });
+  await importeTexte(p2, TEXTE_AUTRE_CLUB);
+  const essaie = async (attendu, quand) => {
+    await p2.click('#icIa');
+    await p2.waitForFunction((t) => document.querySelector('#icIaMsg')?.textContent === t, attendu, { timeout: 20000 });
+    assert.equal(await p2.locator('#icIa').isEnabled(), true, `${quand} : on peut réessayer`);
+    assert.equal(await p2.locator('#icValidate').isEnabled(), true, `${quand} : la relecture manuelle reste validable`);
+  };
+  await essaie('Lecture IA indisponible sur ce déploiement (clé OpenAI absente)', 'clé absente');
+  await p2.fill('#icf-zone', 'Rade corrigée à la main');                           // modifiable après l'échec
+  Object.assign(reponse, { statut: 502, corps: '{"error":"réponse tronquée : réessayez"}' });
+  await essaie('Réponse tronquée ou refusée : réessayez, ou saisissez à la main', 'réponse tronquée');
+  Object.assign(reponse, { statut: 401, corps: '{"error":"acces"}' });
+  await essaie('Accès refusé : rouvrez l’app avec votre code', 'accès refusé');
+  Object.assign(reponse, { statut: 400, corps: '{"error":"texte des IC manquant ou trop court"}' });
+  await essaie('Texte des IC trop court', 'texte court');
+  reponse.abandon = true;
+  await essaie('Pas de réseau : la lecture IA se fait avant la régate', 'réseau coupé');
+  assert.equal((await lireRelecture(p2)).zone.valeur, 'Rade corrigée à la main', 'les échecs n’ont rien changé à la saisie');
+  const j = await journal(p2);
+  assert.ok(j.includes('ic-ia'), 'chaque échec est consigné au journal');
+  assert.ok(!/DUPONT|PROGRAMME|Pointe Rouge|Marseille/.test(j), 'jamais le texte des IC dans le journal');
+  await p2.click('#icValidate');
+  await p2.waitForSelector('#icReview', { state: 'detached', timeout: 10000 });
+  const reg2 = await regateCourante(p2);
+  assert.equal(reg2.ic.read, 'motifs'); assert.equal(reg2.ic.fields.zone, 'Rade corrigée à la main'); assert.equal(reg2.ic.fields.vhf, 69);
+  sansErreur(e2, 'avec les erreurs');
+  await ctx2.close();
+
+  // 3) manches lues par l'IA : la vérifiée est cochée et ajoutée sans parcours, l'inventée est grisée et jamais ajoutée
+  const ctx3 = await ouvreContexte(browser, { heure: '2026-10-19T08:30:00Z' });
+  const etat = await serviaIA(ctx3, (input) => sortieIA({
+    dateStart: { value: '2026-10-18', excerpt: copie(input, /dimanche 18 octobre 2026/) },
+    firstWarning: { value: '10:30', excerpt: copie(input, /Heure du premier signal d’avertissement : 10:30/) },
+    races: [
+      { date: '2026-10-18', warning: '10:30', label: 'Manche 1', excerpt: copie(input, /dimanche 18 octobre 2026\s+5\.1 Heure du premier signal d’avertissement : 10:30/) },
+      { date: '2026-10-18', warning: '14:00', label: 'Manche 2', excerpt: 'Seconde manche à 14h00 sur le parcours long' },
+    ],
+    specialRules: [
+      { value: 'Abandon', excerpt: copie(input, /Tout concurrent qui abandonne doit en informer le comité de course/) },
+      { value: 'Règle inventée', excerpt: 'Le port du casque est obligatoire pour tous' },
+    ],
+  }));
+  const { page: p3, erreurs: e3 } = await ouvrePage(ctx3);
+  await ouvreApp(p3, base);
+  await creeRegate(p3, { nom: 'Régate manches IA', debut: '2026-10-19', club: 'SNM' });
+  await importeTexte(p3, TEXTE_AUTRE_CLUB);
+  await p3.click('#icIa');
+  await p3.waitForSelector('.icrace', { timeout: 30000 });
+  assert.equal(etat.demandes.length, 1);
+  assert.equal(await p3.locator('.icrace').count(), 2);
+  assert.equal(await p3.locator('input[data-rc]:checked').count(), 1, 'une seule manche cochée');
+  assert.match(await p3.locator('.icrace').nth(0).textContent(), /10:30[\s\S]*Manche 1[\s\S]*Extrait/);
+  assert.match(await p3.locator('.icrace.icoff').textContent(), /Manche 2/);
+  assert.equal(await p3.locator('.icrace.icoff input').isDisabled(), true);
+  assert.equal(await p3.locator('input[data-kr]:checked').count(), 1, 'une seule règle particulière cochée');
+  assert.equal(await p3.locator('.icrule.icoff input[data-kr]').isDisabled(), true);
+  assert.equal((await regateCourante(p3)).races.length, 0, 'rien n’entre avant « Valider les IC »');
+  await p3.click('#icValidate');
+  await p3.waitForSelector('#icReview', { state: 'detached', timeout: 10000 });
+  const reg3 = await regateCourante(p3);
+  assert.equal(reg3.ic.read, 'ia');
+  assert.equal(reg3.races.length, 1, 'la manche vérifiée seulement');
+  assert.deepEqual([reg3.races[0].date, reg3.races[0].time, reg3.races[0].courseId], ['2026-10-18', '10:30', null]);
+  assert.deepEqual(reg3.ic.fields.keyRules, ['Tout concurrent qui abandonne doit en informer le comité de course'], 'seule la règle vérifiée entre');
+  assert.match(await p3.locator('#rgSheet .rgrace').textContent(), /Manche 1[\s\S]*10:30[\s\S]*parcours à préciser/);
+  sansErreur(e3, 'manches lues');
+  await ctx3.close();
+}
+
+const SCENARIOS = { creer, manche, auteur, ic, 'depuis-ic': depuisIC, vraisemblance, gel, 'debrief-tardif': debriefTardif, gpx, 'gpx-choix': gpxChoix, ia, 'ia-erreurs': iaErreurs };
 
 // ───────────────────────── lancement
 

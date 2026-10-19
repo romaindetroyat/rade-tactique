@@ -5,7 +5,7 @@ import { Terrain, toXY, toLL, NM, bearingXY, distXY, norm360, norm180, fmtBrg, f
 import { WindField, speedColor } from './wind.js';
 import { MARKS, COURSES, LINE_PRESETS, FORBIDDEN_ZONE, DANGERS } from './courses.js';
 import { pdfText, parseIC, cleanText } from './events.js';
-import { reviewFromParse, reviewFromRegatta, reviewFromApi, setValue, setKeep, canValidate, checksFor, applyReview, reviewHTML, chipOf, validatedHTML } from './icread.js';
+import { IA_IC, iaOffer, iaErrorMessage, reviewFromParse, reviewFromRegatta, reviewFromApi, setValue, setKeep, setKeepRace, canValidate, checksFor, applyReview, reviewHTML, chipOf, validatedHTML } from './icread.js';
 import { migrate, saveRegattas, createRegatta, upsertRegatta, removeRegatta, setCurrent as setCurrentRegatta, currentRegatta, todayRegatta, icOf, groupBySeason, lockDates, daysOf, addRace, removeRace, raceSettings, membre, saveMembre, backfillAuthor } from './regates.js';
 import { THROTTLE_MS, slotKey, freezeAction, obsNeedsCopy, stratNeedsCopy, sliceDays, freezeSummary, strategySummary, compactStrategy, windSourceKind, frozenLabel } from './gel.js';
 import { putSlot, getSlot } from './regstore.js';
@@ -126,7 +126,7 @@ async function init() {
   addEventListener('pagehide', saveRaceActivity);
   document.addEventListener('visibilitychange', () => { note('page', document.hidden ? 'masquée' : 'visible'); if (document.hidden) saveRaceActivity(); else { lastProbe = Date.now(); probeNet(); renderRaceBar(); } });
   addEventListener('online', () => { note('reseau', 'en ligne'); probeNet(); if (!who()) refreshMembre(); });
-  addEventListener('offline', () => { net.online = false; note('reseau', 'hors ligne'); renderRaceBar(); });
+  addEventListener('offline', () => { net.online = false; note('reseau', 'hors ligne'); renderRaceBar(); paintIa(); });
   // ── temps 2 : la carte et le vent
   await nextFrame();
   refreshMembre();                                     // prénom de l’équipier : jamais attendu
@@ -1052,7 +1052,7 @@ async function probeNet() {
   } catch { net.rtt = null; net.online = false; /* aucune réponse : réseau injoignable, ce n’est pas une erreur de l’app */ }
   finally { clearTimeout(to); probing = false; }
   if (net.online !== avant) note('reseau', net.online ? 'sonde : réseau joignable' : 'sonde : aucune réponse');
-  renderRaceBar();
+  renderRaceBar(); paintIa();
 }
 function statusNow() {
   const now = Date.now();
@@ -1725,7 +1725,12 @@ let icDraft = null;                          // relecture des IC en cours (impor
 // `icSrc` = le texte du PDF importé, en mémoire seulement. Le texte ne part chez OpenAI (via /api/ic) que sur le geste « Lire avec l’IA ».
 let icSrc = null, iaSeq = 0, iaCtl = null, iaBusy = false, iaMsg = '';
 const IA_TIMEOUT_MS = 70000;                 // un peu plus que maxDuration (60 s) de la fonction
-const iaState = () => ({ show: !!(icDraft?.imported && icDraft.read === 'motifs' && icSrc), enabled: !iaBusy, busy: iaBusy, msg: iaMsg });
+// Ce que montre le bouton : l’offre (iaOffer : autre club ou lecture CVAT incomplète, avec le réseau, avec du texte), puis l’état de l’appel en cours ou de son échec
+function iaState() {
+  if (!(icDraft?.imported && icDraft.read === 'motifs' && icSrc)) return { show: false, enabled: false, msg: '' };
+  const o = iaOffer({ text: icSrc.text, parse: icSrc.parse, online: net.online, IA: IA_IC });
+  return { show: o.show, enabled: o.enabled && !iaBusy, msg: iaBusy ? iaMsg : o.enabled ? iaMsg : o.msg };
+}
 let rgDraft = null, rgErr = {};              // formulaire « Nouvelle régate » ouvert : sa saisie survit à un redessin
 let raceDraft = null, raceErr = {};          // formulaire « Nouvelle manche » ouvert
 const icBusy = () => !!(rgDraft || icDraft || raceDraft);
@@ -1841,8 +1846,9 @@ function renderIC() {
     $('#icMsg').textContent = 'Lecture des IC…';
     try {
       const text = /\.pdf$/i.test(f.name) || f.type === 'application/pdf' ? await pdfText(f) : await f.text();
-      iaCtl?.abort(); iaBusy = false; iaMsg = ''; icSrc = { text };
-      icDraft = { ...reviewFromParse(parseIC(text, f.name), { source: f.name, text, regatta: cur }), imported: ++iaSeq };
+      iaCtl?.abort(); iaBusy = false; iaMsg = '';
+      const parse = parseIC(text, f.name); icSrc = { text, parse };
+      icDraft = { ...reviewFromParse(parse, { source: f.name, text, regatta: cur }), imported: ++iaSeq };
       renderIC(); $('#icReview')?.scrollIntoView({ behavior: 'smooth' });
     } catch (err) { report('ic', err); $('#icMsg').textContent = 'Lecture impossible : ' + err.message + '. Vous pouvez saisir la fiche à la main (Modifier).'; }
   };
@@ -1850,6 +1856,7 @@ function renderIC() {
     // la carte n’est pas reconstruite à chaque touche : le curseur reste dans le champ
     $$('input[data-f]', el).forEach((inp) => inp.addEventListener('input', () => { icDraft = setValue(icDraft, inp.dataset.f, inp.value); paintReview(); }));
     $$('input[data-kr]', el).forEach((cb) => cb.addEventListener('change', () => { icDraft = setKeep(icDraft, +cb.dataset.kr, cb.checked); }));
+    $$('input[data-rc]', el).forEach((cb) => cb.addEventListener('change', () => { icDraft = setKeepRace(icDraft, +cb.dataset.rc, cb.checked); }));
     $('#icValidate').onclick = validateIC;
     $('#icCancel').onclick = () => { iaCtl?.abort(); iaBusy = false; iaMsg = ''; icDraft = null; renderIC(); };
     $('#icIa')?.addEventListener('click', () => { readWithAI(); });
@@ -1875,13 +1882,13 @@ async function readWithAI() {
     const r = await fetch('/api/ic', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: cleanText(icSrc.text) }), signal: ctl.signal });
     const body = await r.json().catch(() => { /* corps illisible : traité comme une erreur juste après */ return null; });
     if (icDraft?.imported !== token) return;                       // relecture fermée ou remplacée entre-temps
-    if (!r.ok || !body || typeof body !== 'object') { const e = new Error('HTTP ' + r.status); e.status = r.status; throw e; }
+    if (!r.ok || !body || typeof body !== 'object') throw Object.assign(new Error('HTTP ' + r.status), { status: r.status, iaCode: typeof body?.error === 'string' ? body.error : '' });
     icDraft = { ...reviewFromApi(body, { source: icDraft.source, text: icSrc.text, regatta: currentRegatta(REG) }), imported: token };
     iaMsg = '';
   } catch (err) {
     if (icDraft?.imported !== token) return;
     report('ic-ia', timedOut ? 'délai de 70 s dépassé' : err?.status ? 'HTTP ' + err.status : err?.name || 'erreur');   // jamais le texte des IC
-    iaMsg = 'La lecture par l’IA a échoué : relisez et corrigez à la main (rien n’a été modifié).';
+    iaMsg = iaErrorMessage({ status: err?.status, code: err?.iaCode, timedOut });                    // la relecture à la main reste ouverte, intacte
   } finally {
     clearTimeout(to);
     if (iaCtl === ctl) iaBusy = false;

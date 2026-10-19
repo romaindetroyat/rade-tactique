@@ -4,11 +4,12 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { parseHTML } from 'linkedom';
-import { ROOT } from './helpers/setup.mjs';
+import { ROOT, fixture } from './helpers/setup.mjs';
 import { parseIC } from '../js/events.js';
 import { createRegatta } from '../js/regates.js';
 import {
-  FIELDS, NOT_READ, checksFor, reviewFromParse, reviewFromRegatta, reviewFromApi, setValue, setKeep, canValidate, applyReview, reviewHTML, chipOf, validatedHTML,
+  FIELDS, NOT_READ, IA_IC, checksFor, reviewFromParse, reviewFromRegatta, reviewFromApi, setValue, setKeep, setKeepRace, canValidate, applyReview, reviewHTML, chipOf, validatedHTML,
+  icLooksCvat, cvatReadOk, textTooThin, iaOffer, iaErrorMessage,
 } from '../js/icread.js';
 
 const deepFreeze = (o) => { if (o && typeof o === 'object' && !Object.isFrozen(o)) { Object.freeze(o); Object.values(o).forEach(deepFreeze); } return o; };
@@ -410,7 +411,7 @@ test('vue relecture ia : mention « lecture par l’IA (OpenAI) », puce de la r
   assert.match(document.querySelector('[data-chip=vhf]').textContent, /ne figure pas dans l’extrait/);
   assert.equal(document.querySelectorAll('img, script, b, i').length, 0, 'aucune balise venue du modèle ou du fichier');
   assert.equal(document.querySelector('#icf-event').getAttribute('value'), '<img src=x onerror="window.__xss=1">', 'la valeur reste du texte');
-  const regles = [...document.querySelectorAll('.icrule')];
+  const regles = [...document.querySelectorAll('.icrules:not(.icraces) .icrule')];
   assert.equal(regles.length, 2);
   assert.equal(regles[0].querySelector('input').hasAttribute('checked'), true); assert.equal(regles[0].querySelector('input').hasAttribute('disabled'), false);
   assert.match(regles[1].className, /\bicoff\b/); assert.equal(regles[1].querySelector('input').hasAttribute('checked'), false); assert.equal(regles[1].querySelector('input').hasAttribute('disabled'), true);
@@ -420,4 +421,134 @@ test('vue relecture ia : mention « lecture par l’IA (OpenAI) », puce de la r
 test('validatedHTML : « lecture par l’IA » quand ic.read vaut ia', () => {
   const at = Date.parse('2026-10-19T08:30:00Z');
   assert.equal(validatedHTML({ validated: { by: 'Thibaud', at }, read: 'ia' }), 'IC validées par Thibaud le 19/10 (lecture par l’IA)');
+});
+
+// ───────────────────────── l’IA seulement quand il le faut, avec le réseau, sur geste (D-03) ; manches lues ; erreurs lisibles
+
+let snpm = null;                                                     // texte réel des IC SNPM, extrait par le pdf.js vendorisé (comme tests/pdf.test.mjs)
+async function snpmText() {
+  if (snpm) return snpm;
+  await import(new URL('../vendor/pdf.worker.min.js', import.meta.url));
+  await import(new URL('../vendor/pdf.min.js', import.meta.url));
+  globalThis.window = { pdfjsLib: globalThis.pdfjsLib };
+  const { pdfText } = await import('../js/events.js');
+  return (snpm = await pdfText(new Blob([fixture('ic-coupe-snpm-2026-10-18.pdf', null)])));
+}
+
+test('icLooksCvat : vrai sur le texte réel des IC SNPM, faux sur le texte d’un autre club ; cvatReadOk : date, premier signal et VHF lus', async () => {
+  const cvat = await snpmText();
+  assert.equal(icLooksCvat(cvat), true);
+  assert.equal(icLooksCvat(AUTRE_CLUB), false);
+  assert.equal(icLooksCvat(''), false); assert.equal(icLooksCvat(null), false);
+  assert.equal(cvatReadOk(parseIC(cvat, 'ic.pdf')), true);
+  assert.equal(cvatReadOk(parseIC(AUTRE_CLUB, 'ic.pdf')), true, 'la lecture par motifs d’un texte bien formé est complète quelle que soit la source');
+  const p = parseIC(cvat, 'ic.pdf');
+  assert.equal(cvatReadOk({ ...p, date: undefined }), false, 'date manquante');
+  assert.equal(cvatReadOk({ ...p, date: '2026-02-30' }), false, 'date impossible');
+  assert.equal(cvatReadOk({ ...p, firstWarning: undefined }), false, 'premier signal manquant');
+  assert.equal(cvatReadOk({ ...p, vhf: undefined }), false, 'VHF manquante');
+  assert.equal(cvatReadOk(null), false);
+  assert.equal(cvatReadOk(parseIC('Texte sans rien de reconnaissable à lire ici.', 'x.pdf')), false);
+});
+
+test('textTooThin : vrai sous 200 caractères non blancs', () => {
+  assert.equal(textTooThin(''), true); assert.equal(textTooThin(null), true);
+  assert.equal(textTooThin('abc '.repeat(40)), true, '120 caractères non blancs, 160 avec les blancs');
+  assert.equal(textTooThin('a'.repeat(199) + ' '.repeat(500)), true, 'les blancs ne comptent pas');
+  assert.equal(textTooThin('a'.repeat(200)), false);
+  assert.equal(textTooThin(AUTRE_CLUB), false);
+});
+
+test('iaOffer : CVAT bien lues → pas de bouton ; autre club en ligne → actif ; hors réseau → inactif avec son message ; texte mince → inactif ; IA:false → jamais', async () => {
+  const cvat = await snpmText();
+  const bien = parseIC(cvat, 'ic.pdf'), autre = parseIC(AUTRE_CLUB, 'x.pdf');
+  assert.equal(IA_IC, true, 'la constante IA_IC vaut true tant que l’essai réel n’a pas dit le contraire');
+  assert.equal(iaOffer({ text: cvat, parse: bien, online: true, IA: true }).show, false, 'IC CVAT bien lues : le bouton n’est pas montré');
+  assert.equal(iaOffer({ text: cvat, parse: bien, online: false, IA: true }).show, false, 'même hors réseau');
+  // lecture CVAT incomplète (premier signal, VHF ou date manquants) : l’IA est proposée
+  const incomplet = iaOffer({ text: cvat, parse: { ...bien, vhf: undefined }, online: true, IA: true });
+  assert.deepEqual(incomplet, { show: true, enabled: true, msg: '' });
+  assert.deepEqual(iaOffer({ text: AUTRE_CLUB, parse: autre, online: true, IA: true }), { show: true, enabled: true, msg: '' });
+  assert.deepEqual(iaOffer({ text: AUTRE_CLUB, parse: autre, online: false, IA: true }),
+    { show: true, enabled: false, msg: 'Lecture IA indisponible hors réseau : importez les IC avant la régate' });
+  assert.deepEqual(iaOffer({ text: 'trop court', parse: parseIC('trop court', 'x.pdf'), online: true, IA: true }),
+    { show: true, enabled: false, msg: 'PDF sans texte : saisissez la fiche à la main' });
+  assert.equal(iaOffer({ text: 'trop court', parse: null, online: false, IA: true }).msg, 'PDF sans texte : saisissez la fiche à la main', 'sans texte, le message du texte prime');
+  for (const online of [true, false]) assert.equal(iaOffer({ text: AUTRE_CLUB, parse: autre, online, IA: false }).show, false, 'IA:false masque le bouton sans rien changer d’autre');
+  assert.equal(iaOffer({ text: AUTRE_CLUB, parse: autre, online: true }).show, true, 'par défaut : la constante IA_IC');
+});
+
+test('vue : le bouton « Lire avec l’IA (le texte part chez OpenAI) » suit l’offre ; son message est échappé ; sans offre, aucun bouton', () => {
+  const rv = relecture();
+  const sans = parseHTML(`<div>${reviewHTML(rv, {})}</div>`).document;
+  assert.equal(sans.querySelector('#icIa'), null);
+  const actif = parseHTML(`<div>${reviewHTML(rv, {}, { ia: { show: true, enabled: true, msg: '' } })}</div>`).document;
+  assert.equal(actif.querySelector('#icIa').textContent, 'Lire avec l’IA (le texte part chez OpenAI)');
+  assert.equal(actif.querySelector('#icIa').hasAttribute('disabled'), false);
+  const inactif = parseHTML(`<div>${reviewHTML(rv, {}, { ia: { show: true, enabled: false, msg: 'Lecture IA indisponible <b>hors</b> réseau' } })}</div>`).document;
+  assert.equal(inactif.querySelector('#icIa').hasAttribute('disabled'), true);
+  assert.equal(inactif.querySelector('#icIaMsg').textContent, 'Lecture IA indisponible <b>hors</b> réseau');
+  assert.equal(inactif.querySelectorAll('#icIaMsg b').length, 0);
+  assert.equal(parseHTML(`<div>${reviewHTML(rv, {}, { ia: { show: false } })}</div>`).document.querySelector('#icIa'), null);
+});
+
+test('iaErrorMessage : un message français par cause (clé absente, réponse tronquée, texte court, accès refusé, délai, réseau)', () => {
+  assert.equal(iaErrorMessage({ status: 503, code: 'no_key' }), 'Lecture IA indisponible sur ce déploiement (clé OpenAI absente)');
+  assert.equal(iaErrorMessage({ status: 502 }), 'Réponse tronquée ou refusée : réessayez, ou saisissez à la main');
+  assert.equal(iaErrorMessage({ status: 400 }), 'Texte des IC trop court');
+  assert.equal(iaErrorMessage({ status: 401 }), 'Accès refusé : rouvrez l’app avec votre code');
+  assert.equal(iaErrorMessage({ timedOut: true }), 'L’IA n’a pas répondu à temps (70 s)');
+  assert.equal(iaErrorMessage({}), 'Pas de réseau : la lecture IA se fait avant la régate', 'ni statut ni délai : le réseau a échoué');
+  assert.match(iaErrorMessage({ status: 429 }), /^La lecture par l’IA a échoué \(code 429\)/);
+  assert.match(iaErrorMessage({ status: 503, code: 'autre' }), /code 503/);
+});
+
+test('manches lues par l’IA : vérifiées cochées (jour, heure, libellé, extrait), non vérifiées grisées et non cochées ; setKeepRace ne coche pas une manche non vérifiée', () => {
+  const rv = parApi();
+  const { document } = parseHTML(`<div>${reviewHTML(rv, verif(rv))}</div>`);
+  const lignes = [...document.querySelectorAll('.icrace')];
+  assert.equal(lignes.length, 2);
+  assert.match(lignes[0].textContent, /2026-10-18/); assert.match(lignes[0].textContent, /10:55/); assert.match(lignes[0].textContent, /Manche 1/);
+  assert.match(lignes[0].textContent, /Extrait : « dimanche 18 octobre 2026/);
+  assert.equal(lignes[0].querySelector('input').hasAttribute('checked'), true);
+  assert.match(lignes[1].className, /\bicoff\b/); assert.equal(lignes[1].querySelector('input').hasAttribute('checked'), false); assert.equal(lignes[1].querySelector('input').hasAttribute('disabled'), true);
+  assert.equal(setKeepRace(rv, 1, true).races[1].keep, false);
+  assert.equal(setKeepRace(rv, 0, false).races[0].keep, false);
+  assert.equal(setKeepRace(rv, 0, false).races[1].keep, false);
+  assert.equal(document.querySelectorAll('.icrace img, .icrace script').length, 0);
+});
+
+test('applyReview : les manches cochées entrent par addRace (parcours à préciser, auteur, instant) ; décochées ou non vérifiées jamais ; pas de doublon ; hors régate ignorées', () => {
+  const rv = parApi();
+  const at = 1234;
+  const reg = applyReview(regate(), rv, { by: 'Teiva', at });
+  assert.equal(reg.dateStart, '2026-10-18', 'les manches se rangent selon les jours des IC validées');
+  assert.equal(reg.races.length, 1, 'la manche vérifiée seulement');
+  const m = reg.races[0];
+  assert.deepEqual([m.n, m.date, m.time, m.courseId, m.by, m.at], [1, '2026-10-18', '10:55', null, 'Teiva', at]);
+  assert.match(m.note, /Manche 1/); assert.match(m.note, /parcours à préciser/);
+  // décochée : rien
+  assert.equal(applyReview(regate(), setKeepRace(rv, 0, false), { by: 'T', at }).races.length, 0);
+  // déjà présente (même jour, même heure) : pas de doublon
+  assert.equal(applyReview(reg, rv, { by: 'T', at: at + 1 }).races.length, 1);
+  // un jour qui n’est pas dans la régate (dernier jour absent) : manche ignorée, validation intacte
+  const hors = reviewFromApi({ ...REPONSE(), races: [{ date: '2026-12-31', warning: '10:00', label: 'Autre jour', excerpt: 'x', verified: true }] }, { source: 'a.pdf', text: AUTRE_CLUB });
+  const r2 = applyReview(regate(), hors, { by: 'T', at });
+  assert.equal(r2.races.length, 0); assert.equal(r2.ic.read, 'ia');
+  // relecture « Modifier » : aucune manche, aucune ajoutée
+  assert.equal(applyReview(reg, reviewFromRegatta(reg), { by: 'T', at }).races.length, 1);
+  // l’original n’est pas modifié
+  const avant = regate(); const copie = structuredClone(avant); applyReview(avant, rv, { by: 'T', at }); assert.deepEqual(avant, copie);
+});
+
+test('garde statique : app.js suit iaOffer, appelle /api/ic sur un geste avec un délai de 70 s, traduit les erreurs et ne journalise jamais le texte des IC', () => {
+  const app = readFileSync(ROOT + 'js/app.js', 'utf8');
+  assert.ok(/iaOffer\(/.test(app) && /IA_IC/.test(app), 'le bouton suit iaOffer et IA_IC');
+  assert.ok(/fetch\('\/api\/ic'/.test(app) && /70000/.test(app) && /AbortController/.test(app));
+  assert.ok(/iaErrorMessage\(/.test(app));
+  assert.ok(/addEventListener\('offline'[^\n]*paintIa\(\)/.test(app), 'l’état hors réseau repeint le bouton');
+  const ia = app.slice(app.indexOf('async function readWithAI'), app.indexOf('async function readWithAI') + 2600);
+  assert.ok(!/report\('ic-ia',[^)]*(?:text|icSrc|body)/.test(ia), 'report(ic-ia) ne reçoit jamais le texte ni le corps');
+  const debut = app.indexOf('$(\'#icFile\').onchange'), imp = app.slice(debut, app.indexOf('\n  };', debut));
+  assert.ok(!/readWithAI\(|fetch\(/.test(imp), 'l’import n’envoie rien : seul le geste « Lire avec l’IA » envoie');
 });

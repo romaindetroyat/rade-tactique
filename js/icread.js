@@ -11,7 +11,7 @@
 //   races = manches lues par l’IA [{ date, time, label, excerpt, verified, keep }] ; marks, courses = bouées et parcours lus, gardés tels quels
 
 import { escHTML } from './regview.js';
-import { isDate, seasonOf, MAX_NAME, MAX_IC_TEXT } from './regates.js';
+import { isDate, seasonOf, addRace, MAX_NAME, MAX_NOTE, MAX_IC_TEXT } from './regates.js';
 import { parisClock } from './racelock.js';
 import { checkDate, checkDateEnd, checkTime, checkSeq, checkVhf } from './icplaus.js';
 
@@ -29,6 +29,8 @@ const MAX_FIELD = 200;                                     // longueur d’une v
 const READ_LONG = { motifs: 'par motifs (CVAT, hors réseau)', saisie: 'saisie à la main', reprise: 'reprise d’une ancienne fiche', ia: 'par l’IA (OpenAI) : vérifiez chaque valeur' };
 const READ_SHORT = { motifs: 'par motifs', saisie: 'saisie', reprise: 'reprise', ia: 'par l’IA' };
 export const NOT_READ = 'non lu dans le texte';
+// false masque « Lire avec l’IA » sans rien changer d’autre ; décision après l’essai réel sur l’aperçu (plan 03-07)
+export const IA_IC = true;
 
 const str = (v) => (v == null ? '' : String(v).trim());
 const valueOf = (review, key) => str(review?.fields?.find((f) => f.key === key)?.value);
@@ -87,6 +89,9 @@ export function setValue(review, key, value) {
   const v = String(value ?? '').slice(0, MAX_FIELD);
   return { ...review, fields: review.fields.map((f) => (f.key === key ? { ...f, value: v, edited: v.trim() !== f.orig } : f)) };
 }
+export function setKeepRace(review, i, keep) {
+  return { ...review, races: (review.races || []).map((m, j) => (j === i && m.verified ? { ...m, keep: !!keep } : m)) };   // une manche non vérifiée ne se coche pas
+}
 export function setKeep(review, i, keep) {
   return { ...review, keyRules: review.keyRules.map((k, j) => (j === i && k.verified !== false ? { ...k, keep: !!keep } : k)) };   // une règle non vérifiée ne se coche pas
 }
@@ -139,7 +144,18 @@ export function applyReview(r, review, { by = null, at = Date.now() } = {}) {
     excerpts, text: String(review.text ?? '').slice(0, MAX_IC_TEXT), source: review.source || r.ic?.source || '', read: review.read || 'saisie',
     validated: { by, at },
   };
-  return { ...r, name: (v('event') || r.name || '').slice(0, MAX_NAME), dateStart, dateEnd: dateStart && isDate(end) && end > dateStart ? end : '', season: seasonOf(dateStart), ic };
+  let next = { ...r, name: (v('event') || r.name || '').slice(0, MAX_NAME), dateStart, dateEnd: dateStart && isDate(end) && end > dateStart ? end : '', season: seasonOf(dateStart), ic };
+  // Manches lues par l’IA, cochées ET vérifiées : ajoutées sans parcours (« parcours à préciser »). Une manche déjà présente (même jour, même heure)
+  // ou hors des jours de la régate est ignorée ; la validation, elle, n’est jamais empêchée.
+  for (const m of review.races || []) {
+    if (!m.keep || !m.verified) continue;
+    const date = m.date || next.dateStart;
+    if ((next.races || []).some((x) => x.date === date && x.time === m.time)) continue;
+    const note = `${m.label ? `${m.label} — ` : ''}parcours à préciser`.slice(0, MAX_NOTE);
+    const res = addRace(next, { date, time: m.time, note }, { now: at, by });
+    if (res.ok) next = res.regatta;
+  }
+  return next;
 }
 
 // ───────────────────────── vues HTML
@@ -163,6 +179,34 @@ function fieldHTML(f, check) {
     + `<span class="${chip.cls}" data-chip="${escHTML(f.key)}"${chip.text ? '' : ' hidden'}>${escHTML(chip.text)}</span>${ex}${sans}</div>`;
 }
 
+// ───────────────────────── quand proposer l’IA (D-03) et que dire quand elle échoue
+
+// Les IC du CVAT se reconnaissent à leur sigle répété (titre, cahier de parcours, avis aux concurrents, bouée « CCIV/CVAT »)
+export const icLooksCvat = (text) => (String(text ?? '').match(/\bCVAT\b/g) || []).length >= 2;
+// La lecture par motifs est complète : une date valide, le premier signal et la VHF (p : sortie de parseIC)
+export const cvatReadOk = (p) => !!p && isDate(p.date) && !!str(p.firstWarning) && Number.isInteger(p.vhf);
+// PDF scanné ou texte vide : moins de 200 caractères non blancs (Pitfall 3)
+export const textTooThin = (text) => String(text ?? '').replace(/\s+/g, '').length < 200;
+// Que montrer pour « Lire avec l’IA » : { show, enabled, msg }. Jamais pour des IC CVAT bien lues ; jamais si IA est faux ; inactif hors réseau
+// (navigator.onLine n’est qu’un indice : l’échec réel de l’appel prime) ou sans texte. Rien ne part sans le geste de l’équipier.
+export function iaOffer({ text, parse, online, IA = IA_IC } = {}) {
+  if (!IA) return { show: false, enabled: false, msg: '' };
+  if (textTooThin(text)) return { show: true, enabled: false, msg: 'PDF sans texte : saisissez la fiche à la main' };
+  if (icLooksCvat(text) && cvatReadOk(parse)) return { show: false, enabled: false, msg: '' };
+  if (!online) return { show: true, enabled: false, msg: 'Lecture IA indisponible hors réseau : importez les IC avant la régate' };
+  return { show: true, enabled: true, msg: '' };
+}
+// Message français d’un échec de /api/ic ; ni statut ni délai : l’appel n’a pas abouti (réseau)
+export function iaErrorMessage({ status, code, timedOut } = {}) {
+  if (timedOut) return 'L’IA n’a pas répondu à temps (70 s)';
+  if (status == null) return 'Pas de réseau : la lecture IA se fait avant la régate';
+  if (status === 503 && code === 'no_key') return 'Lecture IA indisponible sur ce déploiement (clé OpenAI absente)';
+  if (status === 502) return 'Réponse tronquée ou refusée : réessayez, ou saisissez à la main';
+  if (status === 400) return 'Texte des IC trop court';
+  if (status === 401) return 'Accès refusé : rouvrez l’app avec votre code';
+  return `La lecture par l’IA a échoué (code ${status}) : relisez et corrigez à la main`;
+}
+
 // Bloc « Lire avec l’IA » de la relecture d’un PDF importé : ia = { show, enabled, msg } (décidé par la page ; rien n’est envoyé sans le geste)
 const IA_LABEL = 'Lire avec l’IA (le texte part chez OpenAI)';
 function iaHTML(ia) {
@@ -179,6 +223,9 @@ export function reviewHTML(review, checks = {}, opts = {}) {
       ? `<label class="small icrule icoff"><input type="checkbox" data-kr="${i}" disabled> ${escHTML(k.value)} <em>(extrait introuvable dans le texte : non retenu)</em></label>`
       : `<label class="small icrule"><input type="checkbox" data-kr="${i}"${k.keep ? ' checked' : ''}> ${escHTML(k.value)}</label>`)).join('')}</div>`
     : '';
+  const races = (review.races || []).length
+    ? `<div class="icrules icraces"><h4>Manches lues <small>décochez celles à ne pas ajouter (le parcours reste à préciser)</small></h4>${review.races.map((m, i) => `<label class="small icrule icrace${m.verified ? '' : ' icoff'}"><input type="checkbox" data-rc="${i}"${m.keep ? ' checked' : ''}${m.verified ? '' : ' disabled'}> ${escHTML(m.date || 'jour à préciser')} · ${escHTML(m.time || 'heure inconnue')}${m.label ? ` · ${escHTML(m.label)}` : ''}${m.verified && m.excerpt ? `<span class="icex" style="display:block">Extrait : « ${escHTML(m.excerpt.replace(/\s+/g, ' '))} »</span>` : '<em> (extrait introuvable dans le texte : non retenue)</em>'}</label>`).join('')}</div>`
+    : '';
   const tronque = review.truncated ? '<div class="small muted icex">Texte long : seuls les 50 000 premiers caractères ont été lus par l’IA.</div>' : '';
   return `<div class="card" id="icReview"><h3>Relecture des IC <small>rien n’est retenu avant « Valider les IC »</small></h3>`
     + `<div class="small muted">Source : ${escHTML(review.source || 'saisie')} · lecture ${escHTML(READ_LONG[review.read] || READ_LONG.saisie)}</div>`
@@ -186,6 +233,7 @@ export function reviewHTML(review, checks = {}, opts = {}) {
     + tronque
     + review.fields.map((f) => fieldHTML(f, checks[f.key])).join('')
     + rules
+    + races
     + `<div class="rgerr" id="icBlock"${ok ? ' hidden' : ''}>${BLOCK_MSG}</div>`
     + `<div class="btns"><button type="button" class="btn acc" id="icValidate"${ok ? '' : ' disabled'}>Valider les IC</button><button type="button" class="btn alt" id="icCancel">Annuler</button></div></div>`;
 }
