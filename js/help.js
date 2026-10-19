@@ -1,6 +1,7 @@
 // Aide : infobulles (survol ou ⓘ), guide de démarrage, partage de l'app (lien, QR code, parcours).
 
 import { BUILD } from './version.js';
+import { journal, header } from './journal.js';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
@@ -98,7 +99,33 @@ export const GUIDE = `
 
 // La version vient de js/version.js (généré) ; la note est affichée échappée. Rien n’est envoyé au serveur.
 export function openGuide() {
-  modal(`${GUIDE}<p class="small muted" id="appVersion">Version ${esc(BUILD.label)} — ${esc(BUILD.note)}</p>`, 'guide');
+  const m = modal(`${GUIDE}<p class="small muted" id="appVersion">Version ${esc(BUILD.label)} — ${esc(BUILD.note)}</p>
+    <p><button type="button" class="btn small alt" id="openJournal">Journal de diagnostic (${journal.entries().length})</button></p>`, 'guide');
+  m.querySelector('#openJournal').onclick = openJournal;
+}
+
+// Journal de diagnostic (FIAB-07) : lire, copier, partager, vider. Le texte est posé par textContent, jamais en HTML.
+export function openJournal() {
+  const m = modal(`<h2>Journal de diagnostic</h2>
+    <p class="small">Ce journal reste sur ce téléphone. Après une sortie, envoyez-le à Romain (Copier ou Partager). Aucun code d’accès ni position n’y figure.</p>
+    <pre id="diagText" class="diagtext"></pre>
+    <div class="btns"><button type="button" class="btn small acc" id="diagCopy">Copier</button>${navigator.share ? '<button type="button" class="btn small alt" id="diagShare">Partager</button>' : ''}<button type="button" class="btn small alt" id="diagClear">Vider</button></div>`, 'journal');
+  const pre = m.querySelector('#diagText'), copy = m.querySelector('#diagCopy'), clear = m.querySelector('#diagClear');
+  let text = '';
+  const fill = async () => { text = (await header()) + '\n\n' + (journal.text() || 'Journal vide'); pre.textContent = text; };
+  fill();
+  copy.onclick = async () => {
+    try { await navigator.clipboard.writeText(text); } catch {
+      // presse-papiers refusé : sélection du texte puis copie par l’ancienne méthode
+      const r = document.createRange(); r.selectNodeContents(pre); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r); document.execCommand?.('copy');
+    }
+    copy.textContent = 'Copié ✓';
+  };
+  m.querySelector('#diagShare')?.addEventListener('click', () => navigator.share({ title: 'Journal Rade Tactique', text }).catch(() => { /* partage annulé par l’équipier */ }));
+  clear.onclick = async () => {
+    if (clear.dataset.confirm !== '1') { clear.dataset.confirm = '1'; clear.textContent = 'Confirmer ?'; return; }
+    journal.clear(); clear.dataset.confirm = ''; clear.textContent = 'Vider'; copy.textContent = 'Copier'; await fill();
+  };
 }
 
 export function maybeWelcome() {

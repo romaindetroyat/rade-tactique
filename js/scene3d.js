@@ -321,13 +321,13 @@ export class Scene3D {
       const ring = a ? (a.side === 'b' ? '#ff4d4d' : a.side === 't' ? '#2ecc71' : '#ffffff') : null;
       const bg = m.color === '#1f9d55' ? '#1f9d55' : m.color === '#e03131' ? '#d63031' : '#f5c400', fg = m.color === '#f5c400' ? '#222' : '#fff';
       // dans le parcours : numéro d'ordre de passage (1, 2, 3…) ; hors parcours : numéro CVAT en grisé
-      const txt = a?.orders?.length ? a.orders.join('·') : String(id);
+      const txt0 = a?.orders?.length ? a.orders.join('·') : String(id), txt = m.doubt ? txt0 + ' ?' : txt0;      // « 3 ? » : position à confirmer (D-01)
       const s = a ? makeLabel(txt, { circle: a.orders.length < 2, bg, fg, size: 26, border: ring }, 30)
         : makeLabel(String(id), { circle: true, bg: 'rgba(120,135,150,.75)', fg: '#fff', size: 22 }, 17);
       s.position.copy(W(p.x, p.y, 70));
       s.userData.mark = id;
       g.add(s);
-      const nm = a ? `${/^\d+$/.test(id) ? 'n°' + id + ' ' : ''}${m.name}${a.side ? (a.side === 'b' ? ' · bâbord' : ' · tribord') : ''}` : m.name;
+      const nm0 = a ? `${/^\d+$/.test(id) ? 'n°' + id + ' ' : ''}${m.name}${a.side ? (a.side === 'b' ? ' · bâbord' : ' · tribord') : ''}` : m.name, nm = m.doubt ? nm0 + ' · à confirmer' : nm0;
       const name = makeLabel(nm, { bg: a ? 'rgba(12,24,38,.78)' : 'rgba(12,24,38,.45)', size: 22 }, a ? 15 : 11);
       name.position.copy(W(p.x, p.y, 70)); name.center.set(-0.12, 1.25);
       g.add(name);

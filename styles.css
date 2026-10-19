@@ -146,6 +146,24 @@ a { color: var(--blue); }
 #updbar.crit { background: var(--bad); }
 #updbar[hidden] { display: none; }
 #toast { position: fixed; left: 50%; bottom: calc(24px + var(--safeB)); transform: translateX(-50%); background: var(--bg); color: #fff; padding: 10px 14px; border-radius: 12px; z-index: 60; font-size: 14px; box-shadow: 0 6px 20px rgba(0,0,0,.35); max-width: 90vw; }
+/* signal visuel des bips clés : minutes en blanc, départ en vert, jamais de rouge, au plus un flash par minute (WCAG 2.3.1) */
+#beepFlash { position: fixed; inset: 0; z-index: 65; pointer-events: none; opacity: 0; background: #fff; }
+#beepFlash.min { animation: beepflash-min .45s ease-out; }
+#beepFlash.go { background: #2ee66b; animation: beepflash-go .45s ease-out; }
+#beepFlash.min.dark { background: #000; }
+@keyframes beepflash-min { from { opacity: .7; } to { opacity: 0; } }
+@keyframes beepflash-go { from { opacity: .8; } to { opacity: 0; } }
+/* « Avez-vous entendu 3 bips ? » : au-dessus du mode départ (60) et du flash (65), sous les bulles d’aide (80) */
+#sndAsk { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 72; width: min(92vw, 420px); background: var(--bg); color: #fff; border: 3px solid var(--accent); border-radius: 16px; padding: 18px; text-align: center; box-shadow: 0 10px 40px rgba(0,0,0,.55); }
+#sndAsk[hidden] { display: none; }
+#sndAsk p { margin: 0 0 14px; font-size: 22px; font-weight: 800; }
+#sndAsk .btns { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 0; }
+#sndAsk button { min-height: 60px; font-size: 19px; font-weight: 800; color: #fff; background: #1b3a52; border: 2px solid rgba(255,255,255,.35); border-radius: 14px; }
+#sndAsk button.yes { background: var(--ok); border-color: var(--ok); }
+#sndAsk button.no { background: var(--bad); border-color: var(--bad); }
+.snd-line { display: block; width: 100%; margin: 8px 0 0; padding: 9px 10px; border-radius: 10px; border: 2px solid #b07a00; background: #fff7e0; color: #5c3f00; font-weight: 700; text-align: center; }
+.snd-line.bad { border-color: var(--bad); background: #fdeaea; color: #8f1d1e; }
+.snd-line[hidden] { display: none; }
 .ord { display: inline-grid; place-items: center; min-width: 24px; height: 24px; padding: 0 6px; border-radius: 12px; background: var(--bg); color: #fff; font-size: 13px; margin-right: 4px; }
 
 /* relevé de vent */
@@ -223,19 +241,27 @@ body.startmode-open { overflow: hidden; }
 #startMode button { font: inherit; color: var(--sm-fg); background: var(--sm-btn); border: 2px solid var(--sm-bd); border-radius: 14px; font-weight: 700; touch-action: manipulation; min-height: 56px; display: grid; place-content: center; gap: 2px; text-align: center; }
 #startMode button small { font-size: 12px; font-weight: 500; color: var(--sm-mut); }
 #startMode button:active { filter: brightness(1.35); }
-.sm-top { display: grid; grid-template-columns: 52px minmax(0, 1fr) auto 52px 52px; gap: 6px; align-items: center; min-width: 0; }
+.sm-top { display: grid; grid-template-columns: 52px minmax(0, 1fr) 52px 52px; gap: 6px; align-items: center; min-width: 0; }
 #startMode .sm-x, #startMode .sm-gear, #startMode .sm-lock { width: 52px; height: 56px; font-size: 22px; padding: 0; }
 .sm-views { min-width: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 4px; background: var(--sm-tile); border-radius: 14px; padding: 4px; }
 #startMode .sm-views button { min-width: 0; min-height: 48px; border: 0; background: transparent; font-size: 15px; padding: 0 2px; color: var(--sm-mut); }
 #startMode .sm-views button.on { background: var(--sm-btn); color: var(--sm-fg); }
-.sm-gps { font-size: 12px; font-weight: 700; padding: 6px 6px; border-radius: 10px; background: var(--sm-tile); white-space: nowrap; }
-.sm-gps.good { color: var(--sm-good); } .sm-gps.warn { color: var(--sm-warn); } .sm-gps.bad { color: var(--sm-bad); }
+/* voyant (FIAB-05) : quatre lampes sur une seconde ligne de la barre du haut, lisibles sur 375 px, aussi en « Plein soleil » */
+.sm-lamps { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(4, auto); justify-content: space-between; gap: 4px; min-width: 0; }
+#startMode .sm-lamps .lamp { display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 3px 9px; border-radius: 999px; font-size: 13px; font-weight: 800; background: var(--sm-tile); border: 2px solid var(--sm-bd); color: var(--sm-fg); }
+#startMode .lamp i { background: var(--sm-mut); }
+#startMode .lamp.ok i { background: var(--sm-good); } #startMode .lamp.warn i { background: var(--sm-warn); } #startMode .lamp.bad i { background: var(--sm-bad); }
+#startMode .lamp.warn { border-color: var(--sm-warn); } #startMode .lamp.bad { border-color: var(--sm-bad); color: var(--sm-bad); } #startMode .lamp.off { color: var(--sm-mut); }
 .sm-main { display: grid; grid-template-rows: auto auto 1fr; gap: 8px; min-height: 0; }
 .sm-clockbox { text-align: center; line-height: 1; }
 .sm-clock { font-size: min(26vw, 13.5dvh); font-weight: 900; letter-spacing: -.03em; }
 #startMode.sm-last .sm-clock { color: var(--sm-acc); }
 #startMode.sm-gun .sm-clock { color: var(--sm-good); }
 .sm-phase { font-size: 17px; font-weight: 600; color: var(--sm-mut); margin-top: 2px; }
+#startMode .sm-alert { display: flex; align-items: center; justify-content: center; gap: 12px; margin: 6px auto 0; min-height: 44px; padding: 4px 12px; font-size: 15px; line-height: 1.2; border-color: var(--sm-warn); color: var(--sm-warn); }
+#startMode .sm-alert.bad { border-color: var(--sm-bad); color: var(--sm-bad); }
+#startMode .sm-alert b { color: var(--sm-fg); text-decoration: underline; white-space: nowrap; }
+#startMode .sm-alert[hidden] { display: none; }
 .sm-fav { display: grid; grid-template-columns: 34px 1fr 34px; align-items: center; text-align: center; min-height: 46px; border-radius: 14px; background: var(--sm-tile); font-size: 19px; }
 .sm-fav b { font-weight: 800; } .sm-fav span { font-size: 24px; }
 .sm-fav.pin, .sm-fav.cb { background: color-mix(in srgb, var(--sm-good) 22%, var(--sm-tile)); color: var(--sm-good); }
@@ -323,3 +349,24 @@ body.startmode-open { overflow: hidden; }
 #startMode.sm-race .sm-row { grid-template-columns: 1fr 1fr; }
 #startMode > * { min-width: 0; }
 a.btn { text-decoration: none; display: inline-flex; align-items: center; }
+/* journal de diagnostic (Aide) : texte brut sélectionnable, jamais du HTML */
+#modal.journal pre.diagtext { white-space: pre-wrap; word-break: break-word; font-size: 11.5px; max-height: 52vh; overflow: auto; background: #f2f6fa; padding: 8px; border-radius: 8px; user-select: text; -webkit-user-select: text; }
+
+/* voyant (FIAB-05) : lampes communes au mode départ et à la bande « en course » ; rouge pulsé à 1 Hz, jamais de son */
+.lamps { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
+.lamp { display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 4px 10px; border-radius: 999px; border: 2px solid rgba(255,255,255,.28); background: transparent; color: #fff; font: inherit; font-size: 13px; font-weight: 800; white-space: nowrap; touch-action: manipulation; }
+.lamp i { width: 12px; height: 12px; border-radius: 50%; background: #8fa3b3; flex: none; }
+.lamp.ok i { background: var(--ok); } .lamp.warn i { background: var(--warn); } .lamp.bad i { background: var(--bad); }
+.lamp.warn { border-color: var(--warn); } .lamp.bad { border-color: var(--bad); color: #ffc9c9; } .lamp.off { color: #8fa3b3; }
+.lamp.bad i { animation: lamp-pulse 1s ease-in-out infinite; }
+@keyframes lamp-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .2; } }
+@media (prefers-reduced-motion: reduce) { .lamp.bad i { animation: none; } }
+/* bande « en course » : au même endroit que #updbar (masqué en course), sous la barre du haut */
+#raceBar { position: fixed; left: 50%; transform: translateX(-50%); top: calc(var(--topH) + var(--safeT) + 6px); z-index: 55; display: grid; gap: 6px; width: max-content; max-width: calc(100vw - 12px); padding: 6px 8px; background: var(--bg); color: #fff; border: 2px solid #2a4556; border-radius: 12px; box-shadow: 0 6px 20px rgba(0,0,0,.35); }
+#raceBar[hidden] { display: none; }
+.rb-alert { display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 44px; padding: 6px 10px; border-radius: 10px; border: 2px solid var(--warn); background: transparent; color: #ffe7a6; font: inherit; font-size: 14px; font-weight: 700; line-height: 1.2; text-align: left; touch-action: manipulation; }
+.rb-alert.bad { border-color: var(--bad); color: #ffd0d0; }
+.rb-alert b { color: #fff; text-decoration: underline; white-space: nowrap; }
+.rb-alert[hidden] { display: none; }
+#raceBar .lamps { gap: 4px; }
+#raceBar .lamp { gap: 5px; min-height: 34px; padding: 3px 8px; font-size: 12px; }

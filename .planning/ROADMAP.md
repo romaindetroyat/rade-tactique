@@ -18,7 +18,7 @@ Rade Tactique existe déjà et a gagné la Coupe SNPM le 18/10/2026. Ce jalon la
 Les phases décimales s'intercalent entre les phases entières qui les entourent, dans l'ordre numérique.
 
 - [x] **Phase 1: Mises en ligne sans risque** - Tests des calculs et de l'accès, porte de déploiement, version et fichiers hors réseau générés, mise à jour jamais appliquée en course, import PDF sûr (completed 2026-10-19)
-- [ ] **Phase 2: Fiable et juste en mer** - Bips à la seconde, alerte son coupé, voyant d'état, ouverture rapide hors réseau, journal de diagnostic, bouées douteuses signalées et recalables
+- [x] **Phase 2: Fiable et juste en mer** - Bips à la seconde, alerte son coupé, voyant d'état, ouverture rapide hors réseau, journal de diagnostic, bouées douteuses signalées et recalables (completed 2026-10-19)
 - [ ] **Phase 3: Ouvrir une régate** - Tout équipier crée l'épreuve, ses manches et ses IC relues ; vent du jour figé, fiche de régate, GPX rattaché et débrief lancé
 - [ ] **Phase 4: Archive partagée** - Régates en ligne, privées, synchronisées entre les appareils de l'équipage et lisibles hors réseau (phase coupable)
 
@@ -65,7 +65,24 @@ Plans:
   4. Après une sortie, un équipier ouvre le journal de diagnostic dans l'app et y lit les erreurs survenues en mode départ et en mode course, avec leur heure.
   5. Une bouée dont la position n'est pas confirmée est signalée sur la carte, dans les parcours et en mode départ ; un équipier la recale par un point GPS au passage ou par saisie, et la bouée affiche ensuite la source et la date de sa position.
 
-**Plans**: TBD
+**Plans:** 5/5 plans complete
+
+Plans:
+**Wave 1**
+- [x] 02-01-PLAN.md — Chrono fiable : bips posés sur l'horloge audio, son vérifié (« Tester le son »), flash plein écran, verrou d'écran unique et honnête (vague 1)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+- [x] 02-02-PLAN.md — Journal de diagnostic (Aide › Journal) et voyant GPS / écran / son / réseau en mode départ et en course (vague 2)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+- [x] 02-03-PLAN.md — Ouverture < 2 s hors réseau : interface utile d'abord, 3D différée, vent par tranches, recalculs automatiques reportés pendant la séquence (gestes et relevés immédiats), mesure Chromium (vague 3)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+- [x] 02-04-PLAN.md — Bouées à confirmer signalées et recalées (sommet du virage au débrief, D-02 amendé, ou saisie), source et date affichées (vague 4)
+
+**Wave 5** *(blocked on Wave 4 completion)*
+- [x] 02-05-PLAN.md — Guide de l'équipage à jour, mesures Chromium obligatoires, v27 sur l'aperçu `apercu-phase-02` (vague 5)
+
 **UI hint**: yes
 
 ### Phase 3: Ouvrir une régate
@@ -106,6 +123,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Mises en ligne sans risque | 4/4 | Complete    | 2026-10-19 |
-| 2. Fiable et juste en mer | 0/TBD | Not started | - |
+| 2. Fiable et juste en mer | 5/5 | Complete    | 2026-10-19 |
 | 3. Ouvrir une régate | 0/TBD | Not started | - |
 | 4. Archive partagée | 0/TBD | Not started | - |

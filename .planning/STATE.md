@@ -1,19 +1,19 @@
 ---
 gsd_state_version: "1.0"
-current_phase: 2
-current_phase_name: Fiable et juste en mer
+current_phase: 3
+current_phase_name: Ouvrir une régate
 status: planning
-stopped_at: Phase 1 complete, ready to plan Phase 2
-last_updated: "2026-10-19T12:18:08.971Z"
+stopped_at: Phase 2 complete, ready to plan Phase 3
+last_updated: "2026-10-19T17:25:44.816Z"
 last_activity: 2026-10-19
-last_activity_desc: Phase 1 complete, transitioned to Phase 2
-state_head: 0924efdad40255d702cb33b3431b5d9559220cee
+last_activity_desc: Phase 2 complete, transitioned to Phase 3
+state_head: a71b921cfe78145f798513ed8aefa7411d7ae955
 progress:
   total_phases: 4
-  completed_phases: 1
-  total_plans: 4
-  completed_plans: 4
-  percent: 25
+  completed_phases: 2
+  total_plans: 9
+  completed_plans: 9
+  percent: 50
 ---
 
 # Project State
@@ -23,21 +23,21 @@ progress:
 See: .planning/PROJECT.md (updated 2026-10-19)
 
 **Core value:** Le jour de la régate, l'équipage peut ouvrir l'épreuve, s'en servir en mer sans que rien ne lâche, et retrouver ensuite le débrief : des conseils et des chiffres justes, fiables sur l'eau, et partagés par tout l'équipage.
-**Current focus:** Phase 1 — Mises en ligne sans risque
+**Current focus:** Phase 2 — Fiable et juste en mer
 
 ## Current Position
 
-Phase: 2 — Fiable et juste en mer
+Phase: 3 — Ouvrir une régate
 Plan: Not started
 Status: Ready to plan
-Last activity: 2026-10-19 — Phase 1 complete, transitioned to Phase 2
+Last activity: 2026-10-19 — Phase 2 complete, transitioned to Phase 3
 
-Progress: [███░░░░░░░] 25%
+Progress: [█████░░░░░] 50%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 4
+- Total plans completed: 9
 - Average duration: -
 - Total execution time: 0 hours
 
@@ -46,6 +46,7 @@ Progress: [███░░░░░░░] 25%
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 1 | 4 | - | - |
+| 2 | 5 | - | - |
 
 **Recent Trend:**
 - Last 5 plans: -
@@ -58,6 +59,11 @@ Progress: [███░░░░░░░] 25%
 | Phase 01 P01 | 5 min | 3 tasks | 11 files |
 | Phase 01 P02 | 3 min | 2 tasks | 7 files |
 | Phase 01 P03 | 13 min | 2 tasks | 9 files |
+| Phase 02 P01 | 69 min | 3 tasks | 13 files |
+| Phase 02 P02 | 20 min | 2 tasks | 14 files |
+| Phase 02 P03 | 40 min | 2 tasks | 13 files |
+| Phase 02 P04 | 13 min | 2 tasks | 10 files |
+| Phase 02 P05 | 25 min | 1 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -77,6 +83,19 @@ Décisions récentes qui orientent le travail en cours :
 - [Phase 01]: 01-02 : pdf.js précaché (import d'IC hors réseau) ; stamp --check strict seulement en production ou RT_STRICT=1 ; le hachage de version exclut release.json et js/version.js
 - [Phase 01]: Bandeau de mise à jour placé sous la barre du haut (ne masque ni ⟳ ni ?), texte posé par textContent
 - [Phase 01]: Verrou : « course finie » et inactivité ne comptent que le même jour de Paris (régate de plusieurs jours, D-15) ; état dans localStorage rade.racelock
+- [Phase 02]: 02-01 : tolérance de recalage des bips resserrée à 12 ms (l’horloge audio de Chromium dérive d’environ 1,5 ms/s ; avec 30 ms et 8 s d’avance des bips sonnaient à 31-34 ms)
+- [Phase 02]: 02-01 : mesure Chromium des bips rejouée jusqu’à 3 fois (glissements de l’horloge audio de la machine de mesure) ; un vrai défaut échoue à chaque tentative (contrôle négatif réalisé)
+- [Phase 02]: 02-01 : chrono repris après un rechargement (rade.timer.v1, borné à H+10 min) ; réactivation du son et redemande du verrou d’écran sur pointerdown et pointerup
+- [Phase 02]: 02-02 : la lampe réseau suit le résultat de la sonde HEAD (jamais navigator.onLine seul) et n’est jamais rouge — Un GET serait servi par le cache du worker et dirait « réseau ok » en mode avion ; une sonde sans réponse passe la lampe à l’orange tout de suite
+- [Phase 02]: 02-02 : garde de test « aucune erreur avalée » sur app, track, startmode, wakelock et beeper : tout gestionnaire consigne (report / note) ou explique son repli par un commentaire — FIAB-07 : plus aucun échec du chemin départ / course sans trace
+- [Phase 02]: 02-02 : mode départ, quatre lampes sur une seconde ligne de la barre du haut ; ligne d’action = lampe touchée, sinon première lampe rouge, sinon alerte du chrono — Quatre lampes ne tiennent pas sur la ligne des boutons à 375 px
+- [Phase 02]: L’interface utile s’affiche avant la 3D et le vent : import différé de scene3d.js, gardes, marques rt:ui / rt:map (FIAB-06)
+- [Phase 02]: Le champ de vent est préparé dans prepareField par tranches de 12 ms (kitSteps / warm) derrière autoHeavy ; computeField est mémoïsé, fieldKey remis à null par refreshObs et le débrief
+- [Phase 02]: Seuls les recalculs automatiques (ouverture, prévisions sans geste) sont reportés de H−6 min à H+1 min ; gestes et relevés calculent tout de suite (garde statique W4)
+- [Phase 02]: L’outil de mesure neutralise le dessin et le téléversement WebGL : le rendu logiciel de Chromium sans tête fausse les mesures
+- [Phase 02]: Bouées : recalage par la trace = sommet du virage + 14 m vers l’intérieur, jusqu’à 3 candidats, ±20 m, passage au plus près pour information, aucun candidat sans virage net (D-02 amendé) ; mesures SNPM 26,3 m (marque 7) et 30,8 m (marque 6), simulation p90 18,7 m
+- [Phase 02]: 02-04 : recalages de bouées dans localStorage rade.marks.v1 (ce téléphone seulement, D-04), appliqués à MARKS seulement par js/app.js (début d’init et juste après un recalage validé), jamais dans les tests ; saisie bornée à la rade, confirmation au-delà de 2 Nq
+- [Phase 02]: 02-05 : v27 publiée sur l’aperçu apercu-phase-02 ; main inchangé (2a5c5df), mise en production laissée à Romain (avant le gel du 2 novembre, jamais après le 5 novembre au matin)
 
 ### Pending Todos
 
@@ -101,6 +120,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-10-19T11:31:04.153Z
-Stopped at: Phase 1 complete, ready to plan Phase 2
+Last session: 2026-10-19T17:25:05.815Z
+Stopped at: Phase 2 complete, ready to plan Phase 3
 Resume file: None

@@ -5,14 +5,16 @@
 
 import { toXY, toLL, bearingXY, distXY, fromBearing, norm180, norm360, fmtBrg, cardinal } from './geo.js';
 import { boatSpeed, optimalAngles } from './polar.js';
+import { report } from './journal.js';
+import { actionLabel, lampLabel } from './status.js';
 
 const J80 = 8; // longueur de coque (m), pour exprimer les écarts en longueurs
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const fmtS = (s) => { const a = Math.abs(Math.round(s)); return a >= 60 ? `${Math.floor(a / 60)}:${String(a % 60).padStart(2, '0')}` : `${a} s`; };
 
 export function createStartMode(api) {
-  // api : { S, persist, line(), windAt(p), timer, beep, audioInit, startGps, gps(), say, setLineEnd, toast }
-  let root = null, lock = null, raf = null, compass = null, compassOn = false, lastSaid = null;
+  // api : { S, persist, line(), windAt(p), timer, wake, beep, audioInit, audioRelease, testSound, chronoAlert, fixAlert, status(), fixLamp(act), lampTouch(id), startGps, gps(), say, setLineEnd, toast }
+  let root = null, raf = null, compass = null, compassOn = false, lastSaid = null;
   const st = { crossed: null, ocs: false };
 
   const line = () => {
@@ -75,7 +77,7 @@ export function createStartMode(api) {
     }
     // après le départ : marque suivante et bascules par rapport au vent de référence
     const fm = api.firstMark?.();
-    if (fm) { out.mk = { d: distXY(b, fm), brg: bearingXY(b, fm), name: fm.name }; }
+    if (fm) { out.mk = { d: distXY(b, fm), brg: bearingXY(b, fm), name: fm.name, doubt: !!fm.doubt }; }
     if (w && q.cog != null && q.sog > 1.5) {
       const twa = norm180(q.cog - w.dir), up = optimalAngles(Math.max(2, w.spd)).up.twa;
       if (Math.abs(twa) < 70) {
@@ -95,15 +97,16 @@ export function createStartMode(api) {
     api.audioInit(); api.startGps();
     if (!root) build();
     root.hidden = false; document.body.classList.add('startmode-open');
-    try { document.documentElement.requestFullscreen?.({ navigationUI: 'hide' }).catch(() => {}); } catch { /* plein écran non disponible (iPhone : installer l’app sur l’écran d’accueil) */ }
-    try { navigator.wakeLock?.request('screen').then((l) => { lock = l; }).catch(() => {}); } catch { /* sans verrou d’écran */ }
+    try { document.documentElement.requestFullscreen?.({ navigationUI: 'hide' }).catch(() => { /* plein écran refusé ou indisponible (iPhone) : sans conséquence */ }); } catch { /* plein écran non disponible (iPhone : installer l’app sur l’écran d’accueil) */ }
+    api.wake.want('startmode');      // verrou d’écran partagé (js/wakelock.js) : redemandé au retour de visibilité, sur geste et toutes les 15 s
     loop();
   }
   function close() {
     if (root) root.hidden = true; document.body.classList.remove('startmode-open');
     cancelAnimationFrame(raf); raf = null;
     try { if (document.fullscreenElement) document.exitFullscreen?.(); } catch { /* déjà sorti */ }
-    try { lock?.release(); } catch { /* déjà libéré */ } lock = null;
+    api.wake.drop('startmode');
+    if (api.timer.end == null) api.audioRelease?.();     // session audio « playback » remise à « auto » quand plus rien n’en a besoin
     stopCompass();
   }
   function build() {
@@ -112,12 +115,13 @@ export function createStartMode(api) {
       <div class="sm-top">
         <button class="sm-x" data-a="close" aria-label="Fermer le mode départ">✕</button>
         <div class="sm-views"><button data-a="vnum" class="on">Chiffres</button><button data-a="vline">Ligne</button></div>
-        <span class="sm-gps" id="smGps">GPS…</span>
         <button class="sm-lock" data-a="lock" id="smLock" aria-label="Verrouiller l’écran">🔓</button>
         <button class="sm-gear" data-a="gear" aria-label="Réglages">⚙</button>
+        <div class="sm-lamps" id="smLamps" role="status" aria-label="État du GPS, de l’écran, du son et du réseau">${['gps', 'screen', 'sound', 'net'].map((id) => `<button type="button" class="lamp off" data-a="lamp" data-id="${id}"><i></i><b></b></button>`).join('')}</div>
       </div>
       <div class="sm-main">
-        <div class="sm-clockbox" data-a="clock" data-lockhold="clock"><div class="sm-clock" id="smClock">5:00</div><div class="sm-phase" id="smPhase">Touchez DÉPART 5’ au signal</div></div>
+        <div class="sm-clockbox" data-a="clock" data-lockhold="clock"><div class="sm-clock" id="smClock">5:00</div><div class="sm-phase" id="smPhase">Touchez DÉPART 5’ au signal</div>
+          <button class="sm-alert" id="smAlert" data-a="alert" hidden><span></span><b></b></button></div>
         <div class="sm-fav" id="smFav"><span class="l"></span><b></b><span class="r"></span></div>
         <div class="sm-num" id="smNumView">
           <div class="sm-big" id="smDist"><span>Ligne</span><b>—</b><small></small></div>
@@ -151,6 +155,7 @@ export function createStartMode(api) {
             <div class="sm-stepper"><span>GPS → étrave</span><button data-a="bm">−</button><b id="smBowV">5 m</b><button data-a="bp">+</button></div>
             <div class="sm-grid2"><button data-a="voice" id="smVoice">Voix</button><button data-a="sun" id="smSun">Plein soleil</button></div>
             <div class="sm-grid2"><button data-a="bips" id="smBips">Bips</button><button data-a="help" id="smHelpBtn">Aide</button></div>
+            <div class="sm-grid2"><button data-a="sndtest" id="smSndTest">🔊 Tester le son</button><button data-a="flash" id="smFlash">⚡ Flash visuel</button></div>
             <button data-a="rules" class="sm-wide">Règles du départ (P, I, U, Z, noir)</button>
             <small class="sm-hint" id="smPinged"></small></div>
         </div>
@@ -161,6 +166,7 @@ export function createStartMode(api) {
       const a = e.target.closest('[data-a]')?.dataset.a; if (!a) return;
       if (locked && a !== 'lock') return; // écran verrouillé : seuls les appuis maintenus agissent
       if (locked && a === 'lock') return;  // déverrouillage par appui maintenu
+      if (a === 'lamp') { api.lampTouch?.(e.target.closest('[data-a]').dataset.id); render(); return; }     // détail de la lampe touchée dans la ligne #smAlert
       act(a);
     });
     // écran verrouillé : synchro et déverrouillage par appui maintenu (0,6 s)
@@ -186,12 +192,15 @@ export function createStartMode(api) {
     updateToggles();
   }
   let view = 'num', locked = false;
-  function setT(sec) { api.audioInit(); api.timer.end = Date.now() + sec * 1000; api.timer.beeps.clear(); api.startTimer(); st.crossed = null; st.ocs = false; lastSaid = null; }
+  function setT(sec) { api.audioInit(); api.timer.end = Date.now() + sec * 1000; api.startTimer(); st.crossed = null; st.ocs = false; lastSaid = null; }
   function act(a) {
     const T = api.timer, $ = (s) => root.querySelector(s);
     if (a === 'close') return close();
     if (a === 'lock') { locked = true; root.classList.add('locked'); $('#smSheet').hidden = true; updateToggles(); api.toast?.('Écran verrouillé : maintenir 🔒 pour déverrouiller'); return; }
     if (a === 'clock') { if (T.end && T.end > Date.now() - 600000) { const r = (T.end - Date.now()) / 1000; T.end = Date.now() + Math.round(r / 60) * 60000; api.beep(1000, 0.1); } return; }
+    if (a === 'alert') return api.fixLamp?.($('#smAlert').dataset.act);
+    if (a === 'sndtest') { $('#smSheet').hidden = true; return api.testSound?.(); }
+    if (a === 'flash') { api.S.startFlash = api.S.startFlash === false; api.persist(); updateToggles(); return; }
     if (a === 'bips') { api.S.startBips = !(api.S.startBips ?? true); api.persist(); updateToggles(); return; }
     if (a === 'help') { $('#smSheet').hidden = true; return api.help?.(); }
     if (a === 'rules') { $('#smSheet').hidden = true; return window.open('regles.html#depart', '_blank', 'noopener'); }
@@ -215,6 +224,7 @@ export function createStartMode(api) {
     if (!root) return;
     root.querySelector('#smVoice').textContent = (api.S.startVoice ?? true) ? '🔊 Voix activée' : '🔇 Voix coupée';
     root.querySelector('#smSun').textContent = api.S.startSun ? '☀ Plein soleil' : '🌙 Écran sombre';
+    root.querySelector('#smFlash').textContent = api.S.startFlash !== false ? '⚡ Flash visuel' : '⚡ Flash coupé';
     root.querySelector('#smBips').textContent = (api.S.startBips ?? true) ? '📶 Bips à brûler' : '🔕 Sans bips';
     root.querySelector('#smLock').textContent = locked ? '🔒' : '🔓';
     root.querySelector('#smBowV').textContent = `${String(api.S.bowOffset ?? 5).replace('.', ',')} m`;
@@ -234,7 +244,7 @@ export function createStartMode(api) {
     };
     if (q && Date.now() - q.t < 4000) return done(bow(q), q.acc);
     if (!navigator.geolocation) return api.toast('GPS indisponible');
-    navigator.geolocation.getCurrentPosition((p) => done(toXY(p.coords.latitude, p.coords.longitude), p.coords.accuracy), (e) => api.toast('GPS : ' + e.message), { enableHighAccuracy: true, timeout: 15000 });
+    navigator.geolocation.getCurrentPosition((p) => done(toXY(p.coords.latitude, p.coords.longitude), p.coords.accuracy), (e) => { report('gps', 'ping : code ' + e.code + ' : ' + e.message); api.toast('GPS : ' + e.message); }, { enableHighAccuracy: true, timeout: 15000 });
   }
   // vent par les deux bords de près : bissectrice des routes fond tribord et bâbord
   function tackHeading(side) {
@@ -253,7 +263,7 @@ export function createStartMode(api) {
       if (typeof DeviceOrientationEvent !== 'undefined' && DeviceOrientationEvent.requestPermission) {
         const r = await DeviceOrientationEvent.requestPermission(); if (r !== 'granted') return api.toast('Accès au compas refusé');
       }
-    } catch { return api.toast('Compas indisponible'); }
+    } catch (e) { report('compas', e); return api.toast('Compas indisponible'); }
     if (!compassOn) {
       compass = null; compassOn = true;
       window.addEventListener('deviceorientation', onOrient, true);
@@ -271,10 +281,24 @@ export function createStartMode(api) {
   function render() {
     if (!root || root.hidden) return;
     const m = metrics(), $ = (s) => root.querySelector(s);
-    const g = api.gps();
-    const acc = g?.pos?.acc;
-    $('#smGps').textContent = g?.pos ? `±${Math.round(acc ?? 0)} m` : g?.err ? 'GPS ✕' : 'GPS…';
-    $('#smGps').className = 'sm-gps ' + (!g?.pos ? 'bad' : acc > 15 ? 'warn' : 'good');
+    // voyant : quatre lampes (GPS, écran, son, réseau) ; la ligne d’action montre la lampe touchée, sinon la première lampe rouge, sinon l’alerte du chrono
+    const v = api.status?.();
+    if (v) $('#smLamps').querySelectorAll('.lamp').forEach((b) => {
+      const l = v.lamps.find((x) => x.id === b.dataset.id); if (!l) return;
+      const t = lampLabel(l), c = 'lamp ' + l.level;
+      if (b.lastChild.textContent !== t) b.lastChild.textContent = t;
+      if (b.className !== c) b.className = c;
+    });
+    let al = null;
+    if (v?.pick) al = { text: `${v.pick.text} : ${v.pick.detail}`, act: v.pick.act, bad: v.pick.level === 'bad' };
+    else { const c = api.chronoAlert?.(); if (c) al = { text: c.text, act: c.act, bad: c.act !== 'test' }; }
+    const ab = $('#smAlert');
+    ab.hidden = !al;
+    if (al) {
+      ab.dataset.act = al.act || ''; ab.className = 'sm-alert ' + (al.bad ? 'bad' : 'warn');
+      if (ab.firstChild.textContent !== al.text) ab.firstChild.textContent = al.text;
+      ab.lastChild.textContent = actionLabel(al.act);
+    }
     // chrono et bouton principal
     const r = m.rem, go = $('#smGo');
     if (r == null) { $('#smClock').textContent = '5:00'; $('#smPhase').textContent = 'Touchez DÉPART 5’ au signal'; go.innerHTML = '<b>DÉPART 5’</b><small>au signal</small>'; }
@@ -310,8 +334,8 @@ export function createStartMode(api) {
     // en course (15 s après le signal) : marque suivante et bascules à la place de la ligne et du temps à brûler
     const lab = (id, t) => { $(id).querySelector('span').textContent = t; };
     if (race) {
-      lab('#smDist', m.mk ? `Marque ${m.mk.name}` : 'Marque suivante');
-      if (m.mk) big('#smDist', m.mk.d >= 1852 ? `${(m.mk.d / 1852).toFixed(1).replace('.', ',')} Nq` : `${Math.round(m.mk.d)} m`, `au ${fmtBrg(m.mk.brg)}`, '');
+      lab('#smDist', m.mk ? `Marque ${m.mk.name}${m.mk.doubt ? ' ?' : ''}` : 'Marque suivante');
+      if (m.mk) big('#smDist', m.mk.d >= 1852 ? `${(m.mk.d / 1852).toFixed(1).replace('.', ',')} Nq` : `${Math.round(m.mk.d)} m`, `au ${fmtBrg(m.mk.brg)}${m.mk.doubt ? '\nposition à confirmer' : ''}`, m.mk.doubt ? 'warn' : '');
       lab('#smBurn', 'Bascule');
       if (m.shift != null) big('#smBurn', `${m.shift >= 0 ? '+' : '−'}${Math.abs(Math.round(m.shift))}°`, Math.abs(m.shift) < 4 ? 'dans l’axe' : m.shift > 0 ? 'ADONNE' : 'REFUSE', Math.abs(m.shift) < 4 ? '' : m.shift > 0 ? 'good' : 'bad');
       else big('#smBurn', '—', 'au près seulement', '');

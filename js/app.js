@@ -1,8 +1,8 @@
 // Rade Tactique — application principale.
 
+import { report, note, setContext } from './journal.js';
 import { Terrain, toXY, toLL, NM, bearingXY, distXY, norm360, norm180, fmtBrg, fmtNm, fmtLat, fmtLon, cardinal } from './geo.js';
 import { WindField, speedColor } from './wind.js';
-import { Scene3D } from './scene3d.js';
 import { MARKS, COURSES, LINE_PRESETS, FORBIDDEN_ZONE, DANGERS } from './courses.js';
 import { eventsState, currentEvent, setCurrent, upsertEvent, removeEvent, pdfText, parseIC, eventForm, readForm } from './events.js';
 import { fetchAll, cached, snapshot, consensus, gridPoints, marineAt, fetchLive, MODELS, WMO, CENTER } from './weather.js';
@@ -17,7 +17,12 @@ import { Recorder, listTracks, getTrack, deleteTrack, saveTrack, analyzeTrack, e
 import { shroudsFor } from './tuning.js';
 import { createStartMode } from './startmode.js';
 import { initUpdates } from './swupdate.js';
-import { isActive, isRaceDay, lockState } from './racelock.js';
+import { createBeeper, audioAlive, milestones, KEY } from './beeper.js';
+import { candidates, ACCURACY_M } from './markfit.js';
+import { MAX_MOVE_M, DOUBT, parseLatLon, loadOverrides, saveOverride, clearOverride, applyOverrides, restoreMark } from './marks.js';
+import { createWakeLock } from './wakelock.js';
+import { computeStatus, lampLabel, actionLabel, GPS_STALE_S } from './status.js';
+import { isActive, isRaceDay, lockState, heavyPaused, HEAVY_AFTER_MS } from './racelock.js';
 import { detect as dbDetect, ask as dbAsk, askModes as dbAskModes, analyze as dbAnalyze, narrative as dbNarrative, buildReport as dbBuild, shareReport as dbShare } from './debrief.js';
 
 const $ = (s, r = document) => r.querySelector(s);
@@ -30,7 +35,8 @@ const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const hhmm = (h) => `${String(Math.floor(h)).padStart(2, '0')}:${String(Math.round((h % 1) * 60)).padStart(2, '0')}`;
 const arrow = (dir) => `<span class="arr" style="transform:rotate(${dir + 180}deg)">↑</span>`;
-const store = { get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch { return d; } }, set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* indisponible */ } } };
+const store = { get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch { return d; /* valeur absente ou illisible : la valeur par défaut */ } }, set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* indisponible */ } } };
+const marksStore = () => { try { return localStorage; } catch { return null; /* stockage indisponible : aucun recalage */ } };
 const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 const addDays = (s, n) => { const d = new Date(s + 'T12:00:00'); d.setDate(d.getDate() + n); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 const dayName = (s) => new Date(s + 'T12:00:00').toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
@@ -38,7 +44,7 @@ const dayName = (s) => new Date(s + 'T12:00:00').toLocaleDateString('fr-FR', { w
 const DEF = {
   day: today(), hour: 11, src: 'forecast', manual: { dir: 315, spd: 15, gust: 20 }, calib: null, localFx: 1, obs: [], modelSel: 'auto', nowcast: true,
   courseId: 3, cls: 'G', laps: 2, wlNm: 0.8, startTime: 11, linePreset: 'vignettes', lineLen: 0.12, lineMode: 'wind', lineBrg: 0, lineOverride: null,
-  perf: 1, polar: null, obsOpen: true,
+  perf: 1, polar: null, obsOpen: true, startFlash: true,
 };
 const S = { ...DEF, ...store.get('rade.state', {}) };
 let IC = currentEvent();
@@ -58,10 +64,59 @@ const persist = () => store.set('rade.state', Object.fromEntries(Object.keys(DEF
 let T, F, scene, data = null, series = [], live = [], analysis = null, selLeg = null, gps = null, follow = false, nextIdx = 0;
 const forbidden = [FORBIDDEN_ZONE.map((p) => toXY(p.lat, p.lon))];
 
-if (S.polar) { try { setPolar(S.polar.tws, S.polar.twa, S.polar.bsp, S.polar.source); } catch { S.polar = null; } }
+if (S.polar) { try { setPolar(S.polar.tws, S.polar.twa, S.polar.bsp, S.polar.source); } catch (e) { S.polar = null; report('polaire', e); } }
 
 // ───────────────────────── démarrage
+// En deux temps (FIAB-06). Temps 1, synchrone : onglets, Départ (chrono, « Mode départ »), En course (GPS, trace), voyant, mises à jour
+// différées, puis retrait du splash : rien n’attend le terrain, la 3D ni le champ de vent. Temps 2, après une image : la 3D (import différé,
+// three.js pèse 691 Ko), le terrain, le vent, la carte, puis les prévisions du réseau. Marques performance rt:ui (interface utile) et rt:map.
+const nextFrame = () => new Promise((ok) => {
+  let fait = false;
+  const go = () => { if (!fait) { fait = true; setTimeout(ok, 0); } };
+  requestAnimationFrame(go); setTimeout(go, 250);          // page masquée : pas d’image, on n’attend pas
+});
 async function init() {
+  // recalages de bouées de ce téléphone (D-04) : appliqués ici, une seule fois au démarrage, avant toute vue ; jamais dans les tests
+  try { applyOverrides(MARKS, loadOverrides(marksStore())); } catch (e) { report('bouees', e); }
+  // chrono repris après un rechargement ou une relance d’iOS : l’affichage repart tout de suite, le son revient au premier toucher
+  const saved = store.get('rade.timer.v1', null);
+  let resumed = false;
+  if (saved?.end && Date.now() < saved.end + 10 * 60e3) { timer.end = saved.end; startTimer(); resumed = true; }
+  else if (saved?.end) store.set('rade.timer.v1', { end: null });
+  // ── temps 1 : l’interface utile
+  bindShell();
+  renderStart();
+  renderLive();
+  status('Préparation de la carte…');
+  $('#splash').classList.add('gone');
+  performance.mark('rt:ui');
+  if (resumed) toast('Chrono repris — touchez l’écran pour réactiver le son');
+  // réactivation au toucher : le contexte audio ne naît ou ne revient que d’un geste (relance d’iOS, écran verrouillé, appel)
+  const reveil = () => {
+    const w = wake.state(); if (w.wanted && !w.held) wake.retry();            // le verrou d’écran se redemande aussi sur geste
+    if (timer.end == null && !startMode.isOpen()) return;
+    if (!actx || actx.state !== 'running' || snd.alive === false) audioInit();
+  };
+  document.addEventListener('pointerdown', reveil, true); document.addEventListener('pointerup', reveil, true);
+  const redemande = () => { const w = wake.state(); if (w.wanted && !w.held) wake.retry(); };
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) redemande(); });
+  setInterval(redemande, 15000);
+  // mise à jour différée : bandeau hors course, application sur geste seulement (js/swupdate.js, js/racelock.js)
+  updates = initUpdates({ isLocked: () => raceLock().locked, onAvailable: showUpdateBar, onHidden: hideUpdateBar });
+  setInterval(raceTick, 5000);
+  setInterval(lampTick, 1000);
+  addEventListener('pagehide', saveRaceActivity);
+  document.addEventListener('visibilitychange', () => { note('page', document.hidden ? 'masquée' : 'visible'); if (document.hidden) saveRaceActivity(); else { lastProbe = Date.now(); probeNet(); renderRaceBar(); } });
+  addEventListener('online', () => { note('reseau', 'en ligne'); probeNet(); });
+  addEventListener('offline', () => { net.online = false; note('reseau', 'hors ligne'); renderRaceBar(); });
+  // ── temps 2 : la carte et le vent
+  await nextFrame();
+  data = cached();
+  const snap = await snapshot();
+  if (snap && (!data || snap.fetched > data.fetched)) data = snap;
+  if (data) series = consensus(data);
+  renderStatic();                                      // onglets Prévisions, Vent, J80 et IC : sans la carte
+  const { Scene3D } = await import('./scene3d.js');
   T = await new Terrain().load('data/');
   F = new WindField(T);
   scene = new Scene3D($('#view'), T);
@@ -69,39 +124,32 @@ async function init() {
   scene.setDangers(forbidden, DANGERS);
   scene.onPick = onPick;
   scene.onCamera = () => { $('#compass .needle').style.transform = `rotate(${-scene.azimuth()}deg)`; };
-  bindUI();
+  bindMap();
   initTips();
-  data = cached();
-  const snap = await snapshot();
-  if (snap && (!data || snap.fetched > data.fetched)) data = snap;
-  if (data) { series = consensus(data); refreshObs(); }
-  updateAll();
-  $('#splash').classList.add('gone');
+  await autoHeavy(prepareField);                       // app ouverte pendant la séquence de départ : reporté après H+1 min
+  performance.mark('rt:map');
   maybeWelcome();
   renderTracks();
-  refreshWeather();
+  refreshWeather(true);
   refreshLive();
   setInterval(refreshLive, 5 * 60000);
-  // mise à jour différée : bandeau hors course, application sur geste seulement (js/swupdate.js, js/racelock.js)
-  updates = initUpdates({ isLocked: () => raceLock().locked, onAvailable: showUpdateBar, onHidden: hideUpdateBar });
-  setInterval(raceTick, 5000);
-  addEventListener('pagehide', saveRaceActivity);
-  document.addEventListener('visibilitychange', () => { if (document.hidden) saveRaceActivity(); });
 }
 
-async function refreshWeather() {
+// auto : téléchargement lancé sans geste (ouverture de l’app) ; son calcul est reporté pendant la séquence de départ. Le bouton ⟳ est un geste : tout de suite.
+async function refreshWeather(auto = false) {
   const b = $('#refresh'); b.classList.add('spin');
   try {
-    data = await fetchAll(); series = consensus(data); refreshObs();
+    data = await fetchAll(); series = consensus(data);
     status();
-    updateAll();
+    await (auto ? autoHeavy(prepareField) : runHeavy(prepareField));
   } catch (e) {
-    if (!data) { data = await snapshot(); if (data) { series = consensus(data); updateAll(); } }
+    note('meteo', 'prévisions indisponibles : ' + (e?.message || e));      // hors réseau : l’instantané embarqué prend le relais
+    if (!data) { data = await snapshot(); if (data) { series = consensus(data); await (auto ? autoHeavy(prepareField) : runHeavy(prepareField)); } }
     status(data ? `Hors ligne — prévisions du ${new Date(data.fetched).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })}` : 'Prévisions indisponibles (réseau)');
   } finally { b.classList.remove('spin'); }
 }
 async function refreshLive() {
-  try { live = await fetchLive(); scene.setStations(live.filter((s) => s.ageMin < 90)); if ($('section[data-tab=brief]').classList.contains('on')) renderBrief(); } catch { /* balises indisponibles */ }
+  try { live = await fetchLive(); scene?.setStations(live.filter((s) => s.ageMin < 90)); if ($('section[data-tab=brief]').classList.contains('on')) renderBrief(); } catch { /* balises indisponibles */ }
 }
 function status(msg) {
   const el = $('#status');
@@ -138,12 +186,13 @@ const modelLabel = (id) => MODELS.find((m) => m.id === id)?.label || id;
 function refreshObs() {
   ranking = data ? scoreModels(data, dayObs()) : [];
   resid = [];
-  if (!data) return;
+  if (!data || !F) return;                   // sans champ de vent (ouverture en cours), seul le classement des modèles se calcule
   const sel = selectedModel();
   for (const o of dayObs()) {
     const pts = modelPoints(data, o.day, o.h, sel);
     if (!pts) continue;
     F.compute({ points: pts }, { localEffects: S.localFx });
+    fieldKey = null;                         // F porte maintenant le vent de ce relevé : le champ affiché sera recalculé
     const p = toXY(o.lat, o.lon), w = F.sample(p.x, p.y);
     o.fit = { dir: w.dir, spd: w.spd };
     resid.push({ h: o.h, dd: norm180(o.dir - w.dir), rr: Math.max(0.3, Math.min(3, o.spd / Math.max(0.8, w.spd))) });
@@ -193,7 +242,7 @@ function renderObs(el) {
           onError: (m) => toast('Micro : ' + m + '. Vous pouvez dicter avec le micro du clavier dans le champ texte.'),
           onEnd: () => { btn.classList.remove('rec'); btn.textContent = '🎤'; },
         });
-      } catch (err) { btn.classList.remove('rec'); btn.textContent = '🎤'; toast('Reconnaissance vocale indisponible ici : utilisez le micro du clavier dans le champ texte.'); }
+      } catch (err) { note('voix', 'reconnaissance vocale indisponible : ' + (err?.message || err)); btn.classList.remove('rec'); btn.textContent = '🎤'; toast('Reconnaissance vocale indisponible ici : utilisez le micro du clavier dans le champ texte.'); }
     },
     onDelete: (i) => { const o = dayObs()[i]; S.obs = S.obs.filter((x) => x !== o); persist(); refreshObs(); updateAll(); },
     onModel: (v) => { S.modelSel = v; persist(); refreshObs(); updateAll(); },
@@ -259,11 +308,36 @@ function blend(a, b, t) {
   return { x: a.x, y: a.y, dir: norm360(Math.atan2(ux, uy) * 180 / Math.PI), spd: (1 - t) * a.spd + t * b.spd, gust: (1 - t) * (a.gust ?? a.spd * 1.3) + t * (b.gust ?? b.spd * 1.3) };
 }
 
-function computeField(day, hour) { return F.compute(baseAt(day, hour), { localEffects: S.localFx }); }
+// fieldOn : F porte un vent calculé (avant cela, F.sample() ne donnerait que des zéros : le mode départ affiche « Vent à relever »)
+let fieldOn = false;
+// Mémoïsé : même base (jour, heure, source, vent manuel, modèle, relevés, intensité du relief, prévisions), rien à recalculer.
+// Au démarrage, l’affichage (S.hour) et l’analyse (S.startTime) demandaient deux fois le même champ. Quiconque écrit dans F d’autre
+// part (refreshObs, débrief) remet fieldKey à null.
+let fieldKey = null;
+function computeField(day, hour) {
+  const key = [day, hour, S.day, S.src, JSON.stringify(S.manual), selectedModel(), S.nowcast, JSON.stringify(resid), S.localFx, data?.fetched].join('|');
+  if (key !== fieldKey) { F.compute(baseAt(day, hour), { localEffects: S.localFx }); fieldKey = key; }
+  fieldOn = true;
+  return F;
+}
+// Prépare le champ de vent par tranches courtes (F.warm) pour que les calculs qui suivent ne figent pas l’interface, puis affiche.
+// L’ordre compte : les relevés fixent le modèle retenu et l’écart appliqué aux bases de l’affichage et du départ.
+async function prepareField() {
+  if (!F) return;
+  ranking = data ? scoreModels(data, dayObs()) : [];
+  if (data) for (const o of dayObs()) { const pts = modelPoints(data, o.day, o.h, selectedModel()); if (pts) await F.warm({ points: pts }); }
+  refreshObs();
+  await F.warm(baseAt(S.day, S.hour));
+  await F.warm(baseAt(S.day, S.startTime));
+  updateAll();
+}
 
 // ───────────────────────── mises à jour
 let anaTimer = null, anaToken = 0;
+// Ce qui s’affiche sans le terrain ni le champ de vent
+function renderStatic() { renderDaySeg(); renderBrief(); renderWind(); renderIC(); renderJ80Tab(); }
 function updateAll() {
+  if (!F || !scene) return;                  // le temps 2 d’init() appelle updateAll() quand ils existent
   status();
   renderDaySeg();
   $('#hour').value = S.hour; $('#hourLbl').textContent = hhmm(S.hour);
@@ -273,6 +347,7 @@ function updateAll() {
   renderBrief(); renderWind(); renderIC(); renderJ80Tab();
 }
 function updateDisplayField() {
+  if (!F || !scene) return;
   computeField(S.day, S.hour);
   scene.setField(F);
   const c = F.sample(toXY(43.088, 5.962).x, toXY(43.088, 5.962).y);
@@ -282,6 +357,7 @@ function updateDisplayField() {
 function scheduleAnalysis() { clearTimeout(anaTimer); anaTimer = setTimeout(runAnalysis, 120); }
 
 async function runAnalysis() {
+  if (!F || !scene) return;
   const token = ++anaToken;
   const course = COURSES.find((c) => c.id === S.courseId);
   const cls = course.seq[S.cls] ? S.cls : 'G';
@@ -323,6 +399,7 @@ async function runAnalysis() {
   let ord = 0;
   legs.forEach((l) => { if (l.mark !== 'GATE' && l.mark !== 'FINISH') l.order = ++ord; });
   analysis = { course, cls, legs, line: B.line, points: B.points, start, total: t - S.startTime, dist: legs.reduce((s, l) => s + l.dist, 0), trend };
+  applyPendingEnds();
   updateDisplayField();
   drawCourse();
   renderCourse(); renderStart(); renderLive(); renderBrief(); renderJ80Tab();
@@ -338,7 +415,7 @@ function drawCourse() {
     const u = used.get(l.mark) || { side: l.side, orders: [] };
     u.orders.push(l.order); used.set(l.mark, u);
   });
-  const marks = { ...MARKS };
+  const marks = Object.fromEntries(Object.entries(MARKS).map(([k, m]) => [k, { ...m, doubt: DOUBT(m) }]));        // « 3 ? » sur la carte (D-01)
   for (const k of ['A', 'B', 'C', 'D']) if (analysis.points[k]) { const ll = toLL(analysis.points[k].x, analysis.points[k].y); marks[k] = { name: analysis.points[k].name, ...ll, color: '#f5c400' }; }
   scene.setMarks(marks, used);
   scene.setLine(analysis.line, analysis.start.startPoint ? [{ ...analysis.start.startPoint, name: '◆ Départ conseillé' }] : []);
@@ -346,11 +423,8 @@ function drawCourse() {
 }
 
 // ───────────────────────── interface : liaisons
-function bindUI() {
-  $('#hour').addEventListener('input', (e) => { S.hour = +e.target.value; $('#hourLbl').textContent = hhmm(S.hour); updateDisplayField(); });
-  $('#hour').addEventListener('change', () => { persist(); renderBrief(); });
-  $('#srcSeg').addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; S.src = b.dataset.src; persist(); updateAll(); });
-  $('#refresh').addEventListener('click', () => { refreshWeather(); refreshLive(); });
+// Liaisons de l’interface utile : onglets, aide, partage, poignée du panneau (aucune n’a besoin de la carte)
+function bindShell() {
   $('#helpBtn').addEventListener('click', openGuide);
   $('#shareBtn').addEventListener('click', () => {
     const base = location.origin + location.pathname;
@@ -363,6 +437,14 @@ function bindUI() {
     $$('#content section').forEach((s) => s.classList.toggle('on', s.dataset.tab === b.dataset.tab));
     if (sheet === 'min') setSheet('half');
   });
+  bindSheet();
+}
+// Liaisons de la carte et du champ de vent : après la création de la 3D
+function bindMap() {
+  $('#hour').addEventListener('input', (e) => { S.hour = +e.target.value; $('#hourLbl').textContent = hhmm(S.hour); updateDisplayField(); });
+  $('#hour').addEventListener('change', () => { persist(); renderBrief(); });
+  $('#srcSeg').addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; S.src = b.dataset.src; persist(); updateAll(); });
+  $('#refresh').addEventListener('click', () => { refreshWeather(); refreshLive(); });
   $('#mapBtns').addEventListener('click', (e) => {
     const b = e.target.closest('button'); if (!b) return;
     const v = b.dataset.v;
@@ -381,11 +463,10 @@ function bindUI() {
   $('#rhSpeed').addEventListener('change', (e) => scene.replayControl('speed', +e.target.value));
   $('#rhFollow').addEventListener('click', (e) => { e.currentTarget.classList.toggle('on'); scene.replayControl('follow', e.currentTarget.classList.contains('on')); });
   $('#rhClose').addEventListener('click', stopReplay);
-  bindSheet();
 }
 
 let sheet = 'half';
-function setSheet(s) { sheet = s; const p = $('#panel'); p.classList.toggle('min', s === 'min'); p.classList.toggle('max', s === 'max'); document.body.dataset.sheet = s; setTimeout(() => scene.resize(), 280); }
+function setSheet(s) { sheet = s; const p = $('#panel'); p.classList.toggle('min', s === 'min'); p.classList.toggle('max', s === 'max'); document.body.dataset.sheet = s; setTimeout(() => scene?.resize(), 280); }
 function bindSheet() {
   const g = $('#grab'); let y0 = null;
   g.addEventListener('pointerdown', (e) => { y0 = e.clientY; g.setPointerCapture(e.pointerId); });
@@ -411,6 +492,7 @@ function renderLegend() {
 
 // ───────────────────────── sélection sur la carte
 function onPick(p, screen) {
+  if (!F || !fieldOn) return;                // vent pas encore calculé
   const w = F.sample(p.x, p.y), land = T.isLand(p.x, p.y), pop = $('#pickPop');
   const depth = T.height(p.x, p.y);
   let legInfo = '';
@@ -434,10 +516,18 @@ function onPick(p, screen) {
     pop.hidden = true; scene.clearPick();
   };
 }
+// Ping reçu avant que la ligne soit calculée (le mode départ s’ouvre avant l’analyse) : gardé, puis appliqué dès que l’analyse est prête
+const pendingEnds = {};
 function setLineEnd(which, ll) {
   const cur = S.lineOverride || (analysis ? { cb: toLL(analysis.line.cb.x, analysis.line.cb.y), pin: toLL(analysis.line.pin.x, analysis.line.pin.y) } : null);
-  if (!cur) return;
+  if (!cur) { pendingEnds[which] = { lat: ll.lat, lon: ll.lon }; toast('Ping noté : la ligne se calcule, il sera appliqué dans quelques secondes'); return; }
   cur[which] = { lat: ll.lat, lon: ll.lon };
+  S.lineOverride = cur; persist(); scheduleAnalysis();
+}
+function applyPendingEnds() {
+  if (!pendingEnds.cb && !pendingEnds.pin) return;
+  const cur = S.lineOverride || { cb: toLL(analysis.line.cb.x, analysis.line.cb.y), pin: toLL(analysis.line.pin.x, analysis.line.pin.y) };
+  for (const k of ['cb', 'pin']) if (pendingEnds[k]) { cur[k] = pendingEnds[k]; delete pendingEnds[k]; }
   S.lineOverride = cur; persist(); scheduleAnalysis();
 }
 function openTab(t) { $(`#tabs button[data-tab=${t}]`).click(); }
@@ -597,7 +687,7 @@ function renderCourse() {
       const chip = l.type.id === 'pres' ? 'pres' : l.type.sail.startsWith('Spi') ? 'spi' : 'reach';
       const ma = markAdvice(l, A.legs[i + 1]);
       return `<div class="leg ${selLeg === i ? 'sel' : ''}" data-i="${i}">
-        <div class="hd"><span>${l.order ? `<span class="ord">${l.order}</span> ` : ''}${esc((/^\d/.test(l.to.name) ? 'n°' : '') + l.to.name)}${l.lap ? ` <span class="muted small">tour ${l.lap}</span>` : ''}</span>${l.side ? `<span class="chip ${l.side === 'b' ? 'port' : 'stbd'}">${sideName(l.side)}</span>` : ''}</div>
+        <div class="hd"><span>${l.order ? `<span class="ord">${l.order}</span> ` : ''}${esc((/^\d/.test(l.to.name) ? 'n°' : '') + l.to.name)}${l.lap ? ` <span class="muted small">tour ${l.lap}</span>` : ''}</span>${DOUBT(MARKS[l.mark]) ? '<span class="chip mid">position à confirmer</span>' : ''}${l.side ? `<span class="chip ${l.side === 'b' ? 'port' : 'stbd'}">${sideName(l.side)}</span>` : ''}</div>
         <div class="meta">${fmtBrg(l.brg)} · ${fmtNm(l.dist)} · vent ${fmtBrg(l.wind.dir)} ${l.wind.spd.toFixed(0)} nd (raf. ${l.wind.gust.toFixed(0)}) · TWA ${Math.abs(l.twa).toFixed(0)}° · ${hhmm(l.eta0)}→${hhmm(l.eta1)} (${summarizeTime(l.time)})</div>
         <span class="chip ${chip}">${l.type.label}</span><span class="chip">${l.type.sail}</span>
         <ul class="tips">${l.advice.map((a) => `<li>${esc(a)}</li>`).join('')}</ul>
@@ -661,19 +751,78 @@ function showUpdateBar(build) {
 }
 function hideUpdateBar() { const el = document.getElementById('updbar'); if (el) el.hidden = true; }
 
+// ───────────────────────── RECALCULS AUTOMATIQUES PENDANT LA SÉQUENCE DE DÉPART
+// De H−6 min à H+1 min (js/racelock.js), l’app ne lance AUCUN recalcul qu’aucun geste n’a demandé : l’affichage du mode départ doit rester fluide.
+// Liste fermée (testée) : la préparation du champ à l’ouverture (init) et le calcul qui suit un téléchargement de prévisions sans geste
+// (refreshWeather appelée avec auto), via autoHeavy. Tout geste de l’équipier (curseur d’heure, bord, « Recalculer la suite », parcours, réglages, ⟳, ping de
+// ligne) et tout relevé de vent (dicté ou saisi) calculent tout de suite : ils n’appellent jamais autoHeavy.
+const heavyQ = new Set();                    // calculs reportés, dans l’ordre, sans doublon
+let heavyTm = null, heavyNoted = false;
+const runHeavy = (fn) => Promise.resolve().then(fn).catch((e) => report('calcul', e));
+function autoHeavy(fn) {
+  if (heavyPaused({ now: Date.now(), timerEnd: timer.end })) { deferHeavy(fn); return Promise.resolve(); }
+  return runHeavy(fn);
+}
+function deferHeavy(fn) {
+  heavyQ.add(fn);
+  if (!heavyNoted) { heavyNoted = true; note('calcul', 'reporté après le départ'); status('Carte et calculs reportés après le départ'); }
+  armHeavy();
+}
+// Une seule minuterie, à H+1 min + 1 s ; recalculée si le chrono bouge (±1 min, Stop) et au déclenchement
+function armHeavy() {
+  clearTimeout(heavyTm);
+  heavyTm = setTimeout(flushHeavy, timer.end == null ? 1000 : Math.max(1000, timer.end + HEAVY_AFTER_MS + 1000 - Date.now()));
+}
+function flushHeavy() {
+  heavyTm = null;
+  if (heavyPaused({ now: Date.now(), timerEnd: timer.end })) { armHeavy(); return; }
+  heavyNoted = false;
+  const q = [...heavyQ]; heavyQ.clear();
+  for (const fn of q) runHeavy(fn);
+}
+
 // ───────────────────────── DÉPART
-let timer = { end: null, running: false, iv: null, beeps: new Set() };
+// timer.end est un accesseur : tout site d’appel (Top, ±1 min, Arrondir, Synchro, Stop) replanifie les bips sans autre geste
+// et mémorise l’heure de fin pour qu’un rechargement ou une relance d’iOS ne perde pas le chrono.
+// Un seul verrou d’écran pour le mode départ, le chrono, la trace et le GPS (js/wakelock.js) ; perdu ou refusé alors qu’il est demandé : alerte et conseil (D-05)
+const wake = createWakeLock({ report: (w, m) => onWakeEvent(w, m) });
+const WAKE_ADVICE = 'Écran non maintenu : réglez Verrouillage automatique sur « Jamais » pendant la course';
+let wakeToastAt = 0;
+function onWakeEvent(w, m) {
+  if (/refus/i.test(m)) report('ecran', m); else note('ecran', m);
+  renderRaceBar();
+  const st = wake.state();
+  if (document.visibilityState === 'hidden' || !st.wanted || st.held) return;      // masquer la page libère le verrou : ce n’est pas une perte à signaler
+  if (Date.now() - wakeToastAt < 60000) return;
+  wakeToastAt = Date.now(); toast(WAKE_ADVICE);
+}
+const timer = { running: false, iv: null };
+let timerEnd = null;
+Object.defineProperty(timer, 'end', {
+  enumerable: true,
+  get: () => timerEnd,
+  set(v) {
+    timerEnd = v ?? null;
+    if (timerEnd == null) { beeper?.disarm(); releaseAudioIfIdle(); wake.drop('timer'); } else { beeper?.arm(timerEnd); flashKick(); wake.want('timer'); }
+    store.set('rade.timer.v1', { end: timerEnd });
+    if (heavyQ.size) armHeavy();
+  },
+});
 const startMode = createStartMode({
-  S, persist, timer, beep: (...x) => beep(...x), audioInit: () => audioInit(), startTimer: () => startTimer(), startGps: () => startGps(), gps: () => gps, say, toast,
+  S, persist, timer, wake, beep: (...x) => beep(...x), audioInit: () => audioInit(), startTimer: () => startTimer(), startGps: () => startGps(), gps: () => gps, say, toast,
   setLineEnd: (w, ll) => setLineEnd(w, ll), reanalyse: () => scheduleAnalysis(), help: () => openGuide(),
-  firstMark: () => { const l = analysis?.legs?.[0]; return l ? { x: l.to.x, y: l.to.y, name: l.order ? String(l.order) : (l.to.name || '').split(' ')[0] } : null; },
+  audioRelease: () => audioRelease(), testSound: () => testSound(), chronoAlert: () => chronoAlert(), fixAlert: (a) => fixAlert(a),
+  status: () => statusView(), fixLamp: (a) => fixLamp(a), lampTouch: (id) => lampTouch(id),
+  firstMark: () => { const l = analysis?.legs?.[0]; return l ? { x: l.to.x, y: l.to.y, name: l.order ? String(l.order) : (l.to.name || '').split(' ')[0], doubt: DOUBT(MARKS[l.mark]) } : null; },
   line: () => S.lineOverride?.cb && S.lineOverride?.pin ? S.lineOverride : analysis ? { cb: toLL(analysis.line.cb.x, analysis.line.cb.y), pin: toLL(analysis.line.pin.x, analysis.line.pin.y) } : null,
   windAt: (p) => {
     const o = dayObs().slice(-1)[0];
     if (o && Date.now() - (o.t ?? 0) < 2 * 3600e3) return { dir: o.dir, spd: o.spd, src: 'dernier relevé' };
+    if (!fieldOn) return null;                 // ouverture en cours : le mode départ affiche « Vent à relever »
     const w = F.sample(p.x, p.y); return { dir: w.dir, spd: w.spd, src: S.src === 'manual' ? 'vent manuel' : 'prévision' };
   },
 });
+setContext(() => (startMode.isOpen() ? 'depart' : raceActive(Date.now()) ? 'course' : 'app'));
 function renderStart() {
   const el = $('section[data-tab=start]');
   const A = analysis;
@@ -694,8 +843,9 @@ function renderStart() {
   }
   html += `<div class="card timer"><h3>Chrono de départ <small>règle 26 : 5-4-1-0</small></h3>
     <div class="clock" id="tClock">5:00</div><div class="phase" id="tPhase">Prêt</div>
+    <button type="button" class="snd-line" id="tSnd" hidden></button>
     <div class="btns" style="justify-content:center"><button class="btn acc" id="t5">Top 5’ (avertissement)</button><button class="btn" id="t4">Top 4’</button><button class="btn" id="t1">Top 1’</button></div>
-    <div class="btns" style="justify-content:center"><button class="btn alt small" id="tm">−1 min</button><button class="btn alt small" id="tp">+1 min</button><button class="btn alt small" id="tsync">Arrondir à la minute</button><button class="btn alt small" id="tstop">Stop</button></div>
+    <div class="btns" style="justify-content:center"><button class="btn alt small" id="tm">−1 min</button><button class="btn alt small" id="tp">+1 min</button><button class="btn alt small" id="tsync">Arrondir à la minute</button><button class="btn alt small" id="tstop">Stop</button><button class="btn alt small" id="tTest">🔊 Tester le son</button></div>
     <table class="t" style="margin-top:8px">${IC.sequence.map((r) => `<tr><td><b>${r[0]}</b></td><td>${esc(r[1])}</td><td>${esc(r[2])}</td></tr>`).join('')}</table>
     <div class="small muted">Bips aux minutes, toutes les 10 s dans la dernière minute et chaque seconde les 10 dernières. Le temps se compte sur les signaux visuels (IC 10.1).</div></div>`;
   el.innerHTML = html;
@@ -707,67 +857,291 @@ function renderStart() {
   $('#smOpen').onclick = () => startMode.open();
   $('#pingCb').onclick = () => pingLine('cb');
   $('#pingPin').onclick = () => pingLine('pin');
-  const setT = (sec) => { audioInit(); timer.end = Date.now() + sec * 1000; timer.beeps.clear(); startTimer(); };
+  const setT = (sec) => { audioInit(); timer.end = Date.now() + sec * 1000; startTimer(); };
   $('#t5').onclick = () => setT(300); $('#t4').onclick = () => setT(240); $('#t1').onclick = () => setT(60);
   $('#tm').onclick = () => { if (timer.end) timer.end -= 60000; }; $('#tp').onclick = () => { if (timer.end) timer.end += 60000; };
   $('#tsync').onclick = () => { if (timer.end) { const r = (timer.end - Date.now()) / 1000; timer.end = Date.now() + Math.round(r / 60) * 60000; } };
-  $('#tstop').onclick = () => { timer.end = null; clearInterval(timer.iv); timer.iv = null; $('#tClock').textContent = '5:00'; $('#tPhase').textContent = 'Prêt'; };
+  $('#tstop').onclick = () => { timer.end = null; clearInterval(timer.iv); timer.iv = null; $('#tClock').textContent = '5:00'; $('#tPhase').textContent = 'Prêt'; renderChronoAlert(); };
+  $('#tTest').onclick = () => testSound();
+  $('#tSnd').onclick = (e) => fixAlert(e.currentTarget.dataset.act);
   if (timer.iv) tickTimer();
+  renderChronoAlert();
 }
 function pingLine(which) {
   if (!navigator.geolocation) return toast('GPS indisponible');
-  navigator.geolocation.getCurrentPosition((p) => setLineEnd(which, { lat: p.coords.latitude, lon: p.coords.longitude }), (e) => toast('GPS : ' + e.message), { enableHighAccuracy: true, timeout: 15000 });
+  navigator.geolocation.getCurrentPosition((p) => setLineEnd(which, { lat: p.coords.latitude, lon: p.coords.longitude }), (e) => { report('gps', 'ping : code ' + e.code + ' : ' + e.message); toast('GPS : ' + e.message); }, { enableHighAccuracy: true, timeout: 15000 });
 }
-let actx = null;
-function audioInit() { try { actx = actx || new (window.AudioContext || window.webkitAudioContext)(); actx.resume(); } catch { /* audio indisponible */ } }
+let actx = null, beeper = null;
+// Santé du son : tested = null (jamais testé) / true (entendu) / false (pas entendu) ; alive = l’horloge audio avance vraiment
+const snd = { tested: null, alive: null, prev: null };
+// Toujours appelé dans un geste. Le type de session « playback » (iOS 17+) passe outre le bouton silencieux : posé avant de créer
+// ou de reprendre le contexte, remis à « auto » quand plus rien n’en a besoin (audioRelease). Le contexte naît ici avec son planificateur de bips.
+function audioInit() {
+  try {
+    try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch { /* session audio non prise en charge */ }
+    if (!actx) {
+      actx = new (window.AudioContext || window.webkitAudioContext)(); beeper = createBeeper({ ctx: actx, onMiss: (m) => note('bips', 'bip manqué à ' + m.s + ' s du signal') });
+      actx.addEventListener?.('statechange', () => { note('son', 'état ' + actx.state); snd.prev = null; snd.alive = null; renderChronoAlert(); renderRaceBar(); });
+    }
+    // resume() peut ne jamais se résoudre quand le navigateur est suspendu en arrière-plan (WebKit 281566) : reprise bornée à 1,5 s
+    const prete = Promise.race([actx.resume(), new Promise((ok) => setTimeout(ok, 1500))]).catch((e) => report('son', e));
+    if (timer.end != null && beeper.end !== timer.end) beeper.arm(timer.end);
+    return prete;
+  } catch (e) { report('son', e); return Promise.resolve(); /* audio indisponible */ }
+}
+function audioRelease() { try { if (navigator.audioSession) navigator.audioSession.type = 'auto'; } catch { /* rien à remettre */ } }
+function releaseAudioIfIdle() { if (timer.end == null && !startMode?.isOpen()) audioRelease(); }
+function beepAt(f, d, when) {
+  const o = actx.createOscillator(), g = actx.createGain(); o.frequency.value = f; o.connect(g); g.connect(actx.destination);
+  g.gain.setValueAtTime(0.4, when); g.gain.exponentialRampToValueAtTime(0.001, when + d); o.start(when); o.stop(when + d);
+}
 function beep(f = 880, d = 0.12) {
   if (!actx) return;
-  const o = actx.createOscillator(), g = actx.createGain(); o.frequency.value = f; o.connect(g); g.connect(actx.destination);
-  g.gain.setValueAtTime(0.4, actx.currentTime); g.gain.exponentialRampToValueAtTime(0.001, actx.currentTime + d); o.start(); o.stop(actx.currentTime + d);
+  beepAt(f, d, actx.currentTime);
   navigator.vibrate?.(d * 1000);
 }
-function startTimer() { clearInterval(timer.iv); timer.iv = setInterval(tickTimer, 100); tickTimer(); }
+// L’état « running » ne prouve pas que le son sort (WebKit 276016) : l’horloge audio doit avancer au rythme de l’horloge murale
+function sampleSound(now) {
+  if (!actx) return;
+  if (actx.state !== 'running') { snd.prev = null; snd.alive = null; return; }
+  if (snd.prev && now - snd.prev.wall < 1000) return;
+  const cur = { wall: now, ct: actx.currentTime };
+  if (!snd.prev) { snd.prev = cur; return; }
+  const a = audioAlive(snd.prev, cur); if (a !== null) { snd.alive = a; snd.prev = cur; }
+}
+const soundState = () => ({ state: actx?.state ?? null, alive: snd.alive, tested: snd.tested });
+// « Tester le son » : trois bips posés sur l’horloge audio, puis l’équipier dit s’il les a entendus (ni le bouton silencieux ni le volume ne sont lisibles)
+async function testSound() {
+  await audioInit();
+  if (!actx) return toast('Son indisponible sur cet appareil');
+  const t = actx.currentTime;
+  for (const d of [0.15, 0.55, 0.95]) beepAt(1000, 0.12, t + d);
+  setTimeout(askHeard, 1300);
+}
+function askHeard() {
+  let el = document.getElementById('sndAsk');
+  if (!el) {
+    el = document.createElement('div'); el.id = 'sndAsk'; el.setAttribute('role', 'dialog'); el.setAttribute('aria-label', 'Test du son');
+    const q = document.createElement('p'); q.textContent = 'Avez-vous entendu 3 bips ?';
+    const row = document.createElement('div'); row.className = 'btns';
+    const answer = (heard) => {
+      snd.tested = heard; el.hidden = true;
+      if (!heard) toast('Vérifiez le bouton silencieux (sur le côté de l’iPhone), le volume et le Bluetooth ; le flash visuel reste actif.');
+      renderChronoAlert(); startMode?.render(); releaseAudioIfIdle();
+    };
+    const yes = document.createElement('button'); yes.className = 'yes'; yes.textContent = 'Oui, entendus'; yes.onclick = () => answer(true);
+    const no = document.createElement('button'); no.className = 'no'; no.textContent = 'Non'; no.onclick = () => answer(false);
+    row.append(yes, no); el.append(q, row); document.body.appendChild(el);
+  }
+  el.hidden = false;
+}
+// Ligne d’alerte du chrono (onglet Départ et mode départ) : null ou { text, act } ; act : 'sound' | 'test' | 'wake'.
+// Priorité : son coupé, puis écran demandé mais non tenu, puis son non testé / non entendu.
+function chronoAlert() {
+  if (timer.end == null && !startMode.isOpen()) return null;
+  sampleSound(Date.now());
+  const s = soundState(), w = wake.state();
+  if (s.state !== 'running' || s.alive === false) return { text: '🔇 Son coupé — touchez pour réactiver', act: 'sound' };
+  if (w.wanted && !w.held) {
+    return w.supported
+      ? { text: '🔆 Écran non maintenu — touchez pour réessayer · sinon Réglages › Affichage et luminosité › Verrouillage automatique › Jamais', act: 'wake' }
+      : { text: '🔆 Maintien de l’écran indisponible : Verrouillage automatique sur « Jamais » pendant la course', act: 'wake' };
+  }
+  if (s.tested === false) return { text: '🔇 Bips non entendus au test — le flash visuel reste actif', act: 'test' };
+  if (s.tested === null) return { text: '🔈 Son non testé', act: 'test' };
+  return null;
+}
+async function fixAlert(act) {
+  if (act === 'sound') return audioInit();
+  if (act === 'test') return testSound();
+  if (act === 'wake') { await wake.retry(); if (!wake.state().held) toast(WAKE_ADVICE); }
+}
+function renderChronoAlert() {
+  const el = document.getElementById('tSnd'); if (!el) return;
+  const a = chronoAlert();
+  el.hidden = !a;
+  if (a) { if (el.textContent !== a.text) el.textContent = a.text; el.dataset.act = a.act; el.classList.toggle('bad', a.act !== 'test'); }
+}
+// Flash plein écran sur les bips clés (minutes et signal), doublure visuelle des bips ; jamais en retard de plus de 400 ms, jamais rouge
+const flash = { raf: null, seen: new Set() };
+function flashKick() { if (!flash.raf) flash.raf = requestAnimationFrame(flashLoop); }
+function flashLoop() {
+  flash.raf = null;
+  const end = timer.end; if (end == null) { flash.seen.clear(); return; }
+  const now = Date.now();
+  for (const m of milestones(end, now - 400)) {
+    if (m.at > now) break;
+    if (!KEY(m) || flash.seen.has(m.at)) continue;
+    flash.seen.add(m.at);
+    if (S.startFlash !== false) flashNow(m.kind);
+  }
+  if (now < end + 2000) flash.raf = requestAnimationFrame(flashLoop);
+}
+function flashNow(kind) {
+  let el = document.getElementById('beepFlash');
+  if (!el) { el = document.createElement('div'); el.id = 'beepFlash'; el.setAttribute('aria-hidden', 'true'); document.body.appendChild(el); }
+  el.className = ''; void el.offsetWidth;                                  // relance l’animation
+  el.className = kind === 'go' ? 'go' : 'min';
+  if (S.startSun && startMode.isOpen()) el.classList.add('dark');          // mode « plein soleil » : fond blanc, un flash blanc ne se verrait pas
+}
+function startTimer() { clearInterval(timer.iv); timer.iv = setInterval(tickTimer, 100); tickTimer(); flashKick(); }
 function tickTimer() {
+  beeper?.tick();     // remplit la fenêtre de bips posés sur l’horloge audio (js/beeper.js) ; l’affichage ci-dessous ne sonne plus
+  renderChronoAlert();
   const c = $('#tClock'), ph = $('#tPhase'); if (!timer.end) return;
   const r = (timer.end - Date.now()) / 1000, s = Math.ceil(r);
   if (r > 0) {
     if (c) c.textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
     if (ph) ph.textContent = s > 240 ? 'Avertissement — pavillon de classe' : s > 60 ? 'Préparatoire (P / I / U / Z / Noir)' : 'Dernière minute !';
-    const key = s;
-    if (!timer.beeps.has(key) && ((s % 60 === 0) || (s <= 60 && s % 10 === 0) || s <= 10)) { timer.beeps.add(key); beep(s % 60 === 0 ? 660 : 880, s % 60 === 0 ? 0.5 : 0.12); }
   } else {
     const e = -r;
     if (c) c.textContent = `+${Math.floor(e / 60)}:${String(Math.floor(e % 60)).padStart(2, '0')}`;
     if (ph) ph.textContent = e < 600 ? 'PARTI ! (départ possible jusqu’à H+10’)' : 'En course';
-    if (!timer.beeps.has('go')) { timer.beeps.add('go'); beep(990, 1.0); }
   }
   const lc = $('#liveClock'); if (lc && c) lc.textContent = c.textContent;
+}
+
+// ───────────────────────── VOYANT (FIAB-05) : GPS, écran, son, réseau
+// Quatre lampes calculées par js/status.js à partir d’observations réelles. Visible en mode départ (barre du haut) et en course
+// (bande #raceBar sous la barre du haut) ; hors course, rien. Alerte visuelle seulement : jamais de son (un son pourrait passer pour un signal).
+const net = { online: navigator.onLine !== false, lastOkAt: null, rtt: null };
+let probing = false, lastProbe = 0, silence = null, lampShown = null;
+const lampBad = new Set();
+// Sonde réseau : HEAD sur un fichier public de l’app. Le worker ne traite que les GET (sw.js) : un GET serait servi par son cache et
+// dirait « réseau ok » en mode avion. Toute réponse HTTP prouve que le réseau est joignable ; navigator.onLine n’est qu’un indice.
+async function probeNet() {
+  if (probing) return;
+  probing = true;
+  const c = new AbortController(), t0 = performance.now(), to = setTimeout(() => c.abort(), 4000), avant = net.online;
+  try {
+    await fetch('icons/favicon-32.png?p=' + Date.now(), { method: 'HEAD', cache: 'no-store', signal: c.signal });
+    net.lastOkAt = Date.now(); net.rtt = performance.now() - t0; net.online = true;
+  } catch { net.rtt = null; net.online = false; /* aucune réponse : réseau injoignable, ce n’est pas une erreur de l’app */ }
+  finally { clearTimeout(to); probing = false; }
+  if (net.online !== avant) note('reseau', net.online ? 'sonde : réseau joignable' : 'sonde : aucune réponse');
+  renderRaceBar();
+}
+function statusNow() {
+  const now = Date.now();
+  sampleSound(now);
+  const st = computeStatus({
+    now, needGps: startMode.isOpen() || recorder.active || gps?.watch != null, needScreen: raceActive(now),
+    needSound: startMode.isOpen() || (timer.end != null && now < timer.end + 60e3),
+    gps: { on: gps?.watch != null, lastAt: gps?.lastAt, acc: gps?.pos?.acc, err: gps?.err },
+    wake: wake.state(), audio: soundState(), net,
+  });
+  for (const l of st.lamps) {                                  // une ligne au journal à chaque passage au rouge, pas à chaque seconde
+    if (l.level === 'bad' && !lampBad.has(l.id)) { lampBad.add(l.id); note('voyant', `${l.text} : ${l.detail}`); }
+    else if (l.level !== 'bad') lampBad.delete(l.id);
+  }
+  return st;
+}
+// Lampe à afficher dans la ligne d’action : celle que l’équipier vient de toucher (6 s), sinon la première lampe rouge
+function statusView() {
+  const st = statusNow();
+  const shown = lampShown && Date.now() < lampShown.until ? st.lamps.find((l) => l.id === lampShown.id) : null;
+  return { ...st, pick: shown || st.lamps.find((l) => l.level === 'bad') || null };
+}
+function lampTouch(id) { lampShown = { id, until: Date.now() + 6000 }; renderRaceBar(); }
+function relaunchGps() {
+  if (gps?.watch != null) { navigator.geolocation.clearWatch(gps.watch); gps = null; }      // suivi neuf : repart de zéro
+  startGps();
+}
+// Action d’une lampe : relancer le GPS, redemander l’écran, réactiver ou tester le son, resonder le réseau
+function fixLamp(act) {
+  if (act === 'gps') {
+    const l = statusNow().lamps.find((x) => x.id === 'gps');
+    if (gps?.watch != null && l?.level !== 'bad') { toast('GPS : ' + l.detail); return; }
+    const refuse = gps?.err === 1;
+    relaunchGps();
+    if (refuse) toast(l.detail);
+    return;
+  }
+  if (act === 'net') return probeNet();
+  return fixAlert(act);
+}
+// Silence du GPS : consigné quand il commence (plus de 10 s sans point reçu) et quand il finit
+function gpsSilence(now) {
+  if (gps?.lastAt == null) return;
+  const age = Math.round((now - gps.lastAt) / 1000);
+  if (!silence && age > GPS_STALE_S) { silence = { from: gps.lastAt }; note('gps', `silence commencé (dernier point il y a ${age} s)`); }
+  else if (silence && gps.lastAt > silence.from) { note('gps', `silence terminé après ${Math.round((gps.lastAt - silence.from) / 1000)} s`); silence = null; }
+}
+function paintLamp(b, l) {
+  const t = lampLabel(l), c = 'lamp ' + l.level;
+  if (b.lastChild.textContent !== t) b.lastChild.textContent = t;
+  if (b.className !== c) b.className = c;
+}
+function buildRaceBar() {
+  const el = document.createElement('div'); el.id = 'raceBar'; el.setAttribute('role', 'status'); el.hidden = true;
+  const row = document.createElement('div'); row.className = 'lamps';
+  for (const id of ['gps', 'screen', 'sound', 'net']) {
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'lamp off'; b.dataset.id = id;
+    b.append(document.createElement('i'), document.createElement('b')); row.appendChild(b);
+  }
+  const al = document.createElement('button'); al.type = 'button'; al.className = 'rb-alert'; al.hidden = true;
+  al.append(document.createElement('span'), document.createElement('b'));
+  el.append(row, al);
+  el.addEventListener('click', (e) => {
+    const lamp = e.target.closest('.lamp'); if (lamp) return lampTouch(lamp.dataset.id);
+    if (e.target.closest('.rb-alert') && al.dataset.act) fixLamp(al.dataset.act);
+  });
+  document.body.appendChild(el);
+  return el;
+}
+// Bande « en course » : affichée seulement quand quelque chose tourne (chrono, trace, GPS) et que le mode départ est fermé
+function renderRaceBar() {
+  const on = raceActive(Date.now()) && !startMode.isOpen();
+  let el = document.getElementById('raceBar');
+  if (!on) { if (el && !el.hidden) el.hidden = true; return; }
+  if (!el) el = buildRaceBar();
+  el.hidden = false;
+  const v = statusView();
+  el.querySelectorAll('.lamp').forEach((b) => { const l = v.lamps.find((x) => x.id === b.dataset.id); if (l) paintLamp(b, l); });
+  const al = el.querySelector('.rb-alert'), p = v.pick;
+  al.hidden = !p;
+  if (p) {
+    const txt = `${p.text} : ${p.detail}`, act = actionLabel(p.act);
+    if (al.firstChild.textContent !== txt) al.firstChild.textContent = txt;
+    if (al.lastChild.textContent !== act) al.lastChild.textContent = act;
+    al.dataset.act = p.act || ''; al.className = 'rb-alert ' + p.level;
+  }
+}
+// Chaque seconde : silence du GPS, sonde réseau toutes les 30 s tant que le voyant est visible, rafraîchissement de la bande
+function lampTick() {
+  const now = Date.now();
+  if (gps) gpsSilence(now);
+  if (!document.hidden && (startMode.isOpen() || raceActive(now)) && now - lastProbe >= 30000) { lastProbe = now; probeNet(); }
+  if (!document.hidden) renderRaceBar();
 }
 
 // ───────────────────────── EN COURSE
 function startGps() {
   if (gps?.watch) return;
   if (!navigator.geolocation) { toast('GPS indisponible sur cet appareil'); return; }
-  gps = { watch: null, pos: null, hist: [] };
+  gps = { watch: null, pos: null, hist: [], lastAt: null, err: null, errMsg: null }; silence = null;
   gps.watch = navigator.geolocation.watchPosition((p) => {
     const q = { ...toXY(p.coords.latitude, p.coords.longitude), t: p.timestamp, acc: p.coords.accuracy, lat: p.coords.latitude, lon: p.coords.longitude };
+    gps.lastAt = Date.now();                       // heure de RÉCEPTION : le voyant mesure le silence, pas l’horloge du GPS
     gps.hist.push(q); gps.hist = gps.hist.filter((h) => q.t - h.t < 20000);
     // vitesse et cap : ceux du GPS quand il les donne (iPhone), sinon calculés sur les 6 dernières secondes
     const o = gps.hist.find((h) => q.t - h.t <= 6000) || gps.hist[0], dt = (q.t - o.t) / 1000;
     if (p.coords.speed != null && p.coords.speed >= 0) { q.sog = p.coords.speed / 0.5144; q.cog = p.coords.heading >= 0 ? p.coords.heading : (dt > 2 && distXY(o, q) > 2 ? bearingXY(o, q) : null); }
     else if (dt > 2 && distXY(o, q) > 2) { q.sog = distXY(o, q) / dt / 0.5144; q.cog = bearingXY(o, q); }
-    gps.pos = q;
-    scene.setBoat(q, q.cog);
-    if (follow) { const t = scene.controls.target, off = scene.camera.position.clone().sub(t); t.set(q.x, 0, -q.y); scene.camera.position.copy(t.clone().add(off)); }
+    gps.pos = q; gps.err = null; gps.errMsg = null;
+    scene?.setBoat(q, q.cog);
+    if (follow && scene) { const t = scene.controls.target, off = scene.camera.position.clone().sub(t); t.set(q.x, 0, -q.y); scene.camera.position.copy(t.clone().add(off)); }
     if (recorder.active) recorder.add(q);
     autoAdvance();
     renderLiveNav();
-  }, (e) => { gps.err = e.message; renderLiveNav(); }, { enableHighAccuracy: true, maximumAge: 1000 });
+    gpsSilence(gps.lastAt); renderRaceBar();
+  }, (e) => { gps.err = e.code; gps.errMsg = e.message; report('gps', 'code ' + e.code + ' : ' + e.message); renderLiveNav(); renderRaceBar(); }, { enableHighAccuracy: true, maximumAge: 1000 });
+  wake.want('gps');
   renderLive();
 }
 async function stopGps() {
   if (recorder.active) { const tr = await recorder.stop(); if (tr?.pts.length > 1) toast(`Trace enregistrée (${tr.pts.length} points)`); renderTracks(); }
-  if (gps?.watch != null) navigator.geolocation.clearWatch(gps.watch); gps = null; scene.setBoat(null); renderLive();
+  if (gps?.watch != null) navigator.geolocation.clearWatch(gps.watch); gps = null; silence = null; wake.drop('gps'); scene?.setBoat(null); renderLive(); renderRaceBar();
 }
 function autoAdvance() {
   if (!analysis || !gps?.pos) return;
@@ -775,7 +1149,7 @@ function autoAdvance() {
   if (distXY(gps.pos, l.to) < 40 && nextIdx < analysis.legs.length - 1) nextIdx++;
 }
 // Onglet « En course » : cadre fixe + zones mises à jour à chaque position GPS
-const recorder = new Recorder();
+const recorder = new Recorder({ wake, report: (w, e) => report(w, e) });
 let rest = null;
 function renderLive() {
   const el = $('section[data-tab=live]');
@@ -795,7 +1169,7 @@ function renderLive() {
 function renderLiveNav() {
   const g = $('#liveGps'), n = $('#liveNav'), r = $('#liveRec'); if (!g) return;
   const A = analysis, p = gps?.pos;
-  g.innerHTML = `<div class="btns" style="margin:0">${gps ? '<button class="btn alt" id="gOff">Arrêter le GPS</button>' : '<button class="btn acc" id="gOn">▶ Activer le GPS</button>'}<span class="small muted" style="align-self:center">${gps?.err ? 'Erreur : ' + esc(gps.err) : p ? `précision ±${Math.round(p.acc)} m` : gps ? 'Recherche…' : 'Position, vitesse et cap du bateau'}</span></div>`;
+  g.innerHTML = `<div class="btns" style="margin:0">${gps ? '<button class="btn alt" id="gOff">Arrêter le GPS</button>' : '<button class="btn acc" id="gOn">▶ Activer le GPS</button>'}<span class="small muted" style="align-self:center">${gps?.err ? 'Erreur : ' + esc(gps.errMsg || gps.err) : p ? `précision ±${Math.round(p.acc)} m` : gps ? 'Recherche…' : 'Position, vitesse et cap du bateau'}</span></div>`;
   $('#gOn')?.addEventListener('click', startGps); $('#gOff')?.addEventListener('click', stopGps);
   const T = recorder.track;
   r.innerHTML = T ? `<div class="btns" style="margin:0"><button class="btn rec" id="recStop">⏹ Arrêter et enregistrer</button><span class="small" style="align-self:center"><span class="recdot"></span>${T.pts.length} points · ${summarizeTime((Date.now() - T.start) / 1000)}</span></div>`
@@ -807,12 +1181,12 @@ function renderLiveNav() {
     toast('Enregistrement lancé : gardez l’app ouverte, écran allumé.'); renderLiveNav();
   });
   $('#recStop')?.addEventListener('click', async () => { const tr = await recorder.stop(); toast(tr && tr.pts.length > 1 ? `Trace enregistrée (${tr.pts.length} points) — onglet Traces` : 'Trace trop courte, non enregistrée'); renderLiveNav(); renderTracks(); });
-  if (!A) { n.innerHTML = '<p class="small muted">Choisissez un parcours (onglet Parcours).</p>'; return; }
+  if (!A) { n.innerHTML = '<p class="small muted">Analyse du parcours en cours de calcul…</p>'; return; }
   nextIdx = Math.min(nextIdx, A.legs.length - 1);
   const l = A.legs[nextIdx];
-  let html = `<h3>Prochaine marque</h3><select id="nSel">${A.legs.map((x, i) => `<option value="${i}" ${i === nextIdx ? 'selected' : ''}>${x.order ? 'Marque ' + x.order + ' — ' : ''}${esc((/^\d/.test(x.to.name) ? 'n°' : '') + x.to.name)}${x.side ? ' (' + sideName(x.side) + ')' : ''}</option>`).join('')}</select>`;
+  let html = `<h3>Prochaine marque</h3><select id="nSel">${A.legs.map((x, i) => `<option value="${i}" ${i === nextIdx ? 'selected' : ''}>${x.order ? 'Marque ' + x.order + ' — ' : ''}${esc((/^\d/.test(x.to.name) ? 'n°' : '') + x.to.name)}${x.side ? ' (' + sideName(x.side) + ')' : ''}${DOUBT(MARKS[x.mark]) ? ' (à confirmer)' : ''}</option>`).join('')}</select>`;
   if (p) {
-    const brg = bearingXY(p, l.to), d = distXY(p, l.to), w = F.sample(p.x, p.y);
+    const brg = bearingXY(p, l.to), d = distXY(p, l.to), w = fieldOn ? F.sample(p.x, p.y) : { dir: l.wind.dir, spd: l.wind.spd };
     const twaM = norm180(brg - w.dir), { up, down } = optimalAngles(Math.max(1, w.spd));
     const vmc = p.sog != null && p.cog != null ? p.sog * Math.cos((p.cog - brg) * Math.PI / 180) : null;
     const eta = vmc > 0.3 ? d / (vmc * 0.5144) : null;
@@ -887,6 +1261,7 @@ function busy(msg) {
   m.className = 'debrief'; m.hidden = false; m.innerHTML = `<div class="modal-card"><h2>Débrief de course</h2><p>${esc(msg)}</p></div>`;
 }
 async function runDebrief(tr) {
+  fieldKey = null;                           // le débrief écrit dans F (une base par bord) : le champ affiché sera recalculé
   const api = {
     F, ctx: { terrain: T, forbidden, perf: S.perf ?? 1 }, localFx: S.localFx ?? 1, forecastAt, toast, meta: T.meta, eventName: IC?.event || '',
     // relevé saisi ce jour-là le plus proche du départ, sinon la prévision
@@ -895,10 +1270,10 @@ async function runDebrief(tr) {
       if (near) return { dir: Math.round(near.dir), src: `votre relevé de ${new Date(near.t).toLocaleTimeString('fr-FR', { timeStyle: 'short' })}` };
       const f = forecastAt(t); return f ? { dir: Math.round(f.dir), src: 'la prévision' } : null;
     },
-    restoreField: () => updateDisplayField(), obs: S.obs || [],
+    restoreField: () => { fieldKey = null; updateDisplayField(); }, obs: S.obs || [],
   };
   let det;
-  try { det = dbDetect(tr); } catch (e) { toast('Débrief impossible : ' + e.message); return; }
+  try { det = dbDetect(tr); } catch (e) { report('debrief', e); toast('Débrief impossible : ' + e.message); return; }
   const ans = await dbAsk(det, tr, api); if (!ans) return;
   busy('Analyse de la trace et calcul des routes conseillées…');
   await new Promise((r) => setTimeout(r, 30));
@@ -926,7 +1301,7 @@ function showReport(tr) {
 async function renderTracks() {
   const el = $('section[data-tab=tracks]'); if (!el) return;
   let list = [];
-  try { list = await listTracks(); } catch { /* IndexedDB indisponible */ }
+  try { list = await listTracks(); } catch (e) { report('traces', e); /* IndexedDB indisponible : liste vide */ }
   let html = `<div class="card"><h3><span>Mes traces ${tip('Traces enregistrées dans l’onglet En course, ou importées (GPX d’un autre GPS, d’un équipier). Elles restent sur cet appareil ; exportez-les en GPX pour les garder ou les partager.')}</span></h3>
     ${list.length ? list.map((t) => `<div class="trow"><div><b>${esc(t.name)}</b><div class="small muted">${new Date(t.start).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })} · ${t.n} points</div></div><div class="btns" style="margin:0"><button class="btn small" data-tv="${t.id}">Analyser</button><button class="btn small alt" data-tx="${t.id}">GPX</button><button class="btn small alt" data-td="${t.id}" aria-label="Supprimer">✕</button></div></div>`).join('') : '<p class="small muted">Aucune trace. Lancez « Enregistrer ma trace » dans l’onglet En course.</p>'}
     <button class="btn alt" id="gpxBtn" style="width:100%;margin-top:8px">⤓ Importer un fichier GPX</button><input type="file" id="gpxIn" multiple hidden>
@@ -944,7 +1319,7 @@ async function renderTracks() {
     const files = [...e.target.files]; e.target.value = ''; if (!files.length) return;
     let last = null, ok = 0;
     for (const f of files) {
-      try { const tr = fromGPX(await f.text(), f.name); await saveTrack(tr); last = tr; ok++; } catch (err) { toast(`Import impossible (${f.name}) : ${err.message}`); }
+      try { const tr = fromGPX(await f.text(), f.name); await saveTrack(tr); last = tr; ok++; } catch (err) { report('import', err); toast(`Import impossible (${f.name}) : ${err.message}`); }
     }
     if (last) { toast(ok > 1 ? `${ok} traces importées` : `Trace importée : ${last.pts.length} points`); renderTracks(); showTrace(last.id); }
   };
@@ -967,6 +1342,12 @@ function renderTraceDetail() {
   const nT = res.man.filter((m) => m.kind === 'virement').length, nE = res.man.length - nT;
   const sp = res.split.filter((s) => !s.missed);
   const worst = sp.filter((s) => s.plan && s.t - s.plan > 30).sort((a, b) => (b.t - b.plan) - (a.t - a.plan))[0];
+  // bouées à confirmer contournées sur cette trace : jusqu’à trois virages proposés par bouée, l’équipier valide (D-02 amendé, JUST-02)
+  const fits = Object.entries(MARKS).filter(([, m]) => DOUBT(m)).map(([k, m]) => ({ k, m, c: candidates(res.P, toXY(m.lat, m.lon)) })).filter((f) => f.c.length);
+  const hms = (t) => new Date(t).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  const fitCard = fits.length ? `<div class="card"><h3><span>Bouées à confirmer ${tip('La trace montre où vous avez contourné la bouée : l’app propose le sommet de votre virage, décalé de 14 m vers l’intérieur. Choisissez le virage qui correspond à votre arrondi : rien n’est changé sans votre validation, et le recalage reste sur ce téléphone.')}</span><small>d’après cette trace</small></h3>
+    <p class="small muted" style="margin:0 0 4px">Précision attendue ±${ACCURACY_M} m (davantage si l’arrondi était large). Choisissez le virage où vous avez contourné la bouée.</p>
+    ${fits.map((f) => `<div style="margin-top:10px"><b>${esc(f.k)} ${esc(f.m.name)}</b> — position à confirmer</div>${f.c.map((c, i) => `<div class="small" style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin:6px 0"><span>virage de ${Math.round(Math.abs(c.turn.D))}° à ${hms(c.turn.t)} · à ${Math.round(c.d0)} m de la position actuelle · passage au plus près à ${Math.round(c.near.d)} m <span class="muted">(pour information)</span></span><button class="btn small acc" data-mkfit="${esc(f.k)}" data-i="${i}">Valider</button></div>`).join('')}`).join('')}</div>` : '';
   el.innerHTML = `<div class="card"><h3><span>${esc(tr.name)}</span><small>${new Date(tr.start).toLocaleTimeString('fr-FR', { timeStyle: 'short' })}</small></h3>
     <div class="kpis"><div class="kpi"><b>${(res.dist / NM).toFixed(1)}</b><span>Nq parcourus</span></div><div class="kpi"><b>${summarizeTime(res.dur)}</b><span>durée</span></div><div class="kpi"><b>${res.vmean.toFixed(1)}</b><span>nd moyen (max ${res.vmax.toFixed(1)})</span></div></div>
     <div class="kpis" style="margin-top:8px"><div class="kpi"><b>${nT}</b><span>virements</span></div><div class="kpi"><b>${nE}</b><span>empannages</span></div><div class="kpi"><b>${res.perf ? Math.round(res.perf * 100) + ' %' : '—'}</b><span>de la polaire ${tip('Vitesse mesurée ÷ vitesse cible de la polaire J80 pour le vent du modèle à cet endroit et cette heure. Indicatif : le vent réel peut différer du modèle.')}</span></div></div>
@@ -974,7 +1355,12 @@ function renderTraceDetail() {
     <div class="btns"><button class="btn alt" id="trPlay">▶ Rejouer la trace</button><button class="btn alt" id="trGpx">Exporter GPX</button><button class="btn alt" id="trHide">Masquer</button></div>
     ${sameCourse ? (sp.length ? `<h3 style="margin-top:12px">Bord par bord ${tip('Temps réel entre deux marques comparé au temps du routage optimal (même vent modèle). Un écart positif = temps perdu.')}</h3><table class="t"><tr><th>Marque</th><th>Réel</th><th>Optimal</th><th>Écart</th><th>Polaire</th></tr>${res.split.map((s) => s.missed ? `<tr><td>${s.leg.order} · ${esc(s.leg.to.name)}</td><td colspan="4" class="muted">non détectée</td></tr>` : `<tr><td>${s.leg.order} · ${esc(s.leg.to.name)}</td><td>${summarizeTime(s.t)}</td><td>${summarizeTime(s.plan)}</td><td style="color:${s.t > s.plan ? 'var(--bad)' : 'var(--ok)'}">${s.t > s.plan ? '+' : '−'}${summarizeTime(Math.abs(s.t - s.plan))}</td><td>${s.pct ? Math.round(s.pct * 100) + ' %' : '—'}</td></tr>`).join('')}</table>${worst ? `<p class="small">Bord le plus coûteux : vers <b>${esc(worst.leg.to.name)}</b> (${summarizeTime(worst.t - worst.plan)} de plus que l’optimal). Rejouez-le en comparant à la route bleue.</p>` : ''}` : '<p class="small muted">Aucune marque du parcours détectée sur cette trace (passage à plus de 250 m).</p>')
       : '<p class="small muted">Pour le découpage bord par bord, sélectionnez dans l’onglet Parcours le parcours couru (même numéro et même classe).</p>'}
-    <p class="small muted">Couleur de la trace : du bleu (lent) au rouge (rapide). V = virement, E = empannage.</p></div>`;
+    <p class="small muted">Couleur de la trace : du bleu (lent) au rouge (rapide). V = virement, E = empannage.</p></div>${fitCard}`;
+  $$('[data-mkfit]', el).forEach((b) => b.addEventListener('click', () => {
+    const f = fits.find((x) => x.k === b.dataset.mkfit), c = f?.c[+b.dataset.i]; if (!c) return;
+    const ll = toLL(c.x, c.y);
+    recalMark(f.k, { lat: +ll.lat.toFixed(6), lon: +ll.lon.toFixed(6), src: 'trace', t: tr.start });
+  }));
   $('#trPlay').onclick = () => {
     const t0 = res.P[0].t;
     scene.setReplay(res.P.map((p) => ({ x: p.x, y: p.y, t: (p.t - t0) / 1000, hd: p.hd, twa: p.twa, bsp: p.v, spi: Math.abs(p.twa) > 110, trace: true, pct: p.pct, abs: p.t })));
@@ -1044,6 +1430,53 @@ function renderJ80Tab() {
   });
 }
 
+// ───────────────────────── bouées : recalage par saisie (JUST-02, D-02 : possible, sans être mise en avant)
+let markEdit = null;                                       // { k, txt, err, ask } : ligne du tableau des marques en cours de saisie
+function marksRow(k, m) {
+  const ed = markEdit?.k === k ? markEdit : null;
+  let html = `<tr><td><b>${esc(k)}</b></td><td>${esc(m.name)}<div class="small muted">${esc(m.note)}</div></td><td class="small">${fmtLat(m.lat)}<br>${fmtLon(m.lon)}<br><span class="muted">${esc(m.src)}</span>${DOUBT(m) ? ' <span class="chip mid">à confirmer</span>' : ''}
+    <div>${ed ? '' : `<button class="btn small alt" data-mkfix="${esc(k)}">Recaler</button>`}${m.base && !ed ? ` <button class="btn small alt" data-mkorig="${esc(k)}">Position d’origine</button>` : ''}</div></td></tr>`;
+  if (ed) {
+    const ask = ed.ask ? `Confirmer : déplacement de ${esc(fmtNm(ed.ask.d))}` : 'Valider';
+    html += `<tr><td colspan="3"><label class="f" for="mkTxt">Nouvelle position de la bouée ${esc(k)} ${esc(m.name)}</label>
+      <input id="mkTxt" type="text" inputmode="text" autocomplete="off" placeholder="43°05.845N 005°56.049E" value="${esc(ed.txt)}">
+      <div class="small" id="mkErr" style="color:var(--bad)">${esc(ed.err || '')}</div>
+      <div class="btns" style="margin:6px 0 0"><button class="btn small acc" id="mkOk">${ask}</button><button class="btn small alt" id="mkNo">Annuler</button></div></td></tr>`;
+  }
+  return html;
+}
+// Applique un recalage validé : mémorisé sur ce téléphone (D-04), appliqué tout de suite à MARKS, puis tout ce qui en dépend est redessiné
+function recalMark(k, ov) {
+  const kept = saveOverride(marksStore(), k, ov);
+  applyOverrides(MARKS, { [k]: ov });
+  refreshMarks();
+  const m = MARKS[k];
+  toast(`Bouée ${k} ${m.name} recalée${ov.src === 'trace' ? ` : ${m.src} (±${ACCURACY_M} m)` : ` (${m.src})`}${kept ? '' : ' — non gardée après fermeture : mémoire pleine'}`);
+}
+function resetMark(k) {
+  clearOverride(marksStore(), k); restoreMark(MARKS, k);
+  refreshMarks();
+  toast(`Bouée ${k} ${MARKS[k].name} : position d’origine rétablie`);
+}
+function refreshMarks() { markEdit = null; renderIC(); drawCourse(); scheduleAnalysis(); if (traceView) renderTraceDetail(); renderLive(); }
+function submitMark() {
+  const ed = markEdit; if (!ed) return;
+  const r = parseLatLon(ed.txt);
+  if (r.error) { ed.err = r.error; ed.ask = null; renderIC(); return; }
+  const m = MARKS[ed.k], d = distXY(toXY(m.lat, m.lon), toXY(r.lat, r.lon));
+  if (d > MAX_MOVE_M && !(ed.ask && ed.ask.lat === r.lat && ed.ask.lon === r.lon)) { ed.err = ''; ed.ask = { lat: r.lat, lon: r.lon, d }; renderIC(); return; }
+  recalMark(ed.k, { lat: r.lat, lon: r.lon, src: 'saisie', t: Date.now() });
+}
+function bindMarksEdit(el) {
+  $$('[data-mkfix]', el).forEach((b) => b.addEventListener('click', () => { markEdit = { k: b.dataset.mkfix, txt: '', err: '', ask: null }; renderIC(); $('#mkTxt')?.focus(); }));
+  $$('[data-mkorig]', el).forEach((b) => b.addEventListener('click', () => resetMark(b.dataset.mkorig)));
+  if (!markEdit) return;
+  $('#mkTxt').addEventListener('input', (e) => { markEdit.txt = e.target.value; markEdit.err = ''; if (markEdit.ask) { markEdit.ask = null; $('#mkOk').textContent = 'Valider'; } $('#mkErr').textContent = ''; });
+  $('#mkTxt').addEventListener('keydown', (e) => { if (e.key === 'Enter') submitMark(); });
+  $('#mkOk').addEventListener('click', submitMark);
+  $('#mkNo').addEventListener('click', () => { markEdit = null; renderIC(); });
+}
+
 // ───────────────────────── IC
 let icDraft = null;
 function renderIC() {
@@ -1067,10 +1500,11 @@ function renderIC() {
   <div class="card"><h3>Points clés</h3><ul class="tips small">${(IC.keyRules || []).map((r) => `<li>${esc(r)}</li>`).join('') || '<li>Aucun point clé enregistré.</li>'}</ul>
     ${IC.text ? `<details><summary class="small">Texte complet des IC</summary><pre class="ictext">${esc(IC.text)}</pre></details>` : ''}
     ${st.list.length > 1 ? `<button class="btn small alt" id="evDel" style="margin-top:8px">Supprimer cette régate</button>` : ''}</div>
-  <div class="card"><h3>Marques <small>cahier de parcours CVAT</small></h3><table class="t"><tr><th>N°</th><th>Marque</th><th>Position</th></tr>${Object.entries(MARKS).map(([k, m]) => `<tr><td><b>${k}</b></td><td>${esc(m.name)}<div class="small muted">${esc(m.note)}</div></td><td class="small">${fmtLat(m.lat)}<br>${fmtLon(m.lon)}<br><span class="muted">${esc(m.src)}</span></td></tr>`).join('')}</table>
-    <div class="small muted" style="margin-top:6px">« approx » = position relevée sur les cartes du cahier ou sur OpenStreetMap : vérifier sur zone, le Comité fait foi.</div></div>
+  <div class="card"><h3>Marques <small>cahier de parcours CVAT</small></h3><table class="t"><tr><th>N°</th><th>Marque</th><th>Position</th></tr>${Object.entries(MARKS).map(([k, m]) => marksRow(k, m)).join('')}</table>
+    <div class="small muted" style="margin-top:6px">« à confirmer » = position approximative (cartes du cahier ou OpenStreetMap) : à vérifier sur zone, le Comité fait foi. Un recalage reste sur ce téléphone (Safari et l’app installée ne les partagent pas).</div></div>
   <div class="card"><h3>Dangers</h3><ul class="tips small"><li><b>Zone interdite</b> de la presqu’île de Saint-Mandrier (zone Marine nationale, rouge sur la carte).</li>${DANGERS.map((d) => `<li><b>${esc(d.name)}</b> (${fmtLat(d.lat)} ${fmtLon(d.lon)}) : ${esc(d.note)}</li>`).join('')}</ul></div>`;
   el.innerHTML = html;
+  bindMarksEdit(el);
   $('#evSel').onchange = (e) => { setCurrent(e.target.value); icDraft = null; IC = currentEvent(); renderIC(); renderDaySeg(); renderBrief(); renderLive(); };
   $('#evEdit').onclick = () => { icDraft = { ...IC }; renderIC(); };
   $('#evDel')?.addEventListener('click', (e) => { if (e.target.dataset.c !== '1') { e.target.dataset.c = '1'; e.target.textContent = 'Confirmer la suppression'; return; } removeEvent(IC.id); renderIC(); renderDaySeg(); renderBrief(); renderLive(); });
@@ -1087,7 +1521,7 @@ function renderIC() {
       const text = /\.pdf$/i.test(f.name) || f.type === 'application/pdf' ? await pdfText(f) : await f.text();
       icDraft = { ...parseIC(text, f.name), id: 'ev' + Date.now(), source: f.name };
       renderIC(); $('#evForm')?.scrollIntoView({ behavior: 'smooth' });
-    } catch (err) { $('#icMsg').textContent = 'Lecture impossible : ' + err.message + '. Vous pouvez saisir la fiche à la main (Modifier).'; }
+    } catch (err) { report('ic', err); $('#icMsg').textContent = 'Lecture impossible : ' + err.message + '. Vous pouvez saisir la fiche à la main (Modifier).'; }
   };
   if (icDraft) {
     $('#evSave').onclick = () => {
@@ -1100,6 +1534,9 @@ function renderIC() {
 }
 
 init().catch((e) => {
+  report('demarrage', e);
   console.error(e);
-  $('#splash').innerHTML = `<div><b>Erreur au démarrage</b><small>${esc(e.message)}</small></div>`;
+  const sp = $('#splash');
+  if (!sp.classList.contains('gone')) sp.innerHTML = `<div><b>Erreur au démarrage</b><small>${esc(e.message)}</small></div>`;
+  else status('Carte indisponible : ' + e.message);        // l’interface utile est déjà affichée : le chrono, le mode départ et le GPS restent utilisables
 });
