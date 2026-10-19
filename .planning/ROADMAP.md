@@ -18,7 +18,7 @@ Rade Tactique existe déjà et a gagné la Coupe SNPM le 18/10/2026. Ce jalon la
 Les phases décimales s'intercalent entre les phases entières qui les entourent, dans l'ordre numérique.
 
 - [x] **Phase 1: Mises en ligne sans risque** - Tests des calculs et de l'accès, porte de déploiement, version et fichiers hors réseau générés, mise à jour jamais appliquée en course, import PDF sûr (completed 2026-10-19)
-- [ ] **Phase 2: Fiable et juste en mer** - Bips à la seconde, alerte son coupé, voyant d'état, ouverture rapide hors réseau, journal de diagnostic, bouées douteuses signalées et recalables
+- [x] **Phase 2: Fiable et juste en mer** - Bips à la seconde, alerte son coupé, voyant d'état, ouverture rapide hors réseau, journal de diagnostic, bouées douteuses signalées et recalables (completed 2026-10-19)
 - [ ] **Phase 3: Ouvrir une régate** - Tout équipier crée l'épreuve, ses manches et ses IC relues ; vent du jour figé, fiche de régate, GPX rattaché et débrief lancé
 - [ ] **Phase 4: Archive partagée** - Régates en ligne, privées, synchronisées entre les appareils de l'équipage et lisibles hors réseau (phase coupable)
 
@@ -65,7 +65,7 @@ Plans:
   4. Après une sortie, un équipier ouvre le journal de diagnostic dans l'app et y lit les erreurs survenues en mode départ et en mode course, avec leur heure.
   5. Une bouée dont la position n'est pas confirmée est signalée sur la carte, dans les parcours et en mode départ ; un équipier la recale par un point GPS au passage ou par saisie, et la bouée affiche ensuite la source et la date de sa position.
 
-**Plans:** 5/5 plans executed
+**Plans:** 5/5 plans complete
 
 Plans:
 **Wave 1**
@@ -123,6 +123,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Mises en ligne sans risque | 4/4 | Complete    | 2026-10-19 |
-| 2. Fiable et juste en mer | 5/5 | In Progress | - |
+| 2. Fiable et juste en mer | 5/5 | Complete    | 2026-10-19 |
 | 3. Ouvrir une régate | 0/TBD | Not started | - |
 | 4. Archive partagée | 0/TBD | Not started | - |
