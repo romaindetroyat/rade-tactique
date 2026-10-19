@@ -3,6 +3,8 @@
 
 import { parisClock } from './racelock.js';
 import { regattaStatus, STATUS_LABEL, MAX_NAME, MAX_CLUB, MAX_NOTE, daysOf } from './regates.js';
+import { clockOf } from './gel.js';
+import { MODELS } from './weather.js';
 
 // Échappe & < > " ' (le esc() d’app.js laisse passer l’apostrophe)
 export const escHTML = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', '\'': '&#39;' }[c]));
@@ -73,7 +75,46 @@ function raceFormHTML(r, d, errors, courses) {
     <div class="btns"><button type="button" class="btn acc" id="rcAdd">Ajouter la manche</button><button type="button" class="btn alt" id="rcCancel">Annuler</button></div></div>`;
 }
 
-// Fiche de la régate courante : nom, club, dates, statut, auteur, puis les manches (courses = parcours connus [{ id, title }])
+// ───────────────────────── vent du jour figé (ARCH-02)
+// Construit depuis le seul résumé r.frozen[jour] de l’index : la fiche s’affiche sans attendre la base IndexedDB.
+const dm = (ms) => { const d = parisClock(ms).date; return `${d.slice(8, 10)}/${d.slice(5, 7)}`; };
+const nRel = (n) => (n > 0 ? `${n} relevé${n > 1 ? 's' : ''}` : 'aucun relevé');
+const modelLabel = (id) => MODELS.find((m) => m.id === id)?.label || id;
+
+// État du sceau, en clair : jamais « scellé » pour une copie tardive ni pour un signal inconnu
+function sealLine(f, now) {
+  const fin = Number.isFinite(f.sealAt);
+  if (f.signal === 'inconnu') {
+    return f.sealed || (fin && now >= f.sealAt) ? 'scellé à la fin de la régate (signal inconnu)'
+      : `signal inconnu : copie jusqu’à la fin de la régate (${fin ? dm(f.sealAt - 60000) : '—'} à 24:00)`;
+  }
+  if (f.late) return 'figé après le départ (app ouverte après le signal)';
+  if (!fin) return f.sealed ? 'scellé' : '';
+  if (f.sealed) return `scellé au signal de ${clockOf(f.sealAt)}`;
+  return now >= f.sealAt ? `dernière copie avant le signal de ${clockOf(f.sealAt)} (app fermée au signal)` : `sera scellé au signal de ${clockOf(f.sealAt)}`;
+}
+function windDayHTML(day, f, { now }) {
+  const head = `<div class="rgh"><span class="rgdn">${escHTML(dayLabel(day))}</span></div>`;
+  if (!f) {
+    const passe = day < parisClock(now).date;
+    return `<div class="rgwind" data-day="${escHTML(day)}">${head}<div class="small muted">${passe ? 'Pas de vent figé ce jour-là : l’app n’a pas été ouverte pendant la régate.' : 'Pas encore figé : l’app le fera seule le jour de la régate, à chaque ouverture, jusqu’au premier signal.'}</div></div>`;
+  }
+  const prev = Number.isFinite(f.fetched) ? `${f.snapshot ? 'prévisions embarquées' : 'prévisions'} du ${dm(f.fetched)} ${clockOf(f.fetched)}` : 'aucune prévision copiée';
+  const ws = f.windStart && f.signal !== 'inconnu' && Number.isFinite(f.sealAt) ? `<div class="small">vent prévu au signal de ${clockOf(f.sealAt)} : ${Math.round(f.windStart.dir)}° ${Math.round(f.windStart.spd)} nd</div>` : '';
+  const etat = sealLine(f, now);
+  return `<div class="rgwind" data-day="${escHTML(day)}">${head}`
+    + `<div class="small"><span class="rgwf">Figé automatiquement à ${clockOf(f.at)}</span> · <span class="muted">${byLine(f.by, f.at)}</span></div>`
+    + `<div class="small">${escHTML(prev)}${f.model ? ` · modèle ${escHTML(modelLabel(f.model))}` : ''} · ${nRel(f.nObs ?? 0)}</div>${ws}`
+    + `${etat ? `<div class="small">${escHTML(etat)}</div>` : ''}</div>`;
+}
+// Section « Vent du jour » : une entrée par jour de la régate
+export function windSectionHTML(r, { now = Date.now() } = {}) {
+  const jours = daysOf(r);
+  if (!jours.length) return '';
+  return `<div class="rgwinds"><h4>Vent du jour</h4>${jours.map((d) => windDayHTML(d, r.frozen?.[d] || null, { now })).join('')}</div>`;
+}
+
+// Fiche de la régate courante : nom, club, dates, statut, auteur, puis les manches (courses = parcours connus [{ id, title }]) et le vent du jour
 export function sheetHTML(r, { now = Date.now(), courses = [], raceDraft = null, raceErrors = {} } = {}) {
   if (!r) return '<div class="card" id="rgSheet"><p class="small muted">Aucune régate courante : créez-en une ou choisissez-en une dans la liste.</p></div>';
   const races = r.races || [];
@@ -81,5 +122,6 @@ export function sheetHTML(r, { now = Date.now(), courses = [], raceDraft = null,
     <div class="small">${escHTML(datesLabel(r))} ${statusChip(r, now)}</div>
     <div class="small muted" style="margin-top:4px">Créée ${byLine(r.by, r.at)}</div>
     <div class="rgraces"><h4>Manches</h4>${races.length ? races.map((m) => raceRowHTML(m, { courses, chosen: r.sel === m.n })).join('') : '<p class="small muted">Aucune manche : ajoutez-en une avec son heure de signal et son parcours.</p>'}
-    ${raceDraft ? raceFormHTML(r, raceDraft, raceErrors, courses) : '<div class="btns"><button type="button" class="btn small acc" id="rcNew">＋ Ajouter une manche</button></div>'}</div></div>`;
+    ${raceDraft ? raceFormHTML(r, raceDraft, raceErrors, courses) : '<div class="btns"><button type="button" class="btn small acc" id="rcNew">＋ Ajouter une manche</button></div>'}</div>
+    ${windSectionHTML(r, { now, courses })}</div>`;
 }

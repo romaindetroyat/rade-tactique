@@ -6,7 +6,9 @@ import { WindField, speedColor } from './wind.js';
 import { MARKS, COURSES, LINE_PRESETS, FORBIDDEN_ZONE, DANGERS } from './courses.js';
 import { pdfText, parseIC } from './events.js';
 import { reviewFromParse, reviewFromRegatta, setValue, setKeep, canValidate, checksFor, applyReview, reviewHTML, chipOf, validatedHTML } from './icread.js';
-import { migrate, saveRegattas, createRegatta, upsertRegatta, removeRegatta, setCurrent as setCurrentRegatta, currentRegatta, icOf, groupBySeason, lockDates, daysOf, addRace, removeRace, raceSettings, membre, saveMembre, backfillAuthor } from './regates.js';
+import { migrate, saveRegattas, createRegatta, upsertRegatta, removeRegatta, setCurrent as setCurrentRegatta, currentRegatta, todayRegatta, icOf, groupBySeason, lockDates, daysOf, addRace, removeRace, raceSettings, membre, saveMembre, backfillAuthor } from './regates.js';
+import { THROTTLE_MS, slotKey, freezeAction, obsNeedsCopy, sliceDays, freezeSummary } from './gel.js';
+import { putSlot } from './regstore.js';
 import { listHTML, newRegattaFormHTML, sheetHTML } from './regview.js';
 import { fetchAll, cached, snapshot, consensus, gridPoints, marineAt, fetchLive, MODELS, WMO, CENTER } from './weather.js';
 import { buildLegs, analyzeLeg, markAdvice, analyzeStart, trendOf, rankCourses, regimeOf, sideName, summarizeTime } from './tactics.js';
@@ -143,6 +145,7 @@ async function init() {
   initTips();
   await autoHeavy(prepareField);                       // app ouverte pendant la séquence de départ : reporté après H+1 min
   performance.mark('rt:map');
+  freezeTick('ouverture');                              // prévisions en cache ou embarquées déjà lues : le gel marche aussi hors réseau, sans rien attendre
   maybeWelcome();
   renderTracks();
   refreshWeather(true);
@@ -156,6 +159,7 @@ async function refreshWeather(auto = false) {
   try {
     data = await fetchAll(); series = consensus(data);
     status();
+    freezeTick('prévisions');
     await (auto ? autoHeavy(prepareField) : runHeavy(prepareField));
   } catch (e) {
     note('meteo', 'prévisions indisponibles : ' + (e?.message || e));      // hors réseau : l’instantané embarqué prend le relais
@@ -414,6 +418,7 @@ async function runAnalysis() {
   let ord = 0;
   legs.forEach((l) => { if (l.mark !== 'GATE' && l.mark !== 'FINISH') l.order = ++ord; });
   analysis = { course, cls, legs, line: B.line, points: B.points, start, total: t - S.startTime, dist: legs.reduce((s, l) => s + l.dist, 0), trend };
+  freezeTick('analyse');
   applyPendingEnds();
   updateDisplayField();
   drawCourse();
@@ -749,6 +754,7 @@ function raceTick() {
   updates?.refresh();
   if (wasLocked && !locked) updates?.check();    // le téléchargement était suspendu pendant le verrou
   wasLocked = locked;
+  freezeTick('tic');                             // copie du vent du jour (gel) : jamais reportée, voir plus bas
 }
 // Bandeau discret en haut ; texte posé par textContent, jamais en HTML (la note vient du worker)
 function showUpdateBar(build) {
@@ -1256,6 +1262,52 @@ function renderPlan() {
     <div class="btns"><button class="btn acc small" id="planGo">↻ Recalculer</button><button class="btn alt small" id="planReset">Revenir au plan initial</button></div>`;
   $('#planGo').onclick = planRest;
   $('#planReset').onclick = () => { rest = null; drawCourse(); renderPlan(); };
+}
+
+// ───────────────────────── GEL DU VENT DU JOUR (ARCH-02)
+// Le jour d’une régate, sans aucun geste, l’app COPIE dans la régate les prévisions du jour et les relevés de vent : à l’ouverture (y compris
+// hors réseau, depuis le cache ou l’instantané embarqué), après chaque téléchargement, à chaque analyse et à chaque tic de raceTick, au plus
+// toutes les 10 minutes (js/gel.js décide). Ce n’est pas un recalcul automatique : aucune copie ne lance de calcul, elle n’est donc jamais
+// reportée de H−6 min à H+1 min (le sceau tombe justement à H−5 min) et ne passe ni par autoHeavy ni par deferHeavy. Une seule copie à la fois,
+// lancée hors du tour courant ; une base refusée ou pleine est consignée et ne gêne ni l’interface ni le chrono.
+let freezeBusy = false, freezeAgain = false, freezeFailAt = 0;
+const couvre = (d, day) => !!d?.multi?.hourly?.time?.some((t) => String(t).startsWith(day));
+const obsStamp = (obs) => obs.reduce((m, o) => Math.max(m, o.t || 0), 0);
+const obsCopy = (o) => ({ day: o.day, h: o.h, t: o.t, dir: o.dir, spd: o.spd, lat: o.lat, lon: o.lon });
+function freezeTick(why) {
+  if (freezeBusy) { freezeAgain = true; return; }
+  const now = Date.now(), day = parisClock(now).date;
+  const reg = todayRegatta({ now, list: REG.list, currentId: REG.current });
+  if (!reg || !data || now - freezeFailAt < THROTTLE_MS) return;       // pas de régate aujourd’hui, rien à copier, ou base refusée il y a moins de 10 min
+  const slot = reg.frozen?.[day] || null, obs = (S.obs || []).filter((o) => o.day === day);
+  const action = freezeAction({ now, regatta: reg, day, slot, dataFetched: couvre(data, day) ? data.fetched : 0, hasAnalysis: false });
+  if (action === 'rien' && !obsNeedsCopy({ slot, nObsNow: obs.length, obsStamp: obsStamp(obs) })) return;
+  freezeBusy = true;
+  const job = { why, now, day, rid: reg.id, action, d: data, ser: series, obs: obs.map(obsCopy), slot };
+  setTimeout(() => {
+    freezeWrite(job).catch((e) => { freezeFailAt = Date.now(); report('gel', e); }).finally(() => {
+      freezeBusy = false;
+      if (freezeAgain) { freezeAgain = false; freezeTick('suite'); }
+    });
+  }, 0);
+}
+async function freezeWrite({ why, now, day, rid, action, d, ser, obs, slot }) {
+  let summary;
+  if (action === 'rien') {
+    summary = { ...slot, nObs: obs.length, obsStamp: obsStamp(obs) };               // nouveau relevé : seuls les relevés sont recopiés, prévisions et stratégie ne bougent plus
+  } else {
+    const reg = REG.list.find((x) => x.id === rid);
+    if (!reg) return;
+    await putSlot(slotKey(rid, day, 'wx'), sliceDays(d, [day]));
+    const model = S.modelSel !== 'auto' ? S.modelSel : scoreModels(d, obs)[0]?.id || AROME_ID;
+    summary = freezeSummary({ action, now, regatta: reg, day, data: d, series: ser, model, nObs: obs.length, obsStamp: obsStamp(obs), by: who() });
+  }
+  await putSlot(slotKey(rid, day, 'obs'), { day, at: now, obs });
+  const cur = REG.list.find((x) => x.id === rid);                                    // la régate a pu changer pendant l’écriture : l’index est relu
+  if (!cur) return;
+  saveReg(upsertRegatta(REG, { ...cur, frozen: { ...(cur.frozen || {}), [day]: summary } }));
+  note('gel', `${action === 'rien' ? 'relevés' : action} · ${why} · ${obs.length} relevé(s)`);
+  if ($('section[data-tab=ic]')?.classList.contains('on') && !icBusy()) renderIC();     // la fiche, si elle est ouverte, montre le gel qui vient d’avoir lieu
 }
 
 // ───────────────────────── TRACES

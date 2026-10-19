@@ -397,7 +397,107 @@ async function vraisemblance({ browser, base }) {
   await ctx.close();
 }
 
-const SCENARIOS = { creer, manche, auteur, ic, vraisemblance };
+// ───────────────────────── gel du vent du jour (ARCH-02)
+
+// Valeur rangée sous `cle` dans la base rade-regates de la page (null si absente ou si la base n'existe pas encore)
+const lireSlot = (page, cle) => page.evaluate((k) => new Promise((ok) => {
+  const o = indexedDB.open('rade-regates');
+  o.onerror = () => ok(null);
+  o.onupgradeneeded = () => { o.transaction.abort(); ok(null); };                    // base inexistante : ne rien créer
+  o.onsuccess = () => {
+    const d = o.result;
+    if (!d.objectStoreNames.contains('slots')) { d.close(); ok(null); return; }
+    const g = d.transaction('slots').objectStore('slots').get(k);
+    g.onsuccess = () => { d.close(); ok(g.result ?? null); }; g.onerror = () => { d.close(); ok(null); };
+  };
+}), cle);
+// Résumé du gel d'un jour dans l'index de la régate courante
+const gelDuJour = (page, jour) => regateCourante(page).then((r) => r?.frozen?.[jour] ?? null);
+// Attend (sans geste) que le gel du jour vérifie `cond`, puis le rend
+async function attendGel(page, jour, cond, quoi) {
+  const t0 = Date.now();
+  for (;;) {
+    const f = await gelDuJour(page, jour);
+    if (f && cond(f)) return f;
+    if (Date.now() - t0 > 40000) throw new Error(`gel ${jour} : ${quoi} jamais atteint (dernier résumé : ${JSON.stringify(f)})`);
+    await page.waitForTimeout(250);
+  }
+}
+const ongletIC = (page) => page.click('#tabs button[data-tab=ic]');
+const texteVent = async (page, jour) => (await page.locator(`#rgSheet .rgwind[data-day="${jour}"]`).textContent()).replace(/\s+/g, ' ');
+
+// ARCH-02 : le jour de régate, sans geste, prévisions et relevés sont copiés dans la régate (hors réseau : instantané embarqué), scellés au
+// premier signal ; première ouverture après le signal = « figé après le départ » ; régate sans heure = « signal inconnu », copiée toute la journée
+async function gel({ browser, base }) {
+  // 1) samedi 18/10/2026, 10 h à Paris : régate avec une manche à 10:55, aucun réseau
+  const ctx = await ouvreContexte(browser, { heure: '2026-10-18T08:00:00Z' });
+  const { page, erreurs } = await ouvrePage(ctx);
+  await ouvreApp(page, base);
+  await creeRegate(page, { nom: 'Coupe du gel', debut: '2026-10-18', club: 'CVAT' });
+  await ajouteManche(page, { heure: '10:55', parcours: '5', cls: 'G', tours: '2' });
+  const id = (await regateCourante(page)).id;
+  const f = await attendGel(page, '2026-10-18', () => true, 'première copie');
+  assert.equal(f.sealed, false, 'avant le signal : pas scellé'); assert.equal(f.late, false); assert.equal(f.auto, true);
+  assert.equal(f.snapshot, true, 'hors réseau : les prévisions embarquées'); assert.equal(f.signal, 'manche');
+  assert.equal(f.sealAt, Date.parse('2026-10-18T08:55:00Z'));
+  assert.equal(f.at, Date.parse('2026-10-18T08:00:00Z'));
+  const wx = await lireSlot(page, `${id}|2026-10-18|wx`);
+  assert.ok(wx, 'prévisions du jour dans la base rade-regates');
+  assert.equal(wx.multi.hourly.time.length, 25, '25 heures : le jour plus l’heure qui suit'); assert.equal(wx.grid.length, 24); assert.equal(wx.snapshot, true);
+  assert.ok(await lireSlot(page, `${id}|2026-10-18|obs`), 'relevés du jour dans la base');
+  await ongletIC(page);
+  await page.waitForFunction(() => document.querySelector('#rgSheet .rgwind[data-day="2026-10-18"]')?.textContent.includes('Figé automatiquement'), null, { timeout: 20000 });
+  assert.match(await texteVent(page, '2026-10-18'), /Figé automatiquement à 10:00/);
+  assert.match(await texteVent(page, '2026-10-18'), /prévisions embarquées du 17\/10/);
+  assert.match(await texteVent(page, '2026-10-18'), /sera scellé au signal de 10:55/);
+
+  // 2) 11 h : un tic de raceTick (5 s) suffit pour sceller
+  await ctx.clock.setFixedTime(new Date('2026-10-18T09:00:00Z'));
+  const s = await attendGel(page, '2026-10-18', (x) => x.sealed, 'sceau');
+  assert.equal(s.late, false, 'copie faite avant le signal : pas « tardive »');
+  await ongletIC(page);
+  await page.waitForFunction(() => /scellé au signal de 10:55/.test(document.querySelector('#rgSheet .rgwind[data-day="2026-10-18"]')?.textContent || ''), null, { timeout: 20000 });
+  // après le sceau, plus rien ne bouge : l’heure du gel reste celle d’avant le signal
+  await page.waitForTimeout(6000);
+  assert.equal((await gelDuJour(page, '2026-10-18')).at, s.at, 'scellé : la copie ne bouge plus');
+  sansErreur(erreurs, 'gel avant et au signal');
+  await ctx.close();
+
+  // 3) première ouverture après le signal (11 h 30) : copie marquée « figé après le départ »
+  const ctx2 = await ouvreContexte(browser, { heure: '2026-10-18T09:30:00Z' });
+  const { page: p2, erreurs: e2 } = await ouvrePage(ctx2);
+  await ouvreApp(p2, base);
+  await creeRegate(p2, { nom: 'Ouverte trop tard', debut: '2026-10-18', club: 'CVAT' });
+  await ajouteManche(p2, { heure: '10:55', parcours: '5', cls: 'G', tours: '2' });
+  const id2 = (await regateCourante(p2)).id;
+  const t = await attendGel(p2, '2026-10-18', () => true, 'copie tardive');
+  assert.equal(t.late, true, 'copie marquée tardive'); assert.equal(t.sealed, true, 'et scellée d’emblée');
+  assert.ok(await lireSlot(p2, `${id2}|2026-10-18|wx`), 'les prévisions sont tout de même copiées');
+  await ongletIC(p2);
+  await p2.waitForFunction(() => /figé après le départ/.test(document.querySelector('#rgSheet .rgwind[data-day="2026-10-18"]')?.textContent || ''), null, { timeout: 20000 });
+  assert.doesNotMatch(await texteVent(p2, '2026-10-18'), /scellé au signal de/);
+  sansErreur(e2, 'première ouverture après le signal');
+  await ctx2.close();
+
+  // 4) signal inconnu (revue W1) : régate « Sortie sans heure » du seul 19/10, ni manche ni IC ; 15 h à Paris, aucun réseau
+  const ctx3 = await ouvreContexte(browser, { heure: '2026-10-19T13:00:00Z' });
+  const { page: p3, erreurs: e3 } = await ouvrePage(ctx3);
+  await ouvreApp(p3, base);
+  await creeRegate(p3, { nom: 'Sortie sans heure', debut: '2026-10-19', club: '' });
+  const id3 = (await regateCourante(p3)).id;
+  const u = await attendGel(p3, '2026-10-19', () => true, 'copie sans signal');
+  assert.equal(u.signal, 'inconnu'); assert.ok(!u.sealed, 'pas scellé : la copie continue toute la journée'); assert.equal(u.late, false, 'jamais « tardive »');
+  assert.equal(u.sealAt, Date.parse('2026-10-19T22:00:00Z'), 'fin du 19/10 à Paris (minuit, heure d’été)');
+  assert.ok(await lireSlot(p3, `${id3}|2026-10-19|wx`), 'prévisions du 19/10 dans la base');
+  await ongletIC(p3);
+  await p3.waitForFunction(() => /signal inconnu/.test(document.querySelector('#rgSheet .rgwind[data-day="2026-10-19"]')?.textContent || ''), null, { timeout: 20000 });
+  const x = await texteVent(p3, '2026-10-19');
+  assert.match(x, /signal inconnu/); assert.match(x, /19\/10 à 24:00/); assert.doesNotMatch(x, /scellé/);
+  sansErreur(e3, 'signal inconnu');
+  await ctx3.close();
+}
+
+const SCENARIOS = { creer, manche, auteur, ic, vraisemblance, gel };
 
 // ───────────────────────── lancement
 
