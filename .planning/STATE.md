@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 3
 current_phase_name: Ouvrir une régate
 status: executing
-stopped_at: Completed 03-03-PLAN.md
-last_updated: "2026-10-19T21:07:44.526Z"
+stopped_at: Completed 03-04-PLAN.md
+last_updated: "2026-10-19T21:28:43.878Z"
 last_activity: 2026-10-19
 last_activity_desc: Phase 3 execution started
-state_head: d6e5c3c75c5c13cb71f4ba4d2ea0402e953e483c
+state_head: 277f2322a2fee1f125e4f7041a7da294762b120f
 progress:
   total_phases: 4
   completed_phases: 2
   total_plans: 16
-  completed_plans: 12
+  completed_plans: 13
   percent: 50
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-10-19)
 ## Current Position
 
 Phase: 3 (Ouvrir une régate) — EXECUTING
-Plan: 4 of 7
+Plan: 5 of 7
 Status: Ready to execute
 Last activity: 2026-10-19 — Phase 3 execution started
 
@@ -67,6 +67,7 @@ Progress: [█████░░░░░] 50%
 | Phase 03 P01 | 20 min | 3 tasks | 10 files |
 | Phase 03 P02 | 14 min | 2 tasks | 11 files |
 | Phase 03 P03 | 25 min | 2 tasks | 9 files |
+| Phase 03 P04 | 22 min | 3 tasks | 13 files |
 
 ## Accumulated Context
 
@@ -106,6 +107,9 @@ Décisions récentes qui orientent le travail en cours :
 - [Phase 03]: 03-03 : sceau au premier signal (manche la plus tôt, sinon IC, sinon fin de la régate à Paris, signal inconnu) ; le gel copie sans calcul, une copie à la fois, jamais reporté pendant la séquence de départ — ARCH-02
 - [Phase 03]: 03-03 : analyse et débrief d'une trace sur les prévisions vivantes si leur jour y figure, sinon le vent figé du jour, sinon le vent manuel annoncé (libellé « vent du jour figé le JJ/MM à HH:MM ») — Pitfall 1
 - [Phase 03]: 03-03 : une écriture refusée par la base rade-regates n'écrit pas de résumé (la fiche ne ment pas) et le nouvel essai attend 10 minutes ; la route conseillée figée (11,9 Ko pour 15 bords) arrive dès la fin de l'analyse
+- [Phase 03]: [03-04] Jour d’une trace = jour de Paris du milieu de son plus long segment ; unique et heure rangent sans question, tout doute (choix, proche, aucune) ouvre une invite : l’app ne devine jamais entre deux régates
+- [Phase 03]: [03-04] Pauses = coupures dans les données (tr.brk, P[i].brk) : trou de plus de 120 s ou nouveau <trkseg> après plus de 5 s ; SNPM 15,25 Nq en 3,55 h actives (test) au lieu de 16,38 Nq en 6,00 h, référence inchangée
+- [Phase 03]: [03-04] La fiche de régate ne lit que r.traces (références et résumés), jamais la liste complète des traces ; résumé et rapport posés sur la référence à l’ouverture de la trace et à la fin du débrief
 
 ### Pending Todos
 
@@ -130,6 +134,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-10-19T21:07:44.335Z
-Stopped at: Completed 03-03-PLAN.md
+Last session: 2026-10-19T21:28:43.721Z
+Stopped at: Completed 03-04-PLAN.md
 Resume file: None
