@@ -1,0 +1,33 @@
+{
+  "_regle": "Valeurs mesurées par tests/helpers/reference.mjs avec la configuration de measuredWith, présentées à Romain en fin de phase 1 (D-12). Si un test échoue après une amélioration volontaire : présenter l’avant/après à Romain, puis mettre à jour ce fichier après son accord. Jamais de tolérance élargie.",
+  "gpx": "coupe-snpm-2026-10-18.gpx",
+  "entrees": {
+    "startWind": 60,
+    "prevision": {
+      "dir": 60,
+      "spd": 7
+    },
+    "releves": [["09:58:00Z",60,7.6],["10:33:00Z",30,7.1],["11:19:00Z",15,5.9]]
+  },
+  "trace": {
+    "points": 9538,
+    "debut": "06:04:23Z"
+  },
+  "parcours": {
+    "id": 4,
+    "cls": "P",
+    "tours": 1,
+    "reduit": true
+  },
+  "passages": [["7","10:11:51Z",33],["6","10:55:20Z",30],["5","11:42:56Z",2]],
+  "fauxDeparts": [["09:31:02Z","09:35:24Z"],["09:41:22Z","09:42:46Z"]],
+  "depart": "09:43:42Z",
+  "bords": [{"vent":["vent au départ",60,6.5],"polaire":[["travers",86],["près",93]],"stats":[3,0,22]},{"vent":["vos changements d’amure",32,7],"polaire":[["portant",102]],"stats":[3,0,0]},{"vent":["vos changements d’amure",30,4.5],"polaire":[["travers",58],["près",80]],"stats":[11,14,73]}],
+  "measuredWith": {
+    "config": "tStart = départ détecté (det.tStart, D-14) ; startWind 60 ; prévision 60°/7 nd ; 3 relevés de entrees ; localFx 1 ; perf 1 ; forbidden [] ; TZ Europe/Paris",
+    "date": "2026-10-19",
+    "commit": "6a8976f",
+    "node": "v22.22.0",
+    "validation": "à valider par Romain en fin de phase 1 (D-12)"
+  }
+}
