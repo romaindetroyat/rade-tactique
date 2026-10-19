@@ -690,7 +690,7 @@ a { color: var(--sea); }
   const render = (a) => `<div class="verdict">${esc(a.verdict)}</div>${para(a.explication)}
     ${(a.regles || []).map((r) => `<div class="rn">Règle ${esc(r.numero)} · ${esc(r.titre)}</div><div class="ref">
       <blockquote><span class="lg">FR</span>« ${esc(r.fr)} » (traduction)</blockquote>
-      <blockquote class="en"><span class="lg">EN</span>« ${esc(r.en)} »${r.verifie ? '' : ' <b style="font-style:normal;color:var(--accent)">à vérifier</b>'}</blockquote></div>`).join('')}
+      <blockquote class="en"><span class="lg">EN</span>« ${esc(String(r.en).replace(/\s+/g, ' ').trim())} »${r.verifie ? '' : ' <b style="font-style:normal;color:var(--accent)">à vérifier</b>'}</blockquote></div>`).join('')}
     ${a.ic ? `<div class="note"><b>IC CVAT :</b> ${esc(a.ic)}</div>` : ''}${a.attention ? `<div class="note"><b>Attention :</b> ${esc(a.attention)}</div>` : ''}`;
   async function ask(q) {
     q = q.trim(); if (!q || go.disabled) return;
