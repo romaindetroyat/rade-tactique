@@ -37,8 +37,8 @@ Version visée : prête pour la régate CVAT des 7-9 novembre 2026 (gel du code 
 
 - [x] **REG-01**: N'importe quel équipier crée une régate (nom, date, club) en moins d'une minute, avec un statut à venir / aujourd'hui / passée
 - [x] **REG-02**: Une journée peut compter plusieurs manches, chacune avec son parcours
-- [ ] **REG-03**: Le PDF des IC (CVAT ou autre club) s'importe avec une relecture champ par champ (extrait d'origine affiché) et des contrôles de vraisemblance ; rien n'est retenu sans validation
-- [ ] **REG-04**: Pour une régate hors cahier CVAT, les bouées et parcours lus dans les IC sont confirmés sur la carte avant usage
+- [x] **REG-03**: Le PDF des IC (CVAT ou autre club) s'importe avec une relecture champ par champ (extrait d'origine affiché) et des contrôles de vraisemblance ; rien n'est retenu sans validation
+- [x] **REG-04**: Pour une régate hors cahier CVAT, les bouées et parcours lus dans les IC sont confirmés sur la carte avant usage
 
 ### Archive partagée (ARCH)
 
@@ -111,8 +111,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SECU-01 | Phase 1 | Complete |
 | REG-01 | Phase 3 | Complete |
 | REG-02 | Phase 3 | Complete |
-| REG-03 | Phase 3 | Pending |
-| REG-04 | Phase 3 | Pending |
+| REG-03 | Phase 3 | Complete |
+| REG-04 | Phase 3 | Complete |
 | ARCH-01 | Phase 4 | Pending |
 | ARCH-02 | Phase 3 | Complete |
 | ARCH-03 | Phase 4 | Pending |

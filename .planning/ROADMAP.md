@@ -98,7 +98,7 @@ Plans:
   4. Le vent et la stratégie du jour (prévisions, relevés, route conseillée) sont figés dans la régate sans geste de l'équipage ; la liste des régates par saison mène à une fiche qui réunit ce vent du jour, les traces, le débrief, l'analyse polaire, le rapport et l'auteur de chaque élément.
   5. Un GPX d'Open GPX Tracker importé après la course, pauses comprises, se rattache tout seul à la régate du jour et lance le débrief, sans relier les pauses par une ligne droite.
 
-**Plans:** 6/7 plans executed (v28 : plans 01 à 05 ; v29 : plans 06 et 07)
+**Plans:** 7/7 plans executed (v28 : plans 01 à 05 ; v29 : plans 06 et 07)
 
 Plans:
 **Wave 1**
@@ -120,7 +120,7 @@ Plans:
 - [x] 03-06-PLAN.md — IC d'un autre club lues par l'IA (`api/ic.js`, extraits vérifiés mot pour mot), même relecture, hors réseau et erreurs, constante `IA_IC` (vague 6)
 
 **Wave 7** *(blocked on Wave 6 completion)*
-- [ ] 03-07-PLAN.md — Bouées et parcours d'un autre club à confirmer sur la carte avant usage, guide, v29 sur l'aperçu et essai réel de la lecture IA (vague 7)
+- [x] 03-07-PLAN.md — Bouées et parcours d'un autre club à confirmer sur la carte avant usage, guide, v29 sur l'aperçu et essai réel de la lecture IA (vague 7)
 
 **UI hint**: yes
 
@@ -147,5 +147,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 |-------|----------------|--------|-----------|
 | 1. Mises en ligne sans risque | 4/4 | Complete    | 2026-10-19 |
 | 2. Fiable et juste en mer | 5/5 | Complete    | 2026-10-19 |
-| 3. Ouvrir une régate | 6/7 | In Progress | - |
+| 3. Ouvrir une régate | 7/7 | In Progress | - |
 | 4. Archive partagée | 0/TBD | Not started | - |

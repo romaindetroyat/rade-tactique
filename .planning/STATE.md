@@ -2,17 +2,17 @@
 gsd_state_version: "1.0"
 current_phase: 3
 current_phase_name: Ouvrir une régate
-status: executing
-stopped_at: Completed 03-06-PLAN.md
-last_updated: "2026-10-19T22:45:50.546Z"
+status: verifying
+stopped_at: Completed 03-07-PLAN.md
+last_updated: "2026-10-19T23:08:59.734Z"
 last_activity: 2026-10-19
 last_activity_desc: Phase 3 execution started
-state_head: 7685be77923ef39464fa08bcf02174c7ae967e40
+state_head: 49734db26eb6a67f82fc926e2f8246070942364d
 progress:
   total_phases: 4
   completed_phases: 2
   total_plans: 16
-  completed_plans: 15
+  completed_plans: 16
   percent: 50
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-10-19)
 
 Phase: 3 (Ouvrir une régate) — EXECUTING
 Plan: 7 of 7
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-10-19 — Phase 3 execution started
 
 Progress: [█████░░░░░] 50%
@@ -70,6 +70,7 @@ Progress: [█████░░░░░] 50%
 | Phase 03 P04 | 22 min | 3 tasks | 13 files |
 | Phase 03 P05 | 58 min | 2 tasks | 12 files |
 | Phase 03 P06 | 30 min | 2 tasks | 10 files |
+| Phase 03 P07 | 21 min | 2 tasks | 13 files |
 
 ## Accumulated Context
 
@@ -117,6 +118,8 @@ Décisions récentes qui orientent le travail en cours :
 - [Phase 03]: 03-06 : une règle particulière lue par l'IA est montrée avec le texte de son extrait (celui du PDF), pas avec la reformulation du modèle ; seule une valeur prouvée est affichée
 - [Phase 03]: 03-06 : un 401/403 d'OpenAI (clé refusée) est renvoyé en 502 par api/ic.js, car la page lit 401 comme un refus d'accès à l'app
 - [Phase 03]: 03-06 : IA_IC (js/icread.js) masque « Lire avec l'IA » sans toucher au reste ; décision après l'essai réel sur l'aperçu v29 (plan 07)
+- [Phase 03]: Plan 03-07 : une bouée corrigée reste « à confirmer » ; seul le geste Confirmer la fait servir (auteur et date gardés, position d’origine conservée)
+- [Phase 03]: Plan 03-07 : bouées X1… et parcours 101… d’une régate injectés dans MARKS et COURSES par le seul js/app.js (marque fromRegatta, retirés avant chaque injection) ; parcours choisi disparu → parcours 3
 
 ### Pending Todos
 
@@ -141,6 +144,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-10-19T22:45:44.662Z
-Stopped at: Completed 03-06-PLAN.md
+Last session: 2026-10-19T23:08:54.249Z
+Stopped at: Completed 03-07-PLAN.md
 Resume file: None
