@@ -6,13 +6,14 @@
 import { toXY, toLL, bearingXY, distXY, fromBearing, norm180, norm360, fmtBrg, cardinal } from './geo.js';
 import { boatSpeed, optimalAngles } from './polar.js';
 import { report } from './journal.js';
+import { actionLabel, lampLabel } from './status.js';
 
 const J80 = 8; // longueur de coque (m), pour exprimer les écarts en longueurs
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const fmtS = (s) => { const a = Math.abs(Math.round(s)); return a >= 60 ? `${Math.floor(a / 60)}:${String(a % 60).padStart(2, '0')}` : `${a} s`; };
 
 export function createStartMode(api) {
-  // api : { S, persist, line(), windAt(p), timer, wake, beep, audioInit, audioRelease, testSound, chronoAlert, fixAlert, startGps, gps(), say, setLineEnd, toast }
+  // api : { S, persist, line(), windAt(p), timer, wake, beep, audioInit, audioRelease, testSound, chronoAlert, fixAlert, status(), fixLamp(act), lampTouch(id), startGps, gps(), say, setLineEnd, toast }
   let root = null, raf = null, compass = null, compassOn = false, lastSaid = null;
   const st = { crossed: null, ocs: false };
 
@@ -114,9 +115,9 @@ export function createStartMode(api) {
       <div class="sm-top">
         <button class="sm-x" data-a="close" aria-label="Fermer le mode départ">✕</button>
         <div class="sm-views"><button data-a="vnum" class="on">Chiffres</button><button data-a="vline">Ligne</button></div>
-        <span class="sm-gps" id="smGps">GPS…</span>
         <button class="sm-lock" data-a="lock" id="smLock" aria-label="Verrouiller l’écran">🔓</button>
         <button class="sm-gear" data-a="gear" aria-label="Réglages">⚙</button>
+        <div class="sm-lamps" id="smLamps" role="status" aria-label="État du GPS, de l’écran, du son et du réseau">${['gps', 'screen', 'sound', 'net'].map((id) => `<button type="button" class="lamp off" data-a="lamp" data-id="${id}"><i></i><b></b></button>`).join('')}</div>
       </div>
       <div class="sm-main">
         <div class="sm-clockbox" data-a="clock" data-lockhold="clock"><div class="sm-clock" id="smClock">5:00</div><div class="sm-phase" id="smPhase">Touchez DÉPART 5’ au signal</div>
@@ -165,6 +166,7 @@ export function createStartMode(api) {
       const a = e.target.closest('[data-a]')?.dataset.a; if (!a) return;
       if (locked && a !== 'lock') return; // écran verrouillé : seuls les appuis maintenus agissent
       if (locked && a === 'lock') return;  // déverrouillage par appui maintenu
+      if (a === 'lamp') { api.lampTouch?.(e.target.closest('[data-a]').dataset.id); render(); return; }     // détail de la lampe touchée dans la ligne #smAlert
       act(a);
     });
     // écran verrouillé : synchro et déverrouillage par appui maintenu (0,6 s)
@@ -196,7 +198,7 @@ export function createStartMode(api) {
     if (a === 'close') return close();
     if (a === 'lock') { locked = true; root.classList.add('locked'); $('#smSheet').hidden = true; updateToggles(); api.toast?.('Écran verrouillé : maintenir 🔒 pour déverrouiller'); return; }
     if (a === 'clock') { if (T.end && T.end > Date.now() - 600000) { const r = (T.end - Date.now()) / 1000; T.end = Date.now() + Math.round(r / 60) * 60000; api.beep(1000, 0.1); } return; }
-    if (a === 'alert') return api.fixAlert?.($('#smAlert').dataset.act);
+    if (a === 'alert') return api.fixLamp?.($('#smAlert').dataset.act);
     if (a === 'sndtest') { $('#smSheet').hidden = true; return api.testSound?.(); }
     if (a === 'flash') { api.S.startFlash = api.S.startFlash === false; api.persist(); updateToggles(); return; }
     if (a === 'bips') { api.S.startBips = !(api.S.startBips ?? true); api.persist(); updateToggles(); return; }
@@ -279,17 +281,23 @@ export function createStartMode(api) {
   function render() {
     if (!root || root.hidden) return;
     const m = metrics(), $ = (s) => root.querySelector(s);
-    const g = api.gps();
-    const acc = g?.pos?.acc;
-    $('#smGps').textContent = g?.pos ? `±${Math.round(acc ?? 0)} m` : g?.err ? 'GPS ✕' : 'GPS…';
-    $('#smGps').className = 'sm-gps ' + (!g?.pos ? 'bad' : acc > 15 ? 'warn' : 'good');
-    // alerte du chrono : son coupé / non testé, écran non maintenu, avec l’action pour y remédier
-    const al = api.chronoAlert?.(), ab = $('#smAlert');
+    // voyant : quatre lampes (GPS, écran, son, réseau) ; la ligne d’action montre la lampe touchée, sinon la première lampe rouge, sinon l’alerte du chrono
+    const v = api.status?.();
+    if (v) $('#smLamps').querySelectorAll('.lamp').forEach((b) => {
+      const l = v.lamps.find((x) => x.id === b.dataset.id); if (!l) return;
+      const t = lampLabel(l), c = 'lamp ' + l.level;
+      if (b.lastChild.textContent !== t) b.lastChild.textContent = t;
+      if (b.className !== c) b.className = c;
+    });
+    let al = null;
+    if (v?.pick) al = { text: `${v.pick.text} : ${v.pick.detail}`, act: v.pick.act, bad: v.pick.level === 'bad' };
+    else { const c = api.chronoAlert?.(); if (c) al = { text: c.text, act: c.act, bad: c.act !== 'test' }; }
+    const ab = $('#smAlert');
     ab.hidden = !al;
     if (al) {
-      ab.dataset.act = al.act; ab.className = 'sm-alert ' + (al.act === 'test' ? 'warn' : 'bad');
+      ab.dataset.act = al.act || ''; ab.className = 'sm-alert ' + (al.bad ? 'bad' : 'warn');
       if (ab.firstChild.textContent !== al.text) ab.firstChild.textContent = al.text;
-      ab.lastChild.textContent = al.act === 'test' ? 'Tester le son' : al.act === 'wake' ? 'Réessayer' : 'Réactiver';
+      ab.lastChild.textContent = actionLabel(al.act);
     }
     // chrono et bouton principal
     const r = m.rem, go = $('#smGo');

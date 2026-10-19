@@ -2,7 +2,7 @@
 // Les formes de wake et de audio sont celles du plan 01 : wake.state() → { supported, wanted, held, err, lastLostAt }, soundState() → { state, alive, tested }.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { GPS_STALE_S, GPS_WARN_S, GPS_ACC_WARN_M, NET_STALE_MS, computeStatus } from '../js/status.js';
+import { GPS_STALE_S, GPS_WARN_S, GPS_ACC_WARN_M, NET_STALE_MS, computeStatus, lampLabel, actionLabel } from '../js/status.js';
 
 const NOW = 1_800_000_000_000;
 const bon = () => ({
@@ -78,9 +78,10 @@ test('écran : API absente en course → rouge avec le conseil « Jamais » ; te
   assert.equal(L(avec({ wake: { held: true } }), 'screen')?.level, 'ok');
 });
 
-test('écran : l’erreur de l’API est rappelée dans le détail', () => {
+test('écran : refus de l’API ou page masquée → même conseil, court (l’erreur exacte va au journal)', () => {
   const l = L(avec({ wake: { held: false, err: 'NotAllowedError' } }), 'screen');
-  assert.match(l?.detail ?? '', /NotAllowedError/); assert.match(l?.detail ?? '', /Jamais/);
+  assert.equal(l?.level, 'bad'); assert.match(l?.detail ?? '', /Jamais/);
+  assert.ok((l?.detail ?? '').length <= 60, 'une ligne lisible sur un téléphone');
 });
 
 test('son : contexte interrompu → rouge « touchez pour réactiver » ; horloge figée → rouge', () => {
@@ -148,4 +149,12 @@ test('entrées absentes : aucune exception, quatre lampes', () => {
   const s = computeStatus({ now: NOW });
   assert.equal(s.lamps.length, 4);
   assert.ok(['ok', 'warn', 'bad'].includes(s.worst));
+});
+
+test('libellés courts : « GPS 2 s » avec l’âge, ÉCRAN, SON, RÉSEAU ; une action nommée par lampe', () => {
+  const s = avec({ gps: { lastAt: NOW - 2000 } });
+  assert.deepEqual(s.lamps.map(lampLabel), ['GPS 2 s', 'ÉCRAN', 'SON', 'RÉSEAU']);
+  assert.equal(lampLabel(L(avec({ needGps: false, gps: { on: false, lastAt: null } }), 'gps')), 'GPS');
+  for (const a of ['gps', 'wake', 'sound', 'test', 'net']) assert.ok(actionLabel(a).length > 0, a);
+  assert.equal(actionLabel(null), '');
 });

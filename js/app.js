@@ -20,6 +20,7 @@ import { createStartMode } from './startmode.js';
 import { initUpdates } from './swupdate.js';
 import { createBeeper, audioAlive, milestones, KEY } from './beeper.js';
 import { createWakeLock } from './wakelock.js';
+import { computeStatus, lampLabel, actionLabel, GPS_STALE_S } from './status.js';
 import { isActive, isRaceDay, lockState } from './racelock.js';
 import { detect as dbDetect, ask as dbAsk, askModes as dbAskModes, analyze as dbAnalyze, narrative as dbNarrative, buildReport as dbBuild, shareReport as dbShare } from './debrief.js';
 
@@ -104,9 +105,11 @@ async function init() {
   // mise à jour différée : bandeau hors course, application sur geste seulement (js/swupdate.js, js/racelock.js)
   updates = initUpdates({ isLocked: () => raceLock().locked, onAvailable: showUpdateBar, onHidden: hideUpdateBar });
   setInterval(raceTick, 5000);
+  setInterval(lampTick, 1000);
   addEventListener('pagehide', saveRaceActivity);
-  document.addEventListener('visibilitychange', () => { note('page', document.hidden ? 'masquée' : 'visible'); if (document.hidden) saveRaceActivity(); });
-  addEventListener('online', () => note('reseau', 'en ligne')); addEventListener('offline', () => note('reseau', 'hors ligne'));
+  document.addEventListener('visibilitychange', () => { note('page', document.hidden ? 'masquée' : 'visible'); if (document.hidden) saveRaceActivity(); else { lastProbe = Date.now(); probeNet(); renderRaceBar(); } });
+  addEventListener('online', () => { note('reseau', 'en ligne'); probeNet(); });
+  addEventListener('offline', () => { net.online = false; note('reseau', 'hors ligne'); renderRaceBar(); });
 }
 
 async function refreshWeather() {
@@ -691,6 +694,7 @@ const WAKE_ADVICE = 'Écran non maintenu : réglez Verrouillage automatique sur 
 let wakeToastAt = 0;
 function onWakeEvent(w, m) {
   if (/refus/i.test(m)) report('ecran', m); else note('ecran', m);
+  renderRaceBar();
   const st = wake.state();
   if (document.visibilityState === 'hidden' || !st.wanted || st.held) return;      // masquer la page libère le verrou : ce n’est pas une perte à signaler
   if (Date.now() - wakeToastAt < 60000) return;
@@ -711,6 +715,7 @@ const startMode = createStartMode({
   S, persist, timer, wake, beep: (...x) => beep(...x), audioInit: () => audioInit(), startTimer: () => startTimer(), startGps: () => startGps(), gps: () => gps, say, toast,
   setLineEnd: (w, ll) => setLineEnd(w, ll), reanalyse: () => scheduleAnalysis(), help: () => openGuide(),
   audioRelease: () => audioRelease(), testSound: () => testSound(), chronoAlert: () => chronoAlert(), fixAlert: (a) => fixAlert(a),
+  status: () => statusView(), fixLamp: (a) => fixLamp(a), lampTouch: (id) => lampTouch(id),
   firstMark: () => { const l = analysis?.legs?.[0]; return l ? { x: l.to.x, y: l.to.y, name: l.order ? String(l.order) : (l.to.name || '').split(' ')[0] } : null; },
   line: () => S.lineOverride?.cb && S.lineOverride?.pin ? S.lineOverride : analysis ? { cb: toLL(analysis.line.cb.x, analysis.line.cb.y), pin: toLL(analysis.line.pin.x, analysis.line.pin.y) } : null,
   windAt: (p) => {
@@ -778,7 +783,7 @@ function audioInit() {
     try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch { /* session audio non prise en charge */ }
     if (!actx) {
       actx = new (window.AudioContext || window.webkitAudioContext)(); beeper = createBeeper({ ctx: actx, onMiss: (m) => note('bips', 'bip manqué à ' + m.s + ' s du signal') });
-      actx.addEventListener?.('statechange', () => { note('son', 'état ' + actx.state); snd.prev = null; snd.alive = null; renderChronoAlert(); });
+      actx.addEventListener?.('statechange', () => { note('son', 'état ' + actx.state); snd.prev = null; snd.alive = null; renderChronoAlert(); renderRaceBar(); });
     }
     // resume() peut ne jamais se résoudre quand le navigateur est suspendu en arrière-plan (WebKit 281566) : reprise bornée à 1,5 s
     const prete = Promise.race([actx.resume(), new Promise((ok) => setTimeout(ok, 1500))]).catch((e) => report('son', e));
@@ -898,13 +903,128 @@ function tickTimer() {
   const lc = $('#liveClock'); if (lc && c) lc.textContent = c.textContent;
 }
 
+// ───────────────────────── VOYANT (FIAB-05) : GPS, écran, son, réseau
+// Quatre lampes calculées par js/status.js à partir d’observations réelles. Visible en mode départ (barre du haut) et en course
+// (bande #raceBar sous la barre du haut) ; hors course, rien. Alerte visuelle seulement : jamais de son (un son pourrait passer pour un signal).
+const net = { online: navigator.onLine !== false, lastOkAt: null, rtt: null };
+let probing = false, lastProbe = 0, silence = null, lampShown = null;
+const lampBad = new Set();
+// Sonde réseau : HEAD sur un fichier public de l’app. Le worker ne traite que les GET (sw.js) : un GET serait servi par son cache et
+// dirait « réseau ok » en mode avion. Toute réponse HTTP prouve que le réseau est joignable ; navigator.onLine n’est qu’un indice.
+async function probeNet() {
+  if (probing) return;
+  probing = true;
+  const c = new AbortController(), t0 = performance.now(), to = setTimeout(() => c.abort(), 4000), avant = net.online;
+  try {
+    await fetch('icons/favicon-32.png?p=' + Date.now(), { method: 'HEAD', cache: 'no-store', signal: c.signal });
+    net.lastOkAt = Date.now(); net.rtt = performance.now() - t0; net.online = true;
+  } catch { net.rtt = null; net.online = false; /* aucune réponse : réseau injoignable, ce n’est pas une erreur de l’app */ }
+  finally { clearTimeout(to); probing = false; }
+  if (net.online !== avant) note('reseau', net.online ? 'sonde : réseau joignable' : 'sonde : aucune réponse');
+  renderRaceBar();
+}
+function statusNow() {
+  const now = Date.now();
+  sampleSound(now);
+  const st = computeStatus({
+    now, needGps: startMode.isOpen() || recorder.active || gps?.watch != null, needScreen: raceActive(now),
+    needSound: startMode.isOpen() || (timer.end != null && now < timer.end + 60e3),
+    gps: { on: gps?.watch != null, lastAt: gps?.lastAt, acc: gps?.pos?.acc, err: gps?.err },
+    wake: wake.state(), audio: soundState(), net,
+  });
+  for (const l of st.lamps) {                                  // une ligne au journal à chaque passage au rouge, pas à chaque seconde
+    if (l.level === 'bad' && !lampBad.has(l.id)) { lampBad.add(l.id); note('voyant', `${l.text} : ${l.detail}`); }
+    else if (l.level !== 'bad') lampBad.delete(l.id);
+  }
+  return st;
+}
+// Lampe à afficher dans la ligne d’action : celle que l’équipier vient de toucher (6 s), sinon la première lampe rouge
+function statusView() {
+  const st = statusNow();
+  const shown = lampShown && Date.now() < lampShown.until ? st.lamps.find((l) => l.id === lampShown.id) : null;
+  return { ...st, pick: shown || st.lamps.find((l) => l.level === 'bad') || null };
+}
+function lampTouch(id) { lampShown = { id, until: Date.now() + 6000 }; renderRaceBar(); }
+function relaunchGps() {
+  if (gps?.watch != null) { navigator.geolocation.clearWatch(gps.watch); gps = null; }      // suivi neuf : repart de zéro
+  startGps();
+}
+// Action d’une lampe : relancer le GPS, redemander l’écran, réactiver ou tester le son, resonder le réseau
+function fixLamp(act) {
+  if (act === 'gps') {
+    const l = statusNow().lamps.find((x) => x.id === 'gps');
+    if (gps?.watch != null && l?.level !== 'bad') { toast('GPS : ' + l.detail); return; }
+    const refuse = gps?.err === 1;
+    relaunchGps();
+    if (refuse) toast(l.detail);
+    return;
+  }
+  if (act === 'net') return probeNet();
+  return fixAlert(act);
+}
+// Silence du GPS : consigné quand il commence (plus de 10 s sans point reçu) et quand il finit
+function gpsSilence(now) {
+  if (gps?.lastAt == null) return;
+  const age = Math.round((now - gps.lastAt) / 1000);
+  if (!silence && age > GPS_STALE_S) { silence = { from: gps.lastAt }; note('gps', `silence commencé (dernier point il y a ${age} s)`); }
+  else if (silence && gps.lastAt > silence.from) { note('gps', `silence terminé après ${Math.round((gps.lastAt - silence.from) / 1000)} s`); silence = null; }
+}
+function paintLamp(b, l) {
+  const t = lampLabel(l), c = 'lamp ' + l.level;
+  if (b.lastChild.textContent !== t) b.lastChild.textContent = t;
+  if (b.className !== c) b.className = c;
+}
+function buildRaceBar() {
+  const el = document.createElement('div'); el.id = 'raceBar'; el.setAttribute('role', 'status'); el.hidden = true;
+  const row = document.createElement('div'); row.className = 'lamps';
+  for (const id of ['gps', 'screen', 'sound', 'net']) {
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'lamp off'; b.dataset.id = id;
+    b.append(document.createElement('i'), document.createElement('b')); row.appendChild(b);
+  }
+  const al = document.createElement('button'); al.type = 'button'; al.className = 'rb-alert'; al.hidden = true;
+  al.append(document.createElement('span'), document.createElement('b'));
+  el.append(row, al);
+  el.addEventListener('click', (e) => {
+    const lamp = e.target.closest('.lamp'); if (lamp) return lampTouch(lamp.dataset.id);
+    if (e.target.closest('.rb-alert') && al.dataset.act) fixLamp(al.dataset.act);
+  });
+  document.body.appendChild(el);
+  return el;
+}
+// Bande « en course » : affichée seulement quand quelque chose tourne (chrono, trace, GPS) et que le mode départ est fermé
+function renderRaceBar() {
+  const on = raceActive(Date.now()) && !startMode.isOpen();
+  let el = document.getElementById('raceBar');
+  if (!on) { if (el && !el.hidden) el.hidden = true; return; }
+  if (!el) el = buildRaceBar();
+  el.hidden = false;
+  const v = statusView();
+  el.querySelectorAll('.lamp').forEach((b) => { const l = v.lamps.find((x) => x.id === b.dataset.id); if (l) paintLamp(b, l); });
+  const al = el.querySelector('.rb-alert'), p = v.pick;
+  al.hidden = !p;
+  if (p) {
+    const txt = `${p.text} : ${p.detail}`, act = actionLabel(p.act);
+    if (al.firstChild.textContent !== txt) al.firstChild.textContent = txt;
+    if (al.lastChild.textContent !== act) al.lastChild.textContent = act;
+    al.dataset.act = p.act || ''; al.className = 'rb-alert ' + p.level;
+  }
+}
+// Chaque seconde : silence du GPS, sonde réseau toutes les 30 s tant que le voyant est visible, rafraîchissement de la bande
+function lampTick() {
+  const now = Date.now();
+  if (gps) gpsSilence(now);
+  if (!document.hidden && (startMode.isOpen() || raceActive(now)) && now - lastProbe >= 30000) { lastProbe = now; probeNet(); }
+  if (!document.hidden) renderRaceBar();
+}
+
 // ───────────────────────── EN COURSE
 function startGps() {
   if (gps?.watch) return;
   if (!navigator.geolocation) { toast('GPS indisponible sur cet appareil'); return; }
-  gps = { watch: null, pos: null, hist: [] };
+  gps = { watch: null, pos: null, hist: [], lastAt: null, err: null, errMsg: null }; silence = null;
   gps.watch = navigator.geolocation.watchPosition((p) => {
     const q = { ...toXY(p.coords.latitude, p.coords.longitude), t: p.timestamp, acc: p.coords.accuracy, lat: p.coords.latitude, lon: p.coords.longitude };
+    gps.lastAt = Date.now();                       // heure de RÉCEPTION : le voyant mesure le silence, pas l’horloge du GPS
     gps.hist.push(q); gps.hist = gps.hist.filter((h) => q.t - h.t < 20000);
     // vitesse et cap : ceux du GPS quand il les donne (iPhone), sinon calculés sur les 6 dernières secondes
     const o = gps.hist.find((h) => q.t - h.t <= 6000) || gps.hist[0], dt = (q.t - o.t) / 1000;
@@ -916,13 +1036,14 @@ function startGps() {
     if (recorder.active) recorder.add(q);
     autoAdvance();
     renderLiveNav();
-  }, (e) => { gps.err = e.code; gps.errMsg = e.message; report('gps', 'code ' + e.code + ' : ' + e.message); renderLiveNav(); }, { enableHighAccuracy: true, maximumAge: 1000 });
+    gpsSilence(gps.lastAt); renderRaceBar();
+  }, (e) => { gps.err = e.code; gps.errMsg = e.message; report('gps', 'code ' + e.code + ' : ' + e.message); renderLiveNav(); renderRaceBar(); }, { enableHighAccuracy: true, maximumAge: 1000 });
   wake.want('gps');
   renderLive();
 }
 async function stopGps() {
   if (recorder.active) { const tr = await recorder.stop(); if (tr?.pts.length > 1) toast(`Trace enregistrée (${tr.pts.length} points)`); renderTracks(); }
-  if (gps?.watch != null) navigator.geolocation.clearWatch(gps.watch); gps = null; wake.drop('gps'); scene.setBoat(null); renderLive();
+  if (gps?.watch != null) navigator.geolocation.clearWatch(gps.watch); gps = null; silence = null; wake.drop('gps'); scene.setBoat(null); renderLive(); renderRaceBar();
 }
 function autoAdvance() {
   if (!analysis || !gps?.pos) return;

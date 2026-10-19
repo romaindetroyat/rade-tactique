@@ -7,7 +7,7 @@
 export const GPS_STALE_S = 10, GPS_WARN_S = 4, GPS_ACC_WARN_M = 15, NET_STALE_MS = 10 * 60e3;
 
 const lamp = (id, level, text, detail, act = null, extra = null) => ({ id, level, text, detail, act, ...extra });
-const JAMAIS = 'verrouillage automatique sur « Jamais »';
+const JAMAIS = 'verrouillage auto sur « Jamais »';
 
 // gps : { on, lastAt (heure de RÉCEPTION du dernier point, pas celle du GPS), acc, err (code 1 à 3) }
 // wake : { supported, wanted, held, err } (js/wakelock.js) · audio : { state, alive, tested } (soundState dans js/app.js) · net : { online, lastOkAt, rtt }
@@ -27,8 +27,8 @@ export function computeStatus({ now = Date.now(), needGps = false, needScreen = 
 
   // Écran : l’état est celui du verrou réellement tenu ; rouge seulement quand quelque chose en dépend (chrono, mode départ, trace, GPS)
   if (wake.held) lamps.push(lamp('screen', 'ok', 'ÉCRAN', 'maintenu allumé'));
-  else if (!wake.supported) lamps.push(lamp('screen', needScreen ? 'bad' : 'off', 'ÉCRAN', `non maintenu (API absente) : réglez le ${JAMAIS}`, needScreen ? 'wake' : null));
-  else lamps.push(lamp('screen', needScreen ? 'bad' : 'off', 'ÉCRAN', `non maintenu${wake.err ? ` (${wake.err})` : ''} : réglez le ${JAMAIS}`, needScreen ? 'wake' : null));
+  else if (!wake.supported) lamps.push(lamp('screen', needScreen ? 'bad' : 'off', 'ÉCRAN', `non maintenu (API absente), ${JAMAIS}`, needScreen ? 'wake' : null));
+  else lamps.push(lamp('screen', needScreen ? 'bad' : 'off', 'ÉCRAN', `non maintenu, ${JAMAIS}`, needScreen ? 'wake' : null));
 
   // Son : « running » ne prouve pas que le son sort (horloge audio), et ni le bouton silencieux ni le volume ne se lisent : le test fait foi
   if (!needSound && audio.state == null) lamps.push(lamp('sound', 'off', 'SON', 'pas armé'));
@@ -46,3 +46,8 @@ export function computeStatus({ now = Date.now(), needGps = false, needScreen = 
 
   return { lamps, worst: lamps.some((l) => l.level === 'bad') ? 'bad' : lamps.some((l) => l.level === 'warn') ? 'warn' : 'ok' };
 }
+
+// Libellés partagés par le mode départ et la bande « en course »
+const ACTIONS = { gps: 'Relancer', wake: 'Réessayer', sound: 'Réactiver', test: 'Tester le son', net: 'Vérifier' };
+export const actionLabel = (act) => ACTIONS[act] ?? '';
+export const lampLabel = (l) => (l.id === 'gps' && l.age != null && l.level !== 'off' ? `GPS ${l.age} s` : l.text);

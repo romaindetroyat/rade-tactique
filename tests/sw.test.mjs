@@ -133,3 +133,26 @@ test('le reste (rapports) passe par le réseau, avec index.html en secours hors 
   const inconnu = await w.requete('/rapports/autre.html');
   assert.match(await inconnu.text(), /^cache:.*index\.html$/);
 });
+
+// FIAB-05 : la lampe RÉSEAU ne peut pas mentir. Un GET d’un fichier de l’app est servi par le cache (200 hors réseau) ;
+// la sonde de js/app.js est un HEAD de même origine que le worker ne traite pas : elle part vraiment sur le réseau.
+test('sonde réseau : HEAD /icons/favicon-32.png n’est pas intercepté (alors que le GET est servi par le cache)', async () => {
+  const w = monde();
+  await w.attendre('install');
+  assert.equal(w.requete('/icons/favicon-32.png?p=1', { method: 'HEAD' }), null, 'le worker ne répond pas à la place du réseau');
+  w.net.offline = true;
+  const get = await w.requete('/icons/favicon-32.png');
+  assert.match(await get.text(), /^cache:/, 'contre-épreuve : le GET, lui, mentirait « réseau ok »');
+});
+
+test('sonde réseau : GET /api/_ping n’est pas intercepté', async () => {
+  const w = monde();
+  await w.attendre('install');
+  assert.equal(w.requete('/api/_ping'), null);
+});
+
+test('garde : la sonde de js/app.js est ce HEAD, avec abandon à 4 s et sans cache', () => {
+  const app = readFileSync(ROOT + 'js/app.js', 'utf8');
+  assert.match(app, /fetch\('icons\/favicon-32\.png\?p=' \+ Date\.now\(\), \{ method: 'HEAD', cache: 'no-store'/);
+  assert.match(app, /setTimeout\(\(\) => c\.abort\(\), 4000\)/);
+});
