@@ -31,13 +31,13 @@ Le jour de la régate, l'équipage peut ouvrir l'épreuve, s'en servir en mer sa
 
 <!-- Objectif : prêt pour la prochaine régate CVAT, dans 2 à 3 semaines. -->
 
-- [ ] Fiabilité en mer : GPS, mode départ, enregistrement de trace et hors-ligne tiennent toute une course, y compris écran verrouillé ou app en arrière-plan, et signalent tout arrêt
+- [ ] Fiabilité en mer : aucune mise à jour en course, chrono et bips sûrs, voyants d'état, ouverture rapide hors réseau ; la trace de référence vient d'Open GPX Tracker (enregistrement incassable dans l'app reporté en v2)
 - [ ] Justesse : positions des bouées vérifiées, vent, routage, polaire et débrief contrôlés sur des cas connus (dont la Coupe SNPM du 18/10/2026)
 - [ ] Non-régression : tests automatiques des calculs clés (géométrie, vent, routage, polaire, GPX, débrief, accès) lancés avant chaque mise en ligne
 - [ ] Simplicité : un équipier ouvre la régate, lance le départ et fait le débrief en quelques gestes, sans Romain
 - [ ] Ouvrir une régate à venir : n'importe quel équipier crée l'épreuve (date, IC importées du PDF, parcours possibles), y compris pour une régate occasionnelle d'un autre club en lisant ses IC
 - [ ] Archive partagée : chaque régate passée garde le vent et la stratégie du jour (prévisions, relevés, route conseillée) ainsi que ses traces, son débrief, l'analyse polaire et le rapport, consultables par tout l'équipage sur n'importe quel appareil
-- [ ] Préparer l'arrivée d'autres plans d'eau : les données propres à la rade (zone, relief, bouées, parcours, IC) ne sont plus écrites en dur dans le code
+- [ ] Préparer l'arrivée d'autres plans d'eau : les données propres à la rade (zone, relief, bouées, parcours, IC) ne sont plus écrites en dur dans le code (v2, après la régate de novembre)
 
 ### Out of Scope
 
