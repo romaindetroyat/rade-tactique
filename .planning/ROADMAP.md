@@ -65,7 +65,7 @@ Plans:
   4. Après une sortie, un équipier ouvre le journal de diagnostic dans l'app et y lit les erreurs survenues en mode départ et en mode course, avec leur heure.
   5. Une bouée dont la position n'est pas confirmée est signalée sur la carte, dans les parcours et en mode départ ; un équipier la recale par un point GPS au passage ou par saisie, et la bouée affiche ensuite la source et la date de sa position.
 
-**Plans:** 4 plans
+**Plans:** 5 plans
 
 Plans:
 **Wave 1**
@@ -75,10 +75,13 @@ Plans:
 - [ ] 02-02-PLAN.md — Journal de diagnostic (Aide › Journal) et voyant GPS / écran / son / réseau en mode départ et en course (vague 2)
 
 **Wave 3** *(blocked on Wave 2 completion)*
-- [ ] 02-03-PLAN.md — Ouverture < 2 s hors réseau : interface utile d'abord, 3D différée, vent par tranches, calculs reportés pendant la séquence, mesure Chromium (vague 3)
+- [ ] 02-03-PLAN.md — Ouverture < 2 s hors réseau : interface utile d'abord, 3D différée, vent par tranches, recalculs automatiques reportés pendant la séquence (gestes et relevés immédiats), mesure Chromium (vague 3)
 
 **Wave 4** *(blocked on Wave 3 completion)*
-- [ ] 02-04-PLAN.md — Bouées à confirmer signalées et recalées (trace au débrief ou saisie), guide à jour, v27 sur l'aperçu `apercu-phase-02` (vague 4)
+- [ ] 02-04-PLAN.md — Bouées à confirmer signalées et recalées (sommet du virage au débrief, D-02 amendé, ou saisie), source et date affichées (vague 4)
+
+**Wave 5** *(blocked on Wave 4 completion)*
+- [ ] 02-05-PLAN.md — Guide de l'équipage à jour, mesures Chromium obligatoires, v27 sur l'aperçu `apercu-phase-02` (vague 5)
 
 **UI hint**: yes
 

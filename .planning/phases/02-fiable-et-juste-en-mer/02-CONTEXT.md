@@ -16,7 +16,7 @@ Besoins : FIAB-03, FIAB-04, FIAB-05, FIAB-06, FIAB-07, JUST-01, JUST-02.
 
 ### Bouées (JUST-01, JUST-02)
 - **D-01:** Seules les bouées de position approximative sont signalées « position à confirmer » : aujourd'hui GR1 (3) et Carqueiranne (11), `src: 'approx'`. Les autres (relevés GPS, coordonnées CVAT, calculées, OSM) restent normales. Signalement sur la carte, dans les parcours et en mode départ.
-- **D-02:** Le recalage se fait **depuis la trace**, au débrief : l'app propose la position du passage au plus près de la bouée et l'équipier valide. Pas de bouton à toucher en course. La saisie manuelle de coordonnées reste possible (exigée par JUST-02), sans être mise en avant.
+- **D-02:** Le recalage se fait **depuis la trace**, au débrief (choix de Romain : « Depuis la trace seulement »). L'app propose une position déduite du passage (méthode retenue par la recherche : sommet du virage + 14 m vers l'intérieur, jusqu'à 3 virages candidats, précision annoncée ±20 m ; le point au plus près est affiché à côté pour information) et l'équipier valide. Pas de bouton à toucher en course. La saisie manuelle de coordonnées reste possible (exigée par JUST-02), sans être mise en avant. *(Précision du 19/10 : la formule « passage au plus près » de la première rédaction était une interprétation de Claude, pas le choix de Romain ; la recherche montre qu'elle est moins juste.)*
 - **D-03:** Une bouée recalée affiche sa source (« trace du JJ/MM », « saisie ») et sa date ; elle n'est plus signalée.
 - **D-04:** Le recalage reste sur le téléphone qui l'a fait ; partage automatique avec l'archive en phase 4. En attendant, Claude peut reporter à la main dans `js/courses.js` une position recalée validée par Romain.
 
