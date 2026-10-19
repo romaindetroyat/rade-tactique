@@ -2,7 +2,7 @@
 // (25 heures, mêmes calculs que sur l’original), résumé, section « Vent du jour » de la fiche (linkedom) et gardes statiques du câblage.
 // Fonctions lues par espace de noms (G.) : un module ou une fonction absents font échouer le test visé, pas le chargement du fichier.
 // Aucun code d’accès ni aucune empreinte ici.
-import { test } from 'node:test';
+import { test, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { parseHTML } from 'linkedom';
@@ -12,6 +12,10 @@ import * as G from '../js/gel.js';
 import { sheetHTML } from '../js/regview.js';
 import { consensus } from '../js/weather.js';
 import { modelPoints, scoreModels } from '../js/obs.js';
+import { Terrain, toXY, toLL } from '../js/geo.js';
+import { WindField } from '../js/wind.js';
+import { buildLegs, analyzeLeg } from '../js/tactics.js';
+import { COURSES, LINE_PRESETS } from '../js/courses.js';
 
 const t = (s) => Date.parse(s);
 const WX = JSON.parse(readFileSync(ROOT + 'data/wx-snapshot.json', 'utf8'));
@@ -253,4 +257,142 @@ test('garde : freezeTick copie sans calcul, une copie à la fois, ne passe jamai
   assert.ok(gel > ui && ui > 0, 'le gel vient après l’interface utile');
   assert.ok(!/\bawait\b[^\n]*freezeTick|freezeTick[^\n]*\bawait\b/.test(init), 'init() n’attend pas le gel');
   assert.match(app, /report\('gel'/, 'échec consigné, l’app reste utilisable');
+});
+
+// ───────────────────────── route conseillée figée (tâche 2)
+
+let T, F;
+before(async () => {
+  T = await new Terrain().load('data/');
+  F = new WindField(T);
+  F.compute({ points: [{ x: 0, y: 0, dir: 315, spd: 15, gust: 20 }] }, { localEffects: 1 });          // vent constant 315° 15 nd, relief réel
+});
+// Même construction que runAnalysis (js/app.js), sans la 3D : bords du parcours, puis analyzeLeg sur chacun
+function analyse(courseId = 5, cls = 'G', laps = 2, start = 11) {
+  const course = COURSES.find((c) => c.id === courseId);
+  const preset = LINE_PRESETS[course.line ? course.line : 'vignettes'] || LINE_PRESETS.vignettes, ctr = toXY(preset.lat, preset.lon), w = F.sample(ctr.x, ctr.y);
+  const B = buildLegs(course, cls, { laps, windDir: w.dir, wlLengthNm: 0.8, line: { center: preset, lengthNm: 0.12, mode: 'wind', bearing: 0, override: null } });
+  const ctx = { terrain: T, forbidden: [], perf: 1, trend: 0 };
+  const legs = []; let h = start;
+  for (const leg of B.legs) { const a = analyzeLeg(leg, F, ctx); a.eta0 = h; h += a.time / 3600; a.eta1 = h; legs.push(a); }
+  let ord = 0; legs.forEach((l) => { if (l.mark !== 'GATE' && l.mark !== 'FINISH') l.order = ++ord; });
+  return { course, cls, legs, line: B.line, points: B.points, start: {}, total: h - start, dist: legs.reduce((x, l) => x + l.dist, 0) };
+}
+const REGL = { courseId: 5, cls: 'G', laps: 2, wlNm: 0.8, startTime: 11, day: '2026-10-18', linePreset: 'vignettes', lineLen: 0.12, lineMode: 'wind', lineBrg: 0, lineOverride: null, perf: 1, polar: 'ORC', model: 'meteofrance_arome_france_hd', sel: 1 };
+
+test('stratégie compacte : parcours 5, classe G, 2 tours, vent 315° 15 nd sur le vrai terrain', () => {
+  const a = analyse();
+  const s = G.compactStrategy(a, REGL, { toLL });
+  assert.equal(s.legs.length, a.legs.length, 'un bord par bord de l’analyse');
+  assert.ok(s.legs.length >= 10, `parcours 5 en 2 tours : ${s.legs.length} bords`);
+  assert.deepEqual(s.settings, REGL, 'les réglages qui ont servi à la calculer sont là');
+  const dansLaCarte = ([lat, lon]) => lat > 43.0 && lat < 43.18 && lon > 5.8 && lon < 6.1;
+  s.legs.forEach((l, i) => {
+    assert.equal(l.name, a.legs[i].to.name); assert.equal(l.mark, a.legs[i].mark); assert.equal(l.time, Math.round(a.legs[i].time));
+    assert.ok(dansLaCarte(l.to), `bord ${i + 1} : position en latitude / longitude`);
+    const brut = a.legs[i].route?.path || [];
+    assert.ok(l.path.every(dansLaCarte), `bord ${i + 1} : chemin en latitude / longitude`);
+    if (brut.length > 6) { assert.ok(l.path.length < brut.length / 2, `bord ${i + 1} : chemin décimé (${l.path.length} sur ${brut.length})`); assert.ok(l.path.length >= 2); }
+    assert.ok(l.advice.length >= 1 && l.advice.length <= 5); assert.equal(typeof l.type.label, 'string'); assert.ok(l.wind.dir >= 0 && l.wind.dir < 360 && l.wind.spd > 0);
+  });
+  assert.ok(dansLaCarte(s.line.cb) && dansLaCarte(s.line.pin), 'la ligne de départ aussi');
+  assert.ok(!/"x":|"y":/.test(JSON.stringify(s)), 'jamais de x / y');
+  assert.ok(Math.abs(s.total - a.total) < 0.001);
+  const n = bytes(s);
+  console.log(`# taille de la route conseillée figée (${s.legs.length} bords) : ${n} octets (limite ${G.MAX_STRATEGY_BYTES})`);
+  assert.ok(n <= 12000, `moins de 12 Ko, vu ${n}`);
+  assert.equal(G.MAX_STRATEGY_BYTES, 12000);
+});
+
+test('stratégie compacte : même trop riche, elle tient en 12 Ko (chemin décimé davantage, conseils raccourcis)', () => {
+  const pt = (k) => ({ x: k * 3, y: k * 2 });
+  const leg = (i) => ({ i, to: { name: `Marque ${i}`, x: i * 100, y: i * 50 }, mark: String(i), side: 'b', brg: 123.456, dist: 3600.7, time: 1100.4, eta0: 11, eta1: 11.3, type: { id: 'pres', label: 'Près', sail: 'Foc' }, wind: { dir: 315.4, spd: 15.26, gust: 20.1 }, advice: Array.from({ length: 10 }, (_, k) => `conseil ${k} ` + 'x'.repeat(500)), route: { path: Array.from({ length: 3000 }, (_, k) => pt(k)) } });
+  const lourde = { course: {}, cls: 'G', legs: Array.from({ length: 15 }, (_, i) => leg(i)), line: { cb: pt(1), pin: pt(2) }, start: {}, total: 2.1, dist: 30000 };
+  const s = G.compactStrategy(lourde, REGL, { toLL: (x, y) => ({ lat: 43.05 + y / 1e6, lon: 5.9 + x / 1e6 }) });
+  assert.ok(bytes(s) <= 12000, `vu ${bytes(s)}`);
+  assert.equal(s.legs.length, 15, 'aucun bord perdu');
+});
+
+test('source du vent : prévisions vivantes si le jour y figure, sinon le gel du jour, sinon rien', () => {
+  const live = new Set(['2026-10-24', '2026-10-25']), gel = new Set(['2026-10-18']);
+  assert.equal(G.windSourceKind({ day: '2026-10-25', liveDays: live, frozenDays: gel }), 'live');
+  assert.equal(G.windSourceKind({ day: '2026-10-18', liveDays: live, frozenDays: gel }), 'gel');
+  assert.equal(G.windSourceKind({ day: '2026-10-19', liveDays: live, frozenDays: gel }), 'aucun');
+  assert.equal(G.windSourceKind({ day: '2026-10-24', liveDays: live, frozenDays: new Set(['2026-10-24']) }), 'live', 'le vivant d’abord : plus récent que la copie');
+  assert.equal(G.windSourceKind({ day: '2026-10-18', liveDays: new Set(), frozenDays: new Set() }), 'aucun');
+  assert.equal(G.windSourceKind({ day: '2026-10-18' }), 'aucun');
+});
+
+test('libellé du vent figé : « vent du jour figé le JJ/MM à HH:MM » (heure de Paris)', () => {
+  assert.equal(G.frozenLabel({ at: t('2026-10-18T08:00:00Z') }), 'vent du jour figé le 18/10 à 10:00');
+  assert.equal(G.frozenLabel({ at: t('2026-11-07T23:30:00Z') }), 'vent du jour figé le 08/11 à 00:30', 'jour de Paris, pas d’UTC');
+});
+
+test('décision : la route conseillée arrive après la première copie sans attendre 10 min ; copie tardive complétée une seule fois', () => {
+  const r = regate({ races: [manche(1, '11:00')] });
+  const base = { regatta: r, day: '2026-11-07', dataFetched: 1000 };
+  const slot = { at: t('2026-11-07T07:00:00Z'), fetched: 1000, sealed: false, strategy: null };
+  assert.equal(G.freezeAction({ ...base, now: t('2026-11-07T07:01:00Z'), slot, hasAnalysis: true }), 'gel', 'analyse faite, route pas encore copiée');
+  assert.equal(G.freezeAction({ ...base, now: t('2026-11-07T07:01:00Z'), slot: { ...slot, strategy: { nLegs: 15 } }, hasAnalysis: true }), 'rien');
+  assert.equal(G.freezeAction({ ...base, now: t('2026-11-07T07:01:00Z'), slot, hasAnalysis: false }), 'rien', 'sans analyse, rien à attendre');
+  assert.equal(G.freezeAction({ ...base, now: t('2026-11-07T07:01:00Z'), slot: null, dataFetched: 0, hasAnalysis: true }), 'gel', 'une analyse suffit à justifier une copie');
+  assert.equal(G.stratNeedsCopy({ slot: { sealed: true, late: true, strategy: null }, hasAnalysis: true }), true, 'copie tardive sans route : elle est ajoutée une fois');
+  assert.equal(G.stratNeedsCopy({ slot: { sealed: true, late: false, strategy: null }, hasAnalysis: true }), false, 'scellée à l’heure : la route ne bouge plus');
+  assert.equal(G.stratNeedsCopy({ slot: { sealed: true, late: true, strategy: { nLegs: 3 } }, hasAnalysis: true }), false);
+  assert.equal(G.stratNeedsCopy({ slot: { sealed: true, late: true, strategy: null }, hasAnalysis: false }), false);
+});
+
+test('résumé avec route : réglages et détail des bords dans l’index, quelques Ko', () => {
+  const a = analyse(), s = G.compactStrategy(a, REGL, { toLL });
+  const reg = regate({ dateStart: '2026-10-18', dateEnd: '', races: [manche(1, '10:55', '2026-10-18')] });
+  const f = G.freezeSummary({ action: 'gel', now: t('2026-10-18T08:00:00Z'), regatta: reg, day: '2026-10-18', data: WX, series: consensus(WX), model: 'x', strategy: s });
+  assert.deepEqual({ ...f.strategy, legs: undefined }, { courseId: 5, cls: 'G', laps: 2, startTime: 11, nLegs: s.legs.length, total: s.total, dist: s.dist, legs: undefined });
+  assert.equal(f.strategy.legs.length, s.legs.length);
+  assert.deepEqual(Object.keys(f.strategy.legs[0]).sort(), ['advice', 'brg', 'dist', 'mark', 'name', 'side', 'time', 'type', 'windDir', 'windSpd'].sort());
+  assert.ok(f.strategy.legs.every((l) => l.advice.length <= 140));
+  const n = bytes(f);
+  console.log(`# taille du résumé du gel avec le détail des bords : ${n} octets`);
+  assert.ok(n < 6000, `vu ${n}`);
+  assert.equal(G.freezeSummary({ action: 'gel', now: 1, regatta: reg, day: '2026-10-18', data: WX, series: [] }).strategy, undefined, 'sans route : pas de clé strategy');
+});
+
+const COURSES_UI = [{ id: 5, title: 'Parcours 5 — Grande Rade' }];
+const FS = {
+  courseId: 5, cls: 'G', laps: 2, startTime: 11 + 5 / 60, nLegs: 2, total: 2 + 5 / 60, dist: 21000,
+  legs: [
+    { mark: '7', name: '7 Cap <b>Sicié</b>', side: 't', brg: 112.4, dist: 3600, time: 1100, type: 'Près (louvoyage)', windDir: 315, windSpd: 15.2, advice: 'Côté DROIT favorisé : plus de pression à droite.' },
+    { mark: 'FINISH', name: 'Arrivée', side: null, brg: 280, dist: 1852, time: 600, type: 'Largue sous spi', windDir: 310, windSpd: 14, advice: '' },
+  ],
+};
+test('vue : la route conseillée figée (parcours, classe, tours, départ, bords, temps) et le détail des bords, sans requête', () => {
+  const r = regate({ races: [manche(1, '11:00')], frozen: { '2026-11-07': { ...frozen7, strategy: FS } } });
+  const doc = parseHTML(`<html><body>${sheetHTML(r, { now: NOW, courses: COURSES_UI })}</body></html>`).document;
+  const jour = doc.querySelector('.rgwind[data-day="2026-11-07"]');
+  const x = jour.textContent.replace(/\s+/g, ' ');
+  assert.match(x, /Route conseillée figée/); assert.match(x, /Parcours 5 — Grande Rade/); assert.match(x, /classe G/); assert.match(x, /2 tours/);
+  assert.match(x, /départ 11:05/); assert.match(x, /2 bords/); assert.match(x, /arrivée estimée en 2 h 05/);
+  const det = jour.querySelector('details');
+  assert.ok(det, 'le détail des bords s’ouvre sans requête (details)');
+  const d = det.textContent.replace(/\s+/g, ' ');
+  assert.match(d, /Détail des bords/);
+  assert.match(d, /1 · 7 Cap <b>Sicié<\/b>/); assert.match(d, /tribord/); assert.match(d, /cap 112°/); assert.match(d, /1,9 Nq/); assert.match(d, /18 min/);
+  assert.match(d, /Près \(louvoyage\)/); assert.match(d, /vent 315° 15 nd/); assert.match(d, /Côté DROIT favorisé/);
+  assert.match(d, /Arrivée/); assert.match(d, /10 min/);
+  assert.equal(jour.querySelectorAll('b, img, script').length, 0, 'le nom d’une marque est du texte');
+  assert.equal(jour.querySelectorAll('[data-rgleg]').length, 2, 'une ligne par bord');
+  // gel sans route : on le dit
+  const sans = regate({ races: [manche(1, '11:00')], frozen: { '2026-11-07': frozen7 } });
+  assert.match(windText(sans, '2026-11-07'), /Route conseillée : pas encore figée/);
+  assert.equal(windDoc(sans).querySelector('details'), null);
+});
+
+test('garde : l’app fige la route et lit la source de vent d’une trace (analyse et débrief tardifs)', () => {
+  const app = src('js/app.js');
+  assert.ok((app.match(/compactStrategy\(/g) || []).length >= 1); assert.ok((app.match(/windSourceKind\(/g) || []).length >= 1);
+  assert.match(bodyOf(app, 'refreshObs'), /residualsFor\(/, 'refreshObs et le vent figé partagent le même calcul de résidus');
+  assert.equal((app.match(/F\.compute\(\{ points: pts \}, \{ localEffects: S\.localFx \}\)/g) || []).length, 1, 'un seul calcul de résidus');
+  assert.match(bodyOf(app, 'showTrace'), /windSource\(/); assert.match(bodyOf(app, 'showTrace'), /trackWindAt\(day, /);
+  assert.match(bodyOf(app, 'runDebrief'), /windSource\(|traceView/); assert.match(bodyOf(app, 'runDebrief'), /forecastIn\(/);
+  assert.match(bodyOf(app, 'renderTraceDetail'), /src\.label|vent figé|trWind/, 'le détail de la trace dit d’où vient le vent');
+  assert.match(bodyOf(app, 'freezeWrite'), /compactStrategy\(/); assert.match(bodyOf(app, 'freezeWrite'), /'strat'/);
 });
