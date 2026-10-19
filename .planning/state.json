@@ -11,7 +11,7 @@
     {
       "number": "2",
       "name": "Fiable et juste en mer",
-      "status": "pending"
+      "status": "in_progress"
     },
     {
       "number": "3",
@@ -26,8 +26,8 @@
   ],
   "next": {
     "command": "/gsd:progress --next",
-    "label": "Advance to the next step (plan phase 2)",
-    "reason": "Phase 2 of 4 — needs a plan"
+    "label": "Advance to the next step",
+    "reason": "Phase 2 of 4 · 25% · executing"
   },
-  "updated_at": "2026-10-19T12:18:08.993Z"
+  "updated_at": "2026-10-19T14:49:02.860Z"
 }
