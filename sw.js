@@ -3,7 +3,7 @@
 // Aucune activation automatique : une nouvelle version attend (état « waiting ») que la page envoie SKIP_WAITING,
 // sur le geste de l’équipier et hors course (js/swupdate.js, js/racelock.js).
 /* stamp:begin — bloc généré par tools/stamp.mjs, ne pas modifier à la main */
-const BUILD = {"n":25,"date":"2026-10-19","label":"v25 · 19/10","note":"accès équipage","critical":false,"id":"0008258dea"};
+const BUILD = {"n":26,"date":"2026-10-19","label":"v26 · 19/10","note":"mises à jour sans risque en course","critical":false,"id":"0008258dea"};
 const VERSION = 'rade-' + BUILD.id;
 const SHELL = ["./","data/basemap.jpg","data/coast.json","data/cover.bin","data/j80.pol","data/meta.json","data/seamask.png","data/terrain.bin","data/wx-snapshot.json","guide.html","icons/apple-touch-icon.png","icons/favicon-32.png","icons/icon-192.png","icons/icon-512.png","icons/icon-maskable-512.png","icons/logo.png","index.html","js/app.js","js/courses.js","js/debrief.js","js/events.js","js/geo.js","js/help.js","js/j80.js","js/obs.js","js/polar-orc.js","js/polar.js","js/racelock.js","js/router.js","js/scene3d.js","js/startmode.js","js/swupdate.js","js/tactics.js","js/track.js","js/tuning.js","js/version.js","js/voice.js","js/weather.js","js/wind.js","manifest.webmanifest","regles.html","styles.css","vendor/OrbitControls.js","vendor/pdf.min.js","vendor/pdf.worker.min.js","vendor/qrcode.js","vendor/three.module.min.js"];
 /* stamp:end */

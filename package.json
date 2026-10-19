@@ -7,7 +7,11 @@
     "node": "24.x"
   },
   "scripts": {
-    "test": "node --test --import ./tests/helpers/setup.mjs \"tests/**/*.test.mjs\""
+    "test": "node --test --import ./tests/helpers/setup.mjs \"tests/**/*.test.mjs\"",
+    "stamp": "node tools/stamp.mjs",
+    "release": "node tools/stamp.mjs --release",
+    "check": "node tools/stamp.mjs --check && npm test",
+    "gate": "if [ \"$RT_GATE_BYPASS\" = \"1\" ]; then echo '⚠ Porte contournée (RT_GATE_BYPASS=1) : tests non lancés' >&2; node tools/stamp.mjs --check; else npm run check; fi"
   },
   "dependencies": {
     "@vercel/functions": "^3.10.1",
