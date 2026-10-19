@@ -396,3 +396,19 @@ test('garde : l’app fige la route et lit la source de vent d’une trace (anal
   assert.match(bodyOf(app, 'renderTraceDetail'), /src\.label|vent figé|trWind/, 'le détail de la trace dit d’où vient le vent');
   assert.match(bodyOf(app, 'freezeWrite'), /compactStrategy\(/); assert.match(bodyOf(app, 'freezeWrite'), /'strat'/);
 });
+
+test('décision : le signal change après la première copie (manche ajoutée, heure corrigée) → copie à jour tout de suite, sans attendre 10 min', () => {
+  const sans = regate({ dateStart: '2026-11-07', dateEnd: '' });                      // aucune manche : signal inconnu, sceau à minuit
+  const avec = regate({ dateStart: '2026-11-07', dateEnd: '', races: [manche(1, '11:00')] });   // signal 10:00Z
+  const at = (hhmm) => t(`2026-11-07T${hhmm}:00Z`);
+  const base = { day: '2026-11-07', dataFetched: 1000, hasAnalysis: false };
+  const sceau0 = G.sealAt(sans, '2026-11-07'), sceau1 = G.sealAt(avec, '2026-11-07');
+  assert.equal(sceau0.signal, 'inconnu'); assert.equal(sceau1.signal, 'manche');
+  const slot = { at: at('07:00'), fetched: 1000, sealed: false, signal: sceau0.signal, sealAt: sceau0.at };
+  assert.equal(G.freezeAction({ ...base, regatta: sans, now: at('07:01'), slot }), 'rien', 'rien n’a changé : on attend les 10 min');
+  assert.equal(G.freezeAction({ ...base, regatta: avec, now: at('07:01'), slot }), 'gel', 'la manche donne un signal : copie à jour sans attendre');
+  assert.equal(G.freezeAction({ ...base, regatta: avec, now: at('07:01'), slot: { ...slot, signal: sceau1.signal, sealAt: sceau1.at } }), 'rien', 'une fois la copie refaite, plus de boucle');
+  assert.equal(G.freezeAction({ ...base, regatta: avec, now: at('07:01'), slot: { ...slot, sealed: true } }), 'rien', 'scellé : jamais rouvert');
+  const corrigee = regate({ dateStart: '2026-11-07', dateEnd: '', races: [manche(1, '11:30')] });   // heure du signal corrigée : 10:30Z
+  assert.equal(G.freezeAction({ ...base, regatta: corrigee, now: at('07:01'), slot: { ...slot, signal: sceau1.signal, sealAt: sceau1.at } }), 'gel', 'heure du signal corrigée');
+});

@@ -49,6 +49,7 @@ export function freezeAction({ now, regatta, day, slot = null, dataFetched = 0, 
   if (slot?.sealed) return 'rien';
   if (now >= seal.at) return slot ? 'sceau' : 'tard';
   if (!slot) return 'gel';
+  if (Number.isFinite(slot.sealAt) && slot.sealAt !== seal.at) return 'gel';   // l’heure du signal a changé (manche ajoutée, heure corrigée, IC validées) : copie à jour sans attendre 10 min
   if (dataFetched && dataFetched !== slot.fetched) return 'gel';            // nouvelles prévisions
   if (hasAnalysis && !slot.strategy) return 'gel';                          // la route conseillée vient d’être calculée : pas d’attente de 10 min
   return now - slot.at >= THROTTLE_MS ? 'gel' : 'rien';

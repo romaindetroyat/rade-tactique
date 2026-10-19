@@ -437,7 +437,7 @@ async function gel({ browser, base }) {
   await creeRegate(page, { nom: 'Coupe du gel', debut: '2026-10-18', club: 'CVAT' });
   await ajouteManche(page, { heure: '10:55', parcours: '5', cls: 'G', tours: '2' });
   const id = (await regateCourante(page)).id;
-  const f = await attendGel(page, '2026-10-18', () => true, 'première copie');
+  const f = await attendGel(page, '2026-10-18', (x) => x.signal === 'manche', 'copie à jour avec le signal de la manche');   // une copie faite avant l'ajout de la manche (signal inconnu) est refaite sans attendre 10 min
   assert.equal(f.sealed, false, 'avant le signal : pas scellé'); assert.equal(f.late, false); assert.equal(f.auto, true);
   assert.equal(f.snapshot, true, 'hors réseau : les prévisions embarquées'); assert.equal(f.signal, 'manche');
   assert.equal(f.sealAt, Date.parse('2026-10-18T08:55:00Z'));
