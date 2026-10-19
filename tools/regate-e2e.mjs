@@ -549,8 +549,7 @@ async function debriefTardif({ browser, base }) {
   assert.match(await page.locator('#traceDetail').textContent(), /% de la polaire|de la polaire/);
 
   // 3) le questionnaire du débrief : vent au départ pré-rempli d'après le gel (jamais le vent manuel par défaut), source citée
-  await page.click('#trDebrief');
-  await page.waitForSelector('#dqWind', { timeout: 30000 });
+  await page.waitForSelector('#dqWind', { timeout: 30000 });                  // le questionnaire s'ouvre seul : la trace s'est rangée dans la régate du jour
   const vent = await page.inputValue('#dqWind');
   assert.ok(vent !== '' && lireDirections('2026-10-18').has(+vent), `vent au départ « ${vent} » : une direction des prévisions figées du 18/10 attendue (${[...lireDirections('2026-10-18')].join(', ')})`);
   const modal = (await page.locator('#modal').textContent()).replace(/\s+/g, ' ');
@@ -572,7 +571,54 @@ async function debriefTardif({ browser, base }) {
   await ctx.close();
 }
 
-const SCENARIOS = { creer, manche, auteur, ic, vraisemblance, gel, 'debrief-tardif': debriefTardif };
+// ───────────────────────── GPX importé : rangé seul dans la régate de son jour, débrief ouvert pré-rempli, jamais en double (ARCH-04)
+
+// Traces de la base rade-traces : [{ id, n }] (nombre de points, pas les points)
+const lireTraces = (page) => page.evaluate(() => new Promise((ok, ko) => {
+  const r = indexedDB.open('rade-traces', 1);
+  r.onsuccess = () => { const q = r.result.transaction('tracks').objectStore('tracks').getAll(); q.onsuccess = () => ok(q.result.map((t) => ({ id: t.id, n: t.pts.length, start: t.start, brk: t.brk ?? null }))); q.onerror = () => ko(q.error); };
+  r.onerror = () => ko(r.error);
+}));
+const toastVu = (page, re, delai = 90000) => page.waitForFunction((s) => new RegExp(s).test(document.getElementById('toast')?.textContent || ''), re, { timeout: delai });
+const ongletTraces = (page) => page.click('#tabs button[data-tab=tracks]');
+
+async function gpx({ browser, base }) {
+  const NOM = 'Équipier test';
+  const ctx = await ouvreContexte(browser, { heure: '2026-10-19T09:00:00Z' });          // lundi 19/10/2026 : la Coupe de la SNPM du 18/10 est semée
+  await simuleMembre(ctx, NOM);
+  const { page, erreurs } = await ouvrePage(ctx);
+  await ouvreApp(page, base);
+  await membreGarde(page, NOM);
+  await ongletTraces(page);
+  await page.setInputFiles('#gpxIn', GPX_SNPM);
+  await toastVu(page, 'Trace rangée dans Coupe de la SNPM — CVAT');
+  // le questionnaire du débrief s'ouvre seul, pré-rempli : épreuve, vent au départ
+  await page.waitForSelector('#dqEvent', { timeout: 60000 });
+  assert.equal(await page.inputValue('#dqEvent'), 'Coupe de la SNPM — CVAT', 'nom de l’épreuve = la régate');
+  assert.notEqual(await page.inputValue('#dqWind'), '', 'vent au départ pré-rempli');
+  const r1 = await regateCourante(page);
+  assert.equal(r1.traces.length, 1, 'une référence de trace dans la régate');
+  assert.equal(r1.traces[0].by, NOM, 'la référence porte son auteur');
+  assert.equal(r1.traces[0].n, 9538);
+  const base1 = await lireTraces(page);
+  assert.equal(base1.length, 1, 'une trace en base');
+  assert.equal(r1.traces[0].id, base1[0].id);
+  assert.match(await page.locator('#trReg').textContent(), /Rangée dans\s*Coupe de la SNPM — CVAT/, 'le détail de la trace dit où elle est rangée');
+  await page.click('#dqCancel');
+
+  // le même fichier une seconde fois : « Déjà importée », ni seconde trace ni seconde référence, pas de second questionnaire
+  await ongletTraces(page);
+  await page.setInputFiles('#gpxIn', GPX_SNPM);
+  await toastVu(page, 'Déjà importée', 30000);
+  await page.waitForTimeout(1500);
+  assert.equal(await page.locator('#dqWind').isVisible(), false, 'pas de second questionnaire pour une trace déjà rangée');
+  assert.equal((await lireTraces(page)).length, 1, 'toujours une seule trace en base');
+  assert.equal((await regateCourante(page)).traces.length, 1, 'toujours une seule référence');
+  sansErreur(erreurs, 'import GPX');
+  await ctx.close();
+}
+
+const SCENARIOS = { creer, manche, auteur, ic, vraisemblance, gel, 'debrief-tardif': debriefTardif, gpx };
 
 // ───────────────────────── lancement
 

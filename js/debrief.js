@@ -252,7 +252,9 @@ const fromLocalInput = (base, v) => { const [h, m, s] = v.split(':').map(Number)
 export function ask(det, tr, api) {
   return new Promise((resolve) => {
     const mc = det.mc;
-    const courseOpts = COURSES.filter((c) => !c.built).map((c) => `<option value="${c.id}" ${mc?.c.id === c.id ? 'selected' : ''}>${esc(c.title)}</option>`).join('');
+    // la trace ne révèle aucun parcours : celui de la manche de la régate (api.courseHint) est pré-sélectionné, l'équipier le confirme ou le change
+    const isCourse = (c) => (mc ? mc.c.id === c.id : api.courseHint != null && String(c.id) === String(api.courseHint));
+    const courseOpts = COURSES.filter((c) => !c.built).map((c) => `<option value="${c.id}" ${isCourse(c) ? 'selected' : ''}>${esc(c.title)}</option>`).join('');
     const passOpts = det.pass.map((p, i) => `<label class="dq-pass"><input type="checkbox" data-p="${i}" ${mc?.hit.some((h) => h.t === p.t) ? 'checked' : ''}> ${hms(p.t)} · marque ${esc(p.k)} ${esc(MARKS[p.k].name)} <span class="muted">(${Math.round(p.d)} m)</span></label>`).join('');
     const m = overlay(`
       <h2>Débrief de course</h2>

@@ -10,6 +10,7 @@ import { migrate, saveRegattas, createRegatta, upsertRegatta, removeRegatta, set
 import { THROTTLE_MS, slotKey, freezeAction, obsNeedsCopy, stratNeedsCopy, sliceDays, freezeSummary, strategySummary, compactStrategy, windSourceKind, frozenLabel } from './gel.js';
 import { putSlot, getSlot } from './regstore.js';
 import { listHTML, newRegattaFormHTML, sheetHTML } from './regview.js';
+import { trackDay, matchRegattas, raceOfTrack, sameTrack, attachTrace, detachTrace } from './attach.js';
 import { fetchAll, cached, snapshot, consensus, gridPoints, marineAt, fetchLive, MODELS, WMO, CENTER } from './weather.js';
 import { buildLegs, analyzeLeg, markAdvice, analyzeStart, trendOf, rankCourses, regimeOf, sideName, summarizeTime } from './tactics.js';
 import { optimalAngles, boatSpeed, trimAdvice, spiMinTwa, getPolar, setPolar, resetPolar, parsePolar } from './polar.js';
@@ -145,6 +146,7 @@ async function init() {
   initTips();
   await autoHeavy(prepareField);                       // app ouverte pendant la séquence de départ : reporté après H+1 min
   performance.mark('rt:map');
+  mapOk();                                              // showTrace et le débrief attendaient la carte : ils peuvent continuer
   freezeTick('ouverture');                              // prévisions en cache ou embarquées déjà lues : le gel marche aussi hors réseau, sans rien attendre
   maybeWelcome();
   renderTracks();
@@ -1333,6 +1335,7 @@ function stratSettings(cls) {
 
 // ───────────────────────── TRACES
 let traceView = null;
+let mapOk; const mapReady = new Promise((ok) => { mapOk = ok; });      // résolue à la marque rt:map
 // Source du vent d'une trace (ARCH-02) : les prévisions vivantes si leur jour y figure, sinon le gel de ce jour (prévisions et relevés copiés
 // dans la régate), sinon le vent manuel, annoncé comme tel. { kind, data, ser (série consensus), obs, resid, refDay, model, label }
 async function windSource(day) {
@@ -1384,8 +1387,11 @@ async function runDebrief(tr) {
   // même vent que l'analyse de la trace : prévisions vivantes, ou vent du jour figé quand elles ne couvrent plus ce jour (jamais le vent manuel sans le dire)
   const src = traceView?.id === tr.id && traceView.src ? traceView.src : await windSource(parisClock(tr.start).date);
   const figeTxt = src.kind === 'gel' ? ` (${src.label})` : '';
+  await mapReady;                                       // le questionnaire écrit dans F et lit le terrain : la carte d'abord
+  // trace rangée dans une régate : nom de l'épreuve = la régate, parcours de sa manche (celle dont le signal tombe dans la trace, sinon la manche choisie)
+  const reg = regOfTrace(tr.id), manche = reg ? (raceOfTrack(reg, trackDay(tr.pts, tr.brk ?? undefined)) || reg.races?.find((m) => m.n === reg.sel) || null) : null;
   const api = {
-    F, ctx: { terrain: T, forbidden, perf: S.perf ?? 1 }, localFx: S.localFx ?? 1, forecastAt: (t) => forecastIn(src.ser, t), toast, meta: T.meta, eventName: IC?.event || '',
+    F, ctx: { terrain: T, forbidden, perf: S.perf ?? 1 }, localFx: S.localFx ?? 1, forecastAt: (t) => forecastIn(src.ser, t), toast, meta: T.meta, eventName: reg?.name || IC?.event || '', courseHint: manche?.courseId ?? null,
     // relevé saisi ce jour-là le plus proche du départ (figé, si le jour l'est), sinon la prévision (figée de même)
     windGuess: (t) => {
       const near = src.obs.filter((o) => o.t && Math.abs(o.t - t) < 3 * 3600e3).sort((a, b) => Math.abs(a.t - t) - Math.abs(b.t - t))[0];
@@ -1439,15 +1445,49 @@ async function renderTracks() {
   $('#gpxBtn').onclick = () => $('#gpxIn').click();
   $('#gpxIn').onchange = async (e) => {
     const files = [...e.target.files]; e.target.value = ''; if (!files.length) return;
-    let last = null, ok = 0;
-    for (const f of files) {
-      try { const tr = fromGPX(await f.text(), f.name); await saveTrack(tr); last = tr; ok++; } catch (err) { report('import', err); toast(`Import impossible (${f.name}) : ${err.message}`); }
-    }
-    if (last) { toast(ok > 1 ? `${ok} traces importées` : `Trace importée : ${last.pts.length} points`); renderTracks(); showTrace(last.id); }
+    importGpx(files).catch((err) => { report('import', err); toast('Import impossible : ' + (err?.message || err)); });
   };
   if (traceView) renderTraceDetail();
 }
+// Régate qui garde la référence de cette trace (null : trace sans régate)
+const regOfTrace = (id) => REG.list.find((r) => (r.traces || []).some((x) => x.id === id)) || null;
+// Range la trace dans la régate de son jour quand il n'y a aucun doute (une seule régate ce jour-là, ou une seule manche à l'heure de la trace).
+// Les autres cas laissent la trace sans régate. Rend { reg, how, deja } : reg = régate où elle se trouve (null : sans régate)
+function rangeTrace(tr) {
+  const deja = regOfTrace(tr.id);
+  if (deja) return { reg: deja, how: 'deja', deja: true };                    // déjà rangée : jamais une seconde référence
+  const m = matchRegattas(tr.pts, REG.list, tr.brk ?? undefined);
+  if (m.how !== 'unique' && m.how !== 'heure') return { reg: null, how: m.how, m };
+  const reg = m.candidates[0];
+  saveReg(upsertRegatta(REG, attachTrace(reg, tr, { by: who(), at: Date.now() })));
+  return { reg: REG.list.find((r) => r.id === reg.id), how: m.how };
+}
+// Import de fichiers GPX, un par un : doublon reconnu (même début, même nombre de points), rangement dans la régate du jour, puis la dernière
+// trace s'ouvre et, si elle est rangée, le questionnaire du débrief s'ouvre seul, pré-rempli : l'équipier le valide comme avant.
+async function importGpx(files) {
+  let last = null, ok = 0, dup = 0, placed = null, launch = false;
+  for (const f of files) {
+    try {
+      let tr = fromGPX(await f.text(), f.name);
+      const known = sameTrack(await listTracks(), tr);
+      if (known) { tr = (await getTrack(known.id)) || tr; dup++; }              // « Déjà importée » : la trace existante est reprise, rien n'est dupliqué
+      else await saveTrack(tr);
+      const r = rangeTrace(tr);
+      last = tr; placed = r.reg; ok++;
+      launch = !!r.reg && r.how !== 'deja';                                     // trace déjà rangée et déjà connue : on la montre, sans rouvrir le questionnaire
+      if (known) toast(`Déjà importée : ${tr.name}${r.reg ? ` · dans ${r.reg.name}` : ''}`);
+      else if (r.reg) toast(`Trace rangée dans ${r.reg.name}`);
+    } catch (err) { report('import', err); toast(`Import impossible (${f.name}) : ${err.message}`); }
+  }
+  if (!last) return;
+  if (ok > 1) toast(`${ok} traces importées${dup ? ` (dont ${dup} déjà importée${dup > 1 ? 's' : ''})` : ''}`);
+  else if (!dup && !placed) toast(`Trace importée : ${last.pts.length} points · sans régate`);
+  renderTracks();
+  await showTrace(last.id);
+  if (launch) runDebrief(last).catch((err) => { report('debrief', err); toast('Débrief impossible : ' + (err?.message || err)); });
+}
 async function showTrace(id) {
+  await mapReady;                                        // la carte (temps 2 d'init) : jamais gelée, l'appel attend
   const tr = await getTrack(id); if (!tr) return;
   const day = parisClock(tr.start).date;
   const src = await windSource(day);                     // vent des prévisions, ou vent du jour figé si elles ne couvrent plus ce jour
@@ -1475,6 +1515,7 @@ function renderTraceDetail() {
     <div class="kpis"><div class="kpi"><b>${(res.dist / NM).toFixed(1)}</b><span>Nq parcourus</span></div><div class="kpi"><b>${summarizeTime(res.dur)}</b><span>durée</span></div><div class="kpi"><b>${res.vmean.toFixed(1)}</b><span>nd moyen (max ${res.vmax.toFixed(1)})</span></div></div>
     <div class="kpis" style="margin-top:8px"><div class="kpi"><b>${nT}</b><span>virements</span></div><div class="kpi"><b>${nE}</b><span>empannages</span></div><div class="kpi"><b>${res.perf ? Math.round(res.perf * 100) + ' %' : '—'}</b><span>de la polaire ${tip('Vitesse mesurée ÷ vitesse cible de la polaire J80 pour le vent du modèle à cet endroit et cette heure. Indicatif : le vent réel peut différer du modèle.')}</span></div></div>
     <p class="small muted" id="trWind" style="margin:8px 0 0">Vent de l’analyse : ${esc(src.label)}.</p>
+    <p class="small" id="trReg" style="margin:4px 0 0">${regOfTrace(tr.id) ? `Rangée dans <b>${esc(regOfTrace(tr.id).name)}</b>` : 'Sans régate'}</p>
     <button class="btn acc" id="trDebrief" style="width:100%;margin-top:8px">📝 ${tr.report ? 'Refaire le débrief de course' : 'Débrief de course'}</button>${tr.report ? '<button class="btn" id="trReport" style="width:100%;margin-top:6px">📄 Voir le débrief</button>' : ''}
     <div class="btns"><button class="btn alt" id="trPlay">▶ Rejouer la trace</button><button class="btn alt" id="trGpx">Exporter GPX</button><button class="btn alt" id="trHide">Masquer</button></div>
     ${sameCourse ? (sp.length ? `<h3 style="margin-top:12px">Bord par bord ${tip('Temps réel entre deux marques comparé au temps du routage optimal (même vent modèle). Un écart positif = temps perdu.')}</h3><table class="t"><tr><th>Marque</th><th>Réel</th><th>Optimal</th><th>Écart</th><th>Polaire</th></tr>${res.split.map((s) => s.missed ? `<tr><td>${s.leg.order} · ${esc(s.leg.to.name)}</td><td colspan="4" class="muted">non détectée</td></tr>` : `<tr><td>${s.leg.order} · ${esc(s.leg.to.name)}</td><td>${summarizeTime(s.t)}</td><td>${summarizeTime(s.plan)}</td><td style="color:${s.t > s.plan ? 'var(--bad)' : 'var(--ok)'}">${s.t > s.plan ? '+' : '−'}${summarizeTime(Math.abs(s.t - s.plan))}</td><td>${s.pct ? Math.round(s.pct * 100) + ' %' : '—'}</td></tr>`).join('')}</table>${worst ? `<p class="small">Bord le plus coûteux : vers <b>${esc(worst.leg.to.name)}</b> (${summarizeTime(worst.t - worst.plan)} de plus que l’optimal). Rejouez-le en comparant à la route bleue.</p>` : ''}` : '<p class="small muted">Aucune marque du parcours détectée sur cette trace (passage à plus de 250 m).</p>')
