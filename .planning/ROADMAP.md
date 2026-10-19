@@ -32,7 +32,7 @@ Les phases décimales s'intercalent entre les phases entières qui les entourent
 **Success Criteria** (what must be TRUE):
   1. Une seule commande (`npm run check`) teste les calculs (géométrie, polaire, routage, vent, lecture GPX, débrief) et retrouve les résultats de référence de la Coupe SNPM du 18/10/2026 ; une mise en ligne dont un test échoue n'arrive pas en production.
   2. Sans code d'accès, toute page, tout fichier et toute fonction privée (chemins anciens comme nouveaux) est refusé ou renvoie vers la page d'accès, et un test le vérifie avant chaque mise en ligne.
-  3. Une version publiée pendant un chrono de départ ou un enregistrement de trace ne recharge pas l'app : un bandeau la propose et elle ne s'applique qu'hors course ; l'écran de départ affiche la version en service.
+  3. Une version publiée pendant un chrono de départ, un enregistrement de trace ou une journée de régate (jusqu'au retour au port, sauf avant 9 h) ne recharge pas l'app : un bandeau la propose hors course avec un bouton « Mettre à jour » ; la version en service (numéro et date) se consulte dans l'aide.
   4. Chaque mise en ligne porte un numéro de version et une liste de fichiers hors réseau générés automatiquement : un fichier ajouté au code est disponible hors réseau sans aucune retouche manuelle.
   5. Un PDF d'IC piégé importé dans l'app n'exécute aucun code, et les IC CVAT habituelles s'importent toujours.
 **Plans**: TBD

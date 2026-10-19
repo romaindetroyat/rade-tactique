@@ -10,7 +10,7 @@ Version visée : prête pour la régate CVAT des 7-9 novembre 2026 (gel du code 
 ### En mer (FIAB)
 
 - [ ] **FIAB-01**: Une mise à jour publiée pendant un chrono ou un enregistrement ne recharge jamais l'app ; un bandeau la propose et elle s'applique hors course
-- [ ] **FIAB-02**: L'équipier voit la version de l'app à l'écran de départ
+- [ ] **FIAB-02**: L'équipier peut consulter la version de l'app (numéro et date) dans l'aide
 - [ ] **FIAB-03**: Les bips du chrono tombent à la seconde, même quand l'app calcule (planifiés sur l'horloge audio)
 - [ ] **FIAB-04**: L'app prévient si le son est coupé, propose « tester le son » et double chaque bip clé d'un signal visuel plein écran
 - [ ] **FIAB-05**: Un voyant permanent montre le GPS (âge du dernier point), l'écran maintenu, le son et le réseau
