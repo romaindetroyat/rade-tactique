@@ -19,7 +19,7 @@ Les phases décimales s'intercalent entre les phases entières qui les entourent
 
 - [x] **Phase 1: Mises en ligne sans risque** - Tests des calculs et de l'accès, porte de déploiement, version et fichiers hors réseau générés, mise à jour jamais appliquée en course, import PDF sûr (completed 2026-10-19)
 - [x] **Phase 2: Fiable et juste en mer** - Bips à la seconde, alerte son coupé, voyant d'état, ouverture rapide hors réseau, journal de diagnostic, bouées douteuses signalées et recalables (completed 2026-10-19)
-- [ ] **Phase 3: Ouvrir une régate** - Tout équipier crée l'épreuve, ses manches et ses IC relues ; vent du jour figé, fiche de régate, GPX rattaché et débrief lancé
+- [x] **Phase 3: Ouvrir une régate** - Tout équipier crée l'épreuve, ses manches et ses IC relues ; vent du jour figé, fiche de régate, GPX rattaché et débrief lancé (completed 2026-10-19)
 - [ ] **Phase 4: Archive partagée** - Régates en ligne, privées, synchronisées entre les appareils de l'équipage et lisibles hors réseau (phase coupable)
 
 ## Phase Details
@@ -98,7 +98,7 @@ Plans:
   4. Le vent et la stratégie du jour (prévisions, relevés, route conseillée) sont figés dans la régate sans geste de l'équipage ; la liste des régates par saison mène à une fiche qui réunit ce vent du jour, les traces, le débrief, l'analyse polaire, le rapport et l'auteur de chaque élément.
   5. Un GPX d'Open GPX Tracker importé après la course, pauses comprises, se rattache tout seul à la régate du jour et lance le débrief, sans relier les pauses par une ligne droite.
 
-**Plans:** 7/7 plans executed (v28 : plans 01 à 05 ; v29 : plans 06 et 07)
+**Plans:** 7/7 plans complete (v28 : plans 01 à 05 ; v29 : plans 06 et 07)
 
 Plans:
 **Wave 1**
@@ -147,5 +147,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 |-------|----------------|--------|-----------|
 | 1. Mises en ligne sans risque | 4/4 | Complete    | 2026-10-19 |
 | 2. Fiable et juste en mer | 5/5 | Complete    | 2026-10-19 |
-| 3. Ouvrir une régate | 7/7 | In Progress | - |
+| 3. Ouvrir une régate | 7/7 | Complete    | 2026-10-19 |
 | 4. Archive partagée | 0/TBD | Not started | - |
