@@ -17,7 +17,7 @@ Rade Tactique existe déjà et a gagné la Coupe SNPM le 18/10/2026. Ce jalon la
 
 Les phases décimales s'intercalent entre les phases entières qui les entourent, dans l'ordre numérique.
 
-- [ ] **Phase 1: Mises en ligne sans risque** - Tests des calculs et de l'accès, porte de déploiement, version et fichiers hors réseau générés, mise à jour jamais appliquée en course, import PDF sûr
+- [x] **Phase 1: Mises en ligne sans risque** - Tests des calculs et de l'accès, porte de déploiement, version et fichiers hors réseau générés, mise à jour jamais appliquée en course, import PDF sûr (completed 2026-10-19)
 - [ ] **Phase 2: Fiable et juste en mer** - Bips à la seconde, alerte son coupé, voyant d'état, ouverture rapide hors réseau, journal de diagnostic, bouées douteuses signalées et recalables
 - [ ] **Phase 3: Ouvrir une régate** - Tout équipier crée l'épreuve, ses manches et ses IC relues ; vent du jour figé, fiche de régate, GPX rattaché et débrief lancé
 - [ ] **Phase 4: Archive partagée** - Régates en ligne, privées, synchronisées entre les appareils de l'équipage et lisibles hors réseau (phase coupable)
@@ -37,7 +37,7 @@ Les phases décimales s'intercalent entre les phases entières qui les entourent
   4. Chaque mise en ligne porte un numéro de version et une liste de fichiers hors réseau générés automatiquement : une seule commande (`npm run release`) régénère version et liste, et la porte refuse toute mise en ligne qui l'a oubliée : aucun fichier n'est à ajouter à la main.
   5. Un PDF d'IC piégé importé dans l'app n'exécute aucun code, et les IC CVAT habituelles s'importent toujours.
 
-**Plans:** 3/4 plans executed
+**Plans:** 4/4 plans complete
 
 Plans:
 **Wave 1**
@@ -48,7 +48,7 @@ Plans:
 - [x] 01-03-PLAN.md — Mise à jour différée : worker en attente, bandeau, verrou « en course » et « journée de régate », « Course finie », régate sur plusieurs jours (vague 2)
 
 **Wave 3** *(blocked on Wave 2 completion)*
-- [ ] 01-04-PLAN.md — Porte de mise en ligne (`npm run gate`), v26, règle d'exploitation, aperçu vérifié par Romain puis activation et mise en production à un moment calme (vague 3)
+- [x] 01-04-PLAN.md — Porte de mise en ligne (`npm run gate`), v26, règle d'exploitation, aperçu vérifié par Romain puis activation et mise en production à un moment calme (vague 3)
 
 **UI hint**: yes
 
@@ -105,7 +105,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Mises en ligne sans risque | 3/4 | In Progress | - |
+| 1. Mises en ligne sans risque | 4/4 | Complete    | 2026-10-19 |
 | 2. Fiable et juste en mer | 0/TBD | Not started | - |
 | 3. Ouvrir une régate | 0/TBD | Not started | - |
 | 4. Archive partagée | 0/TBD | Not started | - |

@@ -21,7 +21,7 @@ Version visée : prête pour la régate CVAT des 7-9 novembre 2026 (gel du code 
 
 - [x] **TEST-01**: Des tests automatiques couvrent les calculs (géométrie, polaire, routage, vent, lecture GPX, débrief), avec la Coupe SNPM du 18/10/2026 comme cas de référence
 - [x] **TEST-02**: Un test vérifie que, sans code d'accès, aucune page, aucun fichier ni aucune fonction privée n'est servi
-- [ ] **TEST-03**: Une mise en ligne est bloquée si un test échoue
+- [x] **TEST-03**: Une mise en ligne est bloquée si un test échoue
 - [x] **TEST-04**: La version de l'app et la liste des fichiers hors réseau sont générées automatiquement, sans oubli possible
 
 ### Justesse (JUST)
@@ -104,7 +104,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | FIAB-07 | Phase 2 | Pending |
 | TEST-01 | Phase 1 | Complete |
 | TEST-02 | Phase 1 | Complete |
-| TEST-03 | Phase 1 | Pending |
+| TEST-03 | Phase 1 | Complete |
 | TEST-04 | Phase 1 | Complete |
 | JUST-01 | Phase 2 | Pending |
 | JUST-02 | Phase 2 | Pending |
