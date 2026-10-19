@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 3
 current_phase_name: Ouvrir une régate
 status: executing
-stopped_at: Phase 2 complete, ready to plan Phase 3
-last_updated: "2026-10-19T20:02:36.000Z"
+stopped_at: Completed 03-01-PLAN.md
+last_updated: "2026-10-19T20:24:12.709Z"
 last_activity: 2026-10-19
 last_activity_desc: Phase 3 execution started
-state_head: 8f78d17d49f3b5e0fbeeba6e93ff6cd851871ebf
+state_head: 43a2aa0bd7a5cbbfa8fe33ef3f370ff5c7c1598f
 progress:
   total_phases: 4
   completed_phases: 2
   total_plans: 16
-  completed_plans: 9
+  completed_plans: 10
   percent: 50
 ---
 
@@ -28,8 +28,8 @@ See: .planning/PROJECT.md (updated 2026-10-19)
 ## Current Position
 
 Phase: 3 (Ouvrir une régate) — EXECUTING
-Plan: 1 of 7
-Status: Executing Phase 3
+Plan: 2 of 7
+Status: Ready to execute
 Last activity: 2026-10-19 — Phase 3 execution started
 
 Progress: [█████░░░░░] 50%
@@ -64,6 +64,7 @@ Progress: [█████░░░░░] 50%
 | Phase 02 P03 | 40 min | 2 tasks | 13 files |
 | Phase 02 P04 | 13 min | 2 tasks | 10 files |
 | Phase 02 P05 | 25 min | 1 tasks | 4 files |
+| Phase 03 P01 | 20 min | 3 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -96,6 +97,9 @@ Décisions récentes qui orientent le travail en cours :
 - [Phase 02]: Bouées : recalage par la trace = sommet du virage + 14 m vers l’intérieur, jusqu’à 3 candidats, ±20 m, passage au plus près pour information, aucun candidat sans virage net (D-02 amendé) ; mesures SNPM 26,3 m (marque 7) et 30,8 m (marque 6), simulation p90 18,7 m
 - [Phase 02]: 02-04 : recalages de bouées dans localStorage rade.marks.v1 (ce téléphone seulement, D-04), appliqués à MARKS seulement par js/app.js (début d’init et juste après un recalage validé), jamais dans les tests ; saisie bornée à la rade, confirmation au-delà de 2 Nq
 - [Phase 02]: 02-05 : v27 publiée sur l’aperçu apercu-phase-02 ; main inchangé (2a5c5df), mise en production laissée à Romain (avant le gel du 2 novembre, jamais après le 5 novembre au matin)
+- [Phase 03]: 03-01 : statut, verrou et saison calculés au jour de Paris ; rade.events.v1 jamais écrite (index rade.regates.v1, reprise idempotente, Coupe SNPM semée sur appareil neuf)
+- [Phase 03]: 03-01 : auteur = réponse GET /api/membre du middleware (prénom seul, no-store), copie rade.membre.v1 hors réseau, by: null complété au premier succès ; l'étiquette n'est pas une autorité (phase 4)
+- [Phase 03]: 03-01 : l'horloge de Playwright vide performance.mark ; l'outil de bout en bout relève les marques par window.__marks ; codes de sortie stricts décidés par verdict()
 
 ### Pending Todos
 
@@ -120,6 +124,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-10-19T17:25:05.815Z
-Stopped at: Phase 2 complete, ready to plan Phase 3
+Last session: 2026-10-19T20:24:12.541Z
+Stopped at: Completed 03-01-PLAN.md
 Resume file: None
