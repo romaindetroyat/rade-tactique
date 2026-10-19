@@ -39,10 +39,10 @@ Rade Tactique est une application web installable (PWA) pour l'équipage du J80 
 
 - Modern browsers with ES modules, Service Worker, Geolocation, Web Speech API (`SpeechRecognition` / `webkitSpeechRecognition` in `js/voice.js`), `speechSynthesis`, IndexedDB (`js/track.js`), localStorage (`js/app.js`, `js/weather.js`, `js/events.js`, `js/help.js`)
 - Target platforms: iPhone Safari (Add to Home Screen), desktop browsers. No framework.
-- Node.js serverless functions on Vercel (`api/*.js`). The Node version is not pinned (no `engines` field in `package.json`).
+- Node.js serverless functions on Vercel (`api/*.js`). Node is pinned by `engines.node` (24.x) in `package.json`.
 - Vercel Routing Middleware (`middleware.js`, imports `next` from `@vercel/functions`).
 - npm (implied by `package.json`); only two runtime dependencies are declared.
-- Lockfile: **missing** (no `package-lock.json`, `pnpm-lock.yaml` or `yarn.lock` in the repository). Installed versions are not reproducible from the repository.
+- Lockfile: `package-lock.json` is committed; Vercel installs with `npm ci` (reproducible).
 
 ## Frameworks
 

@@ -26,12 +26,12 @@ last_mapped_at: 2026-10-19
 - Target platforms: iPhone Safari (Add to Home Screen), desktop browsers. No framework.
 
 **Server:**
-- Node.js serverless functions on Vercel (`api/*.js`). The Node version is not pinned (no `engines` field in `package.json`).
+- Node.js serverless functions on Vercel (`api/*.js`). Node is pinned by `engines.node` (24.x) in `package.json`.
 - Vercel Routing Middleware (`middleware.js`, imports `next` from `@vercel/functions`).
 
 **Package Manager:**
 - npm (implied by `package.json`); only two runtime dependencies are declared.
-- Lockfile: **missing** (no `package-lock.json`, `pnpm-lock.yaml` or `yarn.lock` in the repository). Installed versions are not reproducible from the repository.
+- Lockfile: `package-lock.json` is committed; Vercel installs with `npm ci` (reproducible).
 
 **Git ignore:** `.gitignore` excludes `node_modules/` and `.DS_Store`.
 

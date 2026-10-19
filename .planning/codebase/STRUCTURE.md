@@ -91,7 +91,7 @@ rade-tactique/
 - `js/courses.js`: course and mark data.
 
 **Testing:**
-- No test files or test configuration exist in the repository. Validation is manual, via the browser (`python3 -m http.server`, see `README.md`).
+- Tests live in `tests/` (`node:test` + linkedom): `npm test`, `npm run check`. The Coupe SNPM 18/10/2026 track is the reference case (`tests/reference/`, `tests/fixtures/`).
 
 ## Naming Conventions
 
