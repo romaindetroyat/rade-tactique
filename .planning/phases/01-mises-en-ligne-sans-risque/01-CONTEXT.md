@@ -38,6 +38,10 @@ Besoins : TEST-01, TEST-02, TEST-03, TEST-04, SECU-01, FIAB-01, FIAB-02 (FIAB-02
 - **D-11:** Le cas de référence vérifie : parcours 4 reconnu et passages aux bouées 7 et houlographe, arrivée réduite ; deux faux départs puis le bon départ à la bonne heure ; vent déduit cohérent (grosse bascule gauche au départ, vent par bord) ; pourcentages de polaire par bord stables à quelques % près.
 - **D-12:** Si une amélioration du modèle change ces résultats, le test échoue ; Claude présente l'avant/après et la nouvelle référence est validée avec Romain avant d'être enregistrée. Pas de tolérances larges qui masqueraient une dérive.
 - **D-13:** Les prochaines régates deviendront de nouveaux cas de référence, une fois leurs résultats validés avec Romain.
+- **D-14:** Départ de référence de la Coupe SNPM = la valeur détectée sur la trace (09:43:42Z, soit 11:43:42 heure de Paris), pas l'heure du signal du rapport.
+
+### Régate sur plusieurs jours
+- **D-15:** Le verrou « journée de régate » (D-02/D-03) s'applique à chaque jour couru d'une épreuve de plusieurs jours (ex. 7-9 novembre) : la fiche de régate porte une date de début et une date de fin.
 
 ### Claude's Discretion
 - Comportement quand un test bloque une mise en ligne (notification, issue de secours pour un correctif urgent), dans le respect de la règle d'exploitation : aucune mise en ligne de production dans les 48 h avant une régate sauf correctif critique hors course.
