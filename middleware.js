@@ -1,0 +1,57 @@
+// Accès réservé à l'équipage de Naos (J80) : chaque équipier a un code personnel.
+// Le code arrive par un lien (…?acces=CODE) ou par la page acces.html ; il est gardé dans un cookie de 400 jours.
+// Seules les empreintes SHA-256 des codes sont ici : pour retirer un accès, supprimer sa ligne et redéployer.
+import { next } from '@vercel/functions';
+
+const EQUIPAGE = {
+  '82d6f57ee27c4dd70d5998dc1a7a88954861050c82047d0184702ad30eff414f': 'Romain',
+  '0b8feb03445d9e7fb0b9377a4ee3006ea48cb3302e8f9d38d44fa4668f72cea6': 'Teiva',
+  '0a3f4c7910ffbfb574f7250ceba87db0730182e815769948cf5d3d3b089d6fc5': 'Thibaud',
+};
+const COOKIE = 'rt_acces';
+const MAX_AGE = 400 * 24 * 3600; // durée maximale admise par les navigateurs
+
+// Restent publics : la page de connexion, ce qu'il faut pour installer l'app, le service worker et les rapports partagés
+export const config = {
+  matcher: ['/((?!acces\\.html|manifest\\.webmanifest|sw\\.js|icons/|rapports/).*)'],
+};
+
+async function membre(code) {
+  if (!code) return null;
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(code.trim().toLowerCase()));
+  const hex = [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
+  return EQUIPAGE[hex] || null;
+}
+
+const lireCookie = (req) => {
+  const m = /(?:^|;\s*)rt_acces=([^;]+)/.exec(req.headers.get('cookie') || '');
+  return m ? decodeURIComponent(m[1]) : null;
+};
+
+const redirige = (location, extra = {}) => new Response(null, { status: 302, headers: { Location: location, 'Cache-Control': 'no-store', ...extra } });
+
+export default async function middleware(req) {
+  const url = new URL(req.url);
+
+  // lien personnel ou formulaire de acces.html : ?acces=CODE
+  const code = url.searchParams.get('acces');
+  if (code !== null) {
+    url.searchParams.delete('acces');
+    const suite = url.pathname + url.search;
+    if (await membre(code)) {
+      return redirige(suite, { 'Set-Cookie': `${COOKIE}=${encodeURIComponent(code.trim().toLowerCase())}; Path=/; Max-Age=${MAX_AGE}; HttpOnly; Secure; SameSite=Lax` });
+    }
+    return redirige(`/acces.html?erreur=1&suite=${encodeURIComponent(suite)}`);
+  }
+
+  if (await membre(lireCookie(req))) return next();
+
+  // page demandée par le navigateur : vers la connexion ; fichiers et API : refus net (rien ne doit être mis en cache)
+  const navigation = req.headers.get('sec-fetch-mode') === 'navigate' || (req.headers.get('accept') || '').includes('text/html');
+  if (navigation) return redirige(`/acces.html?suite=${encodeURIComponent(url.pathname + url.search)}`);
+  const api = url.pathname.startsWith('/api/');
+  return new Response(api ? '{"error":"acces"}' : 'Accès réservé à l’équipage.', {
+    status: 401,
+    headers: { 'Content-Type': api ? 'application/json' : 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' },
+  });
+}

@@ -2,8 +2,9 @@
   "name": "rade-tactique",
   "private": true,
   "type": "module",
-  "description": "Rade Tactique — PWA statique + fonction /api/voice (compréhension des relevés de vent dictés)",
+  "description": "Rade Tactique \u2014 PWA statique + fonction /api/voice (compr\u00e9hension des relev\u00e9s de vent dict\u00e9s)",
   "dependencies": {
-    "openai": "^7.36.0"
+    "openai": "^7.36.0",
+    "@vercel/functions": "^3.10.1"
   }
 }

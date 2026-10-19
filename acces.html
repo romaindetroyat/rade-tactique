@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Rade Tactique · Accès</title>
+<meta name="robots" content="noindex">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/favicon-32.png" sizes="32x32">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="theme-color" content="#0c2236">
+<style>
+/* Page de connexion de l'équipage : un seul champ, gros boutons */
+:root { --bg: #0b2231; --card: #10303f; --ink: #fff; --muted: #b9cfdc; --line: #24506a; --acc: #ff8a1c; --err: #ff8787; }
+* { box-sizing: border-box; }
+body { margin: 0; min-height: 100dvh; display: grid; place-items: center; background: var(--bg); color: var(--ink); font: 17px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; padding: calc(env(safe-area-inset-top, 0px) + 24px) 16px calc(env(safe-area-inset-bottom, 0px) + 24px); }
+main { width: 100%; max-width: 420px; text-align: center; }
+img { width: 96px; height: 96px; border-radius: 22px; box-shadow: 0 6px 20px rgba(0,0,0,.45); }
+h1 { margin: 14px 0 2px; font-size: 30px; }
+p { color: var(--muted); margin: 6px 0 0; }
+form { margin-top: 24px; background: var(--card); border: 1px solid var(--line); border-radius: 18px; padding: 18px; display: grid; gap: 12px; text-align: left; }
+label { font-weight: 700; }
+input { font: inherit; font-size: 18px; width: 100%; padding: 14px; border-radius: 12px; border: 1px solid var(--line); background: #0b2231; color: var(--ink); }
+button { font: inherit; font-weight: 800; font-size: 18px; border: 0; border-radius: 12px; padding: 15px; background: var(--acc); color: #000; cursor: pointer; }
+.err { color: var(--err); font-weight: 700; }
+small { color: var(--muted); display: block; margin-top: 18px; }
+</style>
+</head>
+<body>
+<main>
+  <img src="icons/logo.png" alt="">
+  <h1>Rade Tactique</h1>
+  <p>Application réservée à l’équipage de <b>Naos</b> (J80).</p>
+  <form id="f">
+    <label for="code">Votre code personnel</label>
+    <input id="code" name="code" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="naos-prénom-xxxx-xxxx" required>
+    <div class="err" id="err" hidden>Code non reconnu. Vérifiez-le ou demandez-le à Romain.</div>
+    <button type="submit">Entrer</button>
+  </form>
+  <small>Le plus simple : ouvrez le lien personnel reçu de Romain, l’app s’ouvre directement et vous reconnaît pendant un an sur cet appareil. Sur iPhone, si l’app est installée sur l’écran d’accueil, entrez le code une fois dans l’app elle-même.</small>
+</main>
+<script>
+  const q = new URLSearchParams(location.search);
+  // retour seulement vers une page du site
+  const suite = /^\/(?!\/)/.test(q.get('suite') || '') ? q.get('suite') : '/';
+  if (q.get('erreur')) document.getElementById('err').hidden = false;
+  document.getElementById('f').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const code = document.getElementById('code').value.trim().toLowerCase();
+    if (code) location.href = suite + (suite.includes('?') ? '&' : '?') + 'acces=' + encodeURIComponent(code);
+  });
+</script>
+</body>
+</html>
