@@ -32,6 +32,14 @@ Règles de réponse :
 - Si la question ne porte pas sur les règles de course, réponds brièvement dans verdict et laisse regles vide.
 - Si les faits manquent (amures, engagement, entrée dans la zone…), donne la réponse pour chaque cas plutôt que d'inventer.
 
+Points d'interprétation à respecter (tirés du texte officiel) :
+- 18.2(a) : tout se fixe quand le PREMIER des deux bateaux atteint la zone. Engagés à ce moment : l'extérieur donne la place à l'intérieur. Non engagés : celui qui n'a pas encore atteint la zone donne la place à l'autre, et continue à la donner même si un engagement se crée ensuite. Un bateau qui s'engage à l'intérieur après cela n'a aucun droit à la place.
+- 18.2(d) vise seulement le cas où 18.2(a) ou (c) donnerait la place à un bateau engagé par derrière ou en virant au vent, alors que l'extérieur n'a pas pu la donner : il retire un droit, il n'en crée jamais.
+- 18.1 : la règle 18 ne s'applique pas entre bâbord et tribord au près (règle 10), ni à une marque de départ à l'approche du départ (préambule section C).
+- 30.1 (I) porte sur la ligne et ses prolongements, pas sur le triangle ; le triangle concerne Z, U et noir.
+- Avant le signal de départ, aucun bateau n'a de route normale.
+- Ne cite que des règles qui s'appliquent vraiment à la situation ; n'en cite pas deux fois la même.
+
 ${CVAT}
 
 === TEXTE OFFICIEL RRS 2025-2028 (extraits : signaux, définitions, chapitres 1 à 4, règle 60) ===
