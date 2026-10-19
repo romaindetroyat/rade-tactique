@@ -65,7 +65,7 @@ Plans:
   4. Après une sortie, un équipier ouvre le journal de diagnostic dans l'app et y lit les erreurs survenues en mode départ et en mode course, avec leur heure.
   5. Une bouée dont la position n'est pas confirmée est signalée sur la carte, dans les parcours et en mode départ ; un équipier la recale par un point GPS au passage ou par saisie, et la bouée affiche ensuite la source et la date de sa position.
 
-**Plans:** 4/5 plans executed
+**Plans:** 5/5 plans executed
 
 Plans:
 **Wave 1**
@@ -81,7 +81,7 @@ Plans:
 - [x] 02-04-PLAN.md — Bouées à confirmer signalées et recalées (sommet du virage au débrief, D-02 amendé, ou saisie), source et date affichées (vague 4)
 
 **Wave 5** *(blocked on Wave 4 completion)*
-- [ ] 02-05-PLAN.md — Guide de l'équipage à jour, mesures Chromium obligatoires, v27 sur l'aperçu `apercu-phase-02` (vague 5)
+- [x] 02-05-PLAN.md — Guide de l'équipage à jour, mesures Chromium obligatoires, v27 sur l'aperçu `apercu-phase-02` (vague 5)
 
 **UI hint**: yes
 
@@ -123,6 +123,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Mises en ligne sans risque | 4/4 | Complete    | 2026-10-19 |
-| 2. Fiable et juste en mer | 4/5 | In Progress | - |
+| 2. Fiable et juste en mer | 5/5 | In Progress | - |
 | 3. Ouvrir une régate | 0/TBD | Not started | - |
 | 4. Archive partagée | 0/TBD | Not started | - |

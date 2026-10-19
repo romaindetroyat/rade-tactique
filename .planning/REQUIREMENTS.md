@@ -11,11 +11,11 @@ Version visée : prête pour la régate CVAT des 7-9 novembre 2026 (gel du code 
 
 - [x] **FIAB-01**: Une mise à jour publiée pendant un chrono ou un enregistrement ne recharge jamais l'app ; un bandeau la propose et elle s'applique hors course
 - [x] **FIAB-02**: L'équipier peut consulter la version de l'app (numéro et date) dans l'aide
-- [ ] **FIAB-03**: Les bips du chrono tombent à la seconde, même quand l'app calcule (planifiés sur l'horloge audio)
-- [ ] **FIAB-04**: L'app prévient si le son est coupé, propose « tester le son » et double chaque bip clé d'un signal visuel plein écran
-- [ ] **FIAB-05**: Un voyant permanent montre le GPS (âge du dernier point), l'écran maintenu, le son et le réseau
-- [ ] **FIAB-06**: L'app installée s'ouvre en moins de 2 s hors réseau ou avec un réseau faible
-- [ ] **FIAB-07**: Les erreurs du mode départ et du mode course sont consignées dans un journal de diagnostic consultable dans l'app
+- [x] **FIAB-03**: Les bips du chrono tombent à la seconde, même quand l'app calcule (planifiés sur l'horloge audio)
+- [x] **FIAB-04**: L'app prévient si le son est coupé, propose « tester le son » et double chaque bip clé d'un signal visuel plein écran
+- [x] **FIAB-05**: Un voyant permanent montre le GPS (âge du dernier point), l'écran maintenu, le son et le réseau
+- [x] **FIAB-06**: L'app installée s'ouvre en moins de 2 s hors réseau ou avec un réseau faible
+- [x] **FIAB-07**: Les erreurs du mode départ et du mode course sont consignées dans un journal de diagnostic consultable dans l'app
 
 ### Non-régression (TEST)
 
@@ -26,8 +26,8 @@ Version visée : prête pour la régate CVAT des 7-9 novembre 2026 (gel du code 
 
 ### Justesse (JUST)
 
-- [ ] **JUST-01**: Les bouées dont la position n'est pas confirmée sont signalées sur la carte, dans les parcours et dans le mode départ
-- [ ] **JUST-02**: Un équipier peut recaler la position d'une bouée (point GPS au passage ou saisie), avec la source et la date
+- [x] **JUST-01**: Les bouées dont la position n'est pas confirmée sont signalées sur la carte, dans les parcours et dans le mode départ
+- [x] **JUST-02**: Un équipier peut recaler la position d'une bouée (point GPS au passage ou saisie), avec la source et la date
 
 ### Sécurité (SECU)
 
@@ -97,17 +97,17 @@ Which phases cover which requirements. Updated during roadmap creation.
 |-------------|-------|--------|
 | FIAB-01 | Phase 1 | Complete |
 | FIAB-02 | Phase 1 | Complete |
-| FIAB-03 | Phase 2 | Pending |
-| FIAB-04 | Phase 2 | Pending |
-| FIAB-05 | Phase 2 | Pending |
-| FIAB-06 | Phase 2 | Pending |
-| FIAB-07 | Phase 2 | Pending |
+| FIAB-03 | Phase 2 | Complete |
+| FIAB-04 | Phase 2 | Complete |
+| FIAB-05 | Phase 2 | Complete |
+| FIAB-06 | Phase 2 | Complete |
+| FIAB-07 | Phase 2 | Complete |
 | TEST-01 | Phase 1 | Complete |
 | TEST-02 | Phase 1 | Complete |
 | TEST-03 | Phase 1 | Complete |
 | TEST-04 | Phase 1 | Complete |
-| JUST-01 | Phase 2 | Pending |
-| JUST-02 | Phase 2 | Pending |
+| JUST-01 | Phase 2 | Complete |
+| JUST-02 | Phase 2 | Complete |
 | SECU-01 | Phase 1 | Complete |
 | REG-01 | Phase 3 | Pending |
 | REG-02 | Phase 3 | Pending |
