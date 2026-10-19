@@ -32,7 +32,7 @@ export function createWakeLock({ nav = globalThis.navigator, doc = globalThis.do
       why.delete(reason);
       if (!why.size && sentinel) {
         const s = sentinel; sentinel = null;                          // avant release() : la libération voulue n’est pas une perte
-        try { Promise.resolve(s.release()).catch(() => {}); } catch { /* déjà libéré */ }
+        try { Promise.resolve(s.release()).catch(() => { /* déjà libéré par le système : sans conséquence */ }); } catch { /* déjà libéré */ }
       }
     },
     retry: acquire,

@@ -1,5 +1,6 @@
 // Rade Tactique — application principale.
 
+import { report, note, setContext } from './journal.js';
 import { Terrain, toXY, toLL, NM, bearingXY, distXY, norm360, norm180, fmtBrg, fmtNm, fmtLat, fmtLon, cardinal } from './geo.js';
 import { WindField, speedColor } from './wind.js';
 import { Scene3D } from './scene3d.js';
@@ -32,7 +33,7 @@ const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const hhmm = (h) => `${String(Math.floor(h)).padStart(2, '0')}:${String(Math.round((h % 1) * 60)).padStart(2, '0')}`;
 const arrow = (dir) => `<span class="arr" style="transform:rotate(${dir + 180}deg)">↑</span>`;
-const store = { get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch { return d; } }, set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* indisponible */ } } };
+const store = { get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch { return d; /* valeur absente ou illisible : la valeur par défaut */ } }, set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* indisponible */ } } };
 const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 const addDays = (s, n) => { const d = new Date(s + 'T12:00:00'); d.setDate(d.getDate() + n); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 const dayName = (s) => new Date(s + 'T12:00:00').toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
@@ -60,7 +61,7 @@ const persist = () => store.set('rade.state', Object.fromEntries(Object.keys(DEF
 let T, F, scene, data = null, series = [], live = [], analysis = null, selLeg = null, gps = null, follow = false, nextIdx = 0;
 const forbidden = [FORBIDDEN_ZONE.map((p) => toXY(p.lat, p.lon))];
 
-if (S.polar) { try { setPolar(S.polar.tws, S.polar.twa, S.polar.bsp, S.polar.source); } catch { S.polar = null; } }
+if (S.polar) { try { setPolar(S.polar.tws, S.polar.twa, S.polar.bsp, S.polar.source); } catch (e) { S.polar = null; report('polaire', e); } }
 
 // ───────────────────────── démarrage
 async function init() {
@@ -104,7 +105,8 @@ async function init() {
   updates = initUpdates({ isLocked: () => raceLock().locked, onAvailable: showUpdateBar, onHidden: hideUpdateBar });
   setInterval(raceTick, 5000);
   addEventListener('pagehide', saveRaceActivity);
-  document.addEventListener('visibilitychange', () => { if (document.hidden) saveRaceActivity(); });
+  document.addEventListener('visibilitychange', () => { note('page', document.hidden ? 'masquée' : 'visible'); if (document.hidden) saveRaceActivity(); });
+  addEventListener('online', () => note('reseau', 'en ligne')); addEventListener('offline', () => note('reseau', 'hors ligne'));
 }
 
 async function refreshWeather() {
@@ -114,6 +116,7 @@ async function refreshWeather() {
     status();
     updateAll();
   } catch (e) {
+    note('meteo', 'prévisions indisponibles : ' + (e?.message || e));      // hors réseau : l’instantané embarqué prend le relais
     if (!data) { data = await snapshot(); if (data) { series = consensus(data); updateAll(); } }
     status(data ? `Hors ligne — prévisions du ${new Date(data.fetched).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })}` : 'Prévisions indisponibles (réseau)');
   } finally { b.classList.remove('spin'); }
@@ -211,7 +214,7 @@ function renderObs(el) {
           onError: (m) => toast('Micro : ' + m + '. Vous pouvez dicter avec le micro du clavier dans le champ texte.'),
           onEnd: () => { btn.classList.remove('rec'); btn.textContent = '🎤'; },
         });
-      } catch (err) { btn.classList.remove('rec'); btn.textContent = '🎤'; toast('Reconnaissance vocale indisponible ici : utilisez le micro du clavier dans le champ texte.'); }
+      } catch (err) { note('voix', 'reconnaissance vocale indisponible : ' + (err?.message || err)); btn.classList.remove('rec'); btn.textContent = '🎤'; toast('Reconnaissance vocale indisponible ici : utilisez le micro du clavier dans le champ texte.'); }
     },
     onDelete: (i) => { const o = dayObs()[i]; S.obs = S.obs.filter((x) => x !== o); persist(); refreshObs(); updateAll(); },
     onModel: (v) => { S.modelSel = v; persist(); refreshObs(); updateAll(); },
@@ -686,7 +689,8 @@ function hideUpdateBar() { const el = document.getElementById('updbar'); if (el)
 const wake = createWakeLock({ report: (w, m) => onWakeEvent(w, m) });
 const WAKE_ADVICE = 'Écran non maintenu : réglez Verrouillage automatique sur « Jamais » pendant la course';
 let wakeToastAt = 0;
-function onWakeEvent() {
+function onWakeEvent(w, m) {
+  if (/refus/i.test(m)) report('ecran', m); else note('ecran', m);
   const st = wake.state();
   if (document.visibilityState === 'hidden' || !st.wanted || st.held) return;      // masquer la page libère le verrou : ce n’est pas une perte à signaler
   if (Date.now() - wakeToastAt < 60000) return;
@@ -715,6 +719,7 @@ const startMode = createStartMode({
     const w = F.sample(p.x, p.y); return { dir: w.dir, spd: w.spd, src: S.src === 'manual' ? 'vent manuel' : 'prévision' };
   },
 });
+setContext(() => (startMode.isOpen() ? 'depart' : raceActive(Date.now()) ? 'course' : 'app'));
 function renderStart() {
   const el = $('section[data-tab=start]');
   const A = analysis;
@@ -761,7 +766,7 @@ function renderStart() {
 }
 function pingLine(which) {
   if (!navigator.geolocation) return toast('GPS indisponible');
-  navigator.geolocation.getCurrentPosition((p) => setLineEnd(which, { lat: p.coords.latitude, lon: p.coords.longitude }), (e) => toast('GPS : ' + e.message), { enableHighAccuracy: true, timeout: 15000 });
+  navigator.geolocation.getCurrentPosition((p) => setLineEnd(which, { lat: p.coords.latitude, lon: p.coords.longitude }), (e) => { report('gps', 'ping : code ' + e.code + ' : ' + e.message); toast('GPS : ' + e.message); }, { enableHighAccuracy: true, timeout: 15000 });
 }
 let actx = null, beeper = null;
 // Santé du son : tested = null (jamais testé) / true (entendu) / false (pas entendu) ; alive = l’horloge audio avance vraiment
@@ -772,14 +777,14 @@ function audioInit() {
   try {
     try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch { /* session audio non prise en charge */ }
     if (!actx) {
-      actx = new (window.AudioContext || window.webkitAudioContext)(); beeper = createBeeper({ ctx: actx });
-      actx.addEventListener?.('statechange', () => { snd.prev = null; snd.alive = null; renderChronoAlert(); });
+      actx = new (window.AudioContext || window.webkitAudioContext)(); beeper = createBeeper({ ctx: actx, onMiss: (m) => note('bips', 'bip manqué à ' + m.s + ' s du signal') });
+      actx.addEventListener?.('statechange', () => { note('son', 'état ' + actx.state); snd.prev = null; snd.alive = null; renderChronoAlert(); });
     }
     // resume() peut ne jamais se résoudre quand le navigateur est suspendu en arrière-plan (WebKit 281566) : reprise bornée à 1,5 s
-    const prete = Promise.race([actx.resume(), new Promise((ok) => setTimeout(ok, 1500))]).catch(() => {});
+    const prete = Promise.race([actx.resume(), new Promise((ok) => setTimeout(ok, 1500))]).catch((e) => report('son', e));
     if (timer.end != null && beeper.end !== timer.end) beeper.arm(timer.end);
     return prete;
-  } catch { return Promise.resolve(); /* audio indisponible */ }
+  } catch (e) { report('son', e); return Promise.resolve(); /* audio indisponible */ }
 }
 function audioRelease() { try { if (navigator.audioSession) navigator.audioSession.type = 'auto'; } catch { /* rien à remettre */ } }
 function releaseAudioIfIdle() { if (timer.end == null && !startMode?.isOpen()) audioRelease(); }
@@ -905,13 +910,13 @@ function startGps() {
     const o = gps.hist.find((h) => q.t - h.t <= 6000) || gps.hist[0], dt = (q.t - o.t) / 1000;
     if (p.coords.speed != null && p.coords.speed >= 0) { q.sog = p.coords.speed / 0.5144; q.cog = p.coords.heading >= 0 ? p.coords.heading : (dt > 2 && distXY(o, q) > 2 ? bearingXY(o, q) : null); }
     else if (dt > 2 && distXY(o, q) > 2) { q.sog = distXY(o, q) / dt / 0.5144; q.cog = bearingXY(o, q); }
-    gps.pos = q;
+    gps.pos = q; gps.err = null; gps.errMsg = null;
     scene.setBoat(q, q.cog);
     if (follow) { const t = scene.controls.target, off = scene.camera.position.clone().sub(t); t.set(q.x, 0, -q.y); scene.camera.position.copy(t.clone().add(off)); }
     if (recorder.active) recorder.add(q);
     autoAdvance();
     renderLiveNav();
-  }, (e) => { gps.err = e.message; renderLiveNav(); }, { enableHighAccuracy: true, maximumAge: 1000 });
+  }, (e) => { gps.err = e.code; gps.errMsg = e.message; report('gps', 'code ' + e.code + ' : ' + e.message); renderLiveNav(); }, { enableHighAccuracy: true, maximumAge: 1000 });
   wake.want('gps');
   renderLive();
 }
@@ -925,7 +930,7 @@ function autoAdvance() {
   if (distXY(gps.pos, l.to) < 40 && nextIdx < analysis.legs.length - 1) nextIdx++;
 }
 // Onglet « En course » : cadre fixe + zones mises à jour à chaque position GPS
-const recorder = new Recorder({ wake });
+const recorder = new Recorder({ wake, report: (w, e) => report(w, e) });
 let rest = null;
 function renderLive() {
   const el = $('section[data-tab=live]');
@@ -945,7 +950,7 @@ function renderLive() {
 function renderLiveNav() {
   const g = $('#liveGps'), n = $('#liveNav'), r = $('#liveRec'); if (!g) return;
   const A = analysis, p = gps?.pos;
-  g.innerHTML = `<div class="btns" style="margin:0">${gps ? '<button class="btn alt" id="gOff">Arrêter le GPS</button>' : '<button class="btn acc" id="gOn">▶ Activer le GPS</button>'}<span class="small muted" style="align-self:center">${gps?.err ? 'Erreur : ' + esc(gps.err) : p ? `précision ±${Math.round(p.acc)} m` : gps ? 'Recherche…' : 'Position, vitesse et cap du bateau'}</span></div>`;
+  g.innerHTML = `<div class="btns" style="margin:0">${gps ? '<button class="btn alt" id="gOff">Arrêter le GPS</button>' : '<button class="btn acc" id="gOn">▶ Activer le GPS</button>'}<span class="small muted" style="align-self:center">${gps?.err ? 'Erreur : ' + esc(gps.errMsg || gps.err) : p ? `précision ±${Math.round(p.acc)} m` : gps ? 'Recherche…' : 'Position, vitesse et cap du bateau'}</span></div>`;
   $('#gOn')?.addEventListener('click', startGps); $('#gOff')?.addEventListener('click', stopGps);
   const T = recorder.track;
   r.innerHTML = T ? `<div class="btns" style="margin:0"><button class="btn rec" id="recStop">⏹ Arrêter et enregistrer</button><span class="small" style="align-self:center"><span class="recdot"></span>${T.pts.length} points · ${summarizeTime((Date.now() - T.start) / 1000)}</span></div>`
@@ -1048,7 +1053,7 @@ async function runDebrief(tr) {
     restoreField: () => updateDisplayField(), obs: S.obs || [],
   };
   let det;
-  try { det = dbDetect(tr); } catch (e) { toast('Débrief impossible : ' + e.message); return; }
+  try { det = dbDetect(tr); } catch (e) { report('debrief', e); toast('Débrief impossible : ' + e.message); return; }
   const ans = await dbAsk(det, tr, api); if (!ans) return;
   busy('Analyse de la trace et calcul des routes conseillées…');
   await new Promise((r) => setTimeout(r, 30));
@@ -1076,7 +1081,7 @@ function showReport(tr) {
 async function renderTracks() {
   const el = $('section[data-tab=tracks]'); if (!el) return;
   let list = [];
-  try { list = await listTracks(); } catch { /* IndexedDB indisponible */ }
+  try { list = await listTracks(); } catch (e) { report('traces', e); /* IndexedDB indisponible : liste vide */ }
   let html = `<div class="card"><h3><span>Mes traces ${tip('Traces enregistrées dans l’onglet En course, ou importées (GPX d’un autre GPS, d’un équipier). Elles restent sur cet appareil ; exportez-les en GPX pour les garder ou les partager.')}</span></h3>
     ${list.length ? list.map((t) => `<div class="trow"><div><b>${esc(t.name)}</b><div class="small muted">${new Date(t.start).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })} · ${t.n} points</div></div><div class="btns" style="margin:0"><button class="btn small" data-tv="${t.id}">Analyser</button><button class="btn small alt" data-tx="${t.id}">GPX</button><button class="btn small alt" data-td="${t.id}" aria-label="Supprimer">✕</button></div></div>`).join('') : '<p class="small muted">Aucune trace. Lancez « Enregistrer ma trace » dans l’onglet En course.</p>'}
     <button class="btn alt" id="gpxBtn" style="width:100%;margin-top:8px">⤓ Importer un fichier GPX</button><input type="file" id="gpxIn" multiple hidden>
@@ -1094,7 +1099,7 @@ async function renderTracks() {
     const files = [...e.target.files]; e.target.value = ''; if (!files.length) return;
     let last = null, ok = 0;
     for (const f of files) {
-      try { const tr = fromGPX(await f.text(), f.name); await saveTrack(tr); last = tr; ok++; } catch (err) { toast(`Import impossible (${f.name}) : ${err.message}`); }
+      try { const tr = fromGPX(await f.text(), f.name); await saveTrack(tr); last = tr; ok++; } catch (err) { report('import', err); toast(`Import impossible (${f.name}) : ${err.message}`); }
     }
     if (last) { toast(ok > 1 ? `${ok} traces importées` : `Trace importée : ${last.pts.length} points`); renderTracks(); showTrace(last.id); }
   };
@@ -1237,7 +1242,7 @@ function renderIC() {
       const text = /\.pdf$/i.test(f.name) || f.type === 'application/pdf' ? await pdfText(f) : await f.text();
       icDraft = { ...parseIC(text, f.name), id: 'ev' + Date.now(), source: f.name };
       renderIC(); $('#evForm')?.scrollIntoView({ behavior: 'smooth' });
-    } catch (err) { $('#icMsg').textContent = 'Lecture impossible : ' + err.message + '. Vous pouvez saisir la fiche à la main (Modifier).'; }
+    } catch (err) { report('ic', err); $('#icMsg').textContent = 'Lecture impossible : ' + err.message + '. Vous pouvez saisir la fiche à la main (Modifier).'; }
   };
   if (icDraft) {
     $('#evSave').onclick = () => {
@@ -1250,6 +1255,7 @@ function renderIC() {
 }
 
 init().catch((e) => {
+  report('demarrage', e);
   console.error(e);
   $('#splash').innerHTML = `<div><b>Erreur au démarrage</b><small>${esc(e.message)}</small></div>`;
 });

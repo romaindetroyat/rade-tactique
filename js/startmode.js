@@ -5,6 +5,7 @@
 
 import { toXY, toLL, bearingXY, distXY, fromBearing, norm180, norm360, fmtBrg, cardinal } from './geo.js';
 import { boatSpeed, optimalAngles } from './polar.js';
+import { report } from './journal.js';
 
 const J80 = 8; // longueur de coque (m), pour exprimer les écarts en longueurs
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -95,7 +96,7 @@ export function createStartMode(api) {
     api.audioInit(); api.startGps();
     if (!root) build();
     root.hidden = false; document.body.classList.add('startmode-open');
-    try { document.documentElement.requestFullscreen?.({ navigationUI: 'hide' }).catch(() => {}); } catch { /* plein écran non disponible (iPhone : installer l’app sur l’écran d’accueil) */ }
+    try { document.documentElement.requestFullscreen?.({ navigationUI: 'hide' }).catch(() => { /* plein écran refusé ou indisponible (iPhone) : sans conséquence */ }); } catch { /* plein écran non disponible (iPhone : installer l’app sur l’écran d’accueil) */ }
     api.wake.want('startmode');      // verrou d’écran partagé (js/wakelock.js) : redemandé au retour de visibilité, sur geste et toutes les 15 s
     loop();
   }
@@ -241,7 +242,7 @@ export function createStartMode(api) {
     };
     if (q && Date.now() - q.t < 4000) return done(bow(q), q.acc);
     if (!navigator.geolocation) return api.toast('GPS indisponible');
-    navigator.geolocation.getCurrentPosition((p) => done(toXY(p.coords.latitude, p.coords.longitude), p.coords.accuracy), (e) => api.toast('GPS : ' + e.message), { enableHighAccuracy: true, timeout: 15000 });
+    navigator.geolocation.getCurrentPosition((p) => done(toXY(p.coords.latitude, p.coords.longitude), p.coords.accuracy), (e) => { report('gps', 'ping : code ' + e.code + ' : ' + e.message); api.toast('GPS : ' + e.message); }, { enableHighAccuracy: true, timeout: 15000 });
   }
   // vent par les deux bords de près : bissectrice des routes fond tribord et bâbord
   function tackHeading(side) {
@@ -260,7 +261,7 @@ export function createStartMode(api) {
       if (typeof DeviceOrientationEvent !== 'undefined' && DeviceOrientationEvent.requestPermission) {
         const r = await DeviceOrientationEvent.requestPermission(); if (r !== 'granted') return api.toast('Accès au compas refusé');
       }
-    } catch { return api.toast('Compas indisponible'); }
+    } catch (e) { report('compas', e); return api.toast('Compas indisponible'); }
     if (!compassOn) {
       compass = null; compassOn = true;
       window.addEventListener('deviceorientation', onOrient, true);
