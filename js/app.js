@@ -18,7 +18,6 @@ import { shroudsFor } from './tuning.js';
 import { createStartMode } from './startmode.js';
 import { detect as dbDetect, ask as dbAsk, askModes as dbAskModes, analyze as dbAnalyze, narrative as dbNarrative, buildReport as dbBuild, shareReport as dbShare } from './debrief.js';
 
-export const APP_VERSION = 'v25 · accès équipage';
 const $ = (s, r = document) => r.querySelector(s);
 function toast(msg) {
   let t = document.getElementById('toast');
@@ -113,7 +112,7 @@ function status(msg) {
   if (!data) { el.textContent = 'Pas de prévision'; return; }
   const ago = Math.round((Date.now() - data.fetched) / 60000);
   const when = ago < 1 ? 'à l’instant' : ago < 120 ? `il y a ${ago} min` : `le ${new Date(data.fetched).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })}`;
-  el.textContent = `${APP_VERSION} · ${S.src === 'manual' ? 'vent manuel' : `prévisions ${data.snapshot ? 'embarquées' : 'màj'} ${when}`}`;
+  el.textContent = S.src === 'manual' ? 'vent manuel' : `prévisions ${data.snapshot ? 'embarquées' : 'màj'} ${when}`;
 }
 
 // ───────────────────────── vent de base
