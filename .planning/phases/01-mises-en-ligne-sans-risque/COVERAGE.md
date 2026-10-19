@@ -1,0 +1,1 @@
+No external API integration: la phase 1 ajoute des tests node:test, un script de version (tools/stamp.mjs), la mise à jour différée du service worker et la porte de build Vercel ; les fonctions /api existantes (OpenAI) ne sont ni modifiées ni étendues, seulement vérifiées derrière le contrôle d'accès.

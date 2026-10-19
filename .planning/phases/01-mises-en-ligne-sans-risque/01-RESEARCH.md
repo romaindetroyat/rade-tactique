@@ -502,18 +502,24 @@ Test de référence (extrait, passe) : `const tr = fromGPX(fixture('9aa32494-18-
 | A9 | `postMessage` d'un client vers un worker en attente et réponse via `event.source` fonctionnent aussi sous Safari iOS | Pattern 1 | Bandeau sans note ; à tester sur iPhone |
 | A10 | Inclure `vendor/pdf*.js` (+1,5 Mo) au précache est acceptable | Pattern 3 | Mise à jour plus lourde sur réseau faible ; option : retirer de `SKIP`/`ROOT` |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Départ de référence : valeur du code ou valeur humaine ?**
    - Known : `detect` donne 11:43:42 Paris ; le rapport publié dit « bon départ 11:44:20 » et l'équipier a saisi 11:45:00 ; la détection de fin retient la marque 4 (11:50:19Z) au lieu de GR2.
    - Unclear : D-11 dit « le bon départ à la bonne heure ».
    - Recommendation : enregistrer la sortie actuelle exacte comme référence et la présenter à Romain (D-12) ; ne pas élargir la tolérance.
+   - **RESOLVED :** valeur détectée sur la trace, 09:43:42Z (CONTEXT D-14) ; les valeurs exactes sont mesurées par l'exécuteur avec cette configuration et validées par Romain (D-12).
 2. **Régate sur plusieurs jours (7-9 novembre).** `IC.date` est unique. Recommandation : `lockState` accepte `raceDays: string[]`, alimenté par la phase 3 ; en attendant, Romain peut créer une fiche par jour.
+   - **RESOLVED :** plage de dates début/fin sur la fiche de régate (`raceFrom`/`raceTo`, CONTEXT D-15).
 3. **Emplacement du bouton « course finie ».** Recommandation : onglet « En course », visible quand `IC.date` = aujourd'hui ; décision d'interface (UI-SPEC éventuel).
+   - **RESOLVED :** onglet « En course », visible les jours de régate.
 4. **Précache de pdf.js.** Inclure (recommandé, import d'IC hors réseau au ponton) ou laisser en ligne.
+   - **RESOLVED :** inclus au précache (import d'IC hors réseau au ponton).
 5. **Contrôle « release obligatoire » strict ou souple.** Recommandation : strict seulement en production (A3), avertissement ailleurs.
+   - **RESOLVED :** strict en production (ou `RT_STRICT=1`), avertissement ailleurs.
 6. **Règle d'exploitation à inscrire** (guide / README / `CLAUDE.md`) : pas de mise en production dans les 48 h avant une régate ni en course, sauf correctif critique hors course ; la mise en ligne de ce correctif (Pitfall 2) est la dernière à recharger les téléphones toute seule.
 
+   - **RESOLVED :** inscrite dans README et `.claude/CLAUDE.md` par le plan 01-04.
 ## Environment Availability
 
 | Dependency | Required By | Available | Version | Fallback |
