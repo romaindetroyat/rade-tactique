@@ -4,7 +4,9 @@ import { report, note, setContext } from './journal.js';
 import { Terrain, toXY, toLL, NM, bearingXY, distXY, norm360, norm180, fmtBrg, fmtNm, fmtLat, fmtLon, cardinal } from './geo.js';
 import { WindField, speedColor } from './wind.js';
 import { MARKS, COURSES, LINE_PRESETS, FORBIDDEN_ZONE, DANGERS } from './courses.js';
-import { eventsState, currentEvent, setCurrent, upsertEvent, removeEvent, pdfText, parseIC, eventForm, readForm } from './events.js';
+import { pdfText, parseIC, eventForm, readForm } from './events.js';
+import { migrate, saveRegattas, createRegatta, upsertRegatta, removeRegatta, setCurrent as setCurrentRegatta, currentRegatta, icOf, groupBySeason, lockDates, seasonOf } from './regates.js';
+import { listHTML, newRegattaFormHTML, sheetHTML } from './regview.js';
 import { fetchAll, cached, snapshot, consensus, gridPoints, marineAt, fetchLive, MODELS, WMO, CENTER } from './weather.js';
 import { buildLegs, analyzeLeg, markAdvice, analyzeStart, trendOf, rankCourses, regimeOf, sideName, summarizeTime } from './tactics.js';
 import { optimalAngles, boatSpeed, trimAdvice, spiMinTwa, getPolar, setPolar, resetPolar, parsePolar } from './polar.js';
@@ -22,7 +24,7 @@ import { candidates, ACCURACY_M } from './markfit.js';
 import { MAX_MOVE_M, DOUBT, parseLatLon, loadOverrides, saveOverride, clearOverride, applyOverrides, restoreMark } from './marks.js';
 import { createWakeLock } from './wakelock.js';
 import { computeStatus, lampLabel, actionLabel, GPS_STALE_S } from './status.js';
-import { isActive, isRaceDay, lockState, heavyPaused, HEAVY_AFTER_MS } from './racelock.js';
+import { isActive, isRaceDay, lockState, heavyPaused, parisClock, HEAVY_AFTER_MS } from './racelock.js';
 import { detect as dbDetect, ask as dbAsk, askModes as dbAskModes, analyze as dbAnalyze, narrative as dbNarrative, buildReport as dbBuild, shareReport as dbShare } from './debrief.js';
 
 const $ = (s, r = document) => r.querySelector(s);
@@ -37,6 +39,7 @@ const hhmm = (h) => `${String(Math.floor(h)).padStart(2, '0')}:${String(Math.rou
 const arrow = (dir) => `<span class="arr" style="transform:rotate(${dir + 180}deg)">↑</span>`;
 const store = { get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch { return d; /* valeur absente ou illisible : la valeur par défaut */ } }, set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* indisponible */ } } };
 const marksStore = () => { try { return localStorage; } catch { return null; /* stockage indisponible : aucun recalage */ } };
+const localStore = () => { try { return localStorage; } catch { return null; /* stockage indisponible : les régates restent en mémoire */ } };
 const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 const addDays = (s, n) => { const d = new Date(s + 'T12:00:00'); d.setDate(d.getDate() + n); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 const dayName = (s) => new Date(s + 'T12:00:00').toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
@@ -47,7 +50,15 @@ const DEF = {
   perf: 1, polar: null, obsOpen: true, startFlash: true,
 };
 const S = { ...DEF, ...store.get('rade.state', {}) };
-let IC = currentEvent();
+// Régates : l’index (petit) se lit de façon synchrone au chargement, comme l’ancienne fiche courante ; IC garde la forme d’avant (icOf)
+let REG = migrate({ storage: localStore(), now: Date.now(), by: null });
+let IC = icOf(currentRegatta(REG));
+// Remplace l’état des régates, l’écrit et recalcule IC ; un stockage plein ou refusé laisse l’état en mémoire, avec un message
+function saveReg(next) {
+  REG = next; IC = icOf(currentRegatta(REG));
+  if (!saveRegattas(localStore(), REG)) { note('regates', 'index non écrit : stockage plein ou refusé'); toast('Mémoire pleine : la régate ne sera pas gardée après fermeture'); }
+  return REG;
+}
 if (S.day < today()) S.day = today();
 // lien partagé : #p=<parcours>-<classe>-<tours>[-<jour>]
 (() => {
@@ -344,7 +355,7 @@ function updateAll() {
   $$('#srcSeg button').forEach((b) => b.classList.toggle('on', b.dataset.src === S.src));
   updateDisplayField();
   scheduleAnalysis();
-  renderBrief(); renderWind(); renderIC(); renderJ80Tab();
+  renderBrief(); renderWind(); if (!icBusy()) renderIC(); renderJ80Tab();     // un formulaire ouvert n’est jamais redessiné sous les doigts de l’équipier
 }
 function updateDisplayField() {
   if (!F || !scene) return;
@@ -591,7 +602,7 @@ function renderBrief() {
     <div class="muted small">${esc(dayName(S.day))}${isRace ? ` · <b style="color:#fff">${esc(IC.event)}</b>` : ''}</div>
     <div class="big">${w?.dir != null ? `<span class="arrow" style="transform:rotate(${w.dir + 180}deg)">↑</span><div><b>${Math.round(w.spd)} nd</b> <span class="muted">rafales ${Math.round(w.gust ?? w.spd * 1.3)}</span><div>${cardinal(w.dir)} · ${fmtBrg(w.dir)} au départ (${hhmm(S.startTime)})</div></div>` : '<div>—</div>'}</div>
     ${reg ? `<span class="chip">${esc(reg.name)}</span>` : ''}${rs ? `<span class="chip ${rs.confidence > 70 ? 'good' : rs.confidence > 45 ? 'mid' : 'low'}">Confiance ${rs.confidence} %</span>` : ''}
-    ${isRace ? `<div class="small muted" style="margin-top:6px">1er avertissement ${IC.firstWarning} · arrivée limite ${IC.lastFinishSignal} · VHF ${IC.vhf}</div>` : ''}
+    ${isRace && (IC.firstWarning || IC.lastFinishSignal || IC.vhf != null) ? `<div class="small muted" style="margin-top:6px">${[IC.firstWarning && `1er avertissement ${esc(IC.firstWarning)}`, IC.lastFinishSignal && `arrivée limite ${esc(IC.lastFinishSignal)}`, IC.vhf != null && `VHF ${esc(IC.vhf)}`].filter(Boolean).join(' · ')}</div>` : ''}
   </div>`;
   if (rows.length) html += `<div class="card"><h3><span>Vent sur la journée ${tip('Trait plein : vent moyen AROME HD au centre de la rade. Pointillés : rafales. Bande bleue : écart entre les 6 modèles (plus elle est large, moins la prévision est sûre). Zone orange : fenêtre de course.')}</span><small>point central rade</small></h3>${chartSVG(rows, isRace)}<div class="small muted">Trait plein : AROME HD · pointillé : rafales · bande : écart entre les ${MODELS.length} modèles · flèches : direction (vers où souffle le vent).</div></div>`;
   // stratégie
@@ -722,7 +733,9 @@ let rlSavedAt = 0, wasLocked = false;
 const saveRL = (now = Date.now()) => { rlSavedAt = now; store.set('rade.racelock', RL); };
 const raceActive = (now) => isActive({ now, timerEnd: timer.end, startModeOpen: startMode.isOpen(), recording: recorder.active, gpsOn: gps?.watch != null });
 function raceLock(now = Date.now()) {
-  return lockState({ now, active: raceActive(now), raceFrom: IC?.date || null, raceTo: IC?.dateEnd || IC?.date || null, lastActiveAt: RL.lastActiveAt ?? null, finishedAt: RL.finishedAt ?? null });
+  // le verrou lit les dates de la régate d’aujourd’hui (la courante en priorité), sinon de la courante
+  const { raceFrom, raceTo } = lockDates({ now, list: REG.list, currentId: REG.current });
+  return lockState({ now, active: raceActive(now), raceFrom, raceTo, lastActiveAt: RL.lastActiveAt ?? null, finishedAt: RL.finishedAt ?? null });
 }
 function saveRaceActivity() { const now = Date.now(); if (raceActive(now)) { RL.lastActiveAt = now; saveRL(now); } }
 function raceTick() {
@@ -1154,7 +1167,8 @@ let rest = null;
 function renderLive() {
   const el = $('section[data-tab=live]');
   // jour de régate (D-15) : « Course finie » lève le verrou de mise à jour ; il n’arrête ni chrono, ni trace, ni GPS
-  const raceCard = isRaceDay({ now: Date.now(), raceFrom: IC?.date || null, raceTo: IC?.dateEnd || IC?.date || null })
+  const { raceFrom, raceTo } = lockDates({ now: Date.now(), list: REG.list, currentId: REG.current });
+  const raceCard = isRaceDay({ now: Date.now(), raceFrom, raceTo })
     ? `<div class="card"><button class="btn alt" id="raceDone">🏁 Course finie — retour au port</button><div class="small muted" style="margin-top:6px">Permet d’appliquer une mise à jour en attente. Le chrono, la trace et le GPS ne sont pas arrêtés.</div></div>` : '';
   el.innerHTML = `${raceCard}<div class="card" id="liveGps"></div>
     <div class="card"><h3><span>Trace ${tip('Enregistre votre position toutes les 1–2 s pendant la course. L’écran reste allumé pendant l’enregistrement (sur iPhone, le GPS s’arrête si l’écran se verrouille). Les traces se retrouvent dans l’onglet Traces.')}</span></h3><div id="liveRec"></div></div>
@@ -1477,20 +1491,26 @@ function bindMarksEdit(el) {
   $('#mkNo').addEventListener('click', () => { markEdit = null; renderIC(); });
 }
 
-// ───────────────────────── IC
-let icDraft = null;
+// ───────────────────────── RÉGATES ET IC
+let icDraft = null;                          // fiche IC en cours de relecture (import ou « Modifier »)
+let rgDraft = null, rgErr = {};              // formulaire « Nouvelle régate » ouvert : sa saisie survit à un redessin
+const icBusy = () => !!(rgDraft || icDraft);
+// Après un changement de régate courante ou de ses données : tout ce qui lit IC ou le verrou est redessiné
+function afterRegChange() { renderIC(); renderDaySeg(); renderBrief(); renderLive(); }
 function renderIC() {
   const el = $('section[data-tab=ic]');
-  IC = currentEvent();
-  const st = eventsState();
+  const cur = currentRegatta(REG), now = Date.now();
+  IC = icOf(cur);
   const tel = /(0[1-9](?:[ .-]?\d{2}){4})/.exec(IC.committee || '')?.[1];
-  let html = `<div class="card"><h3><span>Régate ${tip('Chaque régate a sa fiche, remplie depuis ses Instructions de Course. La régate choisie fixe le jour 🏁, l’heure de départ par défaut et les points clés affichés.')}</span></h3>
-    <div class="row2"><div><select id="evSel">${st.list.map((e) => `<option value="${esc(e.id)}" ${e.id === st.current ? 'selected' : ''}>${esc(e.event)}${e.date ? ' — ' + esc(e.date) : ''}</option>`).join('')}</select></div>
-    <div class="btns" style="margin:0"><label class="btn acc small" for="icFile" style="cursor:pointer">＋ Importer des IC (PDF)</label><button class="btn alt small" id="evEdit">Modifier</button></div></div>
-    <input type="file" id="icFile" accept="application/pdf,.pdf,.txt,text/plain" hidden>
-    <div class="small muted" id="icMsg" style="margin-top:6px">L’app lit le PDF des IC, propose la fiche (date, heures, VHF, Comité, zone, points clés) : vérifiez puis enregistrez.</div></div>`;
+  let html = `<div class="card"><h3><span>Régates ${tip('Chaque régate a sa fiche : jours, manches, Instructions de Course. La régate choisie fixe le jour 🏁, l’heure de départ par défaut et les points clés affichés. Classées par saison, puis Aujourd’hui, À venir, Passées.')}</span><button type="button" class="btn acc small" id="rgNew">＋ Nouvelle régate</button></h3>
+    ${listHTML(groupBySeason(REG.list, now), { currentId: cur?.id ?? null, now })}</div>`;
+  if (rgDraft) html += newRegattaFormHTML(rgDraft, rgErr);
+  html += sheetHTML(cur, { now });
   if (icDraft) html += eventForm(icDraft);
-  html += `<div class="card"><h3>${esc(IC.event)} <small>${IC.date ? (IC.dateEnd ? `du ${esc(dayName(IC.date))} au ${esc(dayName(IC.dateEnd))}` : esc(dayName(IC.date))) : 'date à préciser'}</small></h3>
+  html += `<div class="card"><h3>Instructions de course <small>${cur?.ic ? `lues ${esc(cur.ic.read === 'motifs' ? 'depuis le PDF' : cur.ic.read === 'reprise' ? 'sur une ancienne fiche' : 'à la main')}` : 'à importer'}</small></h3>
+    <div class="btns" style="margin:0 0 6px"><label class="btn acc small" for="icFile" style="cursor:pointer">＋ Importer des IC (PDF)</label><button class="btn alt small" id="evEdit">Modifier</button></div>
+    <input type="file" id="icFile" accept="application/pdf,.pdf,.txt,text/plain" hidden>
+    <div class="small muted" id="icMsg" style="margin-bottom:8px">L’app lit le PDF des IC, propose la fiche (date, heures, VHF, Comité, zone, points clés) : vérifiez puis enregistrez.</div>
     <div class="kpis"><div class="kpi"><b>${esc(IC.firstWarning || '—')}</b><span>1er avertissement</span></div><div class="kpi"><b>${esc(IC.lastFinishSignal || '—')}</b><span>limite arrivée du 1er</span></div><div class="kpi"><b>VHF ${esc(IC.vhf ?? '—')}</b><span>canal de course</span></div></div>
     <p class="small">${IC.committee ? `Comité : ${tel ? `<a href="tel:${tel.replace(/\D/g, '')}">${esc(IC.committee)}</a>` : esc(IC.committee)}<br>` : ''}${IC.zone ? `Zone : ${esc(IC.zone)}<br>` : ''}${IC.id === 'snpm-2026' ? 'Avis : <a href="https://chat.whatsapp.com/J2W7onZ86t9AnqJJliPUSU" target="_blank" rel="noopener">WhatsApp « CVAT Tableau Officiel »</a>' : ''}</p>
     ${IC.firstWarning && IC.date ? `<button class="btn small alt" id="evUse">Caler le départ sur ces IC (${esc(dayName(IC.date))}, ${esc(IC.firstWarning)} + 5 min)</button>` : ''}</div>
@@ -1499,15 +1519,35 @@ function renderIC() {
   <div class="card"><h3>Pavillons de classe <small>habituels CVAT</small></h3><table class="t">${IC.classes.map((c) => `<tr><td>${esc(c[0])}</td><td>${esc(c[1])}</td></tr>`).join('')}</table></div>
   <div class="card"><h3>Points clés</h3><ul class="tips small">${(IC.keyRules || []).map((r) => `<li>${esc(r)}</li>`).join('') || '<li>Aucun point clé enregistré.</li>'}</ul>
     ${IC.text ? `<details><summary class="small">Texte complet des IC</summary><pre class="ictext">${esc(IC.text)}</pre></details>` : ''}
-    ${st.list.length > 1 ? `<button class="btn small alt" id="evDel" style="margin-top:8px">Supprimer cette régate</button>` : ''}</div>
+    ${cur ? `<button class="btn small alt" id="evDel" style="margin-top:8px">Supprimer cette régate</button>` : ''}</div>
   <div class="card"><h3>Marques <small>cahier de parcours CVAT</small></h3><table class="t"><tr><th>N°</th><th>Marque</th><th>Position</th></tr>${Object.entries(MARKS).map(([k, m]) => marksRow(k, m)).join('')}</table>
     <div class="small muted" style="margin-top:6px">« à confirmer » = position approximative (cartes du cahier ou OpenStreetMap) : à vérifier sur zone, le Comité fait foi. Un recalage reste sur ce téléphone (Safari et l’app installée ne les partagent pas).</div></div>
   <div class="card"><h3>Dangers</h3><ul class="tips small"><li><b>Zone interdite</b> de la presqu’île de Saint-Mandrier (zone Marine nationale, rouge sur la carte).</li>${DANGERS.map((d) => `<li><b>${esc(d.name)}</b> (${fmtLat(d.lat)} ${fmtLon(d.lon)}) : ${esc(d.note)}</li>`).join('')}</ul></div>`;
   el.innerHTML = html;
   bindMarksEdit(el);
-  $('#evSel').onchange = (e) => { setCurrent(e.target.value); icDraft = null; IC = currentEvent(); renderIC(); renderDaySeg(); renderBrief(); renderLive(); };
+  // liste : toucher une régate en fait la courante
+  $$('[data-rg]', el).forEach((b) => b.addEventListener('click', () => { saveReg(setCurrentRegatta(REG, b.dataset.rg)); icDraft = null; afterRegChange(); }));
+  // « Nouvelle régate » : trois champs (le premier jour vaut aujourd’hui, jour de Paris, tant qu’on ne le change pas)
+  $('#rgNew').onclick = () => { rgDraft = { name: '', dateStart: parisClock(Date.now()).date, dateEnd: '', club: '' }; rgErr = {}; renderIC(); $('#rgName')?.focus(); };
+  if (rgDraft) {
+    const sync = () => { rgDraft = { name: $('#rgName').value, dateStart: $('#rgStart').value, dateEnd: $('#rgEnd').value, club: $('#rgClub').value }; };
+    const create = () => {
+      sync();
+      const r = createRegatta(rgDraft, { now: Date.now(), by: null });
+      if (!r.ok) { rgErr = r.errors; renderIC(); return; }
+      rgDraft = null; rgErr = {}; icDraft = null;
+      saveReg(setCurrentRegatta(upsertRegatta(REG, r.regatta), r.regatta.id));
+      afterRegChange(); toast(`Régate créée : ${r.regatta.name}`);
+    };
+    for (const id of ['#rgName', '#rgStart', '#rgEnd', '#rgClub']) {
+      $(id).addEventListener('input', sync); $(id).addEventListener('change', sync);
+      $(id).addEventListener('keydown', (e) => { if (e.key === 'Enter') create(); });
+    }
+    $('#rgCreate').onclick = create;
+    $('#rgCancel').onclick = () => { rgDraft = null; rgErr = {}; renderIC(); };
+  }
   $('#evEdit').onclick = () => { icDraft = { ...IC }; renderIC(); };
-  $('#evDel')?.addEventListener('click', (e) => { if (e.target.dataset.c !== '1') { e.target.dataset.c = '1'; e.target.textContent = 'Confirmer la suppression'; return; } removeEvent(IC.id); renderIC(); renderDaySeg(); renderBrief(); renderLive(); });
+  $('#evDel')?.addEventListener('click', (e) => { if (e.target.dataset.c !== '1') { e.target.dataset.c = '1'; e.target.textContent = 'Confirmer la suppression'; return; } icDraft = null; saveReg(removeRegatta(REG, cur.id)); afterRegChange(); });
   $('#evUse')?.addEventListener('click', () => {
     const [h, m] = IC.firstWarning.split(':').map(Number);
     S.startTime = h + (m + 5) / 60; S.hour = Math.floor(S.startTime * 4) / 4;
@@ -1519,15 +1559,32 @@ function renderIC() {
     $('#icMsg').textContent = 'Lecture des IC…';
     try {
       const text = /\.pdf$/i.test(f.name) || f.type === 'application/pdf' ? await pdfText(f) : await f.text();
-      icDraft = { ...parseIC(text, f.name), id: 'ev' + Date.now(), source: f.name };
+      icDraft = { ...parseIC(text, f.name), id: 'ev' + Date.now(), source: f.name, read: 'motifs' };
       renderIC(); $('#evForm')?.scrollIntoView({ behavior: 'smooth' });
     } catch (err) { report('ic', err); $('#icMsg').textContent = 'Lecture impossible : ' + err.message + '. Vous pouvez saisir la fiche à la main (Modifier).'; }
   };
   if (icDraft) {
     $('#evSave').onclick = () => {
-      const ev = readForm(icDraft); upsertEvent(ev); icDraft = null; IC = currentEvent();
+      const ev = readForm(icDraft), at = Date.now(), prev = cur;
+      // les IC enregistrées vont dans la régate courante (sinon la régate est créée depuis les IC) ; les champs que le formulaire ne porte pas sont gardés
+      const ic = {
+        fields: { ...(prev?.ic?.fields || {}), firstWarning: ev.firstWarning, lastFinishSignal: ev.lastFinishSignal, vhf: ev.vhf, committee: ev.committee, zone: ev.zone, keyRules: ev.keyRules },
+        text: String(icDraft.text || '').slice(0, 20000), source: icDraft.source || prev?.ic?.source || '', read: icDraft.read || prev?.ic?.read || 'saisie',
+        excerpts: prev?.ic?.excerpts || {}, validated: { by: null, at },
+      };
+      let reg;
+      if (prev) {
+        const dateStart = ev.date || prev.dateStart;      // une date vidée ne retire pas son jour à la régate
+        reg = { ...prev, name: String(ev.event || prev.name).slice(0, 80), dateStart, dateEnd: dateStart && ev.dateEnd > dateStart ? ev.dateEnd : '', season: seasonOf(dateStart), ic };
+      } else {
+        const r = createRegatta({ name: ev.event, dateStart: ev.date, dateEnd: ev.dateEnd, club: '' }, { now: at, by: null });
+        if (!r.ok) { toast(r.errors.dateStart || r.errors.name || 'Régate incomplète'); return; }
+        reg = { ...r.regatta, ic };
+      }
+      icDraft = null;
+      saveReg(setCurrentRegatta(upsertRegatta(REG, reg), reg.id));
       if (ev.firstWarning && ev.date && ev.date >= today() && ev.date <= addDays(today(), 2)) { const [h, m] = ev.firstWarning.split(':').map(Number); S.startTime = h + (m + 5) / 60; S.day = ev.date; persist(); }
-      toast(`Régate enregistrée : ${ev.event}`); updateAll();
+      afterRegChange(); toast(`Régate enregistrée : ${reg.name}`); updateAll();
     };
     $('#evCancel').onclick = () => { icDraft = null; renderIC(); };
   }
