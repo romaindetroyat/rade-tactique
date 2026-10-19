@@ -1,34 +1,4 @@
-// Régates : une fiche par épreuve, remplie depuis les Instructions de Course (PDF ou texte), modifiable à la main.
-
-import { IC as SNPM } from './courses.js';
-
-const KEY = 'rade.events.v1';
-const load = () => { try { return JSON.parse(localStorage.getItem(KEY)) || null; } catch { return null; } };
-const save = (v) => { try { localStorage.setItem(KEY, JSON.stringify(v)); } catch { /* stockage indisponible */ } };
-
-// Valeurs communes aux régates CVAT (signaux de départ règle 26, pavillons de classe habituels)
-const COMMON = { sequence: SNPM.sequence, classes: SNPM.classes, groups: SNPM.groups };
-
-export function eventsState() {
-  let st = load();
-  if (!st) { st = { current: 'snpm-2026', list: [{ id: 'snpm-2026', ...SNPM, source: 'IC fournies (PDF)' }] }; save(st); }
-  return st;
-}
-export function currentEvent() {
-  const st = eventsState();
-  return { ...COMMON, ...(st.list.find((e) => e.id === st.current) || st.list[0]) };
-}
-export function setCurrent(id) { const st = eventsState(); st.current = id; save(st); }
-export function upsertEvent(ev) {
-  const st = eventsState(); const i = st.list.findIndex((e) => e.id === ev.id);
-  if (i >= 0) st.list[i] = ev; else st.list.push(ev);
-  st.current = ev.id; save(st);
-}
-export function removeEvent(id) {
-  const st = eventsState(); st.list = st.list.filter((e) => e.id !== id);
-  if (!st.list.length) { localStorage.removeItem(KEY); return; }
-  if (st.current === id) st.current = st.list[0].id; save(st);
-}
+// Lecture du PDF et des IC (texte, valeurs et extraits) ; les régates, leur index et leur relecture sont dans js/regates.js et js/icread.js.
 
 // ───────────────────────── PDF → texte (pdf.js chargé à la demande)
 function loadScript(src) {
@@ -124,30 +94,4 @@ export function parseIC(raw, fileName = '') {
   f.text = raw.slice(0, 60000);
   f.ex = ex;                                              // ajout (phase 3) : extrait de chaque valeur lue, clé par clé
   return f;
-}
-
-// ───────────────────────── formulaire d'édition
-const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-export function eventForm(ev) {
-  return `<div class="card" id="evForm"><h3>Fiche de la régate <small>vérifiez les champs extraits</small></h3>
-    <label class="f" for="evName">Épreuve</label><input id="evName" type="text" value="${esc(ev.event)}">
-    <div class="row2"><div><label class="f" for="evDate">Date</label><input id="evDate" type="date" value="${esc(ev.date || '')}"></div>
-    <div><label class="f" for="evVhf">Canal VHF</label><input id="evVhf" type="number" min="1" max="88" value="${esc(ev.vhf ?? '')}"></div></div>
-    <label class="f" for="evDateEnd">Dernier jour (régate sur plusieurs jours)</label><input id="evDateEnd" type="date" value="${esc(ev.dateEnd || '')}">
-    <div class="row2"><div><label class="f" for="evWarn">1er signal d’avertissement</label><input id="evWarn" type="time" value="${esc(ev.firstWarning || '')}"></div>
-    <div><label class="f" for="evLast">Limite d’arrivée du 1er</label><input id="evLast" type="time" value="${esc(ev.lastFinishSignal || '')}"></div></div>
-    <label class="f" for="evCom">Comité de course (nom, téléphone)</label><input id="evCom" type="text" value="${esc(ev.committee || '')}">
-    <label class="f" for="evZone">Zone de course</label><input id="evZone" type="text" value="${esc(ev.zone || '')}">
-    <label class="f" for="evRules">Points clés (une ligne par point)</label><textarea id="evRules" rows="8">${esc((ev.keyRules || []).join('\n'))}</textarea>
-    <div class="btns"><button class="btn acc" id="evSave">Enregistrer cette régate</button><button class="btn alt" id="evCancel">Annuler</button></div></div>`;
-}
-// D-15 : le dernier jour n’est gardé que s’il est postérieur au premier (sinon chaîne vide : une régate d’un seul jour)
-const dateEnd = (date, end) => (date && end > date ? end : '');
-export function readForm(base) {
-  const v = (id) => document.getElementById(id).value.trim();
-  return {
-    ...base, event: v('evName') || 'Régate', date: v('evDate'), dateEnd: dateEnd(v('evDate'), v('evDateEnd')), vhf: v('evVhf') ? +v('evVhf') : null,
-    firstWarning: v('evWarn'), lastFinishSignal: v('evLast'), committee: v('evCom'), zone: v('evZone'),
-    keyRules: v('evRules').split('\n').map((l) => l.trim()).filter(Boolean),
-  };
 }

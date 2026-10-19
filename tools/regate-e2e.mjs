@@ -732,7 +732,59 @@ async function gpxChoix({ browser, base }) {
   await ctx3.close();
 }
 
-const SCENARIOS = { creer, manche, auteur, ic, vraisemblance, gel, 'debrief-tardif': debriefTardif, gpx, 'gpx-choix': gpxChoix };
+// REG-03 (vérité 2 du plan 03-05) : l'ancien formulaire de fiche IC n'existe plus ; sans aucune régate, importer un PDF d'IC ouvre quand même
+// la relecture champ par champ et « Valider les IC » crée la régate depuis les IC (nom, dates, heures, VHF)
+async function depuisIC({ browser, base }) {
+  const ctx = await ouvreContexte(browser, { heure: '2026-10-19T08:30:00Z' });        // lundi 19/10/2026 10 h 30 à Paris
+  const { page, erreurs } = await ouvrePage(ctx);
+  const sansAncien = async (quand) => {
+    assert.equal(await page.locator('#evSave, #evSel, #evForm').count(), 0, `ancien formulaire ou sélecteur de fiches visible ${quand}`);
+  };
+  await sème(page, base, [], null);                                  // index vide : { v: 1, current: null, list: [] }, aucune clé rade.events.v1
+  assert.equal(await page.evaluate(() => localStorage.getItem('rade.events.v1')), null, 'aucune clé rade.events.v1 au départ');
+  assert.deepEqual(await indexRegates(page), { v: 1, current: null, list: [] }, 'index vide conservé');
+  await page.click('#tabs button[data-tab=ic]');
+  assert.match(await page.locator('#tabs button[data-tab=ic]').textContent(), /^Régates$/, 'l’onglet s’appelle « Régates »');
+  await sansAncien('à l’ouverture de l’onglet');
+  assert.equal(await page.locator('section[data-tab=ic] .rg').count(), 0, 'aucune régate dans la liste');
+
+  await importeIC(page);                                             // sans régate courante : la relecture s'ouvre quand même
+  assert.equal(await page.locator('#icValidate').count(), 1, '« Valider les IC » présent');
+  const rel = await lireRelecture(page);
+  assert.equal(rel.firstWarning.valeur, '10:55'); assert.match(rel.firstWarning.extrait, /10h55/, 'extrait de « 10h55 » affiché');
+  await sansAncien('pendant la relecture');
+  assert.deepEqual((await indexRegates(page)).list, [], 'rien n’entre avant « Valider les IC »');
+  const nom = rel.event.valeur;
+  assert.ok(nom.length > 3, 'le nom de la régate est lu dans les IC');
+
+  await page.click('#icValidate');
+  await page.waitForSelector('#icReview', { state: 'detached', timeout: 10000 });
+  await sansAncien('après la validation');
+  const idx = await indexRegates(page);
+  assert.equal(idx.list.length, 1, 'une régate créée depuis les IC');
+  const r = idx.list[0];
+  assert.equal(idx.current, r.id, 'elle devient la régate courante');
+  assert.equal(r.name, nom, 'au nom lu dans les IC'); assert.equal(r.dateStart, '2026-10-18'); assert.equal(r.season, '2026');
+  assert.ok(r.ic.validated && typeof r.ic.validated.at === 'number', 'IC validées');
+  assert.equal(r.ic.fields.vhf, 72); assert.equal(r.ic.fields.firstWarning, '10:55');
+  const liste = await lireListe(page);
+  assert.equal(liste.length, 1); assert.equal(liste[0].season, 'Saison 2026');
+  assert.deepEqual(liste[0].groups.map((g) => g.status), ['Passée'], 'le 18/10 est passé le 19/10');
+  assert.equal(liste[0].groups[0].rows[0].name, nom); assert.ok(liste[0].groups[0].rows[0].cur);
+
+  // après relance : cette seule régate, aucune ancienne fiche, rade.events.v1 toujours absente
+  await ouvreApp(page, base);
+  await page.click('#tabs button[data-tab=ic]');
+  await sansAncien('après la relance');
+  const apres = await lireListe(page);
+  assert.equal(apres.flatMap((s) => s.groups.flatMap((g) => g.rows)).length, 1, 'une seule régate après relance');
+  assert.equal((await indexRegates(page)).list.length, 1);
+  assert.equal(await page.evaluate(() => localStorage.getItem('rade.events.v1')), null, 'rade.events.v1 n’existe toujours pas');
+  sansErreur(erreurs, 'pendant le scénario');
+  await ctx.close();
+}
+
+const SCENARIOS = { creer, manche, auteur, ic, 'depuis-ic': depuisIC, vraisemblance, gel, 'debrief-tardif': debriefTardif, gpx, 'gpx-choix': gpxChoix };
 
 // ───────────────────────── lancement
 

@@ -31,7 +31,7 @@ const STATIC_TIPS = {
   '[data-tab=wind]': 'Vent manuel, relevés, intensité des effets du relief et explications du modèle.',
   '[data-tab=tracks]': 'Traces enregistrées : carte, statistiques, comparaison à la route optimale, export GPX.',
   '[data-tab=j80]': 'Polaires J80 (ORC), vitesses cibles et guides de réglage.',
-  '[data-tab=ic]': 'Instructions de course, règles de course expliquées, marques, dangers, contacts.',
+  '[data-tab=ic]': 'Régates : créez une régate, ses manches, importez et relisez ses IC ; vent du jour figé, traces et débrief dans la fiche ; règles de course, marques, dangers.',
 };
 
 let bubble = null, bubbleFor = null;
@@ -90,10 +90,11 @@ export const GUIDE = `
   <li><b>Relevé de vent</b> (en haut de Parcours ou dans En course) : touchez 🎤 et parlez librement : « ça refuse d’une dizaine de degrés et ça mollit un peu », « mistral 18 nœuds avec des rafales à 24 », « 290 12 » ; ou réglez le compas puis « Enregistrer ». L’app retient le modèle météo qui colle le mieux et recale la prévision.</li>
   <li><b>Départ</b> : placez la ligne (GPS au ras du Comité puis de la bouée), lisez le biais et lancez le chrono au signal d’avertissement.</li>
   <li><b>En course</b> : activez le GPS et l’enregistrement de la trace. Relèvement et distance de la prochaine marque, et « Recalculer la suite » depuis votre position avec le dernier vent relevé.</li>
-  <li><b>Traces</b> : après la course, revoyez votre trace, comparez-la à la route optimale et exportez-la (GPX).</li>
+  <li><b>Régates</b> : créez la régate en trois champs (nom, premier jour, club), ajoutez ses manches (heure du signal, parcours) et touchez <b>Choisir cette manche</b>. Importez le PDF des IC : chaque valeur s’affiche avec sa phrase d’origine, rien n’est retenu avant <b>Valider les IC</b>. Le vent du jour se fige tout seul à l’ouverture de l’app le jour de la régate.</li>
+  <li><b>Traces</b> : après la course, importez le GPX (rangé tout seul dans la régate du jour), revoyez-le, comparez-le à la route optimale et validez le débrief pré-rempli.</li>
 </ol>
 <p class="small"><a href="guide.html" target="_blank" rel="noopener"><b>📖 Guide complet de l’équipage</b></a> : toutes les fonctions, du départ au débrief.</p>
-<p class="small"><a href="regles.html" target="_blank" rel="noopener"><b>📘 Règles de course expliquées</b></a> : départs P, I, U, Z, noir, priorités, bouées, arrivée, pénalités, et un arbitre de poche à qui poser vos questions (aussi dans l’onglet IC).</p>
+<p class="small"><a href="regles.html" target="_blank" rel="noopener"><b>📘 Règles de course expliquées</b></a> : départs P, I, U, Z, noir, priorités, bouées, arrivée, pénalités, et un arbitre de poche à qui poser vos questions (aussi dans l’onglet Régates).</p>
 <p class="small"><b>Installer l’app</b> : sur iPhone, ouvrez le lien dans Safari puis Partager → « Sur l’écran d’accueil ». Sur Android, menu ⋮ → « Installer l’application ».</p>
 <p class="small muted">Le vent local est un modèle simplifié pour la tactique : il donne les tendances (pression, bascules, dévents). Il ne remplace pas l’observation du plan d’eau. Les positions marquées « approx » sont à vérifier sur zone ; le Comité fait foi.</p>`;
 

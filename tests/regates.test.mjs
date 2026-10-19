@@ -79,20 +79,16 @@ test('reprise : une fiche rade.events.v1 devient une régate (CVAT, VHF 72), san
   assert.equal(storage.getItem('rade.events.v1'), ancien);
 });
 
-test('semis : sur un appareil neuf, la Coupe SNPM est semée comme le faisait events.js (club CVAT, passée depuis le 19/10)', async () => {
+test('semis : sur un appareil neuf, la Coupe SNPM est semée comme le faisait l’ancien js/events.js (club CVAT, passée depuis le 19/10)', () => {
   const st = migrate({ storage: mem(), now: t('2026-10-19T10:00:00Z') });
   assert.equal(st.list.length, 1); assert.equal(st.current, 'snpm-2026');
   const r = st.list[0];
   assert.equal(r.club, 'CVAT'); assert.equal(r.ic.source, 'IC fournies (PDF)');
   assert.equal(regattaStatus(r, t('2026-10-19T10:00:00Z')), 'passee');
-  // même forme que l’ancienne fiche courante pour tout ce que lit app.js
-  const ls = mem(); globalThis.localStorage = ls;
-  try {
-    const { currentEvent } = await import('../js/events.js');
-    const ancien = currentEvent(), neuf = icOf(r);
-    for (const k of ['id', 'event', 'date', 'firstWarning', 'lastFinishSignal', 'vhf', 'committee', 'zone', 'keyRules', 'classes', 'groups', 'sequence', 'source']) assert.deepEqual(neuf[k], ancien[k], k);
-    assert.equal(neuf.id, 'snpm-2026');
-  } finally { delete globalThis.localStorage; }
+  // même forme que l’ancienne fiche courante (js/events.js, retirée au plan 03-05) pour tout ce que lit app.js : les constantes de js/courses.js
+  const neuf = icOf(r);
+  for (const k of ['event', 'date', 'firstWarning', 'lastFinishSignal', 'vhf', 'committee', 'zone', 'keyRules', 'classes', 'groups', 'sequence']) assert.deepEqual(neuf[k], SNPM[k], k);
+  assert.equal(neuf.id, 'snpm-2026'); assert.equal(neuf.source, 'IC fournies (PDF)');
   assert.equal(SNPM.vhf, 72);
 });
 
@@ -363,6 +359,13 @@ test('garde : js/app.js n’importe plus les fonctions de fiches de ./events.js 
   assert.match(app, /migrate\(\{/, 'migrate({ … }) présent');
   assert.ok(!/migrate\(/.test(bodyOf(app, 'init')), 'la lecture de l’index se fait au chargement du module, pas dans init()');
   assert.match(app, /^let IC = icOf\(currentRegatta\(REG\)\);/m);
+});
+
+test('garde : js/events.js ne garde que la lecture du PDF et des IC (plus de fiches ni d’ancien formulaire, plan 03-05)', async () => {
+  const m = await import('../js/events.js');
+  assert.deepEqual(Object.keys(m).sort(), ['PDF_OPTIONS', 'cleanText', 'parseIC', 'pdfText']);
+  const src = readFileSync(ROOT + 'js/events.js', 'utf8');
+  assert.ok(!/localStorage|rade\.events\.v1|evSave|evSel/.test(src), 'plus aucun stockage ni ancien formulaire dans js/events.js');
 });
 
 // ───────────────────────── outil de bout en bout : codes de sortie stricts (REVUE, BLOCKER)

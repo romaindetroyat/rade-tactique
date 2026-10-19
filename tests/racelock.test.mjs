@@ -2,9 +2,7 @@
 // Les instants sont donnés en UTC ; l’heure de Paris est dans le commentaire (été UTC+2 jusqu’au 25/10/2026 03 h, hiver UTC+1 ensuite).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseHTML } from 'linkedom';
 import { parisClock, isActive, isRaceDay, lockState, TIMER_GRACE_MS, heavyPaused, HEAVY_BEFORE_MS, HEAVY_AFTER_MS } from '../js/racelock.js';
-import { eventForm, readForm } from '../js/events.js';
 
 const t = (s) => Date.parse(s);
 const verrou = (now, o = {}) => lockState({ now: t(now), active: false, ...o });
@@ -92,32 +90,6 @@ test('isActive : chrono (3 h de grâce après H), mode départ, trace ou GPS', (
   assert.equal(isActive({ now, gpsOn: true }), true);
   assert.equal(isActive({ now }), false);
   assert.equal(isActive({ now, timerEnd: null, startModeOpen: false, recording: false, gpsOn: false }), false);
-});
-
-// D-15 : la fiche de régate porte un dernier jour, lu seulement s’il est postérieur au premier
-function lire(ev, saisie = {}) {
-  const { document } = parseHTML(`<html><body>${eventForm(ev)}</body></html>`);
-  globalThis.document = document;
-  try {
-    for (const [id, v] of Object.entries(saisie)) {
-      const champ = document.getElementById(id);
-      assert.ok(champ, `le formulaire doit contenir le champ #${id}`);
-      champ.value = v;
-    }
-    return readForm(ev);
-  } finally { delete globalThis.document; }
-}
-
-test('D-15 : la fiche garde le dernier jour saisi s’il est postérieur à la date', () => {
-  assert.equal(lire({ date: '2026-11-07', dateEnd: '2026-11-09' }).dateEnd, '2026-11-09');
-  assert.equal(lire({ date: '2026-11-07' }, { evDateEnd: '2026-11-08' }).dateEnd, '2026-11-08', 'saisie dans le champ');
-});
-
-test('D-15 : un dernier jour absent, égal ou antérieur à la date est ignoré', () => {
-  assert.equal(lire({ date: '2026-11-07' }).dateEnd, '');
-  assert.equal(lire({ date: '2026-11-07', dateEnd: '2026-11-07' }).dateEnd, '', 'même jour');
-  assert.equal(lire({ date: '2026-11-07', dateEnd: '2026-11-05' }).dateEnd, '', 'antérieur');
-  assert.equal(lire({ date: '', dateEnd: '2026-11-09' }).dateEnd, '', 'sans date de début');
 });
 
 // ── FIAB-06 : pas de recalcul automatique pendant la séquence de départ (de H−6 min à H+1 min, H = fin du chrono)
