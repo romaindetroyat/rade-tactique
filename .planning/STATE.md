@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 3
 current_phase_name: Ouvrir une régate
 status: executing
-stopped_at: Completed 03-02-PLAN.md
-last_updated: "2026-10-19T20:40:36.284Z"
+stopped_at: Completed 03-03-PLAN.md
+last_updated: "2026-10-19T21:07:44.526Z"
 last_activity: 2026-10-19
 last_activity_desc: Phase 3 execution started
-state_head: 593c4997189d4e8e1f78d05077b96a79d7c9fe19
+state_head: d6e5c3c75c5c13cb71f4ba4d2ea0402e953e483c
 progress:
   total_phases: 4
   completed_phases: 2
   total_plans: 16
-  completed_plans: 11
+  completed_plans: 12
   percent: 50
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-10-19)
 ## Current Position
 
 Phase: 3 (Ouvrir une régate) — EXECUTING
-Plan: 3 of 7
+Plan: 4 of 7
 Status: Ready to execute
 Last activity: 2026-10-19 — Phase 3 execution started
 
@@ -66,6 +66,7 @@ Progress: [█████░░░░░] 50%
 | Phase 02 P05 | 25 min | 1 tasks | 4 files |
 | Phase 03 P01 | 20 min | 3 tasks | 10 files |
 | Phase 03 P02 | 14 min | 2 tasks | 11 files |
+| Phase 03 P03 | 25 min | 2 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -102,6 +103,9 @@ Décisions récentes qui orientent le travail en cours :
 - [Phase 03]: 03-01 : auteur = réponse GET /api/membre du middleware (prénom seul, no-store), copie rade.membre.v1 hors réseau, by: null complété au premier succès ; l'étiquette n'est pas une autorité (phase 4)
 - [Phase 03]: 03-01 : l'horloge de Playwright vide performance.mark ; l'outil de bout en bout relève les marques par window.__marks ; codes de sortie stricts décidés par verdict()
 - [Phase 03]: Relecture des IC : brouillon en mémoire, écriture unique par applyReview sur « Valider les IC » ; extraits tirés du texte nettoyé ; puces ✓ ⚠ ✕, une valeur impossible bloque la validation — D-02, D-03 : rien de deviné ni de retenu sans contrôle humain
+- [Phase 03]: 03-03 : sceau au premier signal (manche la plus tôt, sinon IC, sinon fin de la régate à Paris, signal inconnu) ; le gel copie sans calcul, une copie à la fois, jamais reporté pendant la séquence de départ — ARCH-02
+- [Phase 03]: 03-03 : analyse et débrief d'une trace sur les prévisions vivantes si leur jour y figure, sinon le vent figé du jour, sinon le vent manuel annoncé (libellé « vent du jour figé le JJ/MM à HH:MM ») — Pitfall 1
+- [Phase 03]: 03-03 : une écriture refusée par la base rade-regates n'écrit pas de résumé (la fiche ne ment pas) et le nouvel essai attend 10 minutes ; la route conseillée figée (11,9 Ko pour 15 bords) arrive dès la fin de l'analyse
 
 ### Pending Todos
 
@@ -126,6 +130,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-10-19T20:40:36.104Z
-Stopped at: Completed 03-02-PLAN.md
+Last session: 2026-10-19T21:07:44.335Z
+Stopped at: Completed 03-03-PLAN.md
 Resume file: None
