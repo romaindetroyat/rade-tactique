@@ -8,9 +8,10 @@ import { ROOT } from './helpers/setup.mjs';
 import { bodyOf } from './helpers/scan.mjs';
 import {
   KEY, VERSION, STATUS_LABEL, regattaStatus, seasonOf, todayRegatta, lockDates, fromEvent, migrate, saveRegattas, newId, createRegatta,
-  upsertRegatta, removeRegatta, setCurrent, currentRegatta, icOf, groupBySeason,
+  upsertRegatta, removeRegatta, setCurrent, currentRegatta, icOf, groupBySeason, SEED_AT, seedNorm, backfillAuthor,
 } from '../js/regates.js';
-import { escHTML, byLine, listHTML, newRegattaFormHTML, sheetHTML } from '../js/regview.js';
+import { parisClock } from '../js/racelock.js';
+import { escHTML, byLine, listHTML, newRegattaFormHTML, sheetHTML, historySectionHTML, tracesSectionHTML } from '../js/regview.js';
 import { IC as SNPM } from '../js/courses.js';
 import { verdict } from '../tools/regate-e2e.mjs';
 
@@ -68,7 +69,8 @@ test('reprise : une fiche rade.events.v1 devient une régate (CVAT, VHF 72), san
   assert.equal(a.v, VERSION); assert.equal(a.current, 'snpm-2026'); assert.equal(a.list.length, 2);
   const [snpm, tl] = a.list;
   assert.equal(snpm.club, 'CVAT'); assert.equal(snpm.ic.fields.vhf, 72); assert.equal(snpm.ic.read, 'reprise');
-  assert.deepEqual(snpm.ic.validated, { by: 'Teiva', at: 1000 });
+  assert.deepEqual(snpm.ic.validated, { by: null, at: SEED_AT }, 'la graine commune a le même instant sur tous les téléphones, sans auteur');
+  assert.equal(snpm.at, SEED_AT); assert.deepEqual(tl.ic.validated, { by: 'Teiva', at: 1000 }, 'une autre fiche garde l’instant de reprise');
   assert.equal(snpm.dateEnd, '', 'dernier jour antérieur : non gardé');
   assert.equal(tl.club, ''); assert.equal(tl.dateEnd, '2026-11-09', 'dernier jour postérieur : gardé'); assert.equal(tl.season, '2026');
   assert.equal(storage.getItem('rade.events.v1'), ancien, 'rade.events.v1 octet pour octet inchangée');
@@ -121,7 +123,8 @@ test('création : champs manquants, date impossible, dernier jour antérieur ign
   assert.equal(createRegatta({ name: 'R', dateStart: '2026-11-07', dateEnd: '2026-11-07' }, { now }).regatta.dateEnd, '', 'même jour : une régate d’un jour');
   assert.equal(createRegatta({ name: 'R', dateStart: '2026-11-07', dateEnd: '2026-02-30' }, { now }).regatta.dateEnd, '', 'dernier jour impossible ignoré');
   assert.equal(createRegatta({ name: 'R', dateStart: '2026-11-07' }, { now }).regatta.club, '', 'club facultatif');
-  const ids = new Set(Array.from({ length: 200 }, () => createRegatta({ name: 'R', dateStart: '2026-11-07' }, { now }).regatta.id));
+  // tirages déterministes : avec Math.random, 200 identifiants de même instant ont environ 1 chance sur 80 d'en croiser deux (4 caractères au hasard) et le test échouait de temps en temps
+  const ids = new Set(Array.from({ length: 200 }, (_, i) => createRegatta({ name: 'R', dateStart: '2026-11-07' }, { now, rnd: () => (i + 1) / 251 }).regatta.id));
   assert.equal(ids.size, 200, 'identifiants distincts');
   assert.match(newId(now, () => 0.123456789), /^rg[0-9a-z]+$/);
 });
@@ -381,4 +384,206 @@ test('verdict : nom inconnu → 1 (même sans Chromium) ; Chromium impossible �
   assert.equal(verdict({ requested: ['creer', 'manche'], ok: ['creer', 'manche'] }), 0);
   assert.equal(verdict({ requested: ['creer', 'manche'], ok: ['creer'] }), 1, 'un scénario demandé sans OK (échec ou interrompu)');
   assert.equal(verdict({ requested: ['creer'], ok: ['manche'] }), 1, 'un OK étranger ne compte pas');
+});
+
+// ───────────────────────── graine commune de la Coupe SNPM (04-02, Pitfall 7)
+
+test('SEED_AT : le 18/10/2026 à 00 h 00, heure de Paris ; la graine semée porte cet instant, sans auteur, quel que soit le téléphone', () => {
+  assert.deepEqual(parisClock(SEED_AT), { date: '2026-10-18', hour: 0, minute: 0 });
+  const un = migrate({ storage: mem(), now: t('2026-10-19T10:00:00Z'), by: 'Teiva' }), deux = migrate({ storage: mem(), now: t('2026-10-30T08:00:00Z'), by: 'Thibaud' });
+  assert.equal(un.list[0].at, SEED_AT); assert.deepEqual(un.list[0].ic.validated, { by: null, at: SEED_AT });
+  const sans = (st) => { const { by, ...r } = st.list[0]; return r; };
+  assert.deepEqual(sans(un), sans(deux), 'seul l’auteur de la fiche diffère entre deux téléphones');
+  const autre = fromEvent({ id: 'ev9', event: 'Autre', date: '2026-11-07' }, 4242, 'Teiva');
+  assert.equal(autre.at, 4242); assert.deepEqual(autre.ic.validated, { by: 'Teiva', at: 4242 });
+});
+
+test('seedNorm : une graine jamais revalidée prend l’instant commun ; revalidée, autre régate ou état inchangé : même objet', () => {
+  const ancienne = fromEvent({ id: 'snpm-2026', ...SNPM }, 1, 'Teiva');
+  const vieille = { ...ancienne, at: t('2026-10-20T08:00:00Z'), ic: { ...ancienne.ic, validated: { by: 'Teiva', at: t('2026-10-20T08:00:00Z') } } };
+  const st = deepFreeze({ v: 1, current: 'snpm-2026', list: [vieille, regate({ id: 'z' })] });
+  const n = seedNorm(st);
+  assert.notEqual(n, st);
+  assert.equal(n.list[0].at, SEED_AT); assert.deepEqual(n.list[0].ic.validated, { by: null, at: SEED_AT });
+  assert.equal(n.list[1], st.list[1], 'les autres régates restent le même objet');
+  assert.equal(seedNorm(n), n, 'idempotent : état inchangé → même objet');
+  const revalidee = { ...vieille, ic: { ...vieille.ic, read: 'motifs', validated: { by: 'Thibaud', at: t('2026-10-21T10:00:00Z') } } };
+  const st2 = deepFreeze({ v: 1, current: 'snpm-2026', list: [revalidee] });
+  assert.equal(seedNorm(st2), st2, 'une fiche revalidée est intacte');
+  assert.equal(seedNorm(st2).list[0], revalidee);
+});
+
+test('backfillAuthor : l’auteur de la validation d’une graine commune (instant SEED_AT) n’est jamais complété ; le reste inchangé', () => {
+  const graine = fromEvent({ id: 'snpm-2026', ...SNPM }, 1, null);
+  const autre = regate({ id: 'b', by: null, ic: { fields: {}, text: '', source: '', read: 'saisie', excerpts: {}, validated: { by: null, at: 5 } }, races: [{ n: 1, by: null, at: 1 }] });
+  const { st, n } = backfillAuthor(deepFreeze({ v: 1, current: 'b', list: [graine, autre] }), 'Teiva');
+  assert.equal(st.list[0].ic.validated.by, null, 'la graine reste sans auteur de validation');
+  assert.equal(st.list[0].by, 'Teiva', 'la fiche elle-même est signée');
+  assert.equal(st.list[1].ic.validated.by, 'Teiva', 'une validation réelle est complétée');
+  assert.equal(n, 4, 'régate graine + régate b + son IC + sa manche');
+});
+
+test('garde : js/app.js normalise la graine au chargement (index réécrit seulement si l’objet change), copie de secours et legacyStamp avant le premier envoi', () => {
+  const app = readFileSync(ROOT + 'js/app.js', 'utf8');
+  assert.match(app, /seedNorm\(REG\)/);
+  assert.match(app, /seeded !== REG\)[^\n]*saveRegattas\(/, 'réécrit seulement si l’objet a changé');
+  assert.match(bodyOf(app, 'syncNow'), /!SYNC\.first[^\n]*legacyStamp\(REG\)/);
+  assert.match(app, /rade\.regates\.v1\.bak/);
+});
+
+test('graine SNPM (contrôle W1) : seuls les champs d’instant changent — at, ic.validated.at et l’auteur de la validation ; le contenu de js/courses.js reste celui de la référence', () => {
+  const fiche = { id: 'snpm-2026', ...SNPM, source: 'IC fournies (PDF)' };
+  const ancienne = fromEvent({ ...fiche, id: 'copie' }, 123456, 'Teiva');           // ce que faisait fromEvent pour toute fiche : l’instant de la reprise
+  const graine = fromEvent(fiche, 123456, 'Teiva');
+  const nu = (r) => { const { at, id, ...x } = r; const { validated, ...ic } = x.ic; return { ...x, ic }; };
+  assert.deepEqual(nu(graine), nu(ancienne), 'tout le reste est identique : nom, dates, club, champs de l’IC, texte, séquence, pavillons');
+  assert.deepEqual(Object.keys(graine).sort(), Object.keys(ancienne).sort());
+  assert.deepEqual([ancienne.at, ancienne.ic.validated], [123456, { by: 'Teiva', at: 123456 }]);
+  assert.deepEqual([graine.at, graine.ic.validated], [SEED_AT, { by: null, at: SEED_AT }]);
+  assert.equal(graine.ic.fields.vhf, SNPM.vhf); assert.equal(graine.name, SNPM.event); assert.equal(graine.dateStart, SNPM.date);
+  const src = readFileSync(ROOT + 'js/courses.js', 'utf8');
+  assert.ok(!/SEED_AT/.test(src), 'js/courses.js (référence de la Coupe SNPM) n’est pas touché');
+});
+
+// ───────────────────────── historique des valeurs écrasées (D-04, plan 04-03)
+
+const H0 = Date.parse('2026-10-21T12:05:00Z');                    // 21/10 14:05 à Paris
+const hist = (extra = {}) => ([
+  { kind: 'head', id: 'r1', t: H0, by: 'Teiva', v: { name: 'Ancien nom', club: 'CVAT', dateStart: '2026-11-07', dateEnd: '2026-11-08' } },
+  { kind: 'race', id: 'm202611071055', t: H0 + 60e3, by: 'Thibaud', v: { id: 'm202611071055', date: '2026-11-07', time: '10:55', courseId: 3, cls: 'G', laps: 2 } },
+  { kind: 'mark', id: 'X1', t: H0 + 120e3, by: null, v: { id: 'X1', name: 'Alpha', lat: 43.097417, lon: 5.93415, status: 'a_confirmer' } },
+  { kind: 'course', id: '101', t: H0 + 180e3, by: 'Teiva', v: { id: '101', name: 'Parcours A' } },
+  { kind: 'trace', id: 't1', t: H0 + 240e3, by: 'Romain', v: { id: 't1', name: 'Sortie du dimanche', start: H0 } },
+  { kind: 'head', id: 'r1', t: H0 - 1000, by: 'Romain', v: null },
+]).map((x, i) => (i === 0 ? { ...x, ...extra } : x));
+
+test('historySectionHTML : rien sans historique ; sinon un <details> replié « Historique (n) », de la plus récente à la plus ancienne', () => {
+  assert.equal(historySectionHTML({}), ''); assert.equal(historySectionHTML({ hist: [] }), ''); assert.equal(historySectionHTML(null), ''); assert.equal(historySectionHTML({ hist: 'x' }), '');
+  const { document } = parseHTML(`<html><body>${historySectionHTML({ hist: hist() })}</body></html>`);
+  const d = document.querySelector('details.rghist');
+  assert.ok(d && !d.hasAttribute('open'), 'replié');
+  assert.equal(d.querySelector('summary').textContent, 'Historique (6)');
+  const lignes = [...d.querySelectorAll('.rghl')].map((l) => l.textContent);
+  assert.equal(lignes.length, 6);
+  assert.match(lignes[0], /^Trace · 21\/10 14:09 · par Romain/); assert.match(lignes[0], /Sortie du dimanche/);
+  assert.match(lignes[1], /^Parcours · .* par Teiva/); assert.match(lignes[1], /Parcours A/);
+  assert.match(lignes[2], /^Bouée · .* — /); assert.match(lignes[2], /Alpha/); assert.match(lignes[2], /43°/);
+  assert.match(lignes[3], /^Manche · 21\/10 14:06 · par Thibaud/); assert.match(lignes[3], /07\/11/); assert.match(lignes[3], /10:55/);
+  assert.match(lignes[4], /^Fiche · 21\/10 14:05 · par Teiva/); assert.match(lignes[4], /Ancien nom/); assert.match(lignes[4], /CVAT/); assert.match(lignes[4], /07\/11/);
+  assert.match(lignes[5], /\(texte des IC non conservé\)/, 'valeur nulle : seule la trace de l’écrasement reste');
+});
+
+test('historySectionHTML : un nom, un prénom ou une ancienne valeur piégés ne produisent ni img ni script ni attribut on* ; texte borné à 120 caractères ; 30 lignes au plus', () => {
+  const piege = '<img src=x onerror=alert(1)>"\'<script>x</script>';
+  const h = [
+    { kind: 'head', id: 'r', t: H0, by: piege, v: { name: piege, club: piege, dateStart: piege, dateEnd: '' } },
+    { kind: 'race', id: piege, t: H0 + 1, by: '<b>Pirate</b>', v: { date: piege, time: piege } },
+    { kind: 'mark', id: 'X1', t: H0 + 2, by: 'a', v: { name: piege, lat: 'x', lon: {} } },
+    { kind: piege, id: 'z', t: H0 + 3, by: 'a', v: { name: piege } },
+    { kind: 'trace', id: 't', t: H0 + 4, by: 'a', v: { name: 'N'.repeat(5000) } },
+    null, 42, { kind: 'race' }, { kind: 'race', t: 'x', v: {} },
+  ];
+  const html = historySectionHTML({ hist: h });
+  const { document } = parseHTML(`<html><body>${html}</body></html>`);
+  assert.equal(document.querySelectorAll('img, script, b').length, 0, 'balise injectée');
+  for (const el of document.querySelectorAll('*')) for (const a of el.getAttributeNames()) assert.ok(!/^on/i.test(a), `attribut ${a} sur ${el.tagName}`);
+  assert.ok(document.body.textContent.includes('<img src=x onerror=alert(1)>'), 'affiché en texte');
+  for (const l of document.querySelectorAll('.rghl .rghv')) assert.ok(l.textContent.length <= 120, `valeur de ${l.textContent.length} caractères`);
+  assert.equal(document.querySelectorAll('.rghl').length, 5, 'les entrées mal formées sont écartées');
+  const beaucoup = Array.from({ length: 80 }, (_, i) => ({ kind: 'race', id: 'm' + i, t: H0 + i, by: 'a', v: { date: '2026-11-07', time: '10:55' } }));
+  assert.equal(parseHTML(`<html><body>${historySectionHTML({ hist: beaucoup })}</body></html>`).document.querySelectorAll('.rghl').length, 30);
+});
+
+test('sheetHTML : la fiche contient la section « Historique » quand r.hist n’est pas vide, et pas sinon', () => {
+  const now = t('2026-11-08T10:00:00Z');
+  const sans = parseHTML(`<html><body>${sheetHTML(regate({}), { now })}</body></html>`).document;
+  assert.equal(sans.querySelector('details.rghist'), null);
+  const avec = parseHTML(`<html><body>${sheetHTML(regate({ hist: hist() }), { now })}</body></html>`).document;
+  assert.ok(avec.querySelector('#rgSheet details.rghist'));
+});
+
+test('interrupteur : « Désactiver la synchronisation » en deux touches, « Réactiver » en une ; branché sur SYNC.off et le test canSync off reste vert', () => {
+  const app = readFileSync(ROOT + 'js/app.js', 'utf8');
+  assert.match(app, /id="rgSyncOff"/);
+  assert.match(app, /Désactiver la synchronisation/); assert.match(app, /Toucher encore pour désactiver/); assert.match(app, /Réactiver la synchronisation/);
+  assert.match(app, /SYNC\.off = /);
+});
+
+// ───────────────────────── lisible hors réseau (plan 04-04, ARCH-03)
+
+const PIEGE_ID = 'tr1"><img src=x onerror=alert(1)>';
+const refTrace = (id, over = {}) => ({ id, name: 'Trace <b>x</b>', start: t('2026-11-07T09:00:00Z'), n: 600, by: 'Teiva', at: t('2026-11-07T12:00:00Z'), ...over });
+const rendu = (html) => parseHTML(`<html><body>${html}</body></html>`).document;
+
+test('fiche : chaque trace dit « sur ce téléphone » ou « en ligne seulement » ; sans cet état, la fiche reste comme avant ; une trace absente n’a ni « Voir la trace » ni « Débrief »', () => {
+  const r = regate({ traces: [refTrace('tr1'), refTrace('tr2', { report: { t: 5, by: 'Teiva' } })] });
+  const sans = rendu(tracesSectionHTML(r));
+  assert.equal(sans.querySelectorAll('.chip').length, 0, 'état inconnu : rien d’affiché');
+  assert.equal(sans.querySelectorAll('[data-trv]').length, 2); assert.equal(sans.querySelectorAll('[data-trd]').length, 2);
+  const avec = rendu(tracesSectionHTML(r, { local: new Set(['tr1']) }));
+  const lignes = [...avec.querySelectorAll('.rgtr')];
+  assert.match(lignes[0].textContent, /sur ce téléphone/); assert.doesNotMatch(lignes[0].textContent, /en ligne seulement/);
+  assert.match(lignes[1].textContent, /en ligne seulement/);
+  assert.ok(lignes[0].querySelector('[data-trv]') && lignes[0].querySelector('[data-trd]'));
+  assert.equal(lignes[1].querySelector('[data-trv]'), null, 'pas de lecture d’une trace absente'); assert.equal(lignes[1].querySelector('[data-trd]'), null);
+  assert.ok(lignes[1].querySelector('[data-trx]'), 'on peut toujours détacher');
+});
+
+test('fiche : « Télécharger pour le hors réseau » quand une trace ou un jour figé par un autre équipier manque ; rien quand tout est là ou que l’état est inconnu ; texte échappé', () => {
+  const now = t('2026-11-08T10:00:00Z');
+  const r = regate({ id: 'rg1', traces: [refTrace('tr1'), refTrace(PIEGE_ID)], frozen: { '2026-11-07': { at: 1, by: 'Teiva' }, '2026-11-08': { at: 2, by: 'Thibaud' }, '2026-11-09': { at: 3, by: 'Éric <i>' } } });
+  const tout = { local: new Set(['tr1', PIEGE_ID]), daysLocal: new Set(['rg1|2026-11-07', 'rg1|2026-11-08', 'rg1|2026-11-09']), me: 'Thibaud' };
+  assert.equal(rendu(sheetHTML(r, { now, ...tout })).querySelector('[data-rg-dl]'), null, 'tout est là');
+  assert.equal(rendu(sheetHTML(r, { now })).querySelector('[data-rg-dl]'), null, 'état inconnu');
+  const trace = rendu(sheetHTML(r, { now, ...tout, local: new Set(['tr1']) })), b = trace.querySelector('[data-rg-dl]');
+  assert.ok(b, 'une trace manque'); assert.equal(b.textContent.trim(), 'Télécharger pour le hors réseau'); assert.equal(b.getAttribute('data-rg-dl'), 'rg1');
+  assert.match(trace.querySelector('.rgdl').textContent, /1 trace/);
+  const jours = rendu(sheetHTML(r, { now, ...tout, daysLocal: new Set(['rg1|2026-11-08']) }));
+  assert.match(jours.querySelector('.rgdl').textContent, /2 jours de vent figé/, 'les jours de Teiva et d’Éric manquent ; celui de Thibaud (moi) ne compte pas');
+  const moi = rendu(sheetHTML(r, { now, ...tout, daysLocal: new Set(), me: 'thibaud' }));
+  assert.match(moi.querySelector('.rgdl').textContent, /2 jours/, 'mon jour n’est jamais « à télécharger »');
+  const sansNom = rendu(sheetHTML(r, { now, ...tout, daysLocal: new Set(), me: null }));
+  assert.equal(sansNom.querySelector('[data-rg-dl]'), null, 'prénom inconnu : on ne sait pas quels jours sont les miens');
+  // aucune balise ni attribut injecté par un identifiant ou un nom venu d’un autre téléphone
+  const piege = rendu(sheetHTML(regate({ id: 'rg"><img src=y>', traces: [refTrace(PIEGE_ID)], frozen: { '2026-11-07': { at: 1, by: 'Éric <i>' } } }), { now, local: new Set(), daysLocal: new Set(), me: 'Thibaud' }));
+  assert.equal(piege.querySelectorAll('img, i').length, 0, 'balise injectée');
+  for (const el of piege.querySelectorAll('*')) for (const a of el.getAttributeNames()) assert.ok(!/^on/i.test(a), `attribut ${a} sur ${el.tagName}`);
+  assert.equal(piege.querySelector('[data-rg-dl]').getAttribute('data-rg-dl'), 'rg"><img src=y>', 'identifiant intact, hors balise');
+});
+
+test('câblage du téléchargement : le geste respecte la course et le verrou du jour avant tout appel, passe par runHeavyNow({ only }) et ne contourne pas le désactivé', () => {
+  const app = readFileSync(ROOT + 'js/app.js', 'utf8');
+  const lourd = bodyOf(app, 'runHeavyNow'), geste = bodyOf(app, 'telecharger');
+  assert.ok(lourd && geste);
+  const a = lourd.indexOf('raceActive(Date.now())'), v = lourd.indexOf('raceLock().locked'), r = lourd.indexOf('runHeavy(');
+  assert.ok(a >= 0 && v > a && r > v, 'course, puis verrou du jour, puis le passage');
+  assert.match(lourd, /Course en cours : téléchargement après la course/); assert.match(lourd, /Journée de régate : téléchargement au retour au port/);
+  assert.match(lourd, /SYNC\.off/);
+  assert.match(geste, /runHeavyNow\(\{ only: rid, manuel: true \}\)/); assert.match(geste, /SYNC\.off/);
+  assert.match(app, /\$\$\('\[data-rg-dl\]', el\)\.forEach/);
+  assert.match(app, /local: LOCAL\?\.traces \?\? null, daysLocal: LOCAL\?\.days \?\? null, me: who\(\)/);
+});
+
+test('aide et guide : « Télécharger pour le hors réseau » a sa bulle, le guide explique la lecture hors réseau et ne dit plus que traces et rapports restent sur un seul téléphone', async () => {
+  const { DL_TIP, SYNC_TIP, tip } = await import('../js/help.js');
+  const now = t('2026-11-08T10:00:00Z');
+  const r = regate({ id: 'rg1', traces: [refTrace('tr1')] });
+  const doc = rendu(sheetHTML(r, { now, local: new Set(), daysLocal: new Set(), me: 'Thibaud', tipHtml: tip(DL_TIP) }));
+  const bulle = doc.querySelector('.rgdl .tip-i');
+  assert.ok(bulle, 'bulle d’aide à côté du bouton'); assert.equal(bulle.getAttribute('data-tip'), DL_TIP);
+  assert.equal(rendu(sheetHTML(r, { now, local: new Set(), daysLocal: new Set(), me: 'Thibaud' })).querySelector('.rgdl .tip-i'), null, 'sans bulle fournie, rien de plus');
+  assert.match(DL_TIP, /six derniers mois/); assert.match(DL_TIP, /mode avion/); assert.match(SYNC_TIP, /traces, débriefs et rapports/);
+  const guide = readFileSync(ROOT + 'guide.html', 'utf8');
+  for (const motif of [/Lire une régate hors réseau/, /Télécharger pour le hors réseau/, /six derniers mois et à venir/, /mode avion/, /1 Mo par régate/, /sur ce téléphone/, /en ligne seulement/, /écran d’accueil/]) assert.match(guide, motif);
+  assert.doesNotMatch(guide, /sur le téléphone qui les a|restent pour l’instant|viendra avec la version suivante|pas encore partagés/, 'plus de mention d’un partage à venir');
+  // ni code d'accès ni adresse du magasin dans le guide ou les bulles (T-04-31)
+  for (const texte of [guide, DL_TIP, SYNC_TIP]) assert.doesNotMatch(texte, /blob\.vercel|vercel-storage|\?acces=|rt_acces|BLOB_READ_WRITE_TOKEN/i);
+});
+
+test('garde : un gel tombé fiche fermée est montré à la prochaine ouverture de l’onglet Régates (icStale), sans redessiner la fiche à chaque changement d’onglet', () => {
+  const app = readFileSync(ROOT + 'js/app.js', 'utf8');
+  assert.match(app, /let freezeBusy = false, freezeAgain = false, freezeFailAt = 0, icStale = false;/);
+  const ecrit = bodyOf(app, 'freezeWrite');
+  assert.match(ecrit, /renderIC\(\);[^\n]*\n\s*else icStale = true;/, 'fiche fermée ou occupée : marquée à redessiner');
+  assert.match(app, /if \(b\.dataset\.tab === 'ic' && icStale && !icBusy\(\)\) \{ icStale = false; renderIC\(\); \}/, 'redessinée une seule fois, à l’ouverture de l’onglet');
 });

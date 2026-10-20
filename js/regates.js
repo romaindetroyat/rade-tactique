@@ -48,15 +48,35 @@ export function lockDates({ now, list, currentId }) {
 
 // ───────────────────────── reprise des fiches de rade.events.v1
 
+// La Coupe SNPM semée dans l’app (js/courses.js) est la MÊME fiche sur les trois téléphones : elle prend un instant commun (le 18/10/2026 à 00 h 00,
+// heure de Paris, heure d’été) au lieu de celui de l’installation, et sa validation n’a pas d’auteur. Sans cela, la première synchronisation de
+// trois téléphones écrirait une ligne d’historique pour une fiche que personne n’a touchée (archive partagée, Pitfall 7).
+export const SEED_ID = 'snpm-2026';
+export const SEED_AT = Date.UTC(2026, 9, 17, 22, 0, 0);
+
 // Fiche IC d’avant → régate. Ces fiches avaient été relues et enregistrées par un équipier : `validated` les marque ainsi.
 export function fromEvent(ev, now, by = null) {
-  const club = /CVAT/i.test(`${ev.event || ''} ${ev.source || ''} ${ev.id || ''}`) || ev.id === 'snpm-2026' ? 'CVAT' : '';
+  const club = /CVAT/i.test(`${ev.event || ''} ${ev.source || ''} ${ev.id || ''}`) || ev.id === SEED_ID ? 'CVAT' : '';
   const { id, event, date, dateEnd, source, text, ...fields } = ev;
+  const seed = String(id) === SEED_ID, at = seed ? SEED_AT : now;
   return {
     id: String(id), name: String(event || 'Régate').slice(0, MAX_NAME), club, dateStart: date || '', dateEnd: date && dateEnd && dateEnd > date ? dateEnd : '', season: seasonOf(date),
-    races: [], ic: { fields, text: String(text || '').slice(0, MAX_IC_TEXT), source: source || '', read: 'reprise', excerpts: {}, validated: { by, at: now } },
-    marks: [], courses: [], frozen: {}, traces: [], by, at: now,
+    races: [], ic: { fields, text: String(text || '').slice(0, MAX_IC_TEXT), source: source || '', read: 'reprise', excerpts: {}, validated: { by: seed ? null : by, at } },
+    marks: [], courses: [], frozen: {}, traces: [], by, at,
   };
+}
+// Une graine déjà présente sur un téléphone et jamais revalidée (`ic.read === 'reprise'`) est ramenée à la graine commune ; une fiche relue
+// (autre lecture) et toute autre régate restent le même objet, un état inchangé aussi.
+export function seedNorm(st) {
+  let changed = false;
+  const list = (st?.list || []).map((r) => {
+    if (r.id !== SEED_ID || r.ic?.read !== 'reprise') return r;
+    const v = r.ic.validated;
+    if (r.at === SEED_AT && v && v.at === SEED_AT && v.by == null) return r;
+    changed = true;
+    return { ...r, at: SEED_AT, ic: { ...r.ic, validated: { by: null, at: SEED_AT } } };
+  });
+  return changed ? { ...st, list } : st;
 }
 
 function readJSON(storage, key) {
@@ -204,7 +224,7 @@ export function saveMembre(storage, nom) {
   if (!validName(nom)) return false;
   try { storage.setItem(MEMBRE_KEY, nom.trim()); return true; } catch { return false; /* stockage plein ou refusé */ }
 }
-// Complète les `by: null` créés sur cet appareil ; ne remplace jamais un auteur déjà posé. Rend { st, n } (n = éléments complétés).
+// Complète les `by: null` créés sur cet appareil ; ne remplace jamais un auteur déjà posé, ni ne signe la validation de la graine commune (SEED_AT). Rend { st, n } (n = éléments complétés).
 export function backfillAuthor(st, nom) {
   if (!validName(nom)) return { st, n: 0 };
   const by = nom.trim();
@@ -213,7 +233,7 @@ export function backfillAuthor(st, nom) {
   const list = st.list.map((r) => {
     const out = fill(r);
     const races = (r.races || []).map(fill);
-    const ic = r.ic?.validated && r.ic.validated.by == null ? (n++, { ...r.ic, validated: { ...r.ic.validated, by } }) : r.ic;
+    const ic = r.ic?.validated && r.ic.validated.by == null && r.ic.validated.at !== SEED_AT ? (n++, { ...r.ic, validated: { ...r.ic.validated, by } }) : r.ic;
     const frozen = r.frozen ? Object.fromEntries(Object.entries(r.frozen).map(([k, v]) => [k, fill(v)])) : r.frozen;
     return { ...out, races, ic, marks: (r.marks || []).map(fill), courses: (r.courses || []).map(fill), traces: (r.traces || []).map(fill), frozen };
   });

@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { ROOT } from './helpers/setup.mjs';
 import middleware, { config } from '../middleware.js';
+import { avecCodeSimule, tableEquipage, COOKIE_TEST, FAUX_CODE } from './helpers/codesimule.mjs';
 
 // Seuls ces noms exacts et ces dossiers sont publics ; tout le reste du dépôt passe par le middleware.
 const PUBLIC_EXACT = ['/acces.html', '/manifest.webmanifest', '/sw.js'];
@@ -144,4 +145,102 @@ test('GET /api/membre : 401 sans code ; avec un code valide simulé, le prénom 
 test('vercel.json : aucune réécriture, route, redirection ni cleanUrls qui contournerait le middleware', () => {
   const v = JSON.parse(readFileSync(ROOT + 'vercel.json', 'utf8'));
   for (const cle of ['rewrites', 'routes', 'redirects', 'cleanUrls']) assert.ok(!(cle in v), `vercel.json ne doit pas contenir ${cle} sans relecture de l’accès`);
+});
+
+// ── Archive partagée (ARCH-01, critère 3) : /api/archive est fermée sans code, et l’auteur vient du middleware seul
+
+// Toutes les formes d’adresse de l’archive qu’un visiteur sans code pourrait essayer (majuscules, barre finale, .js, encodage du « a »)
+const ARCHIVE = [
+  '/api/archive', '/api/archive?k=light', '/api/archive?k=light&rev=abc', '/api/archive?k=trace&id=x', '/api/archive?k=report&id=x&t=1',
+  '/api/archive?k=day&r=x&d=2026-11-07', '/api/archive/', '/api/archive.js', '/API/archive', '/API/ARCHIVE?k=light', '/%61pi/archive?k=light',
+  '/api/archive/../archive?k=light', '/api//archive',
+];
+
+test('archive : sans code, /api/archive sous toutes ses formes et toutes ses méthodes est refusée, rien n’est transmis', async () => {
+  for (const chemin of ARCHIVE) {
+    assert.ok(interceptee(chemin), `${chemin} devrait passer par le middleware`);
+    for (const method of ['GET', 'PUT', 'POST', 'DELETE']) {
+      for (const h of VISITEURS) {
+        const res = await middleware(new Request('https://rade.test' + chemin, { method, headers: h, ...(method === 'GET' ? {} : { body: '{"doc":{}}' }) }));
+        assert.equal(res.headers.get('x-middleware-next'), null, `${method} ${chemin} transmise sans code`);
+        assert.equal(res.headers.get('x-middleware-override-headers'), null, `${method} ${chemin} : aucun en-tête posé pour un visiteur sans code`);
+        assert.ok(refuse(res), `${method} ${chemin} : réponse ${res.status} inattendue`);
+        if (!h.accept) assert.equal(res.status, 401, `${method} ${chemin} : 401 attendu`);
+      }
+    }
+  }
+  const json = await appeler('/api/archive?k=light');
+  assert.equal(json.headers.get('content-type'), 'application/json');
+  assert.equal(await json.text(), '{"error":"acces"}');
+});
+
+test('archive : avec un code valide simulé, x-rt-membre est le prénom de la table et remplace celui du navigateur ; ni code ni empreinte dans les en-têtes', async () => {
+  await avecCodeSimule(async ({ hex, prenom }) => {
+    for (const usurpe of ['Usurpateur', encodeURIComponent('Usurpateur'), '', 'Romain, Teiva']) {
+      const res = await appeler('/api/archive?k=light', { cookie: COOKIE_TEST, 'x-rt-membre': usurpe, 'content-type': 'application/json', accept: 'application/json' });
+      assert.equal(res.headers.get('x-middleware-next'), '1', 'une requête avec code valide est transmise');
+      const transmis = res.headers.get('x-middleware-request-x-rt-membre');
+      assert.equal(decodeURIComponent(transmis), prenom, 'l’auteur est le prénom de la table');
+      assert.equal(transmis, encodeURIComponent(prenom), 'valeur encodée : une valeur d’en-tête reste en octets simples');
+      assert.notEqual(decodeURIComponent(transmis), 'Usurpateur');
+      const liste = (res.headers.get('x-middleware-override-headers') || '').split(',');
+      assert.ok(liste.includes('x-rt-membre'), 'x-rt-membre est dans la liste des en-têtes remplacés');
+      assert.ok(liste.includes('content-type'), 'les en-têtes utiles à la fonction (type du corps) sont conservés');
+      assert.ok(!liste.includes('cookie'), 'le cookie du code d’accès n’est pas transmis aux fonctions');
+      for (const [nom, valeur] of res.headers) {
+        assert.ok(!valeur.includes(FAUX_CODE) && !valeur.includes(hex), `l’en-tête ${nom} contient le code ou l’empreinte`);
+      }
+    }
+    // sans en-tête du navigateur : le prénom est posé quand même
+    const sans = await appeler('/api/archive?k=light', { cookie: COOKIE_TEST });
+    assert.equal(decodeURIComponent(sans.headers.get('x-middleware-request-x-rt-membre')), prenom);
+    // un corps PUT passe aussi (méthode et type de contenu intacts)
+    const put = await middleware(new Request('https://rade.test/api/archive?k=light', { method: 'PUT', headers: { cookie: COOKIE_TEST, 'content-type': 'application/json' }, body: '{"doc":{}}' }));
+    assert.equal(put.headers.get('x-middleware-next'), '1');
+    assert.equal(decodeURIComponent(put.headers.get('x-middleware-request-x-rt-membre')), prenom);
+  });
+});
+
+test('archive : les formes inhabituelles de l’adresse (majuscules, encodage, barre finale, .js) reçoivent elles aussi l’auteur du middleware, jamais celui du navigateur', async () => {
+  await avecCodeSimule(async ({ prenom }) => {
+    for (const chemin of ARCHIVE) {
+      const res = await appeler(chemin, { cookie: COOKIE_TEST, 'x-rt-membre': 'Usurpateur' });
+      if (res.headers.get('x-middleware-next') !== '1') continue;                      // refusée : rien n’arrive à la fonction
+      assert.equal(decodeURIComponent(res.headers.get('x-middleware-request-x-rt-membre') || ''), prenom, `${chemin} : l’en-tête du navigateur ne doit jamais arriver à une fonction`);
+    }
+  });
+});
+
+test('archive : le reste du site n’est pas modifié (aucun en-tête remplacé), /api/membre reste répondue par le middleware', async () => {
+  await avecCodeSimule(async ({ prenom }) => {
+    for (const chemin of ['/index.html', '/', '/js/app.js', '/data/meta.json', '/styles.css', '/api-docs.html']) {
+      const res = await appeler(chemin, { cookie: COOKIE_TEST, 'x-rt-membre': 'Usurpateur' });
+      assert.equal(res.headers.get('x-middleware-next'), '1', `${chemin} passe avec un code valide`);
+      assert.equal(res.headers.get('x-middleware-override-headers'), null, `${chemin} : la requête ne doit pas être modifiée`);
+      assert.equal(res.headers.get('x-middleware-request-x-rt-membre'), null);
+    }
+    const membre = await appeler('/api/membre', { cookie: COOKIE_TEST });
+    assert.equal(membre.status, 200);
+    assert.equal(membre.headers.get('x-middleware-next'), null);
+    assert.deepEqual(JSON.parse(await membre.text()), { membre: prenom });
+  });
+});
+
+test('archive : aucune empreinte de la table n’apparaît ailleurs que dans middleware.js (seuls des noms de fichiers sont rapportés)', () => {
+  const empreintes = tableEquipage().map((l) => l.hex);
+  assert.ok(empreintes.length >= 1, 'la table EQUIPAGE doit contenir au moins une empreinte');
+  const trouves = fichiers().filter((p) => p !== '/middleware.js').filter((p) => {
+    const contenu = readFileSync(ROOT + p.slice(1));
+    return empreintes.some((h) => contenu.includes(h));
+  });
+  assert.deepEqual(trouves, [], 'fichiers contenant une empreinte de la table (noms seulement)');
+});
+
+test('vercel.json : api/archive.js a une durée maximale et embarque js/archmerge.js (Pitfall 15)', () => {
+  const v = JSON.parse(readFileSync(ROOT + 'vercel.json', 'utf8'));
+  const f = v.functions?.['api/archive.js'];
+  assert.ok(f, 'api/archive.js doit être déclarée dans functions');
+  assert.ok(f.maxDuration > 0 && f.maxDuration <= 60, 'maxDuration entre 1 et 60 s');
+  assert.ok(String(f.includeFiles || '').includes('js/archmerge.js'), 'includeFiles doit couvrir js/archmerge.js');
+  for (const cle of ['rewrites', 'routes', 'redirects', 'cleanUrls']) assert.ok(!(cle in v), `${cle} ne doit pas apparaître`);
 });

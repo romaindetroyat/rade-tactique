@@ -6,7 +6,8 @@ import { WindField, speedColor } from './wind.js';
 import { MARKS, COURSES, LINE_PRESETS, FORBIDDEN_ZONE, DANGERS } from './courses.js';
 import { pdfText, parseIC, cleanText } from './events.js';
 import { IA_IC, iaOffer, iaErrorMessage, reviewFromParse, reviewFromRegatta, reviewFromApi, setValue, setKeep, setKeepRace, setKeepMark, setKeepCourse, courseReady, canValidate, checksFor, applyReview, reviewHTML, chipOf, validatedHTML } from './icread.js';
-import { migrate, saveRegattas, createRegatta, upsertRegatta, removeRegatta, setCurrent as setCurrentRegatta, currentRegatta, todayRegatta, icOf, groupBySeason, lockDates, daysOf, addRace, removeRace, raceSettings, membre, saveMembre, backfillAuthor } from './regates.js';
+import { stampState, markDirty, canon, legacyStamp } from './archmerge.js';
+import { migrate, seedNorm, KEY as REG_KEY, saveRegattas, createRegatta, upsertRegatta, removeRegatta, setCurrent as setCurrentRegatta, currentRegatta, todayRegatta, icOf, groupBySeason, lockDates, daysOf, addRace, removeRace, raceSettings, membre, saveMembre, backfillAuthor } from './regates.js';
 import { THROTTLE_MS, slotKey, freezeAction, obsNeedsCopy, stratNeedsCopy, sliceDays, freezeSummary, strategySummary, compactStrategy, windSourceKind, frozenLabel } from './gel.js';
 import { putSlot, getSlot } from './regstore.js';
 import { listHTML, newRegattaFormHTML, sheetHTML } from './regview.js';
@@ -19,7 +20,7 @@ import { optimalAngles, boatSpeed, trimAdvice, spiMinTwa, getPolar, setPolar, re
 import { renderJ80 } from './j80.js';
 import { modelPoints, modelAt, idwAt, scoreModels, renderObsCard } from './obs.js';
 import { route } from './router.js';
-import { initTips, maybeWelcome, openGuide, openShare, tip } from './help.js';
+import { initTips, maybeWelcome, openGuide, openShare, tip, SYNC_TIP, DL_TIP } from './help.js';
 import { parseWind, listen, say } from './voice.js';
 import { Recorder, listTracks, getTrack, deleteTrack, saveTrack, analyzeTrack, exportGPX, fromGPX } from './track.js';
 import { shroudsFor } from './tuning.js';
@@ -27,7 +28,7 @@ import { createStartMode } from './startmode.js';
 import { initUpdates } from './swupdate.js';
 import { createBeeper, audioAlive, milestones, KEY } from './beeper.js';
 import { candidates, ACCURACY_M } from './markfit.js';
-import { MAX_MOVE_M, DOUBT, parseLatLon, loadOverrides, saveOverride, clearOverride, applyOverrides, restoreMark } from './marks.js';
+import { MAX_MOVE_M, DOUBT, parseLatLon, loadOverrides, saveOverride, clearOverride, applyOverrides, restoreMark, sharedMarks, remoteMarkChanges } from './marks.js';
 import { createWakeLock } from './wakelock.js';
 import { computeStatus, lampLabel, actionLabel, GPS_STALE_S } from './status.js';
 import { isActive, isRaceDay, lockState, heavyPaused, parisClock, HEAVY_AFTER_MS } from './racelock.js';
@@ -60,9 +61,21 @@ const DEF = {
 const S = { ...DEF, ...store.get('rade.state', {}) };
 // Régates : l’index (petit) se lit de façon synchrone au chargement, comme l’ancienne fiche courante ; IC garde la forme d’avant (icOf)
 let REG = migrate({ storage: localStore(), now: Date.now(), by: who() });
+// la Coupe SNPM semée est la même fiche sur les trois téléphones (instant commun) : une graine d'avant ramenée à cet instant, index réécrit seulement si l'objet change
+{ const seeded = seedNorm(REG); if (seeded !== REG) { REG = seeded; saveRegattas(localStore(), REG); } }
 let IC = icOf(currentRegatta(REG));
 // Remplace l’état des régates, l’écrit et recalcule IC ; un stockage plein ou refusé laisse l’état en mémoire, avec un message
-function saveReg(next) {
+// Archive partagée (ARCH-01) : `SYNC` (rade.sync.v1) ne porte que les compteurs « sale » par clé, rev, essais et plafonds du jour ; l’état marqué EST la file d’envoi.
+// `fromSync` : la réponse du serveur est appliquée telle quelle, sans marquage (ce n’est pas une saisie de l’équipier).
+const SYNC = store.get('rade.sync.v1', {});
+delete SYNC.denied; delete SYNC.outdated; delete SYNC.marksDoc;                // code périmé, format plus récent : en mémoire seulement, ils retombent à la prochaine ouverture
+const saveSync = () => { const { denied, outdated, ...gardes } = SYNC; store.set('rade.sync.v1', gardes); };
+function saveReg(next, { fromSync = false } = {}) {
+  if (!fromSync) {
+    const r = stampState(REG, next, { now: Date.now(), by: who() });
+    next = r.st;
+    if (r.changed.length) { markDirty(SYNC, r.changed); saveSync(); scheduleSync(20000); paintSync(); }
+  }
   REG = next; IC = icOf(currentRegatta(REG));
   if (!saveRegattas(localStore(), REG)) { note('regates', 'index non écrit : stockage plein ou refusé'); toast('Mémoire pleine : la régate ne sera pas gardée après fermeture'); }
   return REG;
@@ -127,9 +140,13 @@ async function init() {
   setInterval(raceTick, 5000);
   setInterval(lampTick, 1000);
   addEventListener('pagehide', saveRaceActivity);
-  document.addEventListener('visibilitychange', () => { note('page', document.hidden ? 'masquée' : 'visible'); if (document.hidden) saveRaceActivity(); else { lastProbe = Date.now(); probeNet(); renderRaceBar(); } });
-  addEventListener('online', () => { note('reseau', 'en ligne'); probeNet(); if (!who()) refreshMembre(); });
-  addEventListener('offline', () => { net.online = false; note('reseau', 'hors ligne'); renderRaceBar(); paintIa(); });
+  document.addEventListener('visibilitychange', () => {
+    note('page', document.hidden ? 'masquée' : 'visible');
+    if (document.hidden) saveRaceActivity();
+    else { lastProbe = Date.now(); probeNet(); renderRaceBar(); if (!(Date.now() - SYNC.lastOkAt < 300000)) scheduleSync(2000); }   // retour au premier plan, dernier succès de plus de 5 min
+  });
+  addEventListener('online', () => { note('reseau', 'en ligne'); probeNet(); scheduleSync(2000); if (!who()) refreshMembre(); });
+  addEventListener('offline', () => { net.online = false; note('reseau', 'hors ligne'); renderRaceBar(); paintIa(); paintSync(); });
   // ── temps 2 : la carte et le vent
   await nextFrame();
   refreshMembre();                                     // prénom de l’équipier : jamais attendu
@@ -150,6 +167,7 @@ async function init() {
   initTips();
   await autoHeavy(prepareField);                       // app ouverte pendant la séquence de départ : reporté après H+1 min
   performance.mark('rt:map');
+  syncReady = true; setTimeout(() => syncNow('ouverture'), 3000);   // archive partagée : jamais avant la carte, ni attendue
   mapOk();                                              // showTrace et le débrief attendaient la carte : ils peuvent continuer
   freezeTick('ouverture');                              // prévisions en cache ou embarquées déjà lues : le gel marche aussi hors réseau, sans rien attendre
   maybeWelcome();
@@ -469,6 +487,7 @@ function bindShell() {
     const b = e.target.closest('button'); if (!b) return;
     $$('#tabs button').forEach((x) => x.classList.toggle('on', x === b));
     $$('#content section').forEach((s) => s.classList.toggle('on', s.dataset.tab === b.dataset.tab));
+    if (b.dataset.tab === 'ic' && icStale && !icBusy()) { icStale = false; renderIC(); }
     if (sheet === 'min') setSheet('half');
   });
   bindSheet();
@@ -761,12 +780,18 @@ function raceLock(now = Date.now()) {
   return lockState({ now, active: raceActive(now), raceFrom, raceTo, lastActiveAt: RL.lastActiveAt ?? null, finishedAt: RL.finishedAt ?? null });
 }
 function saveRaceActivity() { const now = Date.now(); if (raceActive(now)) { RL.lastActiveAt = now; saveRL(now); } }
+let wasRaceActive = false;
 function raceTick() {
   const now = Date.now();
-  if (raceActive(now)) { RL.lastActiveAt = now; if (now - rlSavedAt >= 30000) saveRL(now); }
+  const active = raceActive(now);
+  if (active) { RL.lastActiveAt = now; if (now - rlSavedAt >= 30000) saveRL(now); }
+  // D-03 : une course qui commence abandonne l’échange en cours ; une course qui finit relance la synchronisation une minute plus tard
+  if (active) syncCtl?.abort();
+  if (wasRaceActive && !active) scheduleSync(60000);
+  if (active !== wasRaceActive) { wasRaceActive = active; paintSync(); }
   const locked = raceLock(now).locked;
   updates?.refresh();
-  if (wasLocked && !locked) updates?.check();    // le téléchargement était suspendu pendant le verrou
+  if (wasLocked && !locked) { updates?.check(); scheduleSync(60000); }    // le téléchargement était suspendu pendant le verrou ; l'archive (objets lourds compris) repart une minute plus tard
   wasLocked = locked;
   freezeTick('tic');                             // copie du vent du jour (gel) : jamais reportée, voir plus bas
 }
@@ -1055,8 +1080,8 @@ async function probeNet() {
     net.lastOkAt = Date.now(); net.rtt = performance.now() - t0; net.online = true;
   } catch { net.rtt = null; net.online = false; /* aucune réponse : réseau injoignable, ce n’est pas une erreur de l’app */ }
   finally { clearTimeout(to); probing = false; }
-  if (net.online !== avant) note('reseau', net.online ? 'sonde : réseau joignable' : 'sonde : aucune réponse');
-  renderRaceBar(); paintIa();
+  if (net.online !== avant) { note('reseau', net.online ? 'sonde : réseau joignable' : 'sonde : aucune réponse'); if (net.online) scheduleSync(2000); }   // réseau revenu : l’archive repart
+  renderRaceBar(); paintIa(); paintSync();
 }
 function statusNow() {
   const now = Date.now();
@@ -1284,7 +1309,7 @@ function renderPlan() {
 // toutes les 10 minutes (js/gel.js décide). Ce n’est pas un recalcul automatique : aucune copie ne lance de calcul, elle n’est donc jamais
 // reportée de H−6 min à H+1 min (le sceau tombe justement à H−5 min) et ne passe ni par autoHeavy ni par deferHeavy. Une seule copie à la fois,
 // lancée hors du tour courant ; une base refusée ou pleine est consignée et ne gêne ni l’interface ni le chrono.
-let freezeBusy = false, freezeAgain = false, freezeFailAt = 0;
+let freezeBusy = false, freezeAgain = false, freezeFailAt = 0, icStale = false;     // icStale : un gel est tombé fiche fermée ou occupée ; elle est redessinée à la prochaine ouverture de l’onglet Régates
 const couvre = (d, day) => !!d?.multi?.hourly?.time?.some((t) => String(t).startsWith(day));
 const obsStamp = (obs) => obs.reduce((m, o) => Math.max(m, o.t || 0), 0);
 const obsCopy = (o) => ({ day: o.day, h: o.h, t: o.t, dir: o.dir, spd: o.spd, lat: o.lat, lon: o.lon });
@@ -1326,9 +1351,12 @@ async function freezeWrite({ why, now, day, rid, action, d, ser, obs, slot, ana,
   await putSlot(slotKey(rid, day, 'obs'), { day, at: now, obs });
   const cur = REG.list.find((x) => x.id === rid);                                    // la régate a pu changer pendant l’écriture : l’index est relu
   if (!cur) return;
+  // archive partagée : ce jour est à envoyer, et un téléchargement ne remplacera JAMAIS ces copies avant leur envoi (marqué après l’écriture des copies)
+  const hq = (SYNC.hq ||= {}), cle = `day:${rid}|${day}`; hq[cle] = Math.max(Date.now(), (hq[cle] || 0) + 1); saveSync();
   saveReg(upsertRegatta(REG, { ...cur, frozen: { ...(cur.frozen || {}), [day]: summary } }));
   note('gel', `${action === 'rien' ? (strat ? 'route' : 'relevés') : action} · ${why} · ${obs.length} relevé(s)${strat ? ` · ${strat.legs.length} bords` : ''}`);
   if ($('section[data-tab=ic]')?.classList.contains('on') && !icBusy()) renderIC();     // la fiche, si elle est ouverte, montre le gel qui vient d’avoir lieu
+  else icStale = true;                                                                    // sinon elle dirait « Pas encore figé » à l’ouverture de l’onglet
 }
 // Réglages qui ont servi à calculer l’analyse en cours : figés avec la route conseillée pour pouvoir la recalculer plus tard
 function stratSettings(cls) {
@@ -1423,15 +1451,23 @@ async function runDebrief(tr) {
   if (rangee) { const nx = setTraceReport(rangee, tr.id, { t: tr.report.t, by: who() }); if (nx !== rangee) { saveReg(upsertRegatta(REG, nx)); refreshSheet(); } }
   showReport(tr); renderTraceDetail();
 }
+// Un rapport peut venir d’un autre téléphone (archive partagée) : c’est une DONNÉE, jamais du code de l’app. Il s’affiche dans un cadre `sandbox`
+// sans `allow-scripts` ni `allow-same-origin` (origine opaque : ni scripts, ni stockage local, ni appels à /api avec le cookie de l’équipier) ;
+// en « Plein écran », une page à nous, précédée de la politique de contenu qui interdit les scripts, l’enferme dans le même cadre.
 function showReport(tr) {
   const rep = tr.report; if (!rep) return;
   let m = document.getElementById('modal'); if (!m) { m = document.createElement('div'); m.id = 'modal'; document.body.appendChild(m); }
   m.className = 'report'; m.hidden = false;
-  m.innerHTML = `<div class="modal-card report-card"><div class="btns" style="margin:0 0 8px"><button class="btn acc" id="rpShare">Partager le rapport</button><button class="btn alt" id="rpOpen">Plein écran</button><button class="btn alt" id="rpClose">Fermer</button></div><iframe id="rpFrame" title="Rapport de course"></iframe></div>`;
+  m.innerHTML = `<div class="modal-card report-card"><div class="btns" style="margin:0 0 8px"><button class="btn acc" id="rpShare">Partager le rapport</button><button class="btn alt" id="rpOpen">Plein écran</button><button class="btn alt" id="rpClose">Fermer</button></div><iframe id="rpFrame" title="Rapport de course" sandbox></iframe></div>`;
   m.querySelector('#rpFrame').srcdoc = rep.html;
   m.querySelector('#rpClose').onclick = () => { m.hidden = true; };
   m.querySelector('#rpShare').onclick = () => dbShare(rep.html, rep.name);
-  m.querySelector('#rpOpen').onclick = () => { const u = URL.createObjectURL(new Blob([rep.html], { type: 'text/html' })); const a = document.createElement('a'); a.href = u; a.target = '_blank'; a.rel = 'noopener'; document.body.appendChild(a); a.click(); a.remove(); };
+  m.querySelector('#rpOpen').onclick = () => {
+    // politique de contenu de la page « Plein écran » : aucun script, aucun objet, aucun envoi de formulaire
+    const csp = `<meta http-equiv="Content-Security-Policy" content="script-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">`;
+    const page = `<!doctype html><html lang="fr"><head><meta charset="utf-8">${csp}<meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(rep.name || 'Rapport de course')}</title><style>html,body{margin:0;height:100%}iframe{border:0;width:100%;height:100%;background:#fff}</style></head><body><iframe sandbox title="Rapport de course" srcdoc="${esc(rep.html)}"></iframe></body></html>`;
+    const u = URL.createObjectURL(new Blob([page], { type: 'text/html' })); const a = document.createElement('a'); a.href = u; a.target = '_blank'; a.rel = 'noopener'; document.body.appendChild(a); a.click(); a.remove();
+  };
 }
 async function renderTracks() {
   const el = $('section[data-tab=tracks]'); if (!el) return;
@@ -1457,6 +1493,7 @@ async function renderTracks() {
     importGpx(files).catch((err) => { report('import', err); toast('Import impossible : ' + (err?.message || err)); });
   };
   if (traceView) renderTraceDetail();
+  refreshLocal();
 }
 // Régate qui garde la référence de cette trace (null : trace sans régate)
 const regOfTrace = (id) => REG.list.find((r) => (r.traces || []).some((x) => x.id === id)) || null;
@@ -1563,7 +1600,7 @@ function renderTraceDetail() {
   // bouées à confirmer contournées sur cette trace : jusqu’à trois virages proposés par bouée, l’équipier valide (D-02 amendé, JUST-02)
   const fits = Object.entries(MARKS).filter(([, m]) => DOUBT(m)).map(([k, m]) => ({ k, m, c: candidates(res.P, toXY(m.lat, m.lon)) })).filter((f) => f.c.length);
   const hms = (t) => new Date(t).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-  const fitCard = fits.length ? `<div class="card"><h3><span>Bouées à confirmer ${tip('La trace montre où vous avez contourné la bouée : l’app propose le sommet de votre virage, décalé de 14 m vers l’intérieur. Choisissez le virage qui correspond à votre arrondi : rien n’est changé sans votre validation, et le recalage reste sur ce téléphone.')}</span><small>d’après cette trace</small></h3>
+  const fitCard = fits.length ? `<div class="card"><h3><span>Bouées à confirmer ${tip('La trace montre où vous avez contourné la bouée : l’app propose le sommet de votre virage, décalé de 14 m vers l’intérieur. Choisissez le virage qui correspond à votre arrondi : rien n’est changé sans votre validation, puis le recalage est partagé avec l’équipage à la synchronisation suivante, hors course.')}</span><small>d’après cette trace</small></h3>
     <p class="small muted" style="margin:0 0 4px">Précision attendue ±${ACCURACY_M} m (davantage si l’arrondi était large). Choisissez le virage où vous avez contourné la bouée.</p>
     ${fits.map((f) => `<div style="margin-top:10px"><b>${esc(f.k)} ${esc(f.m.name)}</b> — position à confirmer</div>${f.c.map((c, i) => `<div class="small" style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin:6px 0"><span>virage de ${Math.round(Math.abs(c.turn.D))}° à ${hms(c.turn.t)} · à ${Math.round(c.d0)} m de la position actuelle · passage au plus près à ${Math.round(c.near.d)} m <span class="muted">(pour information)</span></span><button class="btn small acc" data-mkfit="${esc(f.k)}" data-i="${i}">Valider</button></div>`).join('')}`).join('')}</div>` : '';
   el.innerHTML = `<div class="card"><h3><span>${esc(tr.name)}</span><small>${new Date(tr.start).toLocaleTimeString('fr-FR', { timeStyle: 'short' })}</small></h3>
@@ -1678,18 +1715,41 @@ function marksRow(k, m) {
   }
   return html;
 }
-// Applique un recalage validé : mémorisé sur ce téléphone (D-04), appliqué tout de suite à MARKS, puis tout ce qui en dépend est redessiné
+// Applique un recalage validé : mémorisé sur ce téléphone (D-04), appliqué tout de suite à MARKS, puis tout ce qui en dépend est redessiné.
+// D-05 : il est aussi partagé avec l’équipage (clé « ~marks » à envoyer, hors course) ; un recalage plus récent annule une remise à l’origine en attente.
 function recalMark(k, ov) {
   const kept = saveOverride(marksStore(), k, ov);
   applyOverrides(MARKS, { [k]: ov });
+  if (SYNC.marksDel) delete SYNC.marksDel[k];
+  markDirty(SYNC, ['~marks']); saveSync(); scheduleSync(20000);
   refreshMarks();
   const m = MARKS[k];
   toast(`Bouée ${k} ${m.name} recalée${ov.src === 'trace' ? ` : ${m.src} (±${ACCURACY_M} m)` : ` (${m.src})`}${kept ? '' : ' — non gardée après fermeture : mémoire pleine'}`);
 }
 function resetMark(k) {
   clearOverride(marksStore(), k); restoreMark(MARKS, k);
+  (SYNC.marksDel ||= {})[k] = Date.now();                  // la remise à l’origine est envoyée tant que la fusion ne l’a pas couverte
+  markDirty(SYNC, ['~marks']); saveSync(); scheduleSync(20000);
   refreshMarks();
   toast(`Bouée ${k} ${MARKS[k].name} : position d’origine rétablie`);
+}
+// Recalages venus de l’archive (D-05), appliqués seulement après une réponse acceptée hors course (runSync) : mémorisés comme un recalage local,
+// jamais renvoyés. Un toast dit qui les a faits quand ce n’est pas cet équipier ; MARKS n’est touchée qu’ici et dans recalMark / resetMark.
+function applyRemoteMarks(fusion) {
+  const st = marksStore(), ch = remoteMarkChanges(fusion, loadOverrides(st), SYNC.marksDel || {}), msgs = [];
+  let change = false;
+  for (const [k, { by, ...ov }] of ch.put) {
+    if (!MARKS[k]) continue;
+    saveOverride(st, k, ov); applyOverrides(MARKS, { [k]: ov }); change = true;
+    if (by !== who()) msgs.push(`Bouée ${k} ${MARKS[k].name} recalée${by ? ` par ${by}` : ''} (${MARKS[k].src})`);
+  }
+  for (const k of ch.del) {
+    if (!MARKS[k]) continue;
+    clearOverride(st, k); restoreMark(MARKS, k); change = true;
+    if (ch.by[k] !== who()) msgs.push(`Bouée ${k} ${MARKS[k].name} : position d’origine rétablie${ch.by[k] ? ` par ${ch.by[k]}` : ''}`);
+  }
+  for (const k of ch.ack) delete SYNC.marksDel?.[k];
+  if (change) { refreshMarks(); if (msgs.length) toast(msgs.join(' · ')); }
 }
 function refreshMarks() { markEdit = null; renderIC(); drawCourse(); scheduleAnalysis(); if (traceView) renderTraceDetail(); renderLive(); }
 function submitMark() {
@@ -1724,6 +1784,127 @@ async function refreshMembre() {
     if (n) saveReg(st);
     if (!icBusy()) renderIC();                           // « Vous : prénom » et les auteurs complétés
   } catch (e) { note('membre', 'prénom indisponible : ' + (e?.message || e)); } finally { clearTimeout(to); }
+}
+// ───────────────────────── ARCHIVE PARTAGÉE (ARCH-01, D-03, D-04)
+// js/archsync.js n’est jamais importé statiquement : il est chargé à la première synchronisation, après la carte (l’ouverture ne l’attend pas).
+// Tout échange et toute application de réponse sont interdits pendant une course (raceActive) ; un échange commencé avant est abandonné (raceTick).
+let syncMod = null, syncTimer = null, syncBusy = false, syncCtl = null, syncReady = false;
+function scheduleSync(ms) { clearTimeout(syncTimer); syncTimer = setTimeout(() => syncNow('auto'), ms); }
+async function syncFetch(method, query, body, delai = 15000) {
+  const ctl = new AbortController(), to = setTimeout(() => ctl.abort(), delai);
+  syncCtl = ctl;
+  try {
+    const r = await fetch('/api/archive?' + new URLSearchParams(query), { method, cache: 'no-store', credentials: 'same-origin', signal: ctl.signal, ...(body ? { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) } : {}) });
+    let j = null;
+    try { j = await r.json(); } catch { /* corps vide ou illisible : seul le code de réponse compte */ }
+    return { status: r.status, body: j };
+  } finally { clearTimeout(to); }
+}
+function syncDeps() {
+  return {
+    now: Date.now, fetchJson: syncFetch, getState: () => REG,
+    setState: (st) => {
+      if (canon([st.list, st.tomb, st.current]) === canon([REG.list, REG.tomb, REG.current])) return;          // rien de nouveau : ni écriture ni redessin
+      saveReg(st, { fromSync: true });
+      refreshRegMarks(); renderIC(); renderDaySeg(); renderBrief(); renderLive();
+    },
+    getMarks: () => sharedMarks(loadOverrides(marksStore()), SYNC.marksDel || {}), setMarks: applyRemoteMarks,        // recalages de bouées (D-05)
+    meta: SYNC, saveMeta: saveSync, isActive: () => raceActive(Date.now()), isOnline: () => net.online,
+    // copie de secours de l'index avant la première fusion appliquée ; un échec est consigné, jamais bloquant
+    backup: () => { try { const brut = localStore()?.getItem(REG_KEY); if (brut != null) localStore().setItem('rade.regates.v1.bak', brut); } catch (e) { note('archive', 'copie de secours non écrite : ' + (e?.name || 'erreur')); } },
+    canApply: () => !icBusy() && !markEdit && !SYNC.off,
+  };
+}
+async function syncNow(reason) {
+  if (syncBusy || (!syncReady && reason !== 'manuel')) return;
+  clearTimeout(syncTimer);
+  if (SYNC.off) { paintSync(); return; }                     // désactivée sur ce téléphone : aucun échange, le module n’est même pas chargé
+  if (raceActive(Date.now())) { if (reason === 'manuel') toast('Course en cours : synchronisation après la course'); paintSync(); return; }
+  syncBusy = true; paintSync();
+  let leger = false;
+  try {
+    syncMod ||= await import('./archsync.js');
+    if (!SYNC.first) { const marque = legacyStamp(REG); if (marque !== REG) saveReg(marque, { fromSync: true }); }     // première synchronisation : les éléments d'avant l'archive reçoivent une date
+    const res = await syncMod.runSync(syncDeps(), reason);
+    note('archive', res.merged ? `fusion faite, ${Object.keys(SYNC.dirty || {}).length} en attente` : res.unchanged ? 'à jour' : res.skipped ? 'reporté : ' + res.skipped : 'échec : ' + res.error);
+    if (res.skipped === 'trop_tot') scheduleSync((res.in || 30000) + 500);
+    else if (res.skipped === 'saisie') scheduleSync(30000);
+    else if (res.error && !['no_blob', 'acces'].includes(res.error)) scheduleSync(syncMod.BACKOFF_MS[Math.min(SYNC.fails || 1, syncMod.BACKOFF_MS.length) - 1] + 500);   // recul : 30 s · 2 min · 10 min · 30 min
+    else if (res.merged && Object.keys(SYNC.dirty || {}).length) scheduleSync(20000);                   // modifié pendant l’échange : à renvoyer
+    leger = !!(res.merged || res.unchanged);
+  } catch (e) { report('archive', e); } finally { syncBusy = false; syncCtl = null; paintSync(); }
+  if (leger) runHeavyNow().catch((e) => report('archive', e));            // objets lourds : seulement après une synchronisation légère réussie
+}
+// Geste « Télécharger pour le hors réseau » : tout ce qui manque à CETTE régate, sans tenir compte de l'horizon de 180 jours ; la course et le verrou du jour passent avant
+async function telecharger(rid, btn) {
+  if (SYNC.off) { toast('Synchronisation désactivée sur ce téléphone'); return; }
+  if (!net.online) { toast('Hors réseau : à faire dès le retour du réseau'); return; }
+  if (heavyBusy) { toast('Un échange est déjà en cours : patientez un instant'); return; }
+  if (btn) { btn.disabled = true; btn.textContent = 'Téléchargement…'; }
+  try {
+    const res = await runHeavyNow({ only: rid, manuel: true });
+    if (!res) { if (btn && btn.isConnected) { btn.disabled = false; btn.textContent = 'Télécharger pour le hors réseau'; } return; }
+    toast(res.error ? 'Téléchargement interrompu : réessayez plus tard' : res.storage ? 'Espace insuffisant sur ce téléphone : rien de plus n’est téléchargé' : res.capped ? 'Plafond du jour atteint : suite demain' : res.down ? `${res.down} élément${res.down > 1 ? 's' : ''} téléchargé${res.down > 1 ? 's' : ''}` : 'Rien de plus à télécharger pour le moment');
+  } catch (e) { report('archive', e); toast('Téléchargement impossible : ' + (e?.message || e)); }
+}
+// Objets lourds (ARCH-03) : vent figé du jour, traces et rapports. js/archheavy.js se charge à la première fois (jamais à l'ouverture).
+// D-03 : ni pendant une course ni pendant la journée de régate (jusqu'au retour au port), vérifié avant le passage et entre deux objets.
+let heavyMod = null, heavyBusy = false;
+// Ce qui est lisible hors réseau sur CE téléphone, pour la fiche : identifiants des traces locales et jours de vent dont les copies sont là.
+// null tant que la base n'a pas été lue (la fiche ne dit alors rien de l'état). Relu par renderTracks et après chaque passage lourd.
+let LOCAL = null;
+async function refreshLocal() {
+  try {
+    const traces = new Set((await listTracks()).map((t) => t.id)), days = new Set();
+    for (const r of REG.list) for (const d of Object.keys(r.frozen || {})) if ((await getSlot(slotKey(r.id, d, 'wx'))) != null) days.add(`${r.id}|${d}`);
+    const nouveau = { traces, days };
+    const meme = LOCAL && LOCAL.traces.size === traces.size && LOCAL.days.size === days.size && [...traces].every((x) => LOCAL.traces.has(x)) && [...days].every((x) => LOCAL.days.has(x));
+    LOCAL = nouveau;
+    if (!meme) refreshSheet();
+  } catch (e) { report('archive', e); /* bases illisibles : la fiche ne dit rien de l'état local */ }
+}
+function heavyDeps() {
+  return {
+    now: Date.now, meta: SYNC, saveMeta: saveSync, getList: () => REG.list,
+    fetchJson: (method, query, body) => syncFetch(method, query, body, 60000),
+    me: who, listTracks, getTrack, saveTrack, getSlot, putSlot, slotKey,
+    estimate: () => navigator.storage?.estimate?.(),
+    isActive: () => raceActive(Date.now()), isLocked: () => raceLock().locked, report,
+  };
+}
+async function runHeavyNow({ only = null, manuel = false } = {}) {
+  if (heavyBusy || SYNC.off || SYNC.denied || SYNC.absent || SYNC.outdated) return null;
+  if (raceActive(Date.now())) { if (manuel) toast('Course en cours : téléchargement après la course'); return null; }
+  if (raceLock().locked) { if (manuel) toast('Journée de régate : téléchargement au retour au port'); return null; }
+  heavyBusy = true;
+  let res = null;
+  try {
+    heavyMod ||= await import('./archheavy.js');
+    res = await heavyMod.runHeavy(heavyDeps(), { only });
+    note('archive', `lourds : ${res.up} envoyé(s), ${res.down} reçu(s)${res.skipped ? ' · reporté : ' + res.skipped : ''}${res.error ? ' · échec : ' + res.error : ''}`);
+    if (res.up || res.down) { renderTracks(); refreshLocal(); }
+    if (!res.error && !res.skipped && !SYNC.persisted) {                              // une fois : demander au navigateur de ne pas purger les données de l’app (iOS)
+      SYNC.persisted = true; saveSync();
+      try { await navigator.storage?.persist?.(); } catch { /* refusé ou indisponible : sans effet */ }
+    }
+  } finally { heavyBusy = false; syncCtl = null; }
+  if (res && (res.up || res.down) && !res.error) setTimeout(() => runHeavyNow({ only }).catch((e) => report('archive', e)), 3000);     // la suite du plan (6 objets par passage)
+  return res;
+}
+// Ligne d’état sous « Vous : » ; masquée tant que le module n’est pas chargé. Texte posé par textContent, jamais rouge.
+// Interrupteur (Open Question 16) : couper l’échange sur CE téléphone, d’abord sur deux touches, remettre d’un geste. L’échange en cours est jeté (canApply).
+function toggleSync(btn) {
+  if (SYNC.off) { SYNC.off = false; saveSync(); renderIC(); scheduleSync(2000); return; }
+  if (btn.dataset.c !== '1') { btn.dataset.c = '1'; btn.textContent = 'Toucher encore pour désactiver'; return; }
+  SYNC.off = true; saveSync(); clearTimeout(syncTimer); renderIC();
+}
+function paintSync() {
+  const el = $('#rgSync');
+  if (!el) return;
+  if (!syncMod && !SYNC.off) { el.hidden = true; return; }
+  if (!syncMod) { el.textContent = 'Synchronisation désactivée'; el.dataset.level = 'off'; el.hidden = false; return; }      // désactivée avant tout chargement : le module reste dehors
+  const s = syncMod.syncStatus({ off: SYNC.off, active: raceActive(Date.now()), online: net.online, busy: syncBusy, dirty: Object.keys(SYNC.dirty || {}).length, lastOkAt: SYNC.lastOkAt, fails: SYNC.fails, absent: SYNC.absent, denied: SYNC.denied, outdated: SYNC.outdated, capped: syncMod.capped(SYNC, Date.now()) });
+  el.textContent = s.text + (SYNC.env === 'preview' ? ' (essai)' : ''); el.dataset.level = s.level; el.hidden = false;
 }
 let icDraft = null;                          // relecture des IC en cours (import ou « Modifier »), en mémoire de la page seulement : rien n’est écrit avant « Valider les IC »
 // Lecture par l’IA (plan 03-06) : `imported` = numéro de l’import qui a ouvert la relecture (un autre import, « Annuler » ou « Modifier » rend la réponse en attente caduque) ;
@@ -1777,9 +1958,11 @@ function renderIC() {
   const tel = /(0[1-9](?:[ .-]?\d{2}){4})/.exec(IC.committee || '')?.[1];
   let html = `<div class="card"><h3><span>Régates ${tip('Chaque régate a sa fiche : jours, manches, Instructions de Course. La régate choisie fixe le jour 🏁, l’heure de départ par défaut et les points clés affichés. Classées par saison, puis Aujourd’hui, À venir, Passées.')}</span><button type="button" class="btn acc small" id="rgNew">＋ Nouvelle régate</button></h3>
     ${listHTML(groupBySeason(REG.list, now), { currentId: cur?.id ?? null, now })}
-    <div class="small muted" id="rgWho" style="margin-top:6px">${who() ? `Vous : ${esc(who())}` : 'Vous : — (prénom donné à la prochaine connexion)'}</div></div>`;
+    <div class="small muted" id="rgWho" style="margin-top:6px">${who() ? `Vous : ${esc(who())}` : 'Vous : — (prénom donné à la prochaine connexion)'}</div>
+    <div class="small muted" id="rgSync" hidden></div>
+    <div class="btns" style="margin:6px 0 0"><button type="button" class="btn small alt" id="rgSyncBtn"${SYNC.off ? ' disabled' : ''}>Synchroniser</button><button type="button" class="btn small alt" id="rgSyncOff">${SYNC.off ? 'Réactiver la synchronisation' : 'Désactiver la synchronisation'}</button>${tip(SYNC_TIP)}</div></div>`;
   if (rgDraft) html += newRegattaFormHTML(rgDraft, rgErr);
-  html += sheetHTML(cur, { now, courses: courseList(), raceDraft, raceErrors: raceErr, markFix, nmOf: fmtNm });
+  html += sheetHTML(cur, { now, courses: courseList(), raceDraft, raceErrors: raceErr, markFix, nmOf: fmtNm, local: LOCAL?.traces ?? null, daysLocal: LOCAL?.days ?? null, me: who(), tipHtml: tip(DL_TIP) });
   if (icDraft) html += reviewHTML(icDraft, icChecks(), { ia: iaState(), isLand: T ? (x, y) => T.isLand(x, y) : undefined });
   html += `<div class="card"><h3>Instructions de course <small>${cur?.ic ? 'validées' : 'à importer'}</small></h3>
     <div class="btns" style="margin:0 0 6px"><label class="btn acc small" for="icFile" style="cursor:pointer">＋ Importer des IC (PDF)</label><button class="btn alt small" id="evEdit">Modifier</button></div>
@@ -1796,10 +1979,13 @@ function renderIC() {
     ${IC.text ? `<details><summary class="small">Texte complet des IC</summary><pre class="ictext">${esc(IC.text)}</pre></details>` : ''}
     ${cur ? `<button class="btn small alt" id="evDel" style="margin-top:8px">Supprimer cette régate</button>` : ''}</div>
   <div class="card"><h3>Marques <small>cahier de parcours CVAT</small></h3><table class="t"><tr><th>N°</th><th>Marque</th><th>Position</th></tr>${Object.entries(MARKS).filter(([k]) => cvatKey(k)).map(([k, m]) => marksRow(k, m)).join('')}</table>
-    <div class="small muted" style="margin-top:6px">« à confirmer » = position approximative (cartes du cahier ou OpenStreetMap) : à vérifier sur zone, le Comité fait foi. Un recalage reste sur ce téléphone (Safari et l’app installée ne les partagent pas).</div></div>
+    <div class="small muted" style="margin-top:6px">« à confirmer » = position approximative (cartes du cahier ou OpenStreetMap) : à vérifier sur zone, le Comité fait foi. Un recalage est partagé avec l’équipage à la synchronisation suivante, hors course.</div></div>
   <div class="card"><h3>Dangers</h3><ul class="tips small"><li><b>Zone interdite</b> de la presqu’île de Saint-Mandrier (zone Marine nationale, rouge sur la carte).</li>${DANGERS.map((d) => `<li><b>${esc(d.name)}</b> (${fmtLat(d.lat)} ${fmtLon(d.lon)}) : ${esc(d.note)}</li>`).join('')}</ul></div>`;
   el.innerHTML = html;
   bindMarksEdit(el);
+  $('#rgSyncBtn').onclick = () => syncNow('manuel');
+  $('#rgSyncOff').onclick = (e) => toggleSync(e.currentTarget);
+  paintSync();
   // liste : toucher une régate en fait la courante
   $$('[data-rg]', el).forEach((b) => b.addEventListener('click', () => { saveReg(setCurrentRegatta(REG, b.dataset.rg)); icDraft = null; afterRegChange(); }));
   // « Nouvelle régate » : trois champs (le premier jour vaut aujourd’hui, jour de Paris, tant qu’on ne le change pas)
@@ -1851,6 +2037,7 @@ function renderIC() {
     if (b.dataset.c !== '1') { b.dataset.c = '1'; b.textContent = 'Détacher ?'; return; }
     saveReg(upsertRegatta(REG, detachTrace(cur, b.dataset.trx))); renderIC(); if (traceView) renderTraceDetail(); toast('Trace détachée de la régate');
   }));
+  $$('[data-rg-dl]', el).forEach((b) => b.addEventListener('click', () => telecharger(b.dataset.rgDl, b)));       // « Télécharger pour le hors réseau » (geste)
   bindRegMarks(el, cur);
   $('#evEdit').onclick = () => { icDraft = reviewFromRegatta(cur); renderIC(); $('#icReview')?.scrollIntoView({ behavior: 'smooth' }); };
   $('#evDel')?.addEventListener('click', (e) => { if (e.target.dataset.c !== '1') { e.target.dataset.c = '1'; e.target.textContent = 'Confirmer la suppression'; return; } icDraft = null; saveReg(removeRegatta(REG, cur.id)); afterRegChange(); });

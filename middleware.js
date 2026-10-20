@@ -29,6 +29,14 @@ const lireCookie = (req) => {
   return m ? decodeURIComponent(m[1]) : null;
 };
 
+// Adresse d'une fonction /api/ sous toutes ses écritures (majuscules, encodage %61pi) : une adresse mal décodée ici est traitée comme /api/ par précaution
+const versApi = (chemin) => {
+  let d = chemin;
+  try { d = decodeURIComponent(chemin); } catch { return true; }
+  d = d.toLowerCase();
+  return d === '/api' || d.startsWith('/api/');
+};
+
 const redirige = (location, extra = {}) => new Response(null, { status: 302, headers: { Location: location, 'Cache-Control': 'no-store', ...extra } });
 
 export default async function middleware(req) {
@@ -49,6 +57,15 @@ export default async function middleware(req) {
   const prenom = await membre(lireCookie(req));
   if (prenom) {
     if (req.method === 'GET' && url.pathname === '/api/membre') return Response.json({ membre: prenom }, { headers: { 'Cache-Control': 'no-store' } });
+    // ARCH-01 : les fonctions /api/ apprennent QUI écrit par l'en-tête x-rt-membre, posé ici après vérification du code : c'est la seule source
+    // de l'auteur (celui du navigateur est remplacé). Le prénom est encodé (une valeur d'en-tête reste en octets simples). Le cookie du code
+    // d'accès n'est pas transmis aux fonctions. Le reste du site passe tel quel.
+    if (versApi(url.pathname)) {
+      const h = new Headers(req.headers);
+      h.delete('cookie');
+      h.set('x-rt-membre', encodeURIComponent(prenom));
+      return next({ request: { headers: h } });
+    }
     return next();
   }
 

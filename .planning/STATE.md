@@ -1,19 +1,18 @@
 ---
 gsd_state_version: "1.0"
 current_phase: 4
-current_phase_name: Archive partagée
-status: planning
-stopped_at: Phase 3 complete, ready to plan Phase 4
-last_updated: "2026-10-19T23:09:50.895Z"
-last_activity: 2026-10-19
-last_activity_desc: Phase 3 complete, transitioned to Phase 4
-state_head: 6aea413d55796ee0499a422275e1eafb17f23461
+status: completed
+stopped_at: Phase 4 complete — all phases complete
+last_updated: "2026-10-20T07:14:31.421Z"
+last_activity: 2026-10-20
+last_activity_desc: Phase 4 complete
+state_head: 8d061473a6ba574cff87620ba67c433e3fc630d3
 progress:
   total_phases: 4
-  completed_phases: 3
-  total_plans: 16
-  completed_plans: 16
-  percent: 75
+  completed_phases: 4
+  total_plans: 21
+  completed_plans: 21
+  percent: 100
 ---
 
 # Project State
@@ -23,21 +22,21 @@ progress:
 See: .planning/PROJECT.md (updated 2026-10-19)
 
 **Core value:** Le jour de la régate, l'équipage peut ouvrir l'épreuve, s'en servir en mer sans que rien ne lâche, et retrouver ensuite le débrief : des conseils et des chiffres justes, fiables sur l'eau, et partagés par tout l'équipage.
-**Current focus:** Phase 3 — Ouvrir une régate
+**Current focus:** Phase 4 — Archive partagée
 
 ## Current Position
 
-Phase: 4 — Archive partagée
+Phase: 4
 Plan: Not started
-Status: Ready to plan
-Last activity: 2026-10-19 — Phase 3 complete, transitioned to Phase 4
+Status: All phases complete
+Last activity: 2026-10-20 — Phase 4 complete
 
-Progress: [████████░░] 75%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 16
+- Total plans completed: 21
 - Average duration: -
 - Total execution time: 0 hours
 
@@ -48,6 +47,7 @@ Progress: [████████░░] 75%
 | 1 | 4 | - | - |
 | 2 | 5 | - | - |
 | 3 | 7 | - | - |
+| 4 | 5 | - | - |
 
 **Recent Trend:**
 - Last 5 plans: -
@@ -72,6 +72,11 @@ Progress: [████████░░] 75%
 | Phase 03 P05 | 58 min | 2 tasks | 12 files |
 | Phase 03 P06 | 30 min | 2 tasks | 10 files |
 | Phase 03 P07 | 21 min | 2 tasks | 13 files |
+| Phase 04 P01 | 19 min | 3 tasks | 13 files |
+| Phase 04 P02 | 19 min | 3 tasks | 11 files |
+| Phase 04 P03 | 21min | 3 tasks | 12 files |
+| Phase 04 P04 | 36min | 3 tasks | 12 files |
+| Phase 04 P05 | 85 min | 2 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -121,6 +126,17 @@ Décisions récentes qui orientent le travail en cours :
 - [Phase 03]: 03-06 : IA_IC (js/icread.js) masque « Lire avec l'IA » sans toucher au reste ; décision après l'essai réel sur l'aperçu v29 (plan 07)
 - [Phase 03]: Plan 03-07 : une bouée corrigée reste « à confirmer » ; seul le geste Confirmer la fait servir (auteur et date gardés, position d’origine conservée)
 - [Phase 03]: Plan 03-07 : bouées X1… et parcours 101… d’une régate injectés dans MARKS et COURSES par le seul js/app.js (marque fromRegatta, retirés avant chaque injection) ; parcours choisi disparu → parcours 3
+- [Phase 04]: 04-01 : le cookie du code d'accès n'est pas transmis aux fonctions /api/ ; x-rt-membre (prénom encodé) remplace celui du navigateur pour toute écriture de /api/ (majuscules, %61pi)
+- [Phase 04]: 04-01 : la copie trash/ est écrite avant que la régate quitte le document ; une ancienne version déjà connue renvoyée par un téléphone en retard garde son auteur et ne change rien au document
+- [Phase 04]: 04-01 : l'état visible de l'archive converge exactement (2 000 scénarios) ; l'historique (hist, h) est un journal au mieux qui converge après quelques échanges
+- [Phase 04]: 04-02 : l'état marqué est la file d'envoi ; denied et outdated en mémoire seulement ; graine SNPM à instant fixe SEED_AT ; legacyStamp avant le premier envoi ; copie rade.regates.v1.bak
+- [Phase 04]: [04-03] remoteMarkChanges borne les positions reçues à la rade et ramène la source à trace | saisie (T-04-18)
+- [Phase 04]: [04-03] Un recalage reçu n'est jamais renvoyé : seule une action de l'équipier marque ~marks
+- [Phase 04]: 04-04 : « Plein écran » du rapport = page à nous sous script-src 'none' qui enferme le rapport dans un cadre sandbox (une balise insérée dans le HTML d'un autre téléphone peut être devancée par un script placé avant <head>)
+- [Phase 04]: 04-04 : un jour figé local est envoyé avant tout remplacement ; un jour à envoyer n'est jamais téléchargé dans le même passage ; objet annoncé mais absent (404) redemandé après 30 min
+- [Phase 04]: 04-04 : les envois lourds ne sont pas limités à l'horizon de 180 jours (sauvegarde des traces anciennes), seuls les téléchargements le sont
+- [Phase 04]: 04-05 : le défaut intermittent du scénario gel venait d'un tic de gel entre la création de la régate et l'ajout de sa manche ; scénario déterministe, et fiche des régates redessinée à l'ouverture de l'onglet après un gel tombé fiche fermée (icStale)
+- [Phase 04]: 04-05 : v31 publiée sur l'aperçu apercu-phase-04 seulement ; main inchangée (7fb6401) ; production décidée par Romain (D-02)
 
 ### Pending Todos
 
@@ -145,6 +161,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-10-19T23:08:54.249Z
-Stopped at: Phase 3 complete, ready to plan Phase 4
+Last session: 2026-10-20T07:13:38.319Z
+Stopped at: Phase 4 complete — all phases complete
 Resume file: None

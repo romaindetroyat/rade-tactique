@@ -1,0 +1,225 @@
+// Archive partagée : fusion des régates entre téléphones (ARCH-01, D-04). Module pur : aucun DOM, aucun stockage, aucune horloge (now injecté).
+// Importé par la page ET par la fonction api/archive.js : une seule implémentation des règles, côté téléphone comme côté serveur.
+// Principe : ensemble d’éléments à « dernier écrit gagne » (LWW). Chaque élément a un id et une date de dernière modification `u` (ms) ;
+// les ajouts des deux côtés sont tous gardés, une suppression est une pierre tombale `tomb`, et pour une même valeur modifiée des deux côtés
+// la plus récente gagne : l’autre va dans `hist` (historique de la fiche). La fusion est commutative, associative et idempotente.
+
+export const MAX_HIST = 30, MAX_HIST_BYTES = 4000;
+export const HEAD = ['name', 'club', 'dateStart', 'dateEnd', 'season', 'ic'];      // « fiche » : modifiée d’un bloc par la validation des IC
+export const LISTS = { race: 'races', mark: 'marks', course: 'courses', trace: 'traces' };
+export const LOCAL_ONLY = ['sel'];                                                 // état d’affichage de CET appareil : jamais partagé
+const DANGER = new Set(['__proto__', 'constructor', 'prototype']);                // clés refusées partout (pollution de prototype)
+
+// Forme canonique d'une valeur JSON : clés triées, clés refusées omises, comme JSON.stringify (undefined omis d'un objet, null dans une liste).
+// Écrite directement en texte (sans objet intermédiaire) : elle sert à comparer chaque élément à chaque fusion.
+function ser(o) {
+  if (Array.isArray(o)) { let r = '['; for (let i = 0; i < o.length; i++) r += (i ? ',' : '') + (ser(o[i]) ?? 'null'); return r + ']'; }
+  if (o && typeof o === 'object') {
+    let r = '{', first = true;
+    for (const k of Object.keys(o).sort()) {
+      if (DANGER.has(k)) continue;
+      const v = ser(o[k]);
+      if (v !== undefined) { r += (first ? '' : ',') + JSON.stringify(k) + ':' + v; first = false; }
+    }
+    return r + '}';
+  }
+  return JSON.stringify(o);
+}
+export const canon = (o) => ser(o) ?? 'null';
+const body = (e) => { const { u, ub, by, ...rest } = e || {}; return rest; };       // contenu d’un élément sans ses métadonnées (date, modifié par, créé par : posées par le serveur)
+export const sameBody = (a, b) => canon(body(a)) === canon(body(b));
+// > 0 si `a` gagne : la plus récente, à égalité le contenu le plus grand (arbitraire mais identique sur tous les appareils)
+const cmp = (x, y) => (x < y ? -1 : x > y ? 1 : 0);
+// ca, cb : contenus canoniques déjà calculés (la fusion en a besoin deux fois : pour départager et pour savoir s'il y a un écrasement)
+const winsC = (a, b, ca, cb) => ((a?.u || 0) - (b?.u || 0)) || cmp(ca, cb)
+  || ((a?.by != null) - (b?.by != null)) || cmp(String(a?.by), String(b?.by)) || cmp(String(a?.ub), String(b?.ub));   // à contenu égal : celui qui a un auteur (posé par le serveur)
+export const wins = (a, b) => winsC(a, b, canon(body(a)), canon(body(b)));
+// { gagnante: 1 si a, 0 si b ; ecrase: les contenus diffèrent }
+function duel(a, b) {
+  const ca = canon(body(a)), cb = a === b ? ca : canon(body(b));
+  return { a: winsC(a, b, ca, cb) >= 0, same: ca === cb };
+}
+
+// Nom d’équipier ou de régate réduit à un identifiant de chemin : sans accent, minuscules, tirets (le serveur et la page calculent le même)
+export const slug = (n) => String(n || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
+
+const hist = (kind, id, e) => {
+  let v = body(e); if (canon(v).length > MAX_HIST_BYTES) v = null;                  // gros contenu (texte des IC) : seule la trace de l’écrasement reste
+  return { kind, id: String(id), t: e.u || 0, by: e.ub ?? null, v };
+};
+// Pierre tombale : la plus récente gagne ; à égalité de date (deux équipiers suppriment la même chose au même instant), celle qui a un auteur,
+// puis l'auteur le plus grand : le résultat ne dépend pas de l'ordre de la fusion
+const tombWins = (v, o) => (v.t - o.t) || ((v.by != null) - (o.by != null)) || cmp(String(v.by), String(o.by));
+const mergeTomb = (a = {}, b = {}) => {
+  const out = Object.create(null);
+  for (const src of [a, b]) for (const [k, v] of Object.entries(src)) {
+    if (DANGER.has(k)) continue;
+    const t = { t: v.t || 0, by: v.by ?? null };
+    if (!out[k] || tombWins(t, out[k]) > 0) out[k] = t;
+  }
+  return { ...out };
+};
+const headOf = (r) => ({ ...Object.fromEntries(HEAD.filter((k) => k in r).map((k) => [k, r[k]])), u: r.u, ub: r.ub });
+// rang d’un gel de jour : une copie « tardive » (app ouverte après le signal) ne remplace jamais une copie prise avant ; ensuite la plus récente
+const frozenWins = (a, b) => ((a.late ? 0 : 1) - (b.late ? 0 : 1)) || wins(a, b);
+
+const authorWins = (x, o) => { const d = (x.by != null) - (o.by != null); return d ? d > 0 : cmp(String(x.by), String(o.by)) > 0; };
+
+export function mergeRegatta(a, b) {
+  const h = [...(a.hist || []), ...(b.hist || [])];
+  const ha = headOf(a), hb = headOf(b), dh = duel(ha, hb), hw = dh.a ? ha : hb, hl = dh.a ? hb : ha;
+  if (!dh.same) h.push(hist('head', a.id, hl));
+  const tomb = mergeTomb(a.tomb, b.tomb);
+  const ord = cmp(a.at ?? Infinity, b.at ?? Infinity) || ((b.by != null) - (a.by != null)) || cmp(String(a.by), String(b.by));
+  const first = ord <= 0 ? a : b;                                                  // le créateur : le plus ancien, à égalité celui qui a un auteur
+  const out = { id: a.id, ...hw, by: first.by ?? null, at: Math.min(a.at ?? Infinity, b.at ?? Infinity) };
+  if (!Number.isFinite(out.at)) out.at = 0;
+  for (const [kind, key] of Object.entries(LISTS)) {
+    const A = new Map((a[key] || []).map((e) => [String(e.id), e])), B = new Map((b[key] || []).map((e) => [String(e.id), e])), res = [];
+    for (const id of new Set([...A.keys(), ...B.keys()])) {
+      const ea = A.get(id), eb = B.get(id);
+      const d = ea && eb ? duel(ea, eb) : null;
+      let pick = d ? (d.a ? ea : eb) : ea || eb;
+      if (d && !d.same) h.push(hist(kind, id, pick === ea ? eb : ea));
+      if (kind === 'trace' && ea && eb) {                                           // rapport : le plus récent (t) gagne quel que soit u
+        const rp = [ea.report, eb.report].filter(Boolean).sort((x, y) => (y.t || 0) - (x.t || 0))[0];
+        pick = rp ? { ...pick, report: rp } : pick;
+      }
+      const t = tomb[`${kind}:${id}`]?.t;
+      if (t != null && t >= (pick.u || 0)) continue;                                // supprimé (et pas recréé depuis)
+      res.push(pick);
+    }
+    out[key] = res.sort((x, y) => String(x.id) < String(y.id) ? -1 : 1);
+  }
+  const frozen = {}, days = new Set([...Object.keys(a.frozen || {}), ...Object.keys(b.frozen || {})]);
+  for (const d of days) {
+    if (DANGER.has(d)) continue;
+    const fa = a.frozen?.[d], fb = b.frozen?.[d];
+    frozen[d] = fa && fb ? (frozenWins(fa, fb) >= 0 ? fa : fb) : fa || fb;
+  }
+  out.frozen = frozen; out.tomb = tomb;
+  // une même version écrasée vue des deux côtés n'entre qu'une fois ; si ses copies ne diffèrent que par l'auteur, celle qui en a un garde la place
+  const best = new Map();
+  for (const x of h) {
+    const k = `${x.kind}|${x.id}|${x.t}|${canon(x.v)}`, o = best.get(k);
+    if (!o || authorWins(x, o.x)) best.set(k, { x, k });
+  }
+  out.hist = [...best.values()].sort((p, q) => (q.x.t - p.x.t) || cmp(p.k, q.k)).slice(0, MAX_HIST).map((e) => e.x);
+  return out;
+}
+
+// Recalages de bouées (D-05) : { [numéro]: { lat, lon, src, t, by } | { del: true, t, by } } — le plus récent (t) gagne, 5 versions gardées
+export function mergeMarks(a = {}, b = {}) {
+  const out = {};
+  for (const k of new Set([...Object.keys(a), ...Object.keys(b)])) {
+    if (DANGER.has(k)) continue;
+    const ea = a[k], eb = b[k];
+    if (!ea || !eb) { out[k] = ea || eb; continue; }
+    const w = ((ea.t || 0) - (eb.t || 0)) || (canon(ea) < canon(eb) ? -1 : 1), win = w >= 0 ? ea : eb, lose = win === ea ? eb : ea;
+    const h = [...(ea.h || []), ...(eb.h || [])];
+    if (canon({ ...ea, h: 0 }) !== canon({ ...eb, h: 0 })) h.push({ lat: lose.lat ?? null, lon: lose.lon ?? null, src: lose.src ?? null, t: lose.t || 0, by: lose.by ?? null, del: !!lose.del });
+    const seen = new Set(), keep = h.filter((x) => { const s = canon(x); if (seen.has(s)) return false; seen.add(s); return true; }).sort((x, y) => y.t - x.t).slice(0, 5);
+    const { h: _h, ...res } = win;
+    out[k] = keep.length ? { ...res, h: keep } : res;                               // jamais de `h: []` : la forme doit rester la même après chaque fusion
+  }
+  return out;
+}
+
+// Document partagé : { v:1, regattas: { id: R }, tomb: { 'regatta:id': {t,by} }, marks }
+export const emptyDoc = () => ({ v: 1, regattas: {}, tomb: {}, marks: {} });
+export function mergeDoc(a = emptyDoc(), b = emptyDoc()) {
+  const tomb = mergeTomb(a.tomb, b.tomb), regattas = {};
+  for (const id of new Set([...Object.keys(a.regattas || {}), ...Object.keys(b.regattas || {})])) {
+    if (DANGER.has(id) || tomb[`regatta:${id}`]) continue;                          // régate supprimée : définitif sur tous les téléphones
+    const ra = a.regattas?.[id], rb = b.regattas?.[id];
+    regattas[id] = mergeRegatta(ra || rb, rb || ra);                                  // seule d’un côté : fusionnée avec elle-même, ce qui normalise sa forme
+  }
+  return { v: 1, regattas, tomb, marks: mergeMarks(a.marks, b.marks) };
+}
+export const docEquals = (a, b) => canon(a) === canon(b);
+
+// ───────────────────────── marquage des modifications locales (appelé par saveReg, donc chargé avec la page : pas dans archsync.js)
+
+// Identifiant stable d’une manche : jour + heure (une manche par jour et par heure) ; sans heure, aléatoire
+export const raceId = (m, rnd = Math.random) => (m.time ? `m${String(m.date).replace(/-/g, '')}${String(m.time).replace(':', '')}` : 'm' + rnd().toString(36).slice(2, 8));
+const ensureIds = (r, rnd) => (r.races || []).some((m) => !m.id) ? { ...r, races: r.races.map((m) => (m.id ? m : { ...m, id: raceId({ ...m, date: m.date || r.dateStart }, rnd) })) } : r;
+const noN = ({ n, ...r }) => r;
+
+// prev, next : une régate locale avant / après une modification ; rend `next` marqué (u = now sur ce qui a changé, pierres tombales pour ce qui a disparu)
+export function stamp(prev, next, { now, by = null, rnd } = {}) {
+  const n = ensureIds(next, rnd), out = { ...n };
+  const hp = prev && headOf(prev);
+  const hn = headOf(n);
+  if (!prev || !sameBody(hp, hn)) { out.u = now; out.ub = by; } else { out.u = prev.u; out.ub = prev.ub; }
+  const tomb = { ...(prev?.tomb || {}), ...(n.tomb || {}) };
+  for (const [kind, key] of Object.entries(LISTS)) {
+    const P = new Map((prev?.[key] || []).map((e) => [String(e.id), e]));
+    const cmpBody = kind === 'race' ? (x, y) => sameBody(noN(x), noN(y)) : sameBody;       // `n` (rang d’une manche) est déduit de l’ordre : renuméroter ne modifie aucune manche
+    out[key] = (n[key] || []).map((e) => {
+      const p = P.get(String(e.id));
+      if (p && cmpBody(p, e)) return { ...e, u: p.u, ub: p.ub };
+      return { ...e, u: now, ub: by };
+    });
+    for (const id of P.keys()) if (!(n[key] || []).some((e) => String(e.id) === id)) tomb[`${kind}:${id}`] = { t: now, by };
+  }
+  const frozen = {};
+  for (const [d, f] of Object.entries(n.frozen || {})) {
+    const p = prev?.frozen?.[d];
+    frozen[d] = p && sameBody(p, f) ? { ...f, u: p.u, ub: p.ub } : { ...f, u: now, ub: by };
+  }
+  out.frozen = frozen; out.tomb = tomb;
+  return out;
+}
+
+// prev, next : états { list, tomb, current } avant / après ; rend { st, changed: [ids] } avec les éléments modifiés marqués
+export function stampState(prev, next, { now, by = null }) {
+  const old = new Map(prev.list.map((r) => [r.id, r]));
+  const list = next.list.map((r) => (old.get(r.id) === r ? r : stamp(old.get(r.id), r, { now, by })));   // même objet qu’avant : rien à comparer
+  const tomb = { ...(prev.tomb || {}), ...(next.tomb || {}) };
+  for (const id of old.keys()) if (!list.some((r) => r.id === id)) tomb[id] = { t: now, by };
+  const changed = list.filter((r) => old.get(r.id) !== r && (!old.has(r.id) || canon(toShared(r)) !== canon(toShared(old.get(r.id))))).map((r) => r.id);   // objet inchangé : rien à comparer
+  if ([...old.keys()].some((id) => !list.some((r) => r.id === id))) changed.push('~tomb');
+  return { st: { ...next, list, tomb }, changed };
+}
+
+// Modifications à envoyer : un compteur par clé (id de régate, « ~tomb » suppressions, « ~marks » recalages) ; on n’efface une clé que si
+// personne ne l’a re-modifiée pendant l’échange (le compteur n’a pas bougé)
+export function markDirty(meta, keys) { meta.seq = (meta.seq || 0) + 1; meta.dirty ||= {}; for (const k of keys) meta.dirty[k] = meta.seq; }
+
+// Première synchronisation d’un téléphone d’avant l’archive : ses éléments n’ont pas de date de modification `u`. Chacun reçoit l’instant connu le
+// plus récent (régate : max de sa création et de la validation des IC ; manche, bouée, parcours, trace, gel : son `at`, sinon celui de la régate) et
+// son auteur. Ainsi une fiche réellement relue l'emporte sur une graine intacte au lieu d'un départage arbitraire. Un élément déjà marqué ne change
+// pas ; un état déjà marqué est rendu tel quel (même objet).
+export function legacyStamp(st) {
+  let touched = false;
+  const put = (e, inst, by) => {
+    if (!e || e.u != null) return e;
+    touched = true;
+    return { ...e, u: Number.isFinite(e.at) ? e.at : inst, ub: e.by ?? by ?? null };
+  };
+  const list = st.list.map((r) => {
+    const v = r.ic?.validated, va = Number.isFinite(v?.at) ? v.at : 0, ra = Number.isFinite(r.at) ? r.at : 0, inst = Math.max(ra, va);
+    const head = r.u != null ? r : (touched = true, { ...r, u: inst, ub: va > ra && v.by != null ? v.by : r.by ?? null });
+    const sub = (key) => { const l = r[key] || [], m = l.map((e) => put(e, inst, null)); return m.some((e, i) => e !== l[i]) ? m : r[key]; };
+    const out = { ...head };
+    for (const key of Object.values(LISTS)) if (r[key]) out[key] = sub(key);
+    if (r.frozen) {
+      const fz = Object.entries(r.frozen).map(([d, f]) => [d, put(f, inst, null)]);
+      if (fz.some(([d, f]) => f !== r.frozen[d])) out.frozen = Object.fromEntries(fz);
+    }
+    const same = Object.keys(out).every((k) => out[k] === r[k]) && Object.keys(r).every((k) => k in out);
+    return same ? r : out;
+  });
+  return touched ? { ...st, list } : st;
+}
+
+// Même ordre que raceOrder de js/regates.js : jour, puis heure (une manche sans heure après celles du même jour qui en ont une)
+const raceOrder = (a, b) => cmp(String(a.date), String(b.date)) || ((a.time ? 0 : 1) - (b.time ? 0 : 1)) || cmp(String(a.time), String(b.time)) || cmp(String(a.id), String(b.id));
+// Régate sans l’état propre à l’appareil et sans le rang des manches (avant envoi)
+export const toShared = (r) => { const o = { ...r, races: (r.races || []).map(noN) }; for (const k of LOCAL_ONLY) delete o[k]; return o; };
+// Fusion dans l’état local : les manches sont triées et renumérotées, `sel` (manche choisie, affichage de CET appareil) suit sa manche
+export const fromShared = (shared, local) => {
+  const o = { ...shared, races: [...(shared.races || [])].sort(raceOrder).map((m, i) => ({ ...m, n: i + 1 })) };
+  if (local && local.sel != null) { const id = (local.races || []).find((m) => m.n === local.sel)?.id; const i = o.races.findIndex((m) => m.id === id); if (i >= 0) o.sel = i + 1; }
+  return o;
+};

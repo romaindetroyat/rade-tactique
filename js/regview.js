@@ -6,6 +6,7 @@ import { regattaStatus, STATUS_LABEL, MAX_NAME, MAX_CLUB, MAX_NOTE, daysOf } fro
 import { clockOf } from './gel.js';
 import { MODELS } from './weather.js';
 import { STATUS, waitingFor, fmtPos, sideTxt } from './regmarks.js';
+import { MAX_HIST, slug } from './archmerge.js';
 
 // Échappe & < > " ' (le esc() d’app.js laisse passer l’apostrophe)
 export const escHTML = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', '\'': '&#39;' }[c]));
@@ -138,19 +139,38 @@ function traceSummaryText(sum) {
   if (sum.perf != null) parts.push(`${Math.round(sum.perf * 100)} % de la polaire`);
   return parts.join(' · ');
 }
-function traceRowHTML(x) {
-  const id = escHTML(x.id);
-  return `<div class="rgtr" data-tr="${id}"><div class="rgh"><span class="rgdn">${escHTML(x.name)}</span> <span class="small muted">${Number.isFinite(x.start) ? tClock(x.start) : ''}</span></div>`
+// local : ensemble des identifiants de traces présentes sur CE téléphone (absent : l'état n'est pas connu, la fiche s'affiche comme avant)
+function traceRowHTML(x, local) {
+  const id = escHTML(x.id), connu = local instanceof Set, ici = !connu || local.has(x.id);
+  const etat = !connu ? '' : ici ? ' <span class="chip good">sur ce téléphone</span>' : ' <span class="chip mid">en ligne seulement</span>';
+  return `<div class="rgtr" data-tr="${id}"><div class="rgh"><span class="rgdn">${escHTML(x.name)}</span> <span class="small muted">${Number.isFinite(x.start) ? tClock(x.start) : ''}</span>${etat}</div>`
     + `<div class="small muted">Rangée ${byLine(x.by, x.at)}</div>`
     + `<div class="small">${escHTML(traceSummaryText(x.sum))}</div>`
     + `<div class="small">${x.report ? `Débrief ${byLine(x.report.by, x.report.t)}` : 'pas encore débriefée'}</div>`
-    + `<div class="btns" style="margin-top:6px"><button type="button" class="btn small alt" data-trv="${id}">Voir la trace</button>`
-    + `<button type="button" class="btn small ${x.report ? 'alt' : 'acc'}" data-trd="${id}">${x.report ? 'Voir le débrief' : 'Débrief'}</button>`
+    + `<div class="btns" style="margin-top:6px">${ici ? `<button type="button" class="btn small alt" data-trv="${id}">Voir la trace</button>`
+      + `<button type="button" class="btn small ${x.report ? 'alt' : 'acc'}" data-trd="${id}">${x.report ? 'Voir le débrief' : 'Débrief'}</button>` : ''}`
     + `<button type="button" class="btn small alt" data-trx="${id}">Détacher</button></div></div>`;
 }
-export function tracesSectionHTML(r) {
+export function tracesSectionHTML(r, { local = null } = {}) {
   const list = r?.traces || [];
-  return `<div class="rgtraces"><h4>Traces</h4>${list.length ? list.map(traceRowHTML).join('') : '<p class="small muted">Aucune trace : importez le GPX après la course (onglet Traces).</p>'}</div>`;
+  return `<div class="rgtraces"><h4>Traces</h4>${list.length ? list.map((x) => traceRowHTML(x, local)).join('') : '<p class="small muted">Aucune trace : importez le GPX après la course (onglet Traces).</p>'}</div>`;
+}
+// Ce qui manque sur ce téléphone : traces rangées absentes de la base locale, jours de vent figés par un AUTRE équipier dont les copies ne sont pas là.
+// local : Set des identifiants de traces locales ; daysLocal : Set des clés `régate|jour` dont les copies sont locales ; me : prénom de CE téléphone.
+// Sans ces informations (null), rien n'est affiché : l'état n'est pas connu.
+export function missingOffline(r, { local = null, daysLocal = null, me = null } = {}) {
+  const traces = local instanceof Set ? (r?.traces || []).filter((x) => !local.has(x.id)).length : 0;
+  const mine = slug(me);
+  const days = daysLocal instanceof Set && mine
+    ? Object.entries(r?.frozen || {}).filter(([d, f]) => f && typeof f.by === 'string' && slug(f.by) && slug(f.by) !== mine && !daysLocal.has(`${r.id}|${d}`)).length : 0;
+  return { traces, days };
+}
+export function downloadHTML(r, opts) {
+  const m = missingOffline(r, opts), aide = typeof opts?.tipHtml === 'string' ? opts.tipHtml : '';        // aide : bouton « i » déjà construit par l'appelant (help.js)
+  if (!m.traces && !m.days) return '';
+  const parts = [m.traces ? `${m.traces} trace${m.traces > 1 ? 's' : ''}` : '', m.days ? `${m.days} jour${m.days > 1 ? 's' : ''} de vent figé` : ''].filter(Boolean).join(' et ');
+  return `<div class="rgdl"><p class="small muted">Pas encore sur ce téléphone : ${parts} (en ligne seulement).</p>`
+    + `<div class="btns"><button type="button" class="btn small acc" data-rg-dl="${escHTML(r.id)}">Télécharger pour le hors réseau</button>${aide}</div></div>`;
 }
 
 // ───────────────────────── bouées et parcours lus dans les IC d’un autre club (D-04, REG-04)
@@ -197,8 +217,39 @@ export function marksSectionHTML(r, { markFix = null, nmOf = (d) => `${(d / 1852
     + `${ms.map((m) => markRowHTML(m, markFix, { nmOf })).join('')}${cs.length ? `<h4>Parcours lus</h4>${cs.map((c) => courseRowHTML(r, c)).join('')}` : ''}</div>`;
 }
 
+// ───────────────────────── historique des valeurs écrasées (D-04)
+// r.hist : [{ kind, id, t, by, v }] produit par mergeRegatta (js/archmerge.js), venu d’AUTRES téléphones : jamais fiable. Tout passe par escHTML,
+// chaque entrée est vérifiée, le texte de l’ancienne valeur est borné et la liste ne dépasse pas MAX_HIST lignes. Aucun appel qui puisse lever.
+const HIST_KIND = { head: 'Fiche', race: 'Manche', mark: 'Bouée', course: 'Parcours', trace: 'Trace' };
+const HIST_MAX_LINES = MAX_HIST, HIST_MAX_CHARS = 120;
+const str = (x) => (typeof x === 'string' || typeof x === 'number' ? String(x) : '');
+const jour = (d) => (/^\d{4}-\d{2}-\d{2}$/.test(str(d)) ? `${d.slice(8, 10)}/${d.slice(5, 7)}` : str(d).slice(0, 20));
+// Ancienne valeur en une ligne de texte brut (échappée plus tard), sans jamais lever
+function histValue(kind, v) {
+  if (v == null) return '(texte des IC non conservé)';
+  if (typeof v !== 'object' || Array.isArray(v)) return '';
+  const nom = str(v.name);
+  if (kind === 'head') return [nom, str(v.club), v.dateStart ? `${jour(v.dateStart)}${v.dateEnd && v.dateEnd !== v.dateStart ? ` au ${jour(v.dateEnd)}` : ''}` : ''].filter(Boolean).join(' · ');
+  if (kind === 'race') return [v.date ? `jour ${jour(v.date)}` : '', v.time ? `signal ${str(v.time)}` : 'signal : heure inconnue', v.cls ? `classe ${str(v.cls)}` : ''].filter(Boolean).join(' · ');
+  if (kind === 'mark') return [nom, Number.isFinite(v.lat) && Number.isFinite(v.lon) ? fmtPos(v.lat, v.lon) : ''].filter(Boolean).join(' · ');
+  if (kind === 'trace') return [nom, Number.isFinite(v.start) ? tClock(v.start) : ''].filter(Boolean).join(' · ');
+  return nom;
+}
+const clip = (x) => (x.length > HIST_MAX_CHARS ? x.slice(0, HIST_MAX_CHARS - 1) + '…' : x);
+export function historySectionHTML(r) {
+  const list = (Array.isArray(r?.hist) ? r.hist : []).filter((x) => x && typeof x === 'object' && Number.isFinite(x.t) && typeof x.kind === 'string')
+    .sort((a, b) => b.t - a.t).slice(0, HIST_MAX_LINES);
+  if (!list.length) return '';
+  const lignes = list.map((x) => {
+    const quand = x.t > 0 ? tClock(x.t) : '—', par = typeof x.by === 'string' && x.by ? `par ${escHTML(x.by.slice(0, 40))}` : '—';
+    return `<div class="small rghl" data-kind="${escHTML(HIST_KIND[x.kind] ? x.kind : 'autre')}"><span class="rghk">${HIST_KIND[x.kind] || 'Modification'}</span> · ${quand} · ${par} · <span class="muted rghv">${escHTML(clip(histValue(x.kind, x.v)))}</span></div>`;
+  });
+  return `<details class="rghist"><summary class="small">Historique (${list.length})</summary>`
+    + `<p class="small muted">Valeurs remplacées par une modification plus récente : quoi, de qui, quand, et ce qu’elle contenait avant.</p>${lignes.join('')}</details>`;
+}
+
 // Fiche de la régate courante : nom, club, dates, statut, auteur, puis les manches (courses = parcours connus [{ id, title }]) et le vent du jour
-export function sheetHTML(r, { now = Date.now(), courses = [], raceDraft = null, raceErrors = {}, markFix = null, nmOf } = {}) {
+export function sheetHTML(r, { now = Date.now(), courses = [], raceDraft = null, raceErrors = {}, markFix = null, nmOf, local = null, daysLocal = null, me = null, tipHtml = '' } = {}) {
   if (!r) return '<div class="card" id="rgSheet"><p class="small muted">Aucune régate courante : créez-en une ou choisissez-en une dans la liste.</p></div>';
   const races = r.races || [];
   return `<div class="card" id="rgSheet"><h3><span>${escHTML(r.name)}</span><small>${escHTML(r.club || 'club à préciser')}</small></h3>
@@ -208,5 +259,7 @@ export function sheetHTML(r, { now = Date.now(), courses = [], raceDraft = null,
     ${raceDraft ? raceFormHTML(r, raceDraft, raceErrors, courses) : '<div class="btns"><button type="button" class="btn small acc" id="rcNew">＋ Ajouter une manche</button></div>'}</div>
     ${marksSectionHTML(r, { markFix, nmOf })}
     ${windSectionHTML(r, { now, courses })}
-    ${tracesSectionHTML(r)}</div>`;
+    ${tracesSectionHTML(r, { local })}
+    ${downloadHTML(r, { local, daysLocal, me, tipHtml })}
+    ${historySectionHTML(r)}</div>`;
 }

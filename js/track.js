@@ -19,9 +19,22 @@ async function tx(mode, fn) {
 export const saveTrack = (tr) => tx('readwrite', (s) => s.put(tr));
 export const deleteTrack = (id) => tx('readwrite', (s) => s.delete(id));
 export const getTrack = (id) => tx('readonly', (s) => s.get(id));
+// Liste par curseur : un enregistrement à la fois, seul le résumé est gardé (une trace pèse ≈ 600 Ko : `getAll` les désérialiserait toutes d'un coup).
+// rt : instant du rapport rangé dans la trace locale, ou null
 export async function listTracks() {
-  const all = await tx('readonly', (s) => s.getAll());
-  return (all || []).map((t) => ({ id: t.id, name: t.name, start: t.start, n: t.pts.length, course: t.course })).sort((a, b) => b.start - a.start);
+  const d = await db();
+  const out = await new Promise((ok, ko) => {
+    const res = [], c = d.transaction(ST, 'readonly').objectStore(ST).openCursor();
+    c.onsuccess = () => {
+      const cur = c.result;
+      if (!cur) return ok(res);
+      const t = cur.value;
+      res.push({ id: t.id, name: t.name, start: t.start, n: t.pts.length, course: t.course, rt: t.report?.t ?? null });
+      cur.continue();
+    };
+    c.onerror = () => ko(c.error);
+  });
+  return out.sort((a, b) => b.start - a.start);
 }
 
 // ───────────────────────── enregistrement
@@ -134,7 +147,8 @@ export function fromGPX(text, name) {
   const trkName = doc.querySelector('trk > name')?.textContent?.trim();
   // coupures : début de chaque <trkseg> après un trou de plus de 5 s, ou trou de plus de 2 min (js/segments.js)
   const brk = breaksFromInstants(pts, segStartsFromDoc(doc));
-  return { id: 'tr' + pts[0][0] + Math.round(Math.random() * 1000), name: trkName || name.replace(/\.(gpx|xml|txt)$/i, ''), start: pts[0][0], course: null, pts, brk, imported: true };
+  // identifiant déterministe (même fichier = même trace, sur n'importe quel téléphone : l'archive partagée ne la garde qu'une fois) ; les traces déjà enregistrées gardent le leur
+  return { id: 'tr' + pts[0][0] + '-' + pts.length, name: trkName || name.replace(/\.(gpx|xml|txt)$/i, ''), start: pts[0][0], course: null, pts, brk, imported: true };
 }
 export async function exportGPX(tr) {
   const file = new File([toGPX(tr)], `${tr.name.replace(/[^\w\- ]+/g, '_')}.gpx`, { type: 'application/gpx+xml' });

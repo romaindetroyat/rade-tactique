@@ -8,6 +8,12 @@ const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<
 // Petit bouton ⓘ à placer à côté d'un titre
 export const tip = (text) => `<button type="button" class="tip-i" data-tip="${esc(text)}" aria-label="Aide">i</button>`;
 
+// Bulle de l’indicateur de synchronisation (onglet Régates), cohérente avec la carte « Archive partagée » du guide
+export const SYNC_TIP = 'Régates, manches, IC validées, bouées confirmées, recalages des bouées, vent du jour figé, traces, débriefs et rapports sont partagés avec l’équipage, en privé, jamais pendant une course. « À jour » : tout est échangé. « En attente d’envoi » : une modification part dans la minute. « Hors réseau · n modifications en attente » : elles partiront au retour du réseau. « En pause pendant la course » : rien ne circule pendant un chrono, une trace ou le mode départ. « Archive non configurée » : l’app marche comme avant. « (essai) » : version d’essai. Une valeur écrasée reste dans « Historique » de la fiche. « Désactiver la synchronisation » coupe tout échange sur ce téléphone.';
+
+// Bulle du bouton « Télécharger pour le hors réseau » (fiche de régate), cohérente avec la carte « Lire une régate hors réseau » du guide
+export const DL_TIP = 'Les régates des six derniers mois et à venir sont déjà entières sur le téléphone après une synchronisation : fiche, vent du jour, traces, débrief et rapport, lisibles en mode avion. Pour une régate plus ancienne, ce bouton rapatrie d’un geste ses traces, rapports et vent du jour (environ 1 Mo par régate). À faire avec du réseau, hors course : rien de lourd ne circule pendant la journée de régate.';
+
 // Infobulles des éléments fixes de l'interface
 const STATIC_TIPS = {
   '#daySeg': 'Jour affiché : aujourd’hui, demain (🏁 = jour de régate) ou après-demain.',
@@ -31,7 +37,7 @@ const STATIC_TIPS = {
   '[data-tab=wind]': 'Vent manuel, relevés, intensité des effets du relief et explications du modèle.',
   '[data-tab=tracks]': 'Traces enregistrées : carte, statistiques, comparaison à la route optimale, export GPX.',
   '[data-tab=j80]': 'Polaires J80 (ORC), vitesses cibles et guides de réglage.',
-  '[data-tab=ic]': 'Régates : créez une régate, ses manches, importez et relisez ses IC ; vent du jour figé, traces et débrief dans la fiche ; règles de course, marques, dangers.',
+  '[data-tab=ic]': 'Régates : créez une régate, ses manches, importez et relisez ses IC ; vent du jour figé, traces et débrief dans la fiche, partagés avec l’équipage hors course ; règles de course, marques, dangers.',
 };
 
 let bubble = null, bubbleFor = null;
@@ -90,7 +96,7 @@ export const GUIDE = `
   <li><b>Relevé de vent</b> (en haut de Parcours ou dans En course) : touchez 🎤 et parlez librement : « ça refuse d’une dizaine de degrés et ça mollit un peu », « mistral 18 nœuds avec des rafales à 24 », « 290 12 » ; ou réglez le compas puis « Enregistrer ». L’app retient le modèle météo qui colle le mieux et recale la prévision.</li>
   <li><b>Départ</b> : placez la ligne (GPS au ras du Comité puis de la bouée), lisez le biais et lancez le chrono au signal d’avertissement.</li>
   <li><b>En course</b> : activez le GPS et l’enregistrement de la trace. Relèvement et distance de la prochaine marque, et « Recalculer la suite » depuis votre position avec le dernier vent relevé.</li>
-  <li><b>Régates</b> : créez la régate en trois champs (nom, premier jour, club), ajoutez ses manches (heure du signal, parcours) et touchez <b>Choisir cette manche</b>. Importez le PDF des IC : chaque valeur s’affiche avec sa phrase d’origine, rien n’est retenu avant <b>Valider les IC</b>. Pour un autre club, <b>Lire avec l’IA</b> (avec le réseau, avant la régate) ; ses bouées restent « <b>X1 ?</b> » à confirmer dans la fiche avant de servir. Le vent du jour se fige tout seul à l’ouverture de l’app le jour de la régate.</li>
+  <li><b>Régates</b> : créez la régate en trois champs (nom, premier jour, club), ajoutez ses manches (heure du signal, parcours) et touchez <b>Choisir cette manche</b>. Importez le PDF des IC : chaque valeur s’affiche avec sa phrase d’origine, rien n’est retenu avant <b>Valider les IC</b>. Pour un autre club, <b>Lire avec l’IA</b> (avec le réseau, avant la régate) ; ses bouées restent « <b>X1 ?</b> » à confirmer dans la fiche avant de servir. Le vent du jour se fige tout seul à l’ouverture de l’app le jour de la régate. <b>Archive partagée</b> : les régates, manches, IC validées, bouées confirmées, recalages des bouées et résumés du vent du jour sont partagés avec l’équipage, en privé, à l’ouverture, au retour du réseau, 20 secondes après une modification et une minute après la course, <b>jamais pendant un chrono, une trace, le mode départ ou la course</b> ; l’indicateur de l’onglet Régates dit où l’on en est (« À jour », « En attente d’envoi », « Hors réseau · n modifications en attente »), et <b>Désactiver la synchronisation</b> coupe tout sur ce téléphone.</li>
   <li><b>Traces</b> : après la course, importez le GPX (rangé tout seul dans la régate du jour), revoyez-le, comparez-le à la route optimale et validez le débrief pré-rempli.</li>
 </ol>
 <p class="small"><a href="guide.html" target="_blank" rel="noopener"><b>📖 Guide complet de l’équipage</b></a> : toutes les fonctions, du départ au débrief.</p>
