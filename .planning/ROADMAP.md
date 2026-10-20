@@ -174,7 +174,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 **Depends on:** Phase 4
 **Success Criteria** (what must be TRUE):
   1. Sur un téléphone qui a déjà servi, la Coupe SNPM et les fiches, traces et débriefs déjà présents apparaissent comme des régates de l'archive, une seule fois même si deux téléphones les avaient, sans rien perdre de la référence SNPM
-  2. Les trois fonctions d'IA envoient `store: false` à OpenAI, et un plafond par équipier et par jour les arrête avec un message clair au lieu d'une dépense sans limite
+  2. Les quatre fonctions d’IA (dictée, débrief, arbitre, lecture d’IC) envoient `store: false` à OpenAI, et un plafond par équipier et par jour les arrête avec un message clair au lieu d'une dépense sans limite
   3. Le plafond de dépense du projet OpenAI est posé côté OpenAI par Romain (geste guidé), et l'app reste utilisable sans l'IA quand il est atteint
   4. v32 sur l'aperçu `apercu-phase-05`, vérifiée, puis en production sur décision de Romain avant le 2 novembre
 **Plans:** 0 plans
