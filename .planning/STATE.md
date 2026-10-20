@@ -166,6 +166,7 @@ Décisions récentes qui orientent le travail en cours :
 |---|-------------|------|--------|-----------|
 | 261020-eaq | Guide de prise en main refait, très clair et exhaustif (v33) | 2026-10-20 | 77b1902 | [261020-eaq-guide-prise-en-main](./quick/261020-eaq-guide-prise-en-main/) |
 | 261020-aid | Aide intégrée mise à jour (v34) | 2026-10-20 | fe1abb5 | [261020-aid-aide-integree](./quick/261020-aid-aide-integree/) |
+| 261020-sec | Durcissement : fichiers internes fermés (liste blanche), en-têtes de sécurité et CSP, GPS arrêté après la course (v35, aperçu) | 2026-10-20 | c40d262 | [261020-sec-durcissement](./quick/261020-sec-durcissement/) |
 
 ### Roadmap Evolution
 
