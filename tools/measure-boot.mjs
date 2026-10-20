@@ -10,15 +10,16 @@
 //   - à titre indicatif : délai entre cet instant et l’ouverture du mode départ (onglet Départ puis « Mode départ »), instant de la
 //     carte prête (marque rt:map, si elle existe) et plus longue tâche longue après l’interface utile (BOOT_WAIT_MS ms observées, 15000 par défaut).
 //     Ces trois colonnes sont indicatives : seul l’instant de l’interface utile fait critère. Les appels de dessin et de téléversement WebGL sont neutralisés (voir INIT).
-// Sortie : 0 = médiane de l’interface utile < 2000 ms ; 1 = médiane ≥ 2000 ms ; 2 = mesure impossible avec PW_REQUIRED=1.
+// Sortie : 0 = médiane de l’interface utile < 2000 ms ; 1 = médiane ≥ 2000 ms, ou violation de la politique de contenu, ou chemin refusé par la liste
+// blanche (le serveur applique les en-têtes de vercel.json et le middleware, voir tools/serveur-local.mjs) ; 2 = mesure impossible avec PW_REQUIRED=1.
 // Le serveur n’écoute que sur 127.0.0.1, le temps de la première visite ; les requêtes vers d’autres hôtes échouent tout de suite
 // (aucun réseau pendant les ouvertures).
 
-import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
-import { extname, join, normalize, sep } from 'node:path';
+import { join } from 'node:path';
 import { launchChromium } from './pw.mjs';
+import { demarreServeur } from './serveur-local.mjs';
 
 const ROOT = fileURLToPath(new URL('../', import.meta.url));
 const CPU = Number(process.argv[2]) || 4;
@@ -26,27 +27,20 @@ const OUVERTURES = Number(process.argv[3]) || 5;
 const ATTENTE_MS = Number(process.env.BOOT_WAIT_MS) || 15000;
 const SEUIL_MS = 2000;
 const REQUIS = process.env.PW_REQUIRED === '1';
-const MIME = {
-  '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
-  '.json': 'application/json', '.bin': 'application/octet-stream', '.png': 'image/png', '.jpg': 'image/jpeg', '.webmanifest': 'application/manifest+json', '.pol': 'text/plain; charset=utf-8',
-};
 
-const serveur = createServer(async (req, res) => {
-  try {
-    let u = decodeURIComponent(new URL(req.url, 'http://x').pathname);
-    if (u.endsWith('/')) u += 'index.html';
-    const f = normalize(join(ROOT, u));
-    if (f !== ROOT.slice(0, -1) && !f.startsWith(ROOT)) throw new Error('hors dépôt');
-    const octets = await readFile(f);
-    res.writeHead(200, { 'content-type': MIME[extname(f)] || 'application/octet-stream', 'cache-control': 'no-cache' }); res.end(octets);
-  } catch { res.writeHead(404); res.end(); }
-});
-await new Promise((ok) => serveur.listen(0, '127.0.0.1', ok));
-const port = serveur.address().port, url = `http://127.0.0.1:${port}/`;
+// Serveur commun aux outils (tools/serveur-local.mjs) : en-têtes de sécurité de vercel.json et liste blanche du middleware appliqués comme en production.
+// Les ouvertures hors réseau passent par le service worker, dont les réponses en cache gardent leurs en-têtes : la politique de contenu y est donc exercée.
+const { serveur, base: url, refuses } = await demarreServeur({ root: ROOT });
+const port = serveur.address().port;
+// violations relevées par toutes les pages (première visite comprise) : politique de contenu, ou Permissions-Policy mal formée
+const VIOLATION = /Content.Security.Policy|^CSP :|Unrecognized feature|Error with Permissions-Policy/i;
+const violations = [];
+const guette = (page) => page.on('console', (m) => { if (VIOLATION.test(m.text())) violations.push(m.text().slice(0, 300)); });
 
 // Posé avant tout script de la page : tâches longues et retrait du splash, avec l’horloge de la page (origine = début de la navigation)
 const INIT = (sansDessin) => {
   window.__boot = { ui: null, longs: [] };
+  document.addEventListener('securitypolicyviolation', (e) => console.error('CSP : ' + e.violatedDirective + ' ' + e.blockedURI));
   // Chromium sans tête dessine en logiciel (SwiftShader) : une image de la carte coûte 400 ms et le téléversement du fond de carte
   // (texImage2D) 2,7 s sur le fil principal, ce qui fausse toutes les mesures qui suivent l’interface utile (un iPhone a un GPU).
   // Les appels de dessin et de téléversement WebGL sont donc neutralisés ; tout le travail JavaScript de la 3D (import, terrain, maillage)
@@ -67,6 +61,7 @@ const fmt = (v) => (v == null ? '—' : String(Math.round(v)).padStart(6));
 async function premiereVisite(ctx) {
   const shell = JSON.parse(/const SHELL = (\[.*?\]);/s.exec(await readFile(join(ROOT, 'sw.js'), 'utf8'))[1]);
   const page = await ctx.newPage();
+  guette(page);
   page.on('pageerror', (e) => console.error('erreur page (1re visite) :', e.message));
   await page.goto(url, { waitUntil: 'load' });
   // la liste hors réseau doit être entièrement en cache ET le worker doit contrôler la page (sondé depuis Node : un prédicat asynchrone
@@ -96,6 +91,7 @@ async function ouverture(ctx, n) {
   const page = await ctx.newPage();
   const cdp = await ctx.newCDPSession(page);
   const erreurs = [];
+  guette(page);
   page.on('pageerror', (e) => erreurs.push(e.message));
   try {
     await cdp.send('Emulation.setCPUThrottlingRate', { rate: CPU });
@@ -149,7 +145,14 @@ try {
   const erreurs = [...new Set(mesures.flatMap((m) => m.erreurs))];
   if (erreurs.length) console.log(`Erreurs de page relevées : ${erreurs.join(' ; ')}`);
   const m = med('ui');
-  if (m == null) { console.error('Aucune interface utile relevée'); code = REQUIS ? 2 : 1; }
+  const refusees = refuses.filter((x) => x !== '/favicon.ico');                // /favicon.ico : demande automatique du navigateur, hors de l’app
+  if (violations.length || refusees.length) {
+    if (violations.length) console.log(`Violations de la politique de contenu : ${[...new Set(violations)].join(' ; ')}`);
+    if (refusees.length) console.log(`Chemins refusés par la liste blanche : ${[...new Set(refusees)].join(' ; ')}`);
+    console.log('RÉSULTAT : ÉCHEC — violation de la politique de contenu ou chemin refusé par la liste blanche');
+    code = 1;
+  }
+  else if (m == null) { console.error('Aucune interface utile relevée'); code = REQUIS ? 2 : 1; }
   else if (m >= SEUIL_MS) { console.log(`RÉSULTAT : ÉCHEC — médiane de l’interface utile ${Math.round(m)} ms ≥ ${SEUIL_MS} ms`); code = 1; }
   else console.log(`RÉSULTAT : OK — médiane de l’interface utile ${Math.round(m)} ms < ${SEUIL_MS} ms (hors réseau, CPU ×${CPU})`);
 } catch (e) {
