@@ -235,6 +235,18 @@ test('archive : raceTick abandonne l’échange en cours et programme la synchro
   assert.match(bodyOf(app, 'syncDeps'), /canApply: \(\) => !icBusy\(\) && !markEdit/, 'réponse jetée pendant une saisie');
 });
 
+test('verrou et voyant suivent chaque geste de course tout de suite (pas d’attente du tic de 5 s)', () => {
+  assert.match(bodyOf(app, 'startGps'), /raceTick\(\);/, 'GPS allumé');
+  assert.match(bodyOf(app, 'stopGps'), /raceTick\(\);/, 'GPS éteint');
+  assert.match(app, /\$\('#smOpen'\)\.onclick = \(\) => \{ startMode\.open\(\); raceTick\(\); \}/, 'mode départ ouvert');
+  assert.match(app, /closed: \(\) => \{ releaseGps\('mode départ fermé'\); raceTick\(\); \}/, 'mode départ fermé');
+  assert.match(app, /const setT = \(sec\) => \{[^\n]*startTimer\(\); raceTick\(\); \}/, 'chrono lancé');
+  assert.match(app, /releaseGps\('chrono arrêté'\); raceTick\(\); \}/, 'chrono arrêté');
+  assert.match(app, /écran allumé\.'\); renderLiveNav\(\); raceTick\(\);/, 'trace lancée');
+  assert.match(app, /releaseGps\('trace arrêtée'\); raceTick\(\); \}/, 'trace arrêtée');
+  assert.match(app, /if \(saved\?\.end[^\n]*startTimer\(\); resumed = true; \}/, 'la reprise du chrono au démarrage n’appelle pas raceTick (startMode pas encore créé)');
+});
+
 test('archive : les déclencheurs réseau relancent la synchronisation (online, sonde, retour au premier plan)', () => {
   assert.match(app, /addEventListener\('online', \(\) => \{[^\n]*scheduleSync\(2000\)/);
   assert.match(bodyOf(app, 'probeNet'), /if \(net\.online\) scheduleSync\(2000\)/);
@@ -248,7 +260,7 @@ test('GPS d’office : releaseGps n’est appelée que par ✕ du mode départ, 
   assert.equal(appels.length, 3, 'trois appels exactement : ✕, ⏹ et Stop');
   const apres = (i) => app.slice(i, i + 80);
   const [closed, tstop, recStop] = [apres(appels[0]), apres(appels[1]), apres(appels[2])];   // dans l’ordre du fichier : mode départ, onglet Départ, onglet En course
-  assert.match(app.slice(app.lastIndexOf('\n', appels[0]), appels[0]), /closed:\s*\(\)\s*=>\s*$/, '✕ : closed de l’api du mode départ');
+  assert.match(app.slice(app.lastIndexOf('\n', appels[0]), appels[0]), /closed:\s*\(\)\s*=>\s*\{?\s*$/, '✕ : closed de l’api du mode départ');
   assert.match(closed, /mode départ fermé/);
   const AUTRE_GESTIONNAIRE = /\$\('#\w+'\)\??\.(?:onclick|addEventListener)/;     // un autre gestionnaire entre l’ancre et l’appel : l’appel serait ailleurs
   const iRec = app.indexOf("$('#recStop')"), iStop = app.indexOf("$('#tstop')");

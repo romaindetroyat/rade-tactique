@@ -880,7 +880,7 @@ Object.defineProperty(timer, 'end', {
 });
 const startMode = createStartMode({
   S, persist, timer, wake, beep: (...x) => beep(...x), audioInit: () => audioInit(), startTimer: () => startTimer(), startGps: () => startGps('auto'), gps: () => gps, say, toast,
-  closed: () => releaseGps('mode départ fermé'),
+  closed: () => { releaseGps('mode départ fermé'); raceTick(); },
   setLineEnd: (w, ll) => setLineEnd(w, ll), reanalyse: () => scheduleAnalysis(), help: () => openGuide(),
   audioRelease: () => audioRelease(), testSound: () => testSound(), chronoAlert: () => chronoAlert(), fixAlert: (a) => fixAlert(a),
   status: () => statusView(), fixLamp: (a) => fixLamp(a), lampTouch: (id) => lampTouch(id),
@@ -925,14 +925,14 @@ function renderStart() {
   $('#lMode').onchange = (e) => { S.lineMode = e.target.value; S.lineOverride = null; persist(); scheduleAnalysis(); renderStart(); };
   if ($('#lBrg')) $('#lBrg').onchange = (e) => { S.lineBrg = norm360(+e.target.value || 0); persist(); scheduleAnalysis(); };
   $('#lReset')?.addEventListener('click', () => { S.lineOverride = null; persist(); scheduleAnalysis(); });
-  $('#smOpen').onclick = () => startMode.open();
+  $('#smOpen').onclick = () => { startMode.open(); raceTick(); };
   $('#pingCb').onclick = () => pingLine('cb');
   $('#pingPin').onclick = () => pingLine('pin');
-  const setT = (sec) => { audioInit(); timer.end = Date.now() + sec * 1000; startTimer(); };
+  const setT = (sec) => { audioInit(); timer.end = Date.now() + sec * 1000; startTimer(); raceTick(); };
   $('#t5').onclick = () => setT(300); $('#t4').onclick = () => setT(240); $('#t1').onclick = () => setT(60);
   $('#tm').onclick = () => { if (timer.end) timer.end -= 60000; }; $('#tp').onclick = () => { if (timer.end) timer.end += 60000; };
   $('#tsync').onclick = () => { if (timer.end) { const r = (timer.end - Date.now()) / 1000; timer.end = Date.now() + Math.round(r / 60) * 60000; } };
-  $('#tstop').onclick = () => { timer.end = null; clearInterval(timer.iv); timer.iv = null; $('#tClock').textContent = '5:00'; $('#tPhase').textContent = 'Prêt'; renderChronoAlert(); releaseGps('chrono arrêté'); };
+  $('#tstop').onclick = () => { timer.end = null; clearInterval(timer.iv); timer.iv = null; $('#tClock').textContent = '5:00'; $('#tPhase').textContent = 'Prêt'; renderChronoAlert(); releaseGps('chrono arrêté'); raceTick(); };
   $('#tTest').onclick = () => testSound();
   $('#tSnd').onclick = (e) => fixAlert(e.currentTarget.dataset.act);
   if (timer.iv) tickTimer();
@@ -1211,6 +1211,7 @@ function startGps(origine) {
   }, (e) => { gps.err = e.code; gps.errMsg = e.message; report('gps', 'code ' + e.code + ' : ' + e.message); renderLiveNav(); renderRaceBar(); }, { enableHighAccuracy: true, maximumAge: 1000 });
   wake.want('gps');
   renderLive();
+  raceTick();                                    // le verrou et le voyant de synchronisation suivent le geste tout de suite, sans attendre le tic de 5 s
 }
 // Le GPS allumé d’office s’éteint au geste qui termine la dernière activité de course : ✕ du mode départ, ⏹ de la trace, Stop du chrono.
 // Jamais sur une horloge ; jamais tant qu’un chrono existe, que le mode départ est ouvert, qu’une trace s’enregistre ou que l’équipier l’a allumé lui-même.
@@ -1222,7 +1223,7 @@ function releaseGps(cause) {
 }
 async function stopGps() {
   if (recorder.active) { const tr = await recorder.stop(); if (tr?.pts.length > 1) toast(`Trace enregistrée (${tr.pts.length} points)${await rangeEnregistree(tr)}`); renderTracks(); }
-  if (gps?.watch != null) navigator.geolocation.clearWatch(gps.watch); gps = null; silence = null; wake.drop('gps'); scene?.setBoat(null); renderLive(); renderRaceBar();
+  if (gps?.watch != null) navigator.geolocation.clearWatch(gps.watch); gps = null; silence = null; wake.drop('gps'); scene?.setBoat(null); renderLive(); renderRaceBar(); raceTick();
 }
 function autoAdvance() {
   if (!analysis || !gps?.pos) return;
@@ -1260,13 +1261,13 @@ function renderLiveNav() {
     if (!gps) startGps('auto');
     const c = COURSES.find((x) => x.id === S.courseId);
     recorder.start({ name: `${dayName(today())} — ${c.title}`, course: { id: S.courseId, cls: S.cls, laps: S.laps, day: S.day, startTime: S.startTime } });
-    toast('Enregistrement lancé : gardez l’app ouverte, écran allumé.'); renderLiveNav();
+    toast('Enregistrement lancé : gardez l’app ouverte, écran allumé.'); renderLiveNav(); raceTick();
   });
   $('#recStop')?.addEventListener('click', async () => {
     try {
       const tr = await recorder.stop();
       toast(tr && tr.pts.length > 1 ? `Trace enregistrée (${tr.pts.length} points)${await rangeEnregistree(tr)} — onglet Traces` : 'Trace trop courte, non enregistrée');
-    } finally { renderLiveNav(); renderTracks(); releaseGps('trace arrêtée'); }      // même si la sauvegarde finale échoue : la trace n’est plus en cours
+    } finally { renderLiveNav(); renderTracks(); releaseGps('trace arrêtée'); raceTick(); }      // même si la sauvegarde finale échoue : la trace n’est plus en cours
   });
   if (!A) { n.innerHTML = '<p class="small muted">Analyse du parcours en cours de calcul…</p>'; return; }
   nextIdx = Math.min(nextIdx, A.legs.length - 1);
