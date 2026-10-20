@@ -2,10 +2,11 @@
 // l’extrait d’origine, vérifié mot pour mot dans le texte reçu avant d’être renvoyé (D-01). Une valeur sans extrait retrouvé est vidée et
 // signalée, jamais devinée ; une valeur absente de son extrait aussi. Seul `req.body.text` est lu : aucun en-tête, cookie ou code d’accès
 // n’est transmis à OpenAI. Variables d’environnement : OPENAI_API_KEY, OPENAI_MODEL (défaut gpt-5.5).
-// Les fonctions de vérification sont exportées pour être testées sans réseau (tests/apiic.test.mjs) ; `createHandler({ openai })` accepte un
-// client simulé (objet ou fonction qui le rend).
+// Les fonctions de vérification sont exportées pour être testées sans réseau (tests/apiic.test.mjs) ; `createHandler({ openai, blob, now })`
+// accepte un client simulé (objet ou fonction qui le rend) et un faux Blob. L'appel à OpenAI, le quota par équipier et les erreurs passent par
+// api/_ia.js ; le prénom de l'équipier y est lu, ici rien de la requête n'est lu hors du texte.
 
-import OpenAI from 'openai';
+import { createIA } from './_ia.js';
 
 export const MAX_TEXT = 50000;                      // caractères envoyés au plus ; les IC CVAT en font ~11 500
 export const MIN_EXCERPT = 8;                       // un extrait plus court ne prouve rien (comparé sans blancs)
@@ -119,29 +120,25 @@ export function verify(out, text) {
 
 // ───────────────────────── fonction Vercel
 
-let client = null;                                  // créé à la première requête : sans clé, le constructeur lèverait une erreur au chargement (comme api/rules.js)
 const bornee = (err) => String(err?.message || err).slice(0, 300);
 
-export function createHandler({ openai, instructions = SYSTEM } = {}) {
-  const getClient = typeof openai === 'function' ? openai : openai ? () => openai : () => (client ??= new OpenAI());
+export function createHandler({ openai, blob, now, delai, instructions = SYSTEM } = {}) {
+  const ia = createIA({ openai, blob, now, delai });
   return async function handler(req, res) {
     if (req.method !== 'POST') return res.status(405).json({ error: 'POST uniquement' });
     if (!process.env.OPENAI_API_KEY) return res.status(503).json({ error: 'no_key' });
     const text = typeof req.body?.text === 'string' ? req.body.text : '';
     if (text.trim().length < MIN_TEXT) return res.status(400).json({ error: 'texte des IC manquant ou trop court' });
     const sent = text.slice(0, MAX_TEXT);                                    // la vérification se fait contre ce qui est ENVOYÉ
-    res.setHeader?.('Cache-Control', 'no-store');
+    if (!(await ia.garde(req, res))) return;
     let r;
     try {
-      r = await getClient().responses.create({
+      r = await ia.appelle({
         model: MODEL, instructions, input: `<ic>\n${sent}\n</ic>`, reasoning: { effort: 'low' }, max_output_tokens: MAX_OUT,
         text: { format: { type: 'json_schema', name: 'ic', schema: SCHEMA, strict: true } },
       });
     } catch (err) {
-      const isApi = err instanceof OpenAI.APIError;
-      // le 401/403 d’OpenAI (clé refusée) n’est pas un refus d’accès à l’app : la page lit 401 comme « rouvrez l’app avec votre code »
-      const status = isApi ? ([401, 403].includes(err.status) ? 502 : err.status || 502) : 500;
-      return res.status(status).json({ error: bornee(err) });
+      return ia.repond(res, err);
     }
     if (r?.status === 'incomplete') return res.status(502).json({ error: 'réponse tronquée : réessayez' });
     let out;

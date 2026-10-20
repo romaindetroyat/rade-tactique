@@ -169,6 +169,7 @@ async function init() {
   performance.mark('rt:map');
   syncReady = true; setTimeout(() => syncNow('ouverture'), 3000);   // archive partagée : jamais avant la carte, ni attendue
   mapOk();                                              // showTrace et le débrief attendaient la carte : ils peuvent continuer
+  setTimeout(() => reprise(), 1500);                    // rattrapage des anciennes traces (ARCH2-01) : après la carte, avant la synchronisation d’ouverture, jamais attendu
   freezeTick('ouverture');                              // prévisions en cache ou embarquées déjà lues : le gel marche aussi hors réseau, sans rien attendre
   maybeWelcome();
   renderTracks();
@@ -322,6 +323,10 @@ async function understand(alts, last, tack) {
         if (dir == null || spd == null) return { error: 'il manque la direction ou la force', ai: true };
         if (j.confidence === 'low') notes.push('à vérifier');
         return { dir: ((Math.round(dir / 5) * 5) % 360 + 360) % 360, spd: Math.round(spd), gust: j.gust, notes, summary: j.summary, ai: true };
+      }
+      if (r.status === 429) {                                                // quota du jour ou budget du mois : le serveur le dit, puis l'analyse locale prend le relais
+        const j = await r.json().catch(() => { /* corps illisible : l'analyse locale suffit, sans message */ return null; });
+        if (typeof j?.message === 'string' && j.message.trim()) toast(j.message.trim().slice(0, 200));
       }
     } catch { /* hors réseau ou délai dépassé : analyse locale */ }
   }
@@ -788,10 +793,11 @@ function raceTick() {
   // D-03 : une course qui commence abandonne l’échange en cours ; une course qui finit relance la synchronisation une minute plus tard
   if (active) syncCtl?.abort();
   if (wasRaceActive && !active) scheduleSync(60000);
+  if (wasRaceActive && !active) reprise();         // le rattrapage reporté pendant la course repart à sa fin (D-03)
   if (active !== wasRaceActive) { wasRaceActive = active; paintSync(); }
   const locked = raceLock(now).locked;
   updates?.refresh();
-  if (wasLocked && !locked) { updates?.check(); scheduleSync(60000); }    // le téléchargement était suspendu pendant le verrou ; l'archive (objets lourds compris) repart une minute plus tard
+  if (wasLocked && !locked) { updates?.check(); scheduleSync(60000); reprise(); }    // le téléchargement était suspendu pendant le verrou ; l'archive (objets lourds compris) repart une minute plus tard
   wasLocked = locked;
   freezeTick('tic');                             // copie du vent du jour (gel) : jamais reportée, voir plus bas
 }
@@ -1202,7 +1208,7 @@ function startGps() {
   renderLive();
 }
 async function stopGps() {
-  if (recorder.active) { const tr = await recorder.stop(); if (tr?.pts.length > 1) toast(`Trace enregistrée (${tr.pts.length} points)`); renderTracks(); }
+  if (recorder.active) { const tr = await recorder.stop(); if (tr?.pts.length > 1) toast(`Trace enregistrée (${tr.pts.length} points)${await rangeEnregistree(tr)}`); renderTracks(); }
   if (gps?.watch != null) navigator.geolocation.clearWatch(gps.watch); gps = null; silence = null; wake.drop('gps'); scene?.setBoat(null); renderLive(); renderRaceBar();
 }
 function autoAdvance() {
@@ -1243,7 +1249,7 @@ function renderLiveNav() {
     recorder.start({ name: `${dayName(today())} — ${c.title}`, course: { id: S.courseId, cls: S.cls, laps: S.laps, day: S.day, startTime: S.startTime } });
     toast('Enregistrement lancé : gardez l’app ouverte, écran allumé.'); renderLiveNav();
   });
-  $('#recStop')?.addEventListener('click', async () => { const tr = await recorder.stop(); toast(tr && tr.pts.length > 1 ? `Trace enregistrée (${tr.pts.length} points) — onglet Traces` : 'Trace trop courte, non enregistrée'); renderLiveNav(); renderTracks(); });
+  $('#recStop')?.addEventListener('click', async () => { const tr = await recorder.stop(); toast(tr && tr.pts.length > 1 ? `Trace enregistrée (${tr.pts.length} points)${await rangeEnregistree(tr)} — onglet Traces` : 'Trace trop courte, non enregistrée'); renderLiveNav(); renderTracks(); });
   if (!A) { n.innerHTML = '<p class="small muted">Analyse du parcours en cours de calcul…</p>'; return; }
   nextIdx = Math.min(nextIdx, A.legs.length - 1);
   const l = A.legs[nextIdx];
@@ -1443,6 +1449,7 @@ async function runDebrief(tr) {
   if (modes) { ans.legModes = modes; busy('Recalcul avec vos réponses…'); await new Promise((r) => setTimeout(r, 30)); an = dbAnalyze(det, ans, api); }
   busy(navigator.onLine ? 'Rédaction de l’analyse…' : 'Rédaction de l’analyse (hors réseau : version automatique)…');
   const nar = await dbNarrative(an, ans);
+  if (typeof nar.iaNote === 'string' && nar.iaNote) toast(nar.iaNote);          // quota ou budget atteint : le rapport est écrit par la rédaction automatique
   const html = await dbBuild(an, ans, nar, det, api);
   tr.report = { html, t: Date.now(), name: `${ans.event || 'Débrief'} ${new Date(an.tStart).toLocaleDateString('fr-FR')}` };
   await saveTrack(tr);
@@ -1539,6 +1546,15 @@ async function rangeTrace(tr, { invite = true, force = false } = {}) {
   const c = await askPlace(tr, m);
   if (!c) return { reg: null, how: m.how };
   return { reg: c.create ? createFor(m, tr) : attachTo(c.reg, tr), how: c.create ? 'cree' : 'choisie' };
+}
+// Trace enregistrée dans l’app, rangée à l’arrêt comme un import GPX, sans question (D-09). Rend le suffixe du message d’arrêt
+// (« · rangée dans <régate> ») ou une chaîne vide. Ne fait que poser la référence : l’envoi attend toujours la fin de la course et du verrou.
+async function rangeEnregistree(tr) {
+  if (!(tr?.pts?.length > 1)) return '';
+  try {
+    const r = await rangeTrace(tr, { invite: false });
+    return r.reg ? ` · rangée dans ${r.reg.name}` : '';
+  } catch (e) { report('trace', e); return ''; }                              // le rangement ne doit jamais faire perdre le message d’arrêt
 }
 // Import de fichiers GPX, un par un : doublon reconnu (même début, même nombre de points), rangement dans la régate du jour, puis la dernière
 // trace s'ouvre et, si elle est rangée, le questionnaire du débrief s'ouvre seul, pré-rempli : l'équipier le valide comme avant.
@@ -1891,6 +1907,28 @@ async function runHeavyNow({ only = null, manuel = false } = {}) {
   if (res && (res.up || res.down) && !res.error) setTimeout(() => runHeavyNow({ only }).catch((e) => report('archive', e)), 3000);     // la suite du plan (6 objets par passage)
   return res;
 }
+// Rattrapage des traces gardées avant l’archive (ARCH2-01) : une seule fois par téléphone, hors course et hors journée verrouillée (D-03).
+// REPRISE_KEY = { done: true, at, rangees, laissees } : posé seulement quand la boucle est allée au bout ; reportée, interrompue ou base illisible, elle est rejouée.
+// Une fois posé, plus jamais de rattrapage : une trace que l’équipier détache ensuite ne revient pas. Le module est chargé par import() seulement (FIAB-06).
+const REPRISE_KEY = 'rade.reprise.v1';
+let repriseBusy = false;
+async function reprise() {
+  if (repriseBusy || store.get(REPRISE_KEY, null)?.done) return;
+  repriseBusy = true;
+  try {
+    const mod = await import('./reprise.js');
+    const res = await mod.runReprise({
+      listTracks, getTrack, saveTrack, deleteTrack, getList: () => REG.list,
+      save: (r) => { saveReg(upsertRegatta(REG, r)); refreshSheet(); },
+      who, now: Date.now, isActive: () => raceActive(Date.now()), isLocked: () => raceLock().locked, report,
+    });
+    const dit = res.skipped ? 'reportée : ' + res.skipped
+      : `${res.rangees} rangée(s), ${res.laissees} laissée(s) sans régate, ${res.deja} déjà rangée(s)${res.renommees ? `, ${res.renommees} renommée(s)` : ''}${res.erreurs ? `, ${res.erreurs} erreur(s)` : ''}${res.error ? ' · échec : ' + res.error : ''}`;
+    note('reprise', dit);
+    if (!res.skipped && !res.error) store.set(REPRISE_KEY, { done: true, at: Date.now(), rangees: res.rangees, laissees: res.laissees });
+    if (res.rangees > 0) { toast(res.rangees === 1 ? '1 trace rangée dans l’archive' : `${res.rangees} traces rangées dans l’archive`); renderTracks(); }
+  } catch (e) { report('reprise', e); } finally { repriseBusy = false; }
+}
 // Ligne d’état sous « Vous : » ; masquée tant que le module n’est pas chargé. Texte posé par textContent, jamais rouge.
 // Interrupteur (Open Question 16) : couper l’échange sur CE téléphone, d’abord sur deux touches, remettre d’un geste. L’échange en cours est jeté (canApply).
 function toggleSync(btn) {
@@ -2142,13 +2180,13 @@ async function readWithAI() {
     const r = await fetch('/api/ic', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: cleanText(icSrc.text) }), signal: ctl.signal });
     const body = await r.json().catch(() => { /* corps illisible : traité comme une erreur juste après */ return null; });
     if (icDraft?.imported !== token) return;                       // relecture fermée ou remplacée entre-temps
-    if (!r.ok || !body || typeof body !== 'object') throw Object.assign(new Error('HTTP ' + r.status), { status: r.status, iaCode: typeof body?.error === 'string' ? body.error : '' });
+    if (!r.ok || !body || typeof body !== 'object') throw Object.assign(new Error('HTTP ' + r.status), { status: r.status, iaCode: typeof body?.error === 'string' ? body.error : '', iaMessage: typeof body?.message === 'string' ? body.message : '' });
     icDraft = { ...reviewFromApi(body, { source: icDraft.source, text: icSrc.text, regatta: currentRegatta(REG) }), imported: token };
     iaMsg = '';
   } catch (err) {
     if (icDraft?.imported !== token) return;
     report('ic-ia', timedOut ? 'délai de 70 s dépassé' : err?.status ? 'HTTP ' + err.status : err?.name || 'erreur');   // jamais le texte des IC
-    iaMsg = iaErrorMessage({ status: err?.status, code: err?.iaCode, timedOut });                    // la relecture à la main reste ouverte, intacte
+    iaMsg = iaErrorMessage({ status: err?.status, code: err?.iaCode, message: err?.iaMessage, timedOut });                    // la relecture à la main reste ouverte, intacte
   } finally {
     clearTimeout(to);
     if (iaCtl === ctl) iaBusy = false;

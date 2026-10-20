@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 5
+open_count: 1
 waived_count: 0
-fixed_count: 0
+fixed_count: 4
 total_count: 5
-last_updated: 2026-10-20T05:45:28.170Z
+last_updated: 2026-10-20T08:23:51.398Z
 ---
 
 # Broken Windows Ledger
@@ -15,11 +15,11 @@ last_updated: 2026-10-20T05:45:28.170Z
 
 | id | phase | kind | file | line | description | status | reason | recorded_at | resolved_at |
 |----|-------|------|------|------|-------------|--------|--------|-------------|-------------|
-| 1 | 04 | unrun-verify | middleware.js |  | 04-01 tâche 2 : contrôle humain sur l'aperçu Vercel (en-tête x-rt-membre bien reçu, jamais 403 membre_inconnu ; module js/archmerge.js embarqué, jamais 500), à faire après le plan 04-03 | open |  | 2026-10-20T04:25:02.394Z |  |
-| 2 | 04 | unrun-verify | js/archsync.js |  | 04-02 tâche 2 : recette humaine sur deux iPhone (mode avion, ajouts simultanés, chrono lancé pendant qu'un autre modifie) à faire sur l'aperçu après le plan 04-03 | open |  | 2026-10-20T04:45:07.266Z |  |
-| 3 | 04 | unrun-verify | tools/regate-e2e.mjs |  | 04-03 tâche 3 : recette de Romain sur l'aperçu v30 avec le vrai magasin Blob et deux téléphones (points 1 à 9 et 11 de la recette humaine, quotas Observability, 401 sans code sur /api/archive) ; mise en production décidée par Romain | open |  | 2026-10-20T05:07:57.591Z |  |
+| 1 | 04 | unrun-verify | middleware.js |  | 04-01 tâche 2 : contrôle humain sur l'aperçu Vercel (en-tête x-rt-membre bien reçu, jamais 403 membre_inconnu ; module js/archmerge.js embarqué, jamais 500), à faire après le plan 04-03 | fixed |  | 2026-10-20T04:25:02.394Z | 2026-10-20T08:23:50.640Z |
+| 2 | 04 | unrun-verify | js/archsync.js |  | 04-02 tâche 2 : recette humaine sur deux iPhone (mode avion, ajouts simultanés, chrono lancé pendant qu'un autre modifie) à faire sur l'aperçu après le plan 04-03 | fixed |  | 2026-10-20T04:45:07.266Z | 2026-10-20T08:23:51.050Z |
+| 3 | 04 | unrun-verify | tools/regate-e2e.mjs |  | 04-03 tâche 3 : recette de Romain sur l'aperçu v30 avec le vrai magasin Blob et deux téléphones (points 1 à 9 et 11 de la recette humaine, quotas Observability, 401 sans code sur /api/archive) ; mise en production décidée par Romain | fixed |  | 2026-10-20T05:07:57.591Z | 2026-10-20T08:23:51.236Z |
 | 4 | 04 | unrun-verify | api/archive.js |  | 04-04 : recette humaine sur l'aperçu avec le vrai magasin Blob : head() d'un objet absent doit lever BlobNotFoundError (objets immuables trace et rapport), put sans allowOverwrite sur un objet existant doit échouer (perte de course), get en flux d'une trace de 600 Ko, 401 sans code sur ?k=trace\|report\|day | open |  | 2026-10-20T05:45:27.963Z |  |
-| 5 | 04 | unrun-verify | js/archheavy.js |  | 04-04 tâche 2 : contrôle humain sur iPhone (app installée, mode avion) : fiche, vent du jour, trace, débrief et rapport d'une régate récente s'ouvrent ; espace occupé de l'ordre de 1 Mo par régate (Réglages > Safari > Données de sites) | open |  | 2026-10-20T05:45:28.170Z |  |
+| 5 | 04 | unrun-verify | js/archheavy.js |  | 04-04 tâche 2 : contrôle humain sur iPhone (app installée, mode avion) : fiche, vent du jour, trace, débrief et rapport d'une régate récente s'ouvrent ; espace occupé de l'ordre de 1 Mo par régate (Réglages > Safari > Données de sites) | fixed |  | 2026-10-20T05:45:28.170Z | 2026-10-20T08:23:51.398Z |
 
 ````json
 [
@@ -30,10 +30,10 @@ last_updated: 2026-10-20T05:45:28.170Z
     "file": "middleware.js",
     "line": null,
     "description": "04-01 tâche 2 : contrôle humain sur l'aperçu Vercel (en-tête x-rt-membre bien reçu, jamais 403 membre_inconnu ; module js/archmerge.js embarqué, jamais 500), à faire après le plan 04-03",
-    "status": "open",
+    "status": "fixed",
     "reason": "",
     "recorded_at": "2026-10-20T04:25:02.394Z",
-    "resolved_at": null,
+    "resolved_at": "2026-10-20T08:23:50.640Z",
     "milestone": null
   },
   {
@@ -43,10 +43,10 @@ last_updated: 2026-10-20T05:45:28.170Z
     "file": "js/archsync.js",
     "line": null,
     "description": "04-02 tâche 2 : recette humaine sur deux iPhone (mode avion, ajouts simultanés, chrono lancé pendant qu'un autre modifie) à faire sur l'aperçu après le plan 04-03",
-    "status": "open",
+    "status": "fixed",
     "reason": "",
     "recorded_at": "2026-10-20T04:45:07.266Z",
-    "resolved_at": null,
+    "resolved_at": "2026-10-20T08:23:51.050Z",
     "milestone": null
   },
   {
@@ -56,10 +56,10 @@ last_updated: 2026-10-20T05:45:28.170Z
     "file": "tools/regate-e2e.mjs",
     "line": null,
     "description": "04-03 tâche 3 : recette de Romain sur l'aperçu v30 avec le vrai magasin Blob et deux téléphones (points 1 à 9 et 11 de la recette humaine, quotas Observability, 401 sans code sur /api/archive) ; mise en production décidée par Romain",
-    "status": "open",
+    "status": "fixed",
     "reason": "",
     "recorded_at": "2026-10-20T05:07:57.591Z",
-    "resolved_at": null,
+    "resolved_at": "2026-10-20T08:23:51.236Z",
     "milestone": null
   },
   {
@@ -82,10 +82,10 @@ last_updated: 2026-10-20T05:45:28.170Z
     "file": "js/archheavy.js",
     "line": null,
     "description": "04-04 tâche 2 : contrôle humain sur iPhone (app installée, mode avion) : fiche, vent du jour, trace, débrief et rapport d'une régate récente s'ouvrent ; espace occupé de l'ordre de 1 Mo par régate (Réglages > Safari > Données de sites)",
-    "status": "open",
+    "status": "fixed",
     "reason": "",
     "recorded_at": "2026-10-20T05:45:28.170Z",
-    "resolved_at": null,
+    "resolved_at": "2026-10-20T08:23:51.398Z",
     "milestone": null
   }
 ]

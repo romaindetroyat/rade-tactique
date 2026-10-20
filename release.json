@@ -1,7 +1,7 @@
 {
-  "n": 31,
+  "n": 32,
   "date": "2026-10-20",
-  "note": "archive partagée : traces, rapports et vent du jour hors réseau",
+  "note": "rattrapage des traces, IA bornée (quota, store:false)",
   "critical": false,
-  "hash": "dab1bc9396"
+  "hash": "855e0d07cb"
 }

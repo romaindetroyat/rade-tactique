@@ -503,6 +503,15 @@ test('iaErrorMessage : un message français par cause (clé absente, réponse tr
   assert.match(iaErrorMessage({ status: 503, code: 'autre' }), /code 503/);
 });
 
+test('iaErrorMessage : un 429 avec le message du serveur (quota du jour, budget du mois) montre ce message ; sans message, l’ancien texte générique', () => {
+  assert.equal(iaErrorMessage({ status: 429, code: 'quota_equipier', message: 'Limite d’IA du jour atteinte — reprise demain' }), 'Limite d’IA du jour atteinte — reprise demain');
+  assert.equal(iaErrorMessage({ status: 429, code: 'budget_ia', message: 'Budget d’IA du mois atteint — l’IA reprend le mois prochain' }), 'Budget d’IA du mois atteint — l’IA reprend le mois prochain');
+  assert.match(iaErrorMessage({ status: 429, code: 'ia_occupee', message: '' }), /^La lecture par l’IA a échoué \(code 429\)/);
+  assert.match(iaErrorMessage({ status: 429, message: 42 }), /code 429/);
+  assert.ok(iaErrorMessage({ status: 429, message: 'x'.repeat(1000) }).length <= 200, 'message borné');
+  assert.equal(iaErrorMessage({ status: 502, message: 'Limite d’IA du jour atteinte' }), 'Réponse tronquée ou refusée : réessayez, ou saisissez à la main', 'le message du serveur ne remplace que celui du 429');
+});
+
 test('manches lues par l’IA : vérifiées cochées (jour, heure, libellé, extrait), non vérifiées grisées et non cochées ; setKeepRace ne coche pas une manche non vérifiée', () => {
   const rv = parApi();
   const { document } = parseHTML(`<div>${reviewHTML(rv, verif(rv))}</div>`);
@@ -551,4 +560,27 @@ test('garde statique : app.js suit iaOffer, appelle /api/ic sur un geste avec un
   assert.ok(!/report\('ic-ia',[^)]*(?:text|icSrc|body)/.test(ia), 'report(ic-ia) ne reçoit jamais le texte ni le corps');
   const debut = app.indexOf('$(\'#icFile\').onchange'), imp = app.slice(debut, app.indexOf('\n  };', debut));
   assert.ok(!/readWithAI\(|fetch\(/.test(imp), 'l’import n’envoie rien : seul le geste « Lire avec l’IA » envoie');
+});
+
+// ── rédaction du débrief : le 429 du serveur est transmis à la page, le rapport reste écrit par la rédaction automatique
+test('narrative : 429 de /api/debrief → rédaction automatique avec iaNote (message du serveur, borné) ; autre échec → pas de note', async () => {
+  const { narrative } = await import('../js/debrief.js');
+  const fetch0 = globalThis.fetch, en0 = Object.getOwnPropertyDescriptor(globalThis.navigator, 'onLine');
+  Object.defineProperty(globalThis.navigator, 'onLine', { value: true, configurable: true });
+  const an = { legs: [], tStart: 0 }, ans = { event: 'Test', course: { title: 'Parcours' }, notes: [], falseStarts: 0 };
+  const repond = (status, corps) => { globalThis.fetch = async () => ({ ok: status < 400, status, json: async () => corps }); };
+  try {
+    repond(429, { error: 'quota_equipier', message: 'Limite d’IA du jour atteinte — reprise demain' });
+    let n = await narrative(an, ans);
+    assert.equal(n.ai, false); assert.equal(n.iaNote, 'Limite d’IA du jour atteinte — reprise demain'); assert.ok(n.resume.bien);
+    repond(429, { error: 'budget_ia', message: 'x'.repeat(1000) });
+    assert.equal((await narrative(an, ans)).iaNote.length, 200);
+    repond(502, { error: 'tronqué', message: 'ne doit pas être montré' });
+    n = await narrative(an, ans); assert.equal(n.ai, false); assert.ok(!('iaNote' in n));
+    globalThis.fetch = async () => ({ ok: false, status: 429, json: async () => { throw new Error('corps illisible'); } });
+    n = await narrative(an, ans); assert.equal(n.ai, false); assert.ok(!('iaNote' in n));
+  } finally {
+    globalThis.fetch = fetch0;
+    if (en0) Object.defineProperty(globalThis.navigator, 'onLine', en0); else delete globalThis.navigator.onLine;
+  }
 });

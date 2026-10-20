@@ -56,7 +56,8 @@ function res() {
   const r = { code: null, body: null, status(c) { r.code = c; return r; }, json(b) { r.body = b; return r; }, setHeader() { return r; } };
   return r;
 }
-const post = (text, headers = {}) => ({ method: 'POST', headers, body: { text } });
+// le middleware pose le prénom de l’équipier sur toute demande /api/ : api/_ia.js ne compte que sous ce prénom
+const post = (text, headers = {}) => ({ method: 'POST', headers: { 'x-rt-membre': encodeURIComponent('Romain'), ...headers }, body: { text } });
 async function appelle(client, req) { const r = res(); await createHandler({ openai: client })(req, r); return r; }
 
 // ── garde de schéma
@@ -198,7 +199,7 @@ test('erreurs : incomplete → 502 ; JSON illisible → 502 ; APIError 429 → 4
   assert.equal(r.code, 502); assert.ok(r.body.error.length <= 300);
   const e429 = new OpenAI.APIError(429, { message: 'trop de demandes '.repeat(60) }, undefined, new Headers());
   r = await appelle(faux(null, { erreur: e429 }).client, post(texte));
-  assert.equal(r.code, 429); assert.ok(r.body.error.length > 0 && r.body.error.length <= 300);
+  assert.equal(r.code, 429); assert.equal(r.body.error, 'ia_occupee'); assert.ok(r.body.message.length > 0 && r.body.message.length <= 300);
   const e401 = new OpenAI.APIError(401, { message: 'clé refusée' }, undefined, new Headers());
   r = await appelle(faux(null, { erreur: e401 }).client, post(texte));
   assert.equal(r.code, 502, 'la clé OpenAI refusée n’est pas un refus d’accès à l’app (401 = rouvrez l’app avec votre code)');

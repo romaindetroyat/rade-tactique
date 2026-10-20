@@ -825,6 +825,7 @@ const importeTexte = async (page, texte, nom = 'ic-autre-club.txt') => {
 
 // Sert POST /api/ic avec la VRAIE fonction serveur (api/ic.js, vérification mot pour mot comprise) et un client OpenAI simulé : aucun réseau, aucune clé réelle.
 // `sortie(texteEnvoye)` rend ce que dirait le modèle. Rend l'état observé : demandes reçues, corps, arguments donnés au client simulé.
+const PRENOM_IA = 'Teiva';                                    // prénom de test posé comme le ferait le middleware
 async function serviaIA(ctx, sortie) {
   const { createHandler } = await import('../api/ic.js');
   process.env.OPENAI_API_KEY ||= 'cle-de-test';
@@ -837,7 +838,8 @@ async function serviaIA(ctx, sortie) {
     const corps = JSON.parse(req.postData() || 'null');
     etat.corps.push(corps); etat.enTetes.push(req.headers());
     const out = { code: 200, body: null, status(c) { out.code = c; return out; }, json(b) { out.body = b; return out; }, setHeader() { return out; } };
-    await handler({ method: req.method(), headers: req.headers(), body: corps }, out);
+    // le middleware pose le prénom de l’équipier sur toute demande /api/ (api/_ia.js ne compte que sous ce prénom)
+    await handler({ method: req.method(), headers: { ...req.headers(), 'x-rt-membre': encodeURIComponent(PRENOM_IA) }, body: corps }, out);
     await route.fulfill({ status: out.code, contentType: 'application/json', body: JSON.stringify(out.body) });
   });
   return etat;
@@ -879,6 +881,7 @@ async function ia({ browser, base }) {
   assert.deepEqual(Object.keys(etat.corps[0]), ['text'], 'le corps ne porte que le texte des IC');
   assert.ok(!JSON.stringify(etat.client).match(/cookie|rt_acces/i), 'rien de la requête ne part chez OpenAI');
   assert.equal(etat.client[0].text.format.strict, true);
+  assert.equal(etat.client[0].store, false, 'store: false part avec l’appel');
   rel = await lireRelecture(page);
   assert.equal(rel.firstWarning.valeur, '10:30'); assert.match(rel.firstWarning.extrait, /^Extrait : .*10:30/);
   assert.equal(rel.vhf.valeur, '69'); assert.match(rel.vhf.extrait, /VHF 69/);
@@ -963,6 +966,10 @@ async function iaErreurs({ browser, base }) {
   await essaie('Accès refusé : rouvrez l’app avec votre code', 'accès refusé');
   Object.assign(reponse, { statut: 400, corps: '{"error":"texte des IC manquant ou trop court"}' });
   await essaie('Texte des IC trop court', 'texte court');
+  Object.assign(reponse, { statut: 429, corps: JSON.stringify({ error: 'quota_equipier', message: 'Limite d’IA du jour atteinte — reprise demain' }) });
+  await essaie('Limite d’IA du jour atteinte — reprise demain', 'quota du jour');
+  Object.assign(reponse, { statut: 429, corps: JSON.stringify({ error: 'budget_ia', message: 'Budget d’IA du mois atteint — l’IA reprend le mois prochain' }) });
+  await essaie('Budget d’IA du mois atteint — l’IA reprend le mois prochain', 'budget du mois');
   reponse.abandon = true;
   await essaie('Pas de réseau : la lecture IA se fait avant la régate', 'réseau coupé');
   assert.equal((await lireRelecture(p2)).zone.valeur, 'Rade corrigée à la main', 'les échecs n’ont rien changé à la saisie');
@@ -1015,6 +1022,67 @@ async function iaErreurs({ browser, base }) {
   assert.match(await p3.locator('#rgSheet .rgrace').textContent(), /Manche 1[\s\S]*10:30[\s\S]*parcours à préciser/);
   sansErreur(e3, 'manches lues');
   await ctx3.close();
+}
+
+// SECU2-01 (D-05, D-06, D-07) : l'arbitre de poche borné de bout en bout. Page des règles → VRAIE fonction api/rules.js → faux Blob → client OpenAI simulé.
+// Faux Blob et client simulé : aucune clé réelle, aucun réseau ; on observe ce qui part chez « OpenAI » (store: false) et le compteur du jour.
+async function arbitre({ browser, base }) {
+  const { createHandler } = await import('../api/rules.js');
+  const { cheminQuota, prefix, MESSAGES } = await import('../api/_ia.js');
+  const { createFakeBlob, invoke } = await import('../tests/helpers/fakeblob.mjs');
+  process.env.OPENAI_API_KEY ||= 'cle-de-test';
+  const HEURE = '2026-10-21T08:00:00Z';
+  const blob = createFakeBlob(), appels = [];
+  const verdict = 'B doit s’écarter : il est sous le vent';
+  const client = { responses: { create: async (args) => { appels.push(args); return { status: 'completed', output_text: JSON.stringify({ verdict, explication: 'Bâbord amures doit s’écarter.', regles: [], ic: '', attention: '' }) }; } } };
+  const handler = createHandler({ openai: client, blob, now: () => Date.parse(HEURE) });
+  const chemin = cheminQuota(prefix(), PRENOM_IA, Date.parse(HEURE));
+  const compteur = () => blob.store.get(chemin)?.text;
+
+  const ctx = await ouvreContexte(browser, { heure: HEURE });
+  await ctx.route('**/api/rules', async (route) => {
+    const req = route.request();
+    const r = await invoke(handler, { method: req.method(), url: '/api/rules', body: JSON.parse(req.postData() || 'null'), headers: { 'x-rt-membre': encodeURIComponent(PRENOM_IA) } });
+    await route.fulfill({ status: r.status, contentType: 'application/json', body: JSON.stringify(r.body ?? null) });
+  });
+  const { page, erreurs } = await ouvrePage(ctx);
+  await page.goto(base + 'regles.html', { waitUntil: 'load' });
+  const questionne = async (q) => {
+    await page.fill('#chatIn', q);
+    await page.click('#chatGo');
+    await page.waitForFunction(() => !document.querySelector('#chatGo').disabled, null, { timeout: 15000 });
+  };
+
+  // (a) une question : le verdict s'affiche, OpenAI reçoit store: false, le compteur du jour vaut 1
+  await questionne('Bâbord ou tribord, qui passe ?');
+  await page.waitForSelector('#chatLog .msg.bot .verdict', { timeout: 10000 });
+  assert.equal(await page.locator('#chatLog .msg.bot .verdict').last().textContent(), verdict);
+  assert.equal(appels.length, 1, 'un appel chez OpenAI');
+  assert.equal(appels[0].store, false, 'store: false part avec chaque appel');
+  assert.equal(compteur(), '{"n":1}', 'le compteur de l’équipier vaut 1');
+
+  // (b) 30 appels déjà faits aujourd'hui : le message du quota s'affiche tel quel, sans appel chez OpenAI ni nouvelle écriture
+  await blob.put(chemin, '{"n":30}', { access: 'private', contentType: 'application/json', allowOverwrite: true });
+  const puts = blob.ops.put;
+  await questionne('Et si je suis engagé à la marque ?');
+  assert.equal(await page.locator('#chatLog .msg.err').last().textContent(), 'Limite d’IA du jour atteinte — reprise demain');
+  assert.equal(MESSAGES.quota_equipier, 'Limite d’IA du jour atteinte — reprise demain');
+  assert.equal(appels.length, 1, 'le 31e appel ne part pas chez OpenAI');
+  assert.equal(blob.ops.put, puts, 'ni écriture de plus');
+  assert.equal(compteur(), '{"n":30}');
+
+  // (c) compteur en panne : l'arbitre répond quand même (le serveur écrit un avertissement, capté ici)
+  await blob.put(chemin, '{"n":0}', { access: 'private', contentType: 'application/json', allowOverwrite: true });
+  blob.failNext(new Error('panne du magasin'), { op: 'get' });
+  const avertissements = [], avertir = console.warn;
+  console.warn = (...a) => { avertissements.push(a.join(' ')); };
+  try { await questionne('Et au départ, avant le signal ?'); } finally { console.warn = avertir; }
+  await page.waitForFunction((n) => document.querySelectorAll('#chatLog .msg.bot .verdict').length === n, 2, { timeout: 10000 });
+  assert.equal(appels.length, 2, 'le compteur en panne n’empêche pas l’appel');
+  assert.equal(avertissements.length, 1, 'un avertissement côté serveur');
+  assert.ok(!/Teiva|cle-de-test|Et au départ/i.test(avertissements[0]), 'ni prénom, ni clé, ni texte dans l’avertissement');
+  sansErreur(erreurs, 'pendant le scénario');
+  await ctx.close();
 }
 
 // ───────────────────────── bouées et parcours d'un autre club « à confirmer » (plan 03-07, D-04, REG-04)
@@ -1692,7 +1760,100 @@ async function equipage({ browser, base }) {
   for (const t of tous) await t.ctx.close();
 }
 
-const SCENARIOS = { equipage, archive, 'archive-bouees': archiveBouees, archivehors: archiveHors, creer, manche, auteur, ic, 'depuis-ic': depuisIC, vraisemblance, gel, 'debrief-tardif': debriefTardif, gpx, 'gpx-choix': gpxChoix, ia, 'ia-erreurs': iaErreurs, bouees };
+// ───────────────────────── rattrapage des traces d'avant l'archive (ARCH2-01, D-01 à D-03, D-10, D-11)
+
+const REPRISE = 'rade.reprise.v1';
+const reprisePosee = (page) => page.waitForFunction((k) => !!JSON.parse(localStorage.getItem(k) || 'null')?.done, REPRISE, { timeout: 60000, polling: 100 });
+const lireReprise = (page) => page.evaluate((k) => JSON.parse(localStorage.getItem(k) || 'null'), REPRISE);
+const journalDe = async (page) => { await page.evaluate(() => window.dispatchEvent(new Event('pagehide'))); return page.evaluate(() => localStorage.getItem('rade.diag.v1') || ''); };
+// Écrit dans la base de traces de la page (même base que l'app) : le GPX de la Coupe SNPM, avec un ancien identifiant aléatoire si `suffixe` est donné
+// ('tr' + début + suffixe, comme avant la v31), un rapport local éventuel. Rend { id, stable } (stable = l'identifiant actuel de fromGPX)
+const poseTrace = (page, texteGpx, { suffixe = null, report = null } = {}) => page.evaluate(async ([txt, suf, rp]) => {
+  const { fromGPX, saveTrack } = await import('/js/track.js');
+  const tr = fromGPX(txt, 'snpm.gpx'), stable = tr.id;
+  if (suf) tr.id = 'tr' + tr.start + suf;
+  if (rp) tr.report = rp;
+  await saveTrack(tr);
+  return { id: tr.id, stable };
+}, [texteGpx, suffixe, report]);
+const poseOrpheline = (page) => page.evaluate(async () => {
+  const { saveTrack } = await import('/js/track.js');
+  const t0 = Date.parse('2026-09-01T08:00:00Z');
+  await saveTrack({ id: 'tr' + t0, name: 'Entraînement du 01/09', start: t0, course: null, pts: [0, 1, 2].map((i) => [t0 + i * 60000, 43.07, 5.93, null, null, 5]) });
+  return 'tr' + t0;
+});
+
+async function reprise({ browser, base }) {
+  const NOM = 'Équipier test', TEXTE = readFileSync(GPX_SNPM, 'utf8');
+  // 1) Un téléphone qui a déjà servi : appareil neuf (aucune trace) → passage sans trace, drapeau posé ; puis ses traces d'avant sont posées et le drapeau retiré
+  const ctx = await ouvreContexte(browser, { heure: '2026-10-20T10:00:00Z' });          // lendemain de régate : aucun verrou
+  await simuleMembre(ctx, NOM);
+  const { page, erreurs } = await ouvrePage(ctx);
+  await ouvreApp(page, base);
+  await membreGarde(page, NOM);
+  await reprisePosee(page);
+  assert.equal((await lireReprise(page)).rangees, 0, 'appareil neuf : rien à ranger');
+  const idSnpm = (await poseTrace(page, TEXTE)).id, idOrph = await poseOrpheline(page);
+  await page.evaluate((k) => localStorage.removeItem(k), REPRISE);                       // premier lancement de la v32 sur un téléphone qui a déjà servi
+  await ouvreApp(page, base);
+  await toastVu(page, '1 trace rangée dans l’archive', 30000);
+  await reprisePosee(page);
+  const flag1 = await lireReprise(page);
+  assert.equal(flag1.rangees, 1); assert.equal(flag1.laissees, 1);
+  const idx = await indexRegates(page);
+  const snpm = idx.list.find((r) => r.id === 'snpm-2026');
+  assert.equal(snpm.traces.length, 1, 'la Coupe SNPM porte une seule référence');
+  assert.equal(snpm.traces[0].id, idSnpm); assert.equal(snpm.traces[0].by, NOM); assert.equal(snpm.traces[0].n, 9538);
+  assert.ok(idx.list.every((r) => !r.traces.some((t) => t.id === idOrph)), 'l’orpheline n’est dans aucune régate');
+  assert.equal(idx.list.length, 1, 'aucune fiche créée (D-02)');
+  assert.ok((await lireTraces(page)).some((t) => t.id === idOrph), 'l’orpheline reste dans « Traces »');
+  assert.ok((await lireTraces(page)).some((t) => t.id === idSnpm), 'la trace rangée reste aussi sur le téléphone');
+  assert.match(await journalDe(page), /reprise/, 'une ligne reprise au journal');
+  // 2) Relance : sans effet (même drapeau, même instant, toujours une seule référence)
+  await ouvreApp(page, base);
+  await page.waitForTimeout(4000);
+  assert.deepEqual(await lireReprise(page), flag1, 'drapeau inchangé après une relance');
+  assert.equal((await indexRegates(page)).list.find((r) => r.id === 'snpm-2026').traces.length, 1);
+  sansErreur(erreurs, 'rattrapage sur un téléphone');
+  await ctx.close();
+
+  // 3) Deux téléphones qui avaient importé le même GPX avant la v31 (deux identifiants au hasard) : une seule référence, un seul envoi au magasin (D-10),
+  //    le rapport fait sur le premier est annoncé et reçu par le second (D-11)
+  const m = await mondeArchive('2026-10-20T10:00:00Z');
+  const A = await telephoneArchive(browser, base, m, 'Teiva'), B = await telephoneArchive(browser, base, m, 'Thibaud');
+  const RAPPORT = { html: '<p>Rapport du premier</p>', t: Date.UTC(2026, 9, 18, 15), name: 'Débrief SNPM' };
+  let stable = null;
+  for (const [tel, suffixe, rapport] of [[A, '417', RAPPORT], [B, '82', null]]) {
+    await reprisePosee(tel.page);                                                         // premier lancement : appareil neuf, rien à ranger
+    stable = (await poseTrace(tel.page, TEXTE, { suffixe, report: rapport })).stable;
+    await tel.page.evaluate((k) => localStorage.removeItem(k), REPRISE);
+    await ouvreApp(tel.page, base);                                                       // premier lancement de la v32 sur ce téléphone
+    await reprisePosee(tel.page);
+    assert.deepEqual((await lireTraces(tel.page)).map((t) => t.id), [stable], `${tel.nom} : l’ancien identifiant est remplacé par l’identifiant stable`);
+    assert.equal((await indexRegates(tel.page)).list.find((r) => r.id === 'snpm-2026').traces.map((t) => t.id).join(), stable);
+  }
+  const chemins = { trace: `preview/trace/${stable}.json`, report: `preview/report/${stable}-${RAPPORT.t}.json` };
+  await avanceHeure(m, 60e3);
+  await synchronise(m, A);
+  await attendre(() => m.blob.store.has(chemins.trace) && m.blob.store.has(chemins.report), 'trace et rapport de A en ligne');
+  await avanceHeure(m, 60e3);
+  await synchronise(m, B);                                                                // la fiche de B rencontre celle de A : une seule référence
+  await attendre(async () => (await lireTraceLocale(B.page, stable))?.report, 'rapport de A reçu par B');
+  assert.equal((await lireTraceLocale(B.page, stable)).report.name, 'Débrief SNPM');
+  for (const tel of [A, B]) {
+    const ref = (await indexRegates(tel.page)).list.find((r) => r.id === 'snpm-2026').traces;
+    assert.deepEqual(ref.map((t) => t.id), [stable], `${tel.nom} : une seule référence, d’identifiant stable`);
+    assert.equal(ref[0].report?.t, RAPPORT.t, `${tel.nom} : le rapport du premier est annoncé sur la référence`);
+    assert.deepEqual((await lireTraces(tel.page)).map((t) => t.id), [stable], `${tel.nom} : aucun identifiant au hasard`);
+  }
+  const ecrits = m.blob.ops.log.filter((o) => o.op === 'put').map((o) => o.path);
+  assert.equal(ecrits.filter((c) => c.includes('/trace/')).length, 1, `un seul envoi de la trace au magasin : ${ecrits}`);
+  assert.equal(ecrits.filter((c) => c.includes('/report/')).length, 1, 'un seul envoi du rapport');
+  sansErreur(A.erreurs, 'sur le premier téléphone'); sansErreur(B.erreurs, 'sur le second téléphone');
+  await A.ctx.close(); await B.ctx.close();
+}
+
+const SCENARIOS = { reprise, equipage, archive, 'archive-bouees': archiveBouees, archivehors: archiveHors, creer, manche, auteur, ic, 'depuis-ic': depuisIC, vraisemblance, gel, 'debrief-tardif': debriefTardif, gpx, 'gpx-choix': gpxChoix, ia, 'ia-erreurs': iaErreurs, arbitre, bouees };
 
 // ───────────────────────── lancement
 

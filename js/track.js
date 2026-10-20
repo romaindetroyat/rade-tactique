@@ -133,6 +133,8 @@ export function toGPX(tr) {
   const segs = cuts.slice(0, -1).map((a, k) => `<trkseg>\n${tr.pts.slice(a, cuts[k + 1]).map(pt).join('\n')}\n</trkseg>`).join('\n');
   return `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="Rade Tactique" xmlns="http://www.topografix.com/GPX/1/1">\n<metadata><name>${tr.name.replace(/[<&]/g, '')}</name><time>${new Date(tr.start).toISOString()}</time></metadata>\n<trk><name>${tr.name.replace(/[<&]/g, '')}</name>${segs}</trk>\n</gpx>\n`;
 }
+// Identifiant stable d'un import GPX : début + nombre de points. Seule définition : fromGPX et le rattrapage des anciens imports (js/reprise.js) la partagent.
+export const canonicalTraceId = (tr) => 'tr' + tr.start + '-' + tr.pts.length;
 export function fromGPX(text, name) {
   const doc = new DOMParser().parseFromString(text.replace(/^\uFEFF/, ''), 'application/xml');
   if (doc.getElementsByTagName('parsererror').length || !doc.getElementsByTagName('gpx').length) throw new Error('ce fichier n’est pas un GPX lisible');
@@ -148,7 +150,7 @@ export function fromGPX(text, name) {
   // coupures : début de chaque <trkseg> après un trou de plus de 5 s, ou trou de plus de 2 min (js/segments.js)
   const brk = breaksFromInstants(pts, segStartsFromDoc(doc));
   // identifiant déterministe (même fichier = même trace, sur n'importe quel téléphone : l'archive partagée ne la garde qu'une fois) ; les traces déjà enregistrées gardent le leur
-  return { id: 'tr' + pts[0][0] + '-' + pts.length, name: trkName || name.replace(/\.(gpx|xml|txt)$/i, ''), start: pts[0][0], course: null, pts, brk, imported: true };
+  return { id: canonicalTraceId({ start: pts[0][0], pts }), name: trkName || name.replace(/\.(gpx|xml|txt)$/i, ''), start: pts[0][0], course: null, pts, brk, imported: true };
 }
 export async function exportGPX(tr) {
   const file = new File([toGPX(tr)], `${tr.name.replace(/[^\w\- ]+/g, '_')}.gpx`, { type: 'application/gpx+xml' });

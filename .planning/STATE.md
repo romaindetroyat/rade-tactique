@@ -1,18 +1,19 @@
 ---
 gsd_state_version: "1.0"
-current_phase: 4
-status: completed
-stopped_at: Phase 4 complete — all phases complete
-last_updated: "2026-10-20T07:14:31.421Z"
+current_phase: 05
+current_phase_name: "Avant la régate : archive amorcée et IA bornée"
+status: executing
+stopped_at: Completed 05-02-PLAN.md
+last_updated: "2026-10-20T09:32:01.736Z"
 last_activity: 2026-10-20
-last_activity_desc: Phase 4 complete
-state_head: 8d061473a6ba574cff87620ba67c433e3fc630d3
+last_activity_desc: Phase 05 execution started
+state_head: 26c029d9548d262f28923aaeed826ca7654bf226
 progress:
-  total_phases: 4
+  total_phases: 5
   completed_phases: 4
-  total_plans: 21
-  completed_plans: 21
-  percent: 100
+  total_plans: 24
+  completed_plans: 23
+  percent: 80
 ---
 
 # Project State
@@ -22,16 +23,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-10-19)
 
 **Core value:** Le jour de la régate, l'équipage peut ouvrir l'épreuve, s'en servir en mer sans que rien ne lâche, et retrouver ensuite le débrief : des conseils et des chiffres justes, fiables sur l'eau, et partagés par tout l'équipage.
-**Current focus:** Phase 4 — Archive partagée
+**Current focus:** Phase 05 — Avant la régate : archive amorcée et IA bornée
 
 ## Current Position
 
-Phase: 4
-Plan: Not started
-Status: All phases complete
-Last activity: 2026-10-20 — Phase 4 complete
+Phase: 05 (Avant la régate : archive amorcée et IA bornée) — EXECUTING
+Plan: 3 of 3
+Status: Ready to execute
+Last activity: 2026-10-20 — Phase 05 execution started
 
-Progress: [██████████] 100%
+Progress: [████████░░] 80%
 
 ## Performance Metrics
 
@@ -77,6 +78,8 @@ Progress: [██████████] 100%
 | Phase 04 P03 | 21min | 3 tasks | 12 files |
 | Phase 04 P04 | 36min | 3 tasks | 12 files |
 | Phase 04 P05 | 85 min | 2 tasks | 10 files |
+| Phase 05 P01 | 20 min | 3 tasks | 7 files |
+| Phase 05 P02 | 15 min | 3 tasks | 15 files |
 
 ## Accumulated Context
 
@@ -137,6 +140,10 @@ Décisions récentes qui orientent le travail en cours :
 - [Phase 04]: 04-04 : les envois lourds ne sont pas limités à l'horizon de 180 jours (sauvegarde des traces anciennes), seuls les téléchargements le sont
 - [Phase 04]: 04-05 : le défaut intermittent du scénario gel venait d'un tic de gel entre la création de la régate et l'ajout de sa manche ; scénario déterministe, et fiche des régates redessinée à l'ouverture de l'onglet après un gel tombé fiche fermée (icStale)
 - [Phase 04]: 04-05 : v31 publiée sur l'aperçu apercu-phase-04 seulement ; main inchangée (7fb6401) ; production décidée par Romain (D-02)
+- [Phase 05]: 05-01 : le renommage d’un ancien import GPX (identifiant stable) précède la garde « même début, même nombre de points » : la copie locale prend l’identifiant que les autres téléphones référencent et n’est pas retéléchargée en double
+- [Phase 05]: 05-01 : raceTick garde sa ligne scheduleSync(60000) à l’identique (garde de tests/boot.test.mjs) ; reprise() est appelée par une ligne séparée
+- [Phase 05]: 05-02 : le quota d’IA est compté avant l’appel à OpenAI (un appel raté coûte une unité sur 30) et le compteur reste ouvert en panne
+- [Phase 05]: 05-02 : toute fonction d’IA passe par createIA (api/_ia.js) ; une garde statique interdit l’appel direct du client OpenAI ailleurs
 
 ### Pending Todos
 
@@ -151,6 +158,10 @@ Décisions récentes qui orientent le travail en cours :
 - Phase 4 : plan Vercel (Hobby ou Pro) et consommation Blob à confirmer ; le store Blob privé est à créer par Romain ; vérifier le contrôle d'accès de toutes les nouvelles routes, aperçus compris.
 - Secrets (clé OpenAI, jeton du store Blob, codes d'accès) : jamais dans le dépôt, les journaux ni les tests.
 
+### Roadmap Evolution
+
+- Phase 5 added: Avant la régate : archive amorcée et IA bornée (ARCH2-01, SECU2-01), choix de Romain le 2026-10-20
+
 ## Deferred Items
 
 Items acknowledged and carried forward from previous milestone close:
@@ -161,6 +172,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-10-20T07:13:38.319Z
-Stopped at: Phase 4 complete — all phases complete
+Last session: 2026-10-20T09:32:01.580Z
+Stopped at: Completed 05-02-PLAN.md
 Resume file: None
