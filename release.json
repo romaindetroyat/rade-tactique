@@ -1,7 +1,7 @@
 {
-  "n": 32,
+  "n": 33,
   "date": "2026-10-20",
-  "note": "rattrapage des traces, IA bornée (quota, store:false)",
+  "note": "guide de prise en main refait",
   "critical": false,
-  "hash": "855e0d07cb"
+  "hash": "b045183874"
 }
