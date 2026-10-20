@@ -4,7 +4,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHandler } from '../api/archive.js';
+import middleware from '../middleware.js';
 import { createFakeBlob, invoke } from './helpers/fakeblob.mjs';
+import { avecCodeSimule, COOKIE_TEST } from './helpers/codesimule.mjs';
 
 const T = 2_000_000;                                           // « maintenant » du serveur ; les dates `u` des tests sont toutes antérieures
 const regatta = (over = {}) => ({
@@ -144,4 +146,40 @@ test('sans magasin configuré : 503 no_blob ; sans client injecté la fonction n
     if (jeton !== undefined) process.env.BLOB_READ_WRITE_TOKEN = jeton;
     if (id !== undefined) process.env.BLOB_STORE_ID = id;
   }
+});
+
+test('bout à bout serveur : l’en-tête produit par le vrai middleware, passé tel quel à la fonction, donne l’auteur ; celui du navigateur est sans effet', async () => {
+  await avecCodeSimule(async ({ prenom }) => {
+    const { blob, handler } = installe();
+    const res = await middleware(new Request('https://rade.test/api/archive?k=light', { method: 'PUT', headers: { cookie: COOKIE_TEST, 'x-rt-membre': encodeURIComponent('Usurpateur'), 'content-type': 'application/json' }, body: '{}' }));
+    assert.equal(res.headers.get('x-middleware-next'), '1');
+    const transmis = res.headers.get('x-middleware-request-x-rt-membre');
+    const r = await invoke(handler, { method: 'PUT', url: PUT, body: { doc: doc(regatta({ by: 'Usurpateur', races: [manche('2026-11-07', '10:55')] })) }, headers: { 'x-rt-membre': transmis } });
+    assert.equal(r.status, 200);
+    assert.equal(r.body.doc.regattas.rgA.by, prenom);
+    assert.equal(r.body.doc.regattas.rgA.races[0].by, prenom);
+    assert.ok(blob.store.has('preview/light.json'));
+  });
+});
+
+test('fermée par défaut : sans prénom valide du middleware (absent, vide, non décodable, illisible, trop long), 403 et rien n’est lu', async () => {
+  const { blob, handler } = installe();
+  const essais = [undefined, '', '   ', '%E0%A4%A', '%', 'Romain<script>', '<b>', '1234', 'a'.repeat(41), 'Romain\nTeiva', '../Teiva', 'Rom,ain'];
+  for (const v of essais) {
+    for (const [method, url, body] of [['GET', GET], ['PUT', PUT, { doc: doc(regatta()) }]]) {
+      const r = await invoke(handler, { method, url, body, headers: v === undefined ? {} : { 'x-rt-membre': v } });
+      assert.equal(r.status, 403, `${method} avec ${JSON.stringify(v)}`);
+      assert.deepEqual(r.body, { error: 'membre_inconnu' });
+      assert.equal(r.headers['cache-control'], 'no-store');
+    }
+  }
+  assert.equal(blob.ops.log.length, 0, 'aucune lecture ni écriture du magasin');
+  assert.equal(blob.store.size, 0);
+});
+
+test('un prénom accentué passe encodé dans l’en-tête et signe correctement', async () => {
+  const { handler } = installe();
+  const r = await invoke(handler, { method: 'PUT', url: PUT, body: { doc: doc(regatta()) }, headers: { 'x-rt-membre': encodeURIComponent('Éloïse-Marie') } });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.doc.regattas.rgA.by, 'Éloïse-Marie');
 });

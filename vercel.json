@@ -59,6 +59,10 @@
     }
   ],
   "functions": {
+    "api/archive.js": {
+      "maxDuration": 30,
+      "includeFiles": "js/archmerge.js"
+    },
     "api/debrief.js": {
       "maxDuration": 60
     },
