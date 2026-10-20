@@ -1204,7 +1204,7 @@ function startGps() {
   renderLive();
 }
 async function stopGps() {
-  if (recorder.active) { const tr = await recorder.stop(); if (tr?.pts.length > 1) toast(`Trace enregistrée (${tr.pts.length} points)`); renderTracks(); }
+  if (recorder.active) { const tr = await recorder.stop(); if (tr?.pts.length > 1) toast(`Trace enregistrée (${tr.pts.length} points)${await rangeEnregistree(tr)}`); renderTracks(); }
   if (gps?.watch != null) navigator.geolocation.clearWatch(gps.watch); gps = null; silence = null; wake.drop('gps'); scene?.setBoat(null); renderLive(); renderRaceBar();
 }
 function autoAdvance() {
@@ -1245,7 +1245,7 @@ function renderLiveNav() {
     recorder.start({ name: `${dayName(today())} — ${c.title}`, course: { id: S.courseId, cls: S.cls, laps: S.laps, day: S.day, startTime: S.startTime } });
     toast('Enregistrement lancé : gardez l’app ouverte, écran allumé.'); renderLiveNav();
   });
-  $('#recStop')?.addEventListener('click', async () => { const tr = await recorder.stop(); toast(tr && tr.pts.length > 1 ? `Trace enregistrée (${tr.pts.length} points) — onglet Traces` : 'Trace trop courte, non enregistrée'); renderLiveNav(); renderTracks(); });
+  $('#recStop')?.addEventListener('click', async () => { const tr = await recorder.stop(); toast(tr && tr.pts.length > 1 ? `Trace enregistrée (${tr.pts.length} points)${await rangeEnregistree(tr)} — onglet Traces` : 'Trace trop courte, non enregistrée'); renderLiveNav(); renderTracks(); });
   if (!A) { n.innerHTML = '<p class="small muted">Analyse du parcours en cours de calcul…</p>'; return; }
   nextIdx = Math.min(nextIdx, A.legs.length - 1);
   const l = A.legs[nextIdx];
@@ -1541,6 +1541,15 @@ async function rangeTrace(tr, { invite = true, force = false } = {}) {
   const c = await askPlace(tr, m);
   if (!c) return { reg: null, how: m.how };
   return { reg: c.create ? createFor(m, tr) : attachTo(c.reg, tr), how: c.create ? 'cree' : 'choisie' };
+}
+// Trace enregistrée dans l’app, rangée à l’arrêt comme un import GPX, sans question (D-09). Rend le suffixe du message d’arrêt
+// (« · rangée dans <régate> ») ou une chaîne vide. Ne fait que poser la référence : l’envoi attend toujours la fin de la course et du verrou.
+async function rangeEnregistree(tr) {
+  if (!(tr?.pts?.length > 1)) return '';
+  try {
+    const r = await rangeTrace(tr, { invite: false });
+    return r.reg ? ` · rangée dans ${r.reg.name}` : '';
+  } catch (e) { report('trace', e); return ''; }                              // le rangement ne doit jamais faire perdre le message d’arrêt
 }
 // Import de fichiers GPX, un par un : doublon reconnu (même début, même nombre de points), rangement dans la régate du jour, puis la dernière
 // trace s'ouvre et, si elle est rangée, le questionnaire du débrief s'ouvre seul, pré-rempli : l'équipier le valide comme avant.
