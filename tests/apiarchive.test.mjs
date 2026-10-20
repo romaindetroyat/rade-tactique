@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { ROOT } from './helpers/setup.mjs';
-import { createHandler, cleanDoc, attribute, mutateLight, MAX_LIGHT, MAX_REGATTA, MAX_REGATTAS } from '../api/archive.js';
+import { createHandler, cleanDoc, attribute, mutateLight, MAX_LIGHT, MAX_REGATTA, MAX_REGATTAS, MAX_HEAVY } from '../api/archive.js';
 import { emptyDoc, mergeDoc } from '../js/archmerge.js';
 import middleware from '../middleware.js';
 import { createFakeBlob, createGate, invoke } from './helpers/fakeblob.mjs';
@@ -249,14 +249,14 @@ test('recalages de bouées partagés : l’auteur est posé par le serveur, le p
 
 // ───────────────────────── contrat de la fonction : méthodes, bornes, dates, concurrence
 
-test('autre méthode : 405 ; k inconnu ou absent (trace, report, day arrivent au plan 04) : 400', async () => {
+test('autre méthode : 405 ; k inconnu ou absent : 400', async () => {
   const { teiva, blob } = installe();
   for (const method of ['POST', 'DELETE', 'PATCH']) {
     const r = await teiva(method, PUT, { doc: doc() });
     assert.equal(r.status, 405, method);
     assert.deepEqual(r.body, { error: 'GET ou PUT' });
   }
-  for (const url of ['/api/archive', '/api/archive?k=', '/api/archive?k=trace&id=x', '/api/archive?k=report&id=x&t=1', '/api/archive?k=day&r=x&d=2026-11-07', '/api/archive?k=../light', '/api/archive?k=LIGHT']) {
+  for (const url of ['/api/archive', '/api/archive?k=', '/api/archive?k=traces&id=x', '/api/archive?k=Trace&id=x', '/api/archive?k=__proto__', '/api/archive?k=constructor', '/api/archive?k=../light', '/api/archive?k=LIGHT']) {
     const r = await teiva('GET', url);
     assert.equal(r.status, 400, url);
     assert.deepEqual(r.body, { error: 'k inconnu' });
@@ -461,6 +461,132 @@ test('cleanDoc, attribute et mutateLight : unités exportées (sel retiré, aute
   assert.equal(r2.rev, r1.rev);
   assert.equal(blob.ops.put, 1);
   assert.equal(MAX_REGATTAS, 200); assert.equal(MAX_REGATTA, 150_000);
+});
+
+// ───────────────────────── objets lourds : trace, rapport, vent figé du jour (plan 04-04)
+
+const trace = (id = 'tr1', n = 3, over = {}) => ({ id, name: 'Trace test', start: 1_000, course: null, pts: Array.from({ length: n }, (_, i) => [1_000 + i * 1000, 43.07 + i * 1e-4, 5.93, 5, 90, 5]), ...over });
+const TR = (id = 'tr1') => `/api/archive?k=trace&id=${id}`;
+const RP = (id = 'tr1', t = 123) => `/api/archive?k=report&id=${id}&t=${t}`;
+const DY = (extra = '') => `/api/archive?k=day&r=rgA&d=2026-11-07${extra}`;
+const jour = { wx: { multi: { hourly: { time: ['2026-11-07T00:00'] } } }, strat: { legs: [] }, obs: { day: '2026-11-07', obs: [] } };
+
+test('trace : PUT puis GET rendent le même JSON en flux, privé, nosniff, sans rapport ; déjà en ligne → exists, aucune réécriture', async () => {
+  const { blob, teiva, thibaud } = installe();
+  const t = trace('tr1', 5, { report: { html: '<p>x</p>', t: 5, name: 'R' } });
+  const mis = await teiva('PUT', TR(), t);
+  assert.equal(mis.status, 200); assert.deepEqual(mis.body, { ok: true });
+  assert.ok(blob.store.has('preview/trace/tr1.json'));
+  assert.ok(!('report' in JSON.parse(blob.store.get('preview/trace/tr1.json').text)), 'le rapport ne voyage pas avec la trace');
+  const puts = blob.ops.put;
+  const encore = await thibaud('PUT', TR(), trace('tr1', 5));
+  assert.equal(encore.status, 200); assert.deepEqual(encore.body, { exists: true });
+  assert.equal(blob.ops.put, puts, 'un objet immuable déjà en ligne n’est pas réécrit');
+  const lu = await thibaud('GET', TR());
+  assert.equal(lu.status, 200);
+  assert.equal(lu.headers['content-type'], 'application/json');
+  assert.equal(lu.headers['x-content-type-options'], 'nosniff');
+  assert.equal(lu.headers['cache-control'], 'no-store');
+  const { report, ...sans } = t;
+  assert.deepEqual(lu.body, sans);
+  assert.ok(blob.ops.log.filter((o) => o.op !== 'head').every((o) => o.opts.access === 'private'), 'accès toujours privé');
+  assert.doesNotMatch(JSON.stringify(lu), /blob\.vercel-storage|https?:\/\//);
+  const absent = await thibaud('GET', TR('tr404'));
+  assert.equal(absent.status, 404); assert.deepEqual(absent.body, { error: 'absent' });
+});
+
+test('trace : un immuable écrit entre-temps par un autre téléphone n’est pas réécrit (la perte de course est un « exists »)', async () => {
+  const { blob, teiva } = installe();
+  blob.store.set('preview/trace/tr1.json', { text: JSON.stringify(trace()), etag: '"z"', contentType: 'application/json', uploadedAt: new Date(0) });
+  blob.failNext(new blob.BlobNotFoundError(), { op: 'head' });           // le premier contrôle ne l’a pas vu…
+  blob.failNext(new blob.BlobError('This blob already exists'), { op: 'put' });   // …l’écriture a perdu la course
+  const r = await teiva('PUT', TR(), trace());
+  assert.equal(r.status, 200); assert.deepEqual(r.body, { exists: true });
+  // une vraie panne d’écriture reste une panne
+  const { blob: b2, teiva: t2 } = installe();
+  b2.failNext(new b2.BlobError('boum'), { op: 'put' });
+  assert.equal((await t2('PUT', TR(), trace())).status, 502);
+});
+
+test('rapport : { html, t, name } immuable, un chemin par instant ; instant incohérent ou html absent → 400', async () => {
+  const { blob, teiva, romain } = installe();
+  const rapport = { html: '<!doctype html><title>Rapport archive test</title>', t: 123, name: 'Débrief SNPM' };
+  assert.deepEqual((await teiva('PUT', RP(), rapport)).body, { ok: true });
+  assert.ok(blob.store.has('preview/report/tr1-123.json'));
+  assert.deepEqual((await romain('PUT', RP(), rapport)).body, { exists: true });
+  assert.deepEqual((await romain('GET', RP())).body, rapport);
+  assert.equal((await teiva('PUT', RP('tr1', 124), rapport)).status, 400, 't du corps différent de celui de l’adresse');
+  assert.equal((await teiva('PUT', RP(), { t: 123 })).status, 400);
+  assert.equal((await teiva('PUT', RP('tr1', 'abc'), rapport)).status, 400);
+  assert.equal((await teiva('GET', RP('tr1', 999))).status, 404);
+  // un rapport plus récent est un autre objet
+  assert.deepEqual((await teiva('PUT', RP('tr1', 200), { ...rapport, t: 200 })).body, { ok: true });
+  assert.ok(blob.store.has('preview/report/tr1-200.json') && blob.store.has('preview/report/tr1-123.json'));
+});
+
+test('vent du jour : le PUT écrit sous le prénom du middleware, jamais celui du client ; le GET lit celui de l’équipier demandé', async () => {
+  const { blob, teiva, thibaud } = installe();
+  const mis = await teiva('PUT', DY('&by=thibaud'), jour);                        // `by` du client : ignoré en écriture
+  assert.equal(mis.status, 200); assert.deepEqual(mis.body, { ok: true });
+  assert.deepEqual([...blob.store.keys()].filter((k) => k.includes('/day/')), ['preview/day/rgA/2026-11-07/teiva.json']);
+  const lu = await thibaud('GET', DY('&by=teiva'));
+  assert.equal(lu.status, 200); assert.deepEqual(lu.body, jour);
+  assert.equal(lu.headers['x-content-type-options'], 'nosniff');
+  // réécrit à chaque gel (un seul écrivain), lu sans cache
+  const v2 = { ...jour, obs: { day: '2026-11-07', obs: [{ t: 1 }] } };
+  assert.deepEqual((await teiva('PUT', DY(), v2)).body, { ok: true });
+  assert.deepEqual((await thibaud('GET', DY('&by=teiva'))).body, v2);
+  assert.ok(blob.ops.log.filter((o) => o.op === 'get' && o.path.includes('/day/')).every((o) => o.opts.useCache === false), 'jamais la copie du CDN');
+  // chacun son objet : Thibaud écrit le sien, celui de Teiva ne bouge pas
+  await thibaud('PUT', DY(), { ...jour, strat: null });
+  assert.deepEqual(JSON.parse(blob.store.get('preview/day/rgA/2026-11-07/teiva.json').text), v2);
+  assert.ok(blob.store.has('preview/day/rgA/2026-11-07/thibaud.json'));
+  assert.equal((await thibaud('GET', DY('&by=romain'))).status, 404);
+});
+
+test('vent du jour : GET sans `by` valide → 400, jour ou régate invalides → 400, corps de plus de 0,6 Mo → 413, corps vide → 400', async () => {
+  const { blob, teiva } = installe();
+  for (const by of ['', '&by=Teiva', '&by=../teiva', '&by=a%20b', `&by=${'a'.repeat(41)}`]) assert.equal((await teiva('GET', DY(by))).status, 400, `by=${by}`);
+  for (const url of ['/api/archive?k=day&r=rgA&d=2026-13-99x', '/api/archive?k=day&r=rgA&d=07/11/2026', '/api/archive?k=day&r=..&d=2026-11-07', '/api/archive?k=day&r=a%2Fb&d=2026-11-07', '/api/archive?k=day&d=2026-11-07']) {
+    assert.equal((await teiva('PUT', url, jour)).status, 400, url);
+  }
+  const gros = await teiva('PUT', DY(), { wx: { x: 'a'.repeat(MAX_HEAVY.day) } });
+  assert.equal(gros.status, 413); assert.match(gros.body.error, /trop volumineux/);
+  assert.equal((await teiva('PUT', DY(), {})).status, 400);
+  assert.equal((await teiva('PUT', DY(), { wx: 'texte' })).status, 400);
+  assert.equal(blob.ops.put, 0, 'rien n’a été écrit');
+  assert.deepEqual(MAX_HEAVY, { trace: 4_000_000, report: 3_000_000, day: 600_000 });
+});
+
+test('objets lourds : bornes de trace (4 Mo) et de rapport (3 Mo) → 413, paramètres invalides → 400, autres méthodes → 405, k inconnu → 400', async () => {
+  const { blob, teiva } = installe();
+  const t413 = await teiva('PUT', TR(), trace('tr1', 2, { pad: 'a'.repeat(MAX_HEAVY.trace) }));
+  assert.equal(t413.status, 413);
+  assert.equal((await teiva('PUT', RP(), { html: 'a'.repeat(MAX_HEAVY.report), t: 123, name: 'x' })).status, 413);
+  for (const url of ['/api/archive?k=trace', '/api/archive?k=trace&id=..', '/api/archive?k=trace&id=a%2Fb', `/api/archive?k=trace&id=${'a'.repeat(81)}`, '/api/archive?k=report&id=tr1']) {
+    assert.equal((await teiva('GET', url)).status, 400, url);
+  }
+  assert.equal((await teiva('PUT', TR(), trace('autre'))).status, 400, 'identifiant du corps ≠ celui de l’adresse');
+  assert.equal((await teiva('PUT', TR(), { id: 'tr1', pts: [] })).status, 400);
+  assert.equal((await teiva('PUT', TR(), undefined)).status, 400);
+  for (const method of ['POST', 'DELETE']) assert.equal((await teiva(method, TR(), trace())).status, 405);
+  assert.equal((await teiva('GET', '/api/archive?k=autre')).status, 400);
+  assert.equal(blob.ops.put, 0);
+});
+
+test('objets lourds : fermés sans prénom du middleware (403), préfixe de l’environnement, 429 relayé avec Retry-After', async () => {
+  const { blob, handler, teiva } = installe();
+  for (const url of [TR(), RP(), DY('&by=teiva')]) {
+    assert.equal((await invoke(handler, { method: 'GET', url })).status, 403, `${url} sans prénom`);
+    assert.equal((await invoke(handler, { method: 'PUT', url, body: trace(), headers: { 'x-rt-membre': '' } })).status, 403);
+  }
+  assert.equal(blob.ops.get + blob.ops.put + blob.ops.head, 0, 'le magasin n’a pas été touché');
+  await avecEnv('production', async () => { await teiva('PUT', TR('trp'), trace('trp')); });
+  assert.ok(blob.store.has('prod/trace/trp.json'), 'la production a son préfixe');
+  assert.ok(![...blob.store.keys()].some((k) => k.startsWith('preview/')), 'rien dans l’aperçu');
+  blob.failNext(new blob.BlobServiceRateLimited(17), { op: 'get' });
+  const l = await teiva('GET', TR());
+  assert.equal(l.status, 429); assert.equal(l.headers['retry-after'], '17');
 });
 
 // ───────────────────────── gardes statiques

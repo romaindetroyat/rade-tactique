@@ -1397,7 +1397,85 @@ async function archiveBouees({ browser, base }) {
   await A.ctx.close(); await B.ctx.close();
 }
 
-const SCENARIOS = { archive, 'archive-bouees': archiveBouees, creer, manche, auteur, ic, 'depuis-ic': depuisIC, vraisemblance, gel, 'debrief-tardif': debriefTardif, gpx, 'gpx-choix': gpxChoix, ia, 'ia-erreurs': iaErreurs, bouees };
+// ───────────────────────── objets lourds de l'archive (ARCH-03, D-03) : traces, rapports, vent figé du jour, lisibles hors réseau
+
+// Attend côté outil (le faux Blob est dans ce processus) qu'une condition soit vraie
+async function attendre(cond, quoi, delai = 40000) {
+  const t0 = Date.now();
+  while (!(await cond())) { if (Date.now() - t0 > delai) throw new Error(`${quoi} : jamais atteint`); await new Promise((r) => setTimeout(r, 200)); }
+}
+const lireTraceLocale = (page, id) => page.evaluate((i) => new Promise((ok, ko) => {
+  const r = indexedDB.open('rade-traces', 1);
+  r.onsuccess = () => { const q = r.result.transaction('tracks').objectStore('tracks').get(i); q.onsuccess = () => ok(q.result ? { id: q.result.id, n: q.result.pts.length, report: q.result.report ?? null } : null); q.onerror = () => ko(q.error); };
+  r.onerror = () => ko(r.error);
+}), id);
+// Pose un rapport dans la trace locale (même base que l'app) ; la référence de la fiche suit quand l'équipier ouvre la trace (syncRef)
+const poseRapport = (page, id, rapport) => page.evaluate(async ([i, rp]) => { const { getTrack, saveTrack } = await import('/js/track.js'); const tr = await getTrack(i); tr.report = rp; await saveTrack(tr); }, [id, rapport]);
+// Rapport « piégé » : s'il s'exécutait, il marquerait la page et son stockage local
+const RAPPORT_TEST = { t: Date.parse('2026-10-19T09:00:00Z'), name: 'Rapport archive test', html: '<!doctype html><html><head><meta charset="utf-8"><title>Rapport archive test</title></head><body><h1>Rapport archive test</h1><script>try{window.parent.__xss=1;window.top.__xss=1;localStorage.setItem("xss","1")}catch(e){}</script><img src=x onerror="try{window.top.__xss=2}catch(e){}"></body></html>' };
+
+// A importe la trace de la Coupe SNPM et lui pose un rapport ; B reçoit tout et le lit réseau coupé
+async function archiveHors({ browser, base }) {
+  const m = await mondeArchive();
+  const A = await telephoneArchive(browser, base, m, 'Teiva'), B = await telephoneArchive(browser, base, m, 'Thibaud');
+  // 1) A importe le GPX (rangé dans la Coupe SNPM semée), laisse le questionnaire du débrief, pose le rapport marqueur et ouvre la trace
+  await ongletTraces(A.page);
+  await A.page.setInputFiles('#gpxIn', GPX_SNPM);
+  await toastVu(A.page, 'Trace rangée dans Coupe de la SNPM — CVAT');
+  await A.page.waitForSelector('#dqCancel', { timeout: 60000 }); await A.page.click('#dqCancel');
+  const id = (await regateCourante(A.page)).traces[0].id;
+  assert.match(id, /^tr\d+/, 'trace rangée');
+  await poseRapport(A.page, id, RAPPORT_TEST);
+  await ongletTraces(A.page);
+  await A.page.click('[data-tv]');                                                            // « Analyser » : le résumé et le rapport rejoignent la fiche
+  await A.page.waitForFunction(() => { const i = JSON.parse(localStorage.getItem('rade.regates.v1')); const t = i.list.find((r) => r.id === i.current)?.traces[0]; return t?.sum && t?.report?.t; }, null, { timeout: 60000 });
+  // 2) A synchronise : la fiche part (légère), puis la trace et le rapport (lourds), une fois chacun
+  await avanceHeure(m, 60e3);
+  await synchronise(m, A);
+  const chemins = [`preview/trace/${id}.json`, `preview/report/${id}-${RAPPORT_TEST.t}.json`];
+  await attendre(() => chemins.every((c) => m.blob.store.has(c)), 'trace et rapport en ligne');
+  const taille = (c) => Buffer.byteLength(m.blob.store.get(c).text);
+  console.log(`  mesure archivehors : trace ${taille(chemins[0])} octets, rapport ${taille(chemins[1])} octets`);
+  assert.ok(!('report' in JSON.parse(m.blob.store.get(chemins[0]).text)), 'la trace en ligne est sans rapport');
+  assert.ok(!(await A.page.evaluate(() => JSON.stringify(Object.keys(JSON.parse(localStorage.getItem('rade.sync.v1')).up || {})))).includes('day:'), 'pas encore de jour figé');
+  // 3) B synchronise (légère), puis reçoit la trace et le rapport dans ses bases locales
+  await avanceHeure(m, 60e3);
+  await synchronise(m, B);
+  await attendre(async () => (await lireTraceLocale(B.page, id))?.report, 'trace et rapport reçus par B');
+  const tb = await lireTraceLocale(B.page, id);
+  assert.equal(tb.n, 9538, 'la trace complète est chez B'); assert.equal(tb.report.name, 'Rapport archive test');
+  const puts = m.blob.ops.log.filter((o) => o.op === 'put').length;
+  const envoisB = B.requetes.filter((x) => x === 'PUT').length;
+  // 4) B coupe le réseau : fiche, trace (carte et analyse) et débrief s'ouvrent, sans aucun appel à /api/archive
+  await B.ctx.setOffline(true); await B.page.waitForFunction(() => !navigator.onLine);
+  const avant = { requetes: B.requetes.length, serveur: m.appels.Thibaud };
+  await B.page.click('#tabs button[data-tab=ic]');
+  await B.page.waitForSelector('#rgSheet .rgtr', { timeout: 20000 });
+  const ligne = (await B.page.locator('#rgSheet .rgtr').first().textContent()).replace(/\s+/g, ' ');
+  assert.match(ligne, /\d+,\d Nq · [^·]*actives/, `résumé de la trace chez B : ${ligne}`);
+  assert.match(ligne, /Débrief par Teiva/, 'le rapport de A, signé de A');
+  await B.page.click('#rgSheet [data-trv]');
+  await B.page.waitForSelector('#traceDetail .kpis', { timeout: 60000 });
+  assert.match(await B.page.locator('#traceDetail').textContent(), /Nq parcourus/, 'l’analyse de la trace de A, chez B');
+  await B.page.click('#tabs button[data-tab=ic]');
+  assert.equal((await B.page.locator('#rgSheet [data-trd]').first().textContent()).trim(), 'Voir le débrief');
+  await B.page.click('#rgSheet [data-trd]');
+  await B.page.waitForFunction(() => /Rapport archive test/.test(document.querySelector('#rpFrame')?.srcdoc || '') && !document.querySelector('#modal')?.hidden, null, { timeout: 20000 });
+  // le rapport d'un autre téléphone ne s'exécute pas : cadre en sandbox (ni scripts ni même origine), rien n'a marqué la page ni son stockage
+  assert.equal(await B.page.evaluate(() => document.querySelector('#rpFrame').getAttribute('sandbox')), '', 'cadre du rapport en sandbox sans permission');
+  await B.page.waitForTimeout(500);
+  assert.deepEqual(await B.page.evaluate(() => [window.__xss ?? null, localStorage.getItem('xss')]), [null, null], 'le script du rapport n’a rien exécuté');
+  assert.equal(B.requetes.length, avant.requetes, 'aucune requête vers /api/archive pendant la lecture hors réseau');
+  assert.equal(m.appels.Thibaud, avant.serveur, 'rien n’est arrivé au serveur');
+  assert.equal(B.requetes.filter((x) => x === 'PUT').length, envoisB, 'B n’a rien renvoyé');
+  assert.equal(m.blob.ops.log.filter((o) => o.op === 'put').length, puts, 'aucune écriture en ligne de plus');
+  // Chromium consigne le script bloqué du rapport piégé (preuve du bac à sable) et Playwright, en mode « service worker bloqué », se plaint dans le cadre sandboxé : deux bruits attendus
+  const hors = (e) => e.filter((x) => !/Blocked script execution|Failed to read the 'serviceWorker'.*sandboxed/.test(x));
+  sansErreur(hors(A.erreurs), 'sur A'); sansErreur(hors(B.erreurs), 'sur B');
+  await A.ctx.close(); await B.ctx.close();
+}
+
+const SCENARIOS = { archive, 'archive-bouees': archiveBouees, archivehors: archiveHors, creer, manche, auteur, ic, 'depuis-ic': depuisIC, vraisemblance, gel, 'debrief-tardif': debriefTardif, gpx, 'gpx-choix': gpxChoix, ia, 'ia-erreurs': iaErreurs, bouees };
 
 // ───────────────────────── lancement
 

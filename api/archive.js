@@ -1,15 +1,25 @@
 // Archive partagée de l’équipage (Vercel, fonction Node) : lit et écrit le stockage Vercel Blob PRIVÉ pour le compte des trois équipiers.
 // Le middleware a déjà vérifié le code d’accès et pose l’en-tête `x-rt-membre` (prénom, encodé) : c’est la seule source de l’auteur, jamais le corps.
 // Variables d’environnement : BLOB_READ_WRITE_TOKEN (ou BLOB_STORE_ID + OIDC), VERCEL_ENV. Aucune URL Blob n’est jamais renvoyée au client.
-// Routes de ce plan (toutes sur /api/archive, paramètre k) ; les autres (day, trace, report) arrivent avec le plan 04 :
+// Routes (toutes sur /api/archive, paramètre k) :
 //   GET  ?k=light[&rev=…]   document léger partagé { rev, doc, env } (ou { unchanged, rev, env } si rev est à jour)
 //   PUT  ?k=light           { doc } : fusion côté serveur (lire → fusionner → écrire avec ifMatch, 4 essais) → { rev, doc, changed, env }
+// Objets lourds (écrivain unique ou immuables, jamais fusionnés) :
+//   PUT|GET ?k=trace&id=…           trace sans rapport, immuable : déjà en ligne → { exists: true }, aucune réécriture
+//   PUT|GET ?k=report&id=…&t=…      rapport { html, t, name }, immuable (un chemin par instant)
+//   PUT|GET ?k=day&r=…&d=AAAA-MM-JJ[&by=…]   vent figé du jour { wx, strat, obs } : le PUT écrit TOUJOURS sous le prénom du middleware (le `by` du
+//                                   client est ignoré), le GET lit celui de l’équipier demandé ; réécrit à chaque gel, lu sans cache
+// Les objets lourds sont relayés en flux, en JSON, avec `nosniff` : jamais interprétés ici, jamais d’adresse du magasin.
 // `createHandler({ blob, now })` accepte un faux Blob (tests, aucun réseau) : { get, put, head, BlobError, BlobPreconditionFailedError,
 // BlobNotFoundError, BlobServiceRateLimited } ; sans lui, le SDK @vercel/blob est importé à la première requête.
 
-import { mergeDoc, emptyDoc, docEquals, canon, sameBody, LOCAL_ONLY, HEAD, LISTS, MAX_HIST } from '../js/archmerge.js';
+import { pipeline } from 'node:stream/promises';
+import { Readable } from 'node:stream';
+import { mergeDoc, emptyDoc, docEquals, canon, sameBody, slug, LOCAL_ONLY, HEAD, LISTS, MAX_HIST } from '../js/archmerge.js';
 
 export const MAX_LIGHT = 3_500_000, MAX_REGATTA = 150_000, MAX_REGATTAS = 200;
+export const MAX_HEAVY = { trace: 4_000_000, report: 3_000_000, day: 600_000 };       // octets ; la plateforme refuse de toute façon au-delà de 4,5 Mo
+const BY = /^[a-z0-9-]{1,40}$/, STAMP = /^\d{1,15}$/;
 const TRIES = 4, FUTURE_MS = 5 * 60e3;
 const ID = /^[A-Za-z0-9._-]{1,80}$/, DAY = /^\d{4}-\d{2}-\d{2}$/, NAME = /^[\p{L}\p{M} '’-]{1,40}$/u, TOMB_KEY = /^[\w:.|-]{1,120}$/, MARK_KEY = /^\w{1,12}$/;
 const DANGER = new Set(['__proto__', 'constructor', 'prototype']);
@@ -138,6 +148,63 @@ export async function mutateLight(B, path, fn, { tries = TRIES } = {}) {
   throw last && !(last instanceof B.BlobPreconditionFailedError) ? last : fail('écritures simultanées : réessayez', 409);
 }
 
+// ───────────────────────── objets lourds : trace, rapport, vent figé du jour
+
+const str = (x) => (typeof x === 'string' ? x : '');
+const safeId = (x) => validId(x) && !String(x).includes('..');
+// Chemin du magasin d’un objet lourd, construit ici seulement d’après des paramètres validés ; null si un paramètre est invalide.
+// Le vent du jour d’un équipier s’écrit sous SON prénom (celui du middleware) : lire celui d’un autre demande `by`, écrire ne l’admet pas.
+function heavyPath(P, q, method, who) {
+  const k = str(q.k), id = str(q.id);
+  if (k === 'trace' && safeId(id)) return `${P}/trace/${id}.json`;
+  if (k === 'report' && safeId(id) && STAMP.test(str(q.t))) return `${P}/report/${id}-${q.t}.json`;
+  if (k === 'day' && safeId(str(q.r)) && DAY.test(str(q.d))) {
+    const by = method === 'PUT' ? slug(who) : str(q.by);
+    if (BY.test(by)) return `${P}/day/${q.r}/${q.d}/${by}.json`;
+  }
+  return null;
+}
+// Corps reçu → objet propre (champs connus seulement) ; refuse ce qui n’a pas la forme attendue
+function cleanHeavy(k, body, q) {
+  if (!isObj(body)) throw fail('corps illisible', 400);
+  if (k === 'trace') {
+    if (body.id !== q.id || !Array.isArray(body.pts) || body.pts.length < 2) throw fail('trace illisible', 400);
+    const { report, ...trace } = body;                                              // le rapport voyage à part : la trace en ligne ne change jamais
+    return trace;
+  }
+  if (k === 'report') {
+    if (typeof body.html !== 'string' || !Number.isFinite(body.t) || String(body.t) !== q.t) throw fail('rapport illisible', 400);
+    return { html: body.html, t: body.t, name: str(body.name).slice(0, 200) };
+  }
+  const out = {};
+  for (const key of ['wx', 'strat', 'obs']) if (body[key] != null) { if (!isObj(body[key])) throw fail(`${key} illisible`, 400); out[key] = body[key]; }
+  if (!Object.keys(out).length) throw fail('corps vide', 400);
+  return out;
+}
+async function heavy(B, req, res, q, path) {
+  const k = q.k;
+  if (req.method === 'PUT') {
+    const text = JSON.stringify(cleanHeavy(k, req.body, q));
+    if (Buffer.byteLength(text) > MAX_HEAVY[k]) return res.status(413).json({ error: `objet trop volumineux (${MAX_HEAVY[k]} octets au plus)` });
+    if (k !== 'day') {                                                              // immuable : déjà en ligne = rien à écrire (économise une opération)
+      try { await B.head(path); return res.status(200).json({ exists: true }); } catch (e) { if (!(e instanceof B.BlobNotFoundError)) throw e; }
+    }
+    try {
+      await B.put(path, text, { access: 'private', contentType: 'application/json', ...(k === 'day' ? { allowOverwrite: true, cacheControlMaxAge: 60 } : {}) });
+    } catch (e) {
+      // un immuable écrit entre-temps par un autre téléphone : il existe, on ne le réécrit pas
+      if (k !== 'day' && e instanceof B.BlobError && !(e instanceof B.BlobServiceRateLimited)) { try { await B.head(path); return res.status(200).json({ exists: true }); } catch { /* introuvable : l’erreur d’origine */ } }
+      throw e;
+    }
+    return res.status(200).json({ ok: true });
+  }
+  const r = await B.get(path, { access: 'private', useCache: k !== 'day' });
+  if (!r || r.statusCode !== 200) return res.status(404).json({ error: 'absent' });
+  res.setHeader('Content-Type', 'application/json'); res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.status(200);
+  await pipeline(Readable.fromWeb(r.stream), res);
+}
+
 // ───────────────────────── fonction
 
 // Le prénom posé par le middleware est encodé (une valeur d’en-tête reste en octets simples) : décodé puis validé, sinon null
@@ -154,10 +221,15 @@ export function createHandler({ blob, now = Date.now } = {}) {
     if (!who) return res.status(403).json({ error: 'membre_inconnu' });         // fermé par défaut : sans prénom du middleware, rien n’est lu
     if (!sdk && !process.env.BLOB_READ_WRITE_TOKEN && !process.env.BLOB_STORE_ID) return res.status(503).json({ error: 'no_blob' });
     const q = req.query || Object.fromEntries(new URL(req.url || '/', 'http://x').searchParams);
-    if (q.k !== 'light') return res.status(400).json({ error: 'k inconnu' });
+    if (q.k !== 'light' && !Object.hasOwn(MAX_HEAVY, q.k)) return res.status(400).json({ error: 'k inconnu' });
     if (req.method !== 'GET' && req.method !== 'PUT') return res.status(405).json({ error: 'GET ou PUT' });
     const P = prefix(), path = `${P}/light.json`;
     try {
+      if (q.k !== 'light') {
+        const chemin = heavyPath(P, q, req.method, who);
+        if (!chemin) return res.status(400).json({ error: 'paramètres invalides' });
+        return await heavy(await getBlob(), req, res, q, chemin);
+      }
       const B = await getBlob();
       if (req.method === 'GET') {
         const r = await B.get(path, { access: 'private', useCache: false, ...(q.rev ? { ifNoneMatch: String(q.rev) } : {}) });

@@ -790,7 +790,7 @@ function raceTick() {
   if (active !== wasRaceActive) { wasRaceActive = active; paintSync(); }
   const locked = raceLock(now).locked;
   updates?.refresh();
-  if (wasLocked && !locked) updates?.check();    // le téléchargement était suspendu pendant le verrou
+  if (wasLocked && !locked) { updates?.check(); scheduleSync(60000); }    // le téléchargement était suspendu pendant le verrou ; l'archive (objets lourds compris) repart une minute plus tard
   wasLocked = locked;
   freezeTick('tic');                             // copie du vent du jour (gel) : jamais reportée, voir plus bas
 }
@@ -1447,15 +1447,23 @@ async function runDebrief(tr) {
   if (rangee) { const nx = setTraceReport(rangee, tr.id, { t: tr.report.t, by: who() }); if (nx !== rangee) { saveReg(upsertRegatta(REG, nx)); refreshSheet(); } }
   showReport(tr); renderTraceDetail();
 }
+// Un rapport peut venir d’un autre téléphone (archive partagée) : c’est une DONNÉE, jamais du code de l’app. Il s’affiche dans un cadre `sandbox`
+// sans `allow-scripts` ni `allow-same-origin` (origine opaque : ni scripts, ni stockage local, ni appels à /api avec le cookie de l’équipier) ;
+// en « Plein écran », une page à nous, précédée de la politique de contenu qui interdit les scripts, l’enferme dans le même cadre.
 function showReport(tr) {
   const rep = tr.report; if (!rep) return;
   let m = document.getElementById('modal'); if (!m) { m = document.createElement('div'); m.id = 'modal'; document.body.appendChild(m); }
   m.className = 'report'; m.hidden = false;
-  m.innerHTML = `<div class="modal-card report-card"><div class="btns" style="margin:0 0 8px"><button class="btn acc" id="rpShare">Partager le rapport</button><button class="btn alt" id="rpOpen">Plein écran</button><button class="btn alt" id="rpClose">Fermer</button></div><iframe id="rpFrame" title="Rapport de course"></iframe></div>`;
+  m.innerHTML = `<div class="modal-card report-card"><div class="btns" style="margin:0 0 8px"><button class="btn acc" id="rpShare">Partager le rapport</button><button class="btn alt" id="rpOpen">Plein écran</button><button class="btn alt" id="rpClose">Fermer</button></div><iframe id="rpFrame" title="Rapport de course" sandbox></iframe></div>`;
   m.querySelector('#rpFrame').srcdoc = rep.html;
   m.querySelector('#rpClose').onclick = () => { m.hidden = true; };
   m.querySelector('#rpShare').onclick = () => dbShare(rep.html, rep.name);
-  m.querySelector('#rpOpen').onclick = () => { const u = URL.createObjectURL(new Blob([rep.html], { type: 'text/html' })); const a = document.createElement('a'); a.href = u; a.target = '_blank'; a.rel = 'noopener'; document.body.appendChild(a); a.click(); a.remove(); };
+  m.querySelector('#rpOpen').onclick = () => {
+    // politique de contenu de la page « Plein écran » : aucun script, aucun objet, aucun envoi de formulaire
+    const csp = `<meta http-equiv="Content-Security-Policy" content="script-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">`;
+    const page = `<!doctype html><html lang="fr"><head><meta charset="utf-8">${csp}<meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(rep.name || 'Rapport de course')}</title><style>html,body{margin:0;height:100%}iframe{border:0;width:100%;height:100%;background:#fff}</style></head><body><iframe sandbox title="Rapport de course" srcdoc="${esc(rep.html)}"></iframe></body></html>`;
+    const u = URL.createObjectURL(new Blob([page], { type: 'text/html' })); const a = document.createElement('a'); a.href = u; a.target = '_blank'; a.rel = 'noopener'; document.body.appendChild(a); a.click(); a.remove();
+  };
 }
 async function renderTracks() {
   const el = $('section[data-tab=tracks]'); if (!el) return;
@@ -1777,8 +1785,8 @@ async function refreshMembre() {
 // Tout échange et toute application de réponse sont interdits pendant une course (raceActive) ; un échange commencé avant est abandonné (raceTick).
 let syncMod = null, syncTimer = null, syncBusy = false, syncCtl = null, syncReady = false;
 function scheduleSync(ms) { clearTimeout(syncTimer); syncTimer = setTimeout(() => syncNow('auto'), ms); }
-async function syncFetch(method, query, body) {
-  const ctl = new AbortController(), to = setTimeout(() => ctl.abort(), 15000);
+async function syncFetch(method, query, body, delai = 15000) {
+  const ctl = new AbortController(), to = setTimeout(() => ctl.abort(), delai);
   syncCtl = ctl;
   try {
     const r = await fetch('/api/archive?' + new URLSearchParams(query), { method, cache: 'no-store', credentials: 'same-origin', signal: ctl.signal, ...(body ? { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) } : {}) });
@@ -1808,6 +1816,7 @@ async function syncNow(reason) {
   if (SYNC.off) { paintSync(); return; }                     // désactivée sur ce téléphone : aucun échange, le module n’est même pas chargé
   if (raceActive(Date.now())) { if (reason === 'manuel') toast('Course en cours : synchronisation après la course'); paintSync(); return; }
   syncBusy = true; paintSync();
+  let leger = false;
   try {
     syncMod ||= await import('./archsync.js');
     if (!SYNC.first) { const marque = legacyStamp(REG); if (marque !== REG) saveReg(marque, { fromSync: true }); }     // première synchronisation : les éléments d'avant l'archive reçoivent une date
@@ -1817,7 +1826,34 @@ async function syncNow(reason) {
     else if (res.skipped === 'saisie') scheduleSync(30000);
     else if (res.error && !['no_blob', 'acces'].includes(res.error)) scheduleSync(syncMod.BACKOFF_MS[Math.min(SYNC.fails || 1, syncMod.BACKOFF_MS.length) - 1] + 500);   // recul : 30 s · 2 min · 10 min · 30 min
     else if (res.merged && Object.keys(SYNC.dirty || {}).length) scheduleSync(20000);                   // modifié pendant l’échange : à renvoyer
+    leger = !!(res.merged || res.unchanged);
   } catch (e) { report('archive', e); } finally { syncBusy = false; syncCtl = null; paintSync(); }
+  if (leger) runHeavyNow().catch((e) => report('archive', e));            // objets lourds : seulement après une synchronisation légère réussie
+}
+// Objets lourds (ARCH-03) : traces et rapports (vent figé du jour : tâche suivante). js/archheavy.js se charge à la première fois (jamais à l'ouverture).
+// D-03 : ni pendant une course ni pendant la journée de régate (jusqu'au retour au port), vérifié avant le passage et entre deux objets.
+let heavyMod = null, heavyBusy = false;
+function heavyDeps() {
+  return {
+    now: Date.now, meta: SYNC, saveMeta: saveSync, getList: () => REG.list,
+    fetchJson: (method, query, body) => syncFetch(method, query, body, 60000),
+    listTracks, getTrack, saveTrack, isActive: () => raceActive(Date.now()), isLocked: () => raceLock().locked, report,
+  };
+}
+async function runHeavyNow({ only = null, manuel = false } = {}) {
+  if (heavyBusy || SYNC.off || SYNC.denied || SYNC.absent || SYNC.outdated) return null;
+  if (raceActive(Date.now())) { if (manuel) toast('Course en cours : téléchargement après la course'); return null; }
+  if (raceLock().locked) { if (manuel) toast('Journée de régate : téléchargement au retour au port'); return null; }
+  heavyBusy = true;
+  let res = null;
+  try {
+    heavyMod ||= await import('./archheavy.js');
+    res = await heavyMod.runHeavy(heavyDeps(), { only });
+    note('archive', `lourds : ${res.up} envoyé(s), ${res.down} reçu(s)${res.skipped ? ' · reporté : ' + res.skipped : ''}${res.error ? ' · échec : ' + res.error : ''}`);
+    if (res.up || res.down) { renderTracks(); refreshSheet(); }
+  } finally { heavyBusy = false; syncCtl = null; }
+  if (res && (res.up || res.down) && !res.error) setTimeout(() => runHeavyNow({ only }).catch((e) => report('archive', e)), 3000);     // la suite du plan (6 objets par passage)
+  return res;
 }
 // Ligne d’état sous « Vous : » ; masquée tant que le module n’est pas chargé. Texte posé par textContent, jamais rouge.
 // Interrupteur (Open Question 16) : couper l’échange sur CE téléphone, d’abord sur deux touches, remettre d’un geste. L’échange en cours est jeté (canApply).
