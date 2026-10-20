@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 4
 current_phase_name: Archive partagée
 status: executing
-stopped_at: Completed 04-03-PLAN.md
-last_updated: "2026-10-20T05:09:11.516Z"
+stopped_at: Completed 04-04-PLAN.md
+last_updated: "2026-10-20T05:46:40.334Z"
 last_activity: 2026-10-20
 last_activity_desc: Phase 4 execution started
-state_head: 0ec6fa70a5852cb394262251c043f1feef280d87
+state_head: d79fbbf8281d2810ca08e57ce29963a14939596b
 progress:
   total_phases: 4
   completed_phases: 3
   total_plans: 21
-  completed_plans: 19
+  completed_plans: 20
   percent: 75
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-10-19)
 ## Current Position
 
 Phase: 4 (Archive partagée) — EXECUTING
-Plan: 4 of 5
+Plan: 5 of 5
 Status: Ready to execute
 Last activity: 2026-10-20 — Phase 4 execution started
 
@@ -75,6 +75,7 @@ Progress: [████████░░] 75%
 | Phase 04 P01 | 19 min | 3 tasks | 13 files |
 | Phase 04 P02 | 19 min | 3 tasks | 11 files |
 | Phase 04 P03 | 21min | 3 tasks | 12 files |
+| Phase 04 P04 | 36min | 3 tasks | 12 files |
 
 ## Accumulated Context
 
@@ -130,6 +131,9 @@ Décisions récentes qui orientent le travail en cours :
 - [Phase 04]: 04-02 : l'état marqué est la file d'envoi ; denied et outdated en mémoire seulement ; graine SNPM à instant fixe SEED_AT ; legacyStamp avant le premier envoi ; copie rade.regates.v1.bak
 - [Phase 04]: [04-03] remoteMarkChanges borne les positions reçues à la rade et ramène la source à trace | saisie (T-04-18)
 - [Phase 04]: [04-03] Un recalage reçu n'est jamais renvoyé : seule une action de l'équipier marque ~marks
+- [Phase 04]: 04-04 : « Plein écran » du rapport = page à nous sous script-src 'none' qui enferme le rapport dans un cadre sandbox (une balise insérée dans le HTML d'un autre téléphone peut être devancée par un script placé avant <head>)
+- [Phase 04]: 04-04 : un jour figé local est envoyé avant tout remplacement ; un jour à envoyer n'est jamais téléchargé dans le même passage ; objet annoncé mais absent (404) redemandé après 30 min
+- [Phase 04]: 04-04 : les envois lourds ne sont pas limités à l'horizon de 180 jours (sauvegarde des traces anciennes), seuls les téléchargements le sont
 
 ### Pending Todos
 
@@ -154,6 +158,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-10-20T05:09:11.378Z
-Stopped at: Completed 04-03-PLAN.md
+Last session: 2026-10-20T05:46:40.193Z
+Stopped at: Completed 04-04-PLAN.md
 Resume file: None
