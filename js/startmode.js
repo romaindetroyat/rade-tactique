@@ -13,7 +13,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<
 const fmtS = (s) => { const a = Math.abs(Math.round(s)); return a >= 60 ? `${Math.floor(a / 60)}:${String(a % 60).padStart(2, '0')}` : `${a} s`; };
 
 export function createStartMode(api) {
-  // api : { S, persist, line(), windAt(p), timer, wake, beep, audioInit, audioRelease, testSound, chronoAlert, fixAlert, status(), fixLamp(act), lampTouch(id), startGps, gps(), say, setLineEnd, toast }
+  // api : { S, persist, line(), windAt(p), timer, wake, beep, audioInit, audioRelease, testSound, chronoAlert, fixAlert, status(), fixLamp(act), lampTouch(id), startGps, gps(), closed(), say, setLineEnd, toast }
   let root = null, raf = null, compass = null, compassOn = false, lastSaid = null;
   const st = { crossed: null, ocs: false };
 
@@ -108,6 +108,7 @@ export function createStartMode(api) {
     api.wake.drop('startmode');
     if (api.timer.end == null) api.audioRelease?.();     // session audio « playback » remise à « auto » quand plus rien n’en a besoin
     stopCompass();
+    api.closed?.();                                      // l’app décide si le GPS allumé d’office par l’ouverture doit s’éteindre (releaseGps)
   }
   function build() {
     root = document.createElement('div'); root.id = 'startMode'; root.hidden = true;

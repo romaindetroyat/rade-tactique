@@ -21,6 +21,13 @@ export function isActive({ now, timerEnd = null, startModeOpen = false, recordin
   return !!(startModeOpen || recording || gpsOn);
 }
 
+// GPS allumé d’office par le mode départ ou la trace, laissé seul : à éteindre au geste qui termine la dernière activité ; jamais sur une horloge ;
+// un chrono, même au-delà de ses 3 h de grâce, le garde (timerEnd non nul) ; un GPS allumé à la main (gpsAuto faux) est gardé aussi.
+// Ce prédicat ne change pas isActive : tout GPS allumé reste une activité de course (D-01), donc aucun échange pendant qu’il tourne (D-03).
+export function gpsLeftAlone({ gpsOn = false, gpsAuto = false, startModeOpen = false, recording = false, timerEnd = null }) {
+  return !!(gpsOn && gpsAuto && !startModeOpen && !recording && timerEnd == null);
+}
+
 // Pas de recalcul automatique pendant la séquence de départ (de H−6 min à H+1 min inclus, H = fin du chrono) : l’affichage du mode départ
 // doit rester fluide. Les gestes et les relevés de l’équipier ne sont jamais reportés : seul le code qui décide de reporter appelle ce prédicat.
 export function heavyPaused({ now, timerEnd = null }) {

@@ -6,11 +6,12 @@ import { test, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { ROOT } from './helpers/setup.mjs';
-import middleware, { config } from '../middleware.js';
+import middleware, { config, cheminDeLApp } from '../middleware.js';
+import { listShell } from '../tools/stamp.mjs';
 import { avecCodeSimule, tableEquipage, COOKIE_TEST, FAUX_CODE } from './helpers/codesimule.mjs';
 
 // Seuls ces noms exacts et ces dossiers sont publics ; tout le reste du dépôt passe par le middleware.
-const PUBLIC_EXACT = ['/acces.html', '/manifest.webmanifest', '/sw.js'];
+const PUBLIC_EXACT = ['/acces.html', '/acces.js', '/manifest.webmanifest', '/sw.js'];
 const PUBLIC_PREFIX = ['/icons/', '/rapports/'];
 const estPublic = (p) => PUBLIC_EXACT.includes(p) || PUBLIC_PREFIX.some((x) => p.startsWith(x));
 
@@ -34,7 +35,7 @@ const appeler = (chemin, headers = {}) => middleware(new Request('https://rade.t
 const VISITEURS = [{}, { accept: 'text/html' }, { cookie: 'rt_acces=n-importe-quoi' }];
 const refuse = (res) => res.status === 401 || (res.status === 302 && (res.headers.get('location') || '').startsWith('/acces.html?'));
 
-test('seuls acces.html, manifest.webmanifest, sw.js, icons/ et rapports/ échappent au middleware', () => {
+test('seuls acces.html, acces.js, manifest.webmanifest, sw.js, icons/ et rapports/ échappent au middleware', () => {
   const tous = fichiers();
   const hors = tous.filter((p) => !interceptee(p));
   assert.deepEqual(hors.filter((p) => !estPublic(p)), [], 'fichiers du dépôt servis sans code alors qu’ils ne sont pas dans la liste publique');
@@ -213,12 +214,17 @@ test('archive : les formes inhabituelles de l’adresse (majuscules, encodage, b
 
 test('archive : le reste du site n’est pas modifié (aucun en-tête remplacé), /api/membre reste répondue par le middleware', async () => {
   await avecCodeSimule(async ({ prenom }) => {
-    for (const chemin of ['/index.html', '/', '/js/app.js', '/data/meta.json', '/styles.css', '/api-docs.html']) {
+    for (const chemin of ['/index.html', '/', '/js/app.js', '/data/meta.json', '/styles.css']) {
       const res = await appeler(chemin, { cookie: COOKIE_TEST, 'x-rt-membre': 'Usurpateur' });
       assert.equal(res.headers.get('x-middleware-next'), '1', `${chemin} passe avec un code valide`);
       assert.equal(res.headers.get('x-middleware-override-headers'), null, `${chemin} : la requête ne doit pas être modifiée`);
       assert.equal(res.headers.get('x-middleware-request-x-rt-membre'), null);
     }
+    // hors de la liste blanche : 404 du middleware, jamais transmise, et rien n'est posé sur la requête
+    const docs = await appeler('/api-docs.html', { cookie: COOKIE_TEST, 'x-rt-membre': 'Usurpateur' });
+    assert.equal(docs.status, 404, '/api-docs.html n’est pas l’app');
+    assert.equal(docs.headers.get('x-middleware-next'), null);
+    assert.equal(docs.headers.get('x-middleware-request-x-rt-membre'), null);
     const membre = await appeler('/api/membre', { cookie: COOKIE_TEST });
     assert.equal(membre.status, 200);
     assert.equal(membre.headers.get('x-middleware-next'), null);
@@ -243,4 +249,122 @@ test('vercel.json : api/archive.js a une durée maximale et embarque js/archmerg
   assert.ok(f.maxDuration > 0 && f.maxDuration <= 60, 'maxDuration entre 1 et 60 s');
   assert.ok(String(f.includeFiles || '').includes('js/archmerge.js'), 'includeFiles doit couvrir js/archmerge.js');
   for (const cle of ['rewrites', 'routes', 'redirects', 'cleanUrls']) assert.ok(!(cle in v), `${cle} ne doit pas apparaître`);
+});
+
+// ── Fichiers internes (défaut du 20/10) : le dépôt entier est publié, la liste blanche cheminDeLApp ferme tout ce qui n’est pas l’app
+
+// Les onze fichiers lisibles avec un code valide avant la v35
+const ONZE = ['/.planning/STATE.md', '/.claude/CLAUDE.md', '/middleware.js', '/api/_ia.js', '/api/rules.js', '/tests/access.test.mjs',
+  '/tools/stamp.mjs', '/docs/ia-budget.md', '/README.md', '/vercel.json', '/release.json'];
+// Chemins refusés par la liste blanche : fichiers internes, dossiers cachés, contournements d’écriture, casse, extensions, barres
+const REFUSES = [...ONZE, '/package.json', '/package-lock.json', '/srv.log', '/.gitignore', '/.git/config', '/node_modules/openai/package.json',
+  '/js/..%2F.planning/STATE.md', '/js/%2e%2e%2fmiddleware.js', '/JS/app.js', '/js/', '/vendor/sous/x.js', '/api/_ia', '/api/archive/', '/api/archive.js',
+  '/API/archive', '/%61pi/archive', '/api//archive', '/api-docs.html', '/favicon.ico', '/js/.cache', '/js/a\\b.js', '//js/app.js', '/rapports/a/b.html'];
+const apiDuDepot = () => readdirSync(ROOT + 'api').filter((f) => f.endsWith('.js') && !f.startsWith('_')).map((f) => '/api/' + f.slice(0, -3));
+const cheminsDeLApp = () => [...listShell(ROOT).map((f) => (f === './' ? '/' : '/' + f)), ...PUBLIC_EXACT,
+  '/icons/logo.png', '/rapports/coupe-snpm-2026.html', '/rapports/coupe-snpm-2026.js', '/vendor/pdf.worker.min.js', '/api/membre', ...apiDuDepot()];
+const internes = () => [...new Set([...fichiers().filter((p) => !cheminDeLApp(p)), ...REFUSES])];
+
+test('cheminDeLApp : vrai pour tout ce que l’app sert (liste hors réseau, pages publiques, fonctions /api)', () => {
+  assert.ok(apiDuDepot().length >= 4, 'les fonctions /api du dépôt doivent être énumérées');
+  for (const p of cheminsDeLApp()) assert.equal(cheminDeLApp(p), true, `${p} fait partie de l’app`);
+});
+
+test('cheminDeLApp : faux pour tout fichier du dépôt hors de l’app et pour chaque contournement d’écriture', () => {
+  for (const p of ONZE) assert.ok(internes().includes(p), `${p} doit figurer dans la liste des chemins internes`);
+  for (const p of internes()) assert.equal(cheminDeLApp(p), false, `${p} n’est pas l’app`);
+  for (const p of [undefined, null, '', 'js/app.js', 42]) assert.equal(cheminDeLApp(p), false, `${String(p)} : pas un chemin`);
+  // un fichier du dépôt n’est servi que s’il est dans la liste de l’app : aucun fichier de js/, data/, vendor/ ou icons/ n’est oublié
+  for (const p of fichiers().filter((f) => /^\/(js|data|vendor|icons)\//.test(f))) assert.equal(cheminDeLApp(p), true, `${p} doit rester servi`);
+});
+
+test('avec un code valide simulé : chaque chemin interne reçoit 404, sans écho, sans cookie, sans le code ni une empreinte', async () => {
+  await avecCodeSimule(async () => {
+    const empreintes = tableEquipage().map((l) => l.hex);
+    for (const chemin of internes()) {
+      if (!interceptee(chemin)) continue;               // dossiers publics : le middleware n’y passe pas
+      for (const h of [{ cookie: COOKIE_TEST }, { cookie: COOKIE_TEST, accept: 'text/html' }]) {
+        const res = await appeler(chemin, h);
+        assert.equal(res.status, 404, `${chemin} : 404 attendu`);
+        assert.equal(res.headers.get('x-middleware-next'), null, `${chemin} transmis alors qu’il n’est pas l’app`);
+        assert.equal(res.headers.get('x-middleware-override-headers'), null, `${chemin} : aucun en-tête posé`);
+        assert.equal(res.headers.get('set-cookie'), null, `${chemin} : aucun cookie`);
+        assert.equal(res.headers.get('cache-control'), 'no-store', `${chemin} : rien en cache`);
+        assert.equal(res.headers.get('x-content-type-options'), 'nosniff');
+        const corps = await res.text();
+        assert.ok(corps === 'Introuvable.' || corps === '{"error":"introuvable"}', `${chemin} : corps fixe attendu`);
+        assert.ok(!corps.includes(chemin) && !corps.includes('code-de-test'), `${chemin} : le corps ne renvoie ni le chemin ni le code`);
+        for (const [nom, valeur] of res.headers) {
+          assert.ok(!valeur.includes(FAUX_CODE) && !empreintes.some((e) => valeur.includes(e)), `l’en-tête ${nom} de ${chemin} contient le code ou une empreinte`);
+          assert.ok(!valeur.includes(chemin) || chemin === '/', `l’en-tête ${nom} de ${chemin} renvoie le chemin`);
+        }
+        assert.equal(res.headers.get('content-type'), chemin.startsWith('/api') ? 'application/json' : 'text/plain; charset=utf-8');
+      }
+    }
+  });
+});
+
+test('avec un code valide simulé : tout ce que l’app sert est transmis ; /api/membre répond le prénom ; les fonctions reçoivent x-rt-membre', async () => {
+  await avecCodeSimule(async ({ prenom }) => {
+    for (const chemin of cheminsDeLApp()) {
+      if (!interceptee(chemin)) continue;
+      const res = await appeler(chemin, { cookie: COOKIE_TEST });
+      if (chemin === '/api/membre') { assert.equal(res.status, 200); continue; }
+      assert.equal(res.headers.get('x-middleware-next'), '1', `${chemin} doit rester servi (réponse ${res.status})`);
+      if (chemin.startsWith('/api/')) assert.equal(decodeURIComponent(res.headers.get('x-middleware-request-x-rt-membre')), prenom, `${chemin} : auteur posé`);
+    }
+  });
+});
+
+test('sans code : un chemin interne reste refusé en 401 ou redirigé vers acces.html, jamais 404 (un 404 dirait qu’un fichier existe)', async () => {
+  for (const chemin of internes()) {
+    if (!interceptee(chemin)) continue;
+    for (const h of VISITEURS) {
+      const res = await appeler(chemin, h);
+      assert.notEqual(res.status, 404, `${chemin} : sans code, pas de 404`);
+      assert.equal(res.headers.get('x-middleware-next'), null);
+      assert.ok(refuse(res), `${chemin} : réponse ${res.status} inattendue`);
+    }
+  }
+});
+
+// Adresses de même origine demandées par l’app : modèle du balayage de tests/stamp.test.mjs
+test('toute adresse de même origine demandée par l’app est servie par la liste blanche', () => {
+  const lu = (f) => readFileSync(ROOT + f, 'utf8');
+  const adresses = new Map();                               // chemin → origine
+  const noter = (brut, base, origine) => {
+    if (!brut || /^(https?:|\/\/|#|tel:|mailto:|data:|blob:|javascript:)/i.test(brut) || brut.includes('${')) return;
+    adresses.set(new URL(brut, 'https://rade.test' + base).pathname, origine);
+  };
+  const jsFiles = readdirSync(ROOT + 'js').filter((f) => f.endsWith('.js'));
+  for (const f of jsFiles) {
+    const src = lu('js/' + f);
+    for (const m of src.matchAll(/(?:from\s+|import\s*\(\s*)['"](\.{1,2}\/[^'"]+)['"]/g)) noter(m[1], '/js/', f);
+    for (const m of src.matchAll(/\bfetch\(\s*(['"`])([^'"`]*)\1/g)) noter(m[2], '/', f + ' fetch');
+    for (const m of src.matchAll(/(?:loadScript\(|window\.open\(|workerSrc\s*=)\s*['"]([^'"]+)['"]/g)) noter(m[1], '/', f);
+    for (const m of src.matchAll(/(?<![-\w])(?:src|href)=["']([^"']+)["']/g)) noter(m[1], '/', f + ' gabarit');
+  }
+  // Terrain.load(base = 'data/') : fetch(base + 'nom')
+  const geo = lu('js/geo.js');
+  const base = /base\s*=\s*'([^']+)'/.exec(geo)?.[1];
+  assert.ok(base, 'js/geo.js doit nommer le dossier des données');
+  for (const m of geo.matchAll(/fetch\(\s*base\s*\+\s*'([^']+)'/g)) noter(base + m[1], '/', 'js/geo.js');
+  for (const f of ['index.html', 'guide.html', 'regles.html', 'acces.html']) {
+    for (const m of lu(f).matchAll(/(?<![-\w])(?:src|href)=["']([^"']+)["']/g)) noter(m[1], '/', f);
+  }
+  assert.ok(adresses.size >= 20, 'le balayage doit trouver les adresses de l’app');
+  for (const a of ['/api/voice', '/api/membre', '/api/archive', '/api/ic', '/api/debrief', '/api/rules', '/vendor/pdf.min.js', '/data/terrain.bin', '/data/wx-snapshot.json', '/regles.html', '/guide.html']) {
+    assert.ok(adresses.has(a), `le balayage doit trouver ${a}`);
+  }
+  const refusees = [...adresses].filter(([a]) => !cheminDeLApp(a)).map(([a, o]) => `${a} (demandée par ${o})`);
+  assert.deepEqual(refusees, [], 'adresses demandées par l’app mais refusées par la liste blanche');
+});
+
+test('acces.html, regles.html et le rapport public n’ont plus de script en ligne : chaque balise script a un src', () => {
+  for (const f of ['acces.html', 'regles.html', 'rapports/coupe-snpm-2026.html']) {
+    const balises = [...readFileSync(ROOT + f, 'utf8').matchAll(/<script\b([^>]*)>/gi)].map((m) => m[1]);
+    assert.ok(balises.length >= 1, `${f} garde son script, dans un fichier`);
+    for (const attrs of balises) assert.match(attrs, /\bsrc="[^"]+"/, `${f} : balise script sans src`);
+  }
+  assert.ok(listShell(ROOT).includes('js/regles.js'), 'js/regles.js est hors réseau (l’arbitre marche en mer)');
 });

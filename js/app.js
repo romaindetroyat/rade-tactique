@@ -31,7 +31,7 @@ import { candidates, ACCURACY_M } from './markfit.js';
 import { MAX_MOVE_M, DOUBT, parseLatLon, loadOverrides, saveOverride, clearOverride, applyOverrides, restoreMark, sharedMarks, remoteMarkChanges } from './marks.js';
 import { createWakeLock } from './wakelock.js';
 import { computeStatus, lampLabel, actionLabel, GPS_STALE_S } from './status.js';
-import { isActive, isRaceDay, lockState, heavyPaused, parisClock, HEAVY_AFTER_MS } from './racelock.js';
+import { isActive, isRaceDay, lockState, heavyPaused, parisClock, gpsLeftAlone, HEAVY_AFTER_MS } from './racelock.js';
 import { detect as dbDetect, ask as dbAsk, askModes as dbAskModes, analyze as dbAnalyze, narrative as dbNarrative, buildReport as dbBuild, shareReport as dbShare } from './debrief.js';
 
 const $ = (s, r = document) => r.querySelector(s);
@@ -509,7 +509,7 @@ function bindMap() {
     if (v === 'top') scene.topView();
     if (v === 'tilt') scene.tiltView();
     if (v === 'course' && analysis) scene.focus(analysis.legs.flatMap((l) => [l.from, l.to]));
-    if (v === 'boat') { follow = !follow; b.classList.toggle('on', follow); if (follow) startGps(); }
+    if (v === 'boat') { follow = !follow; b.classList.toggle('on', follow); if (follow) startGps('manuel'); }
     if (v === 'layers') $('#layersMenu').hidden = !$('#layersMenu').hidden;
   });
   $('#layersMenu').addEventListener('change', (e) => { const l = e.target.dataset.layer; if (l) scene.setLayer(l, e.target.checked); });
@@ -785,7 +785,7 @@ function raceLock(now = Date.now()) {
   return lockState({ now, active: raceActive(now), raceFrom, raceTo, lastActiveAt: RL.lastActiveAt ?? null, finishedAt: RL.finishedAt ?? null });
 }
 function saveRaceActivity() { const now = Date.now(); if (raceActive(now)) { RL.lastActiveAt = now; saveRL(now); } }
-let wasRaceActive = false;
+let wasRaceActive = false, lockReason = null;
 function raceTick() {
   const now = Date.now();
   const active = raceActive(now);
@@ -795,7 +795,9 @@ function raceTick() {
   if (wasRaceActive && !active) scheduleSync(60000);
   if (wasRaceActive && !active) reprise();         // le rattrapage reporté pendant la course repart à sa fin (D-03)
   if (active !== wasRaceActive) { wasRaceActive = active; paintSync(); }
-  const locked = raceLock(now).locked;
+  const lk = raceLock(now), locked = lk.locked;
+  const raison = locked ? (lk.reason === 'course' ? 'en course' : 'journée de régate') : 'libre';
+  if (raison !== lockReason) { lockReason = raison; note('verrou', raison); }      // pourquoi une mise à jour attend : lisible au journal (aucune position, aucun secret)
   updates?.refresh();
   if (wasLocked && !locked) { updates?.check(); scheduleSync(60000); reprise(); }    // le téléchargement était suspendu pendant le verrou ; l'archive (objets lourds compris) repart une minute plus tard
   wasLocked = locked;
@@ -877,7 +879,8 @@ Object.defineProperty(timer, 'end', {
   },
 });
 const startMode = createStartMode({
-  S, persist, timer, wake, beep: (...x) => beep(...x), audioInit: () => audioInit(), startTimer: () => startTimer(), startGps: () => startGps(), gps: () => gps, say, toast,
+  S, persist, timer, wake, beep: (...x) => beep(...x), audioInit: () => audioInit(), startTimer: () => startTimer(), startGps: () => startGps('auto'), gps: () => gps, say, toast,
+  closed: () => releaseGps('mode départ fermé'),
   setLineEnd: (w, ll) => setLineEnd(w, ll), reanalyse: () => scheduleAnalysis(), help: () => openGuide(),
   audioRelease: () => audioRelease(), testSound: () => testSound(), chronoAlert: () => chronoAlert(), fixAlert: (a) => fixAlert(a),
   status: () => statusView(), fixLamp: (a) => fixLamp(a), lampTouch: (id) => lampTouch(id),
@@ -929,7 +932,7 @@ function renderStart() {
   $('#t5').onclick = () => setT(300); $('#t4').onclick = () => setT(240); $('#t1').onclick = () => setT(60);
   $('#tm').onclick = () => { if (timer.end) timer.end -= 60000; }; $('#tp').onclick = () => { if (timer.end) timer.end += 60000; };
   $('#tsync').onclick = () => { if (timer.end) { const r = (timer.end - Date.now()) / 1000; timer.end = Date.now() + Math.round(r / 60) * 60000; } };
-  $('#tstop').onclick = () => { timer.end = null; clearInterval(timer.iv); timer.iv = null; $('#tClock').textContent = '5:00'; $('#tPhase').textContent = 'Prêt'; renderChronoAlert(); };
+  $('#tstop').onclick = () => { timer.end = null; clearInterval(timer.iv); timer.iv = null; $('#tClock').textContent = '5:00'; $('#tPhase').textContent = 'Prêt'; renderChronoAlert(); releaseGps('chrono arrêté'); };
   $('#tTest').onclick = () => testSound();
   $('#tSnd').onclick = (e) => fixAlert(e.currentTarget.dataset.act);
   if (timer.iv) tickTimer();
@@ -1112,8 +1115,9 @@ function statusView() {
 }
 function lampTouch(id) { lampShown = { id, until: Date.now() + 6000 }; renderRaceBar(); }
 function relaunchGps() {
-  if (gps?.watch != null) { navigator.geolocation.clearWatch(gps.watch); gps = null; }      // suivi neuf : repart de zéro
-  startGps();
+  const origine = gps?.origin ?? 'auto';          // la lampe ne s’affiche que pendant une activité de course : sans GPS, il était d’office
+  if (gps?.watch != null) { navigator.geolocation.clearWatch(gps.watch); gps = null; }      // suivi neuf : repart de zéro, avec son origine
+  startGps(origine);
 }
 // Action d’une lampe : relancer le GPS, redemander l’écran, réactiver ou tester le son, resonder le réseau
 function fixLamp(act) {
@@ -1184,10 +1188,11 @@ function lampTick() {
 }
 
 // ───────────────────────── EN COURSE
-function startGps() {
+// origine : 'manuel' (▶ Activer le GPS, suivi du bateau ◎) ou 'auto' (mode départ, « ⏺ Enregistrer ma trace »). Elle ne change plus tant que le GPS tourne.
+function startGps(origine) {
   if (gps?.watch) return;
   if (!navigator.geolocation) { toast('GPS indisponible sur cet appareil'); return; }
-  gps = { watch: null, pos: null, hist: [], lastAt: null, err: null, errMsg: null }; silence = null;
+  gps = { watch: null, pos: null, hist: [], lastAt: null, err: null, errMsg: null, origin: origine }; silence = null;
   gps.watch = navigator.geolocation.watchPosition((p) => {
     const q = { ...toXY(p.coords.latitude, p.coords.longitude), t: p.timestamp, acc: p.coords.accuracy, lat: p.coords.latitude, lon: p.coords.longitude };
     gps.lastAt = Date.now();                       // heure de RÉCEPTION : le voyant mesure le silence, pas l’horloge du GPS
@@ -1206,6 +1211,14 @@ function startGps() {
   }, (e) => { gps.err = e.code; gps.errMsg = e.message; report('gps', 'code ' + e.code + ' : ' + e.message); renderLiveNav(); renderRaceBar(); }, { enableHighAccuracy: true, maximumAge: 1000 });
   wake.want('gps');
   renderLive();
+}
+// Le GPS allumé d’office s’éteint au geste qui termine la dernière activité de course : ✕ du mode départ, ⏹ de la trace, Stop du chrono.
+// Jamais sur une horloge ; jamais tant qu’un chrono existe, que le mode départ est ouvert, qu’une trace s’enregistre ou que l’équipier l’a allumé lui-même.
+// Le verrou de mise à jour n’est pas touché : tout GPS allumé reste une activité de course (D-01), donc rien ne s’échange tant qu’il tourne (D-03).
+function releaseGps(cause) {
+  if (!gpsLeftAlone({ gpsOn: gps?.watch != null, gpsAuto: gps?.origin === 'auto', startModeOpen: startMode.isOpen(), recording: recorder.active, timerEnd: timer.end })) return;
+  note('gps', 'arrêté : ' + cause);
+  stopGps();
 }
 async function stopGps() {
   if (recorder.active) { const tr = await recorder.stop(); if (tr?.pts.length > 1) toast(`Trace enregistrée (${tr.pts.length} points)${await rangeEnregistree(tr)}`); renderTracks(); }
@@ -1239,17 +1252,22 @@ function renderLiveNav() {
   const g = $('#liveGps'), n = $('#liveNav'), r = $('#liveRec'); if (!g) return;
   const A = analysis, p = gps?.pos;
   g.innerHTML = `<div class="btns" style="margin:0">${gps ? '<button class="btn alt" id="gOff">Arrêter le GPS</button>' : '<button class="btn acc" id="gOn">▶ Activer le GPS</button>'}<span class="small muted" style="align-self:center">${gps?.err ? 'Erreur : ' + esc(gps.errMsg || gps.err) : p ? `précision ±${Math.round(p.acc)} m` : gps ? 'Recherche…' : 'Position, vitesse et cap du bateau'}</span></div>`;
-  $('#gOn')?.addEventListener('click', startGps); $('#gOff')?.addEventListener('click', stopGps);
+  $('#gOn')?.addEventListener('click', () => startGps('manuel')); $('#gOff')?.addEventListener('click', stopGps);
   const T = recorder.track;
   r.innerHTML = T ? `<div class="btns" style="margin:0"><button class="btn rec" id="recStop">⏹ Arrêter et enregistrer</button><span class="small" style="align-self:center"><span class="recdot"></span>${T.pts.length} points · ${summarizeTime((Date.now() - T.start) / 1000)}</span></div>`
     : `<div class="btns" style="margin:0"><button class="btn acc" id="recStart">⏺ Enregistrer ma trace</button></div>`;
   $('#recStart')?.addEventListener('click', () => {
-    if (!gps) startGps();
+    if (!gps) startGps('auto');
     const c = COURSES.find((x) => x.id === S.courseId);
     recorder.start({ name: `${dayName(today())} — ${c.title}`, course: { id: S.courseId, cls: S.cls, laps: S.laps, day: S.day, startTime: S.startTime } });
     toast('Enregistrement lancé : gardez l’app ouverte, écran allumé.'); renderLiveNav();
   });
-  $('#recStop')?.addEventListener('click', async () => { const tr = await recorder.stop(); toast(tr && tr.pts.length > 1 ? `Trace enregistrée (${tr.pts.length} points)${await rangeEnregistree(tr)} — onglet Traces` : 'Trace trop courte, non enregistrée'); renderLiveNav(); renderTracks(); });
+  $('#recStop')?.addEventListener('click', async () => {
+    try {
+      const tr = await recorder.stop();
+      toast(tr && tr.pts.length > 1 ? `Trace enregistrée (${tr.pts.length} points)${await rangeEnregistree(tr)} — onglet Traces` : 'Trace trop courte, non enregistrée');
+    } finally { renderLiveNav(); renderTracks(); releaseGps('trace arrêtée'); }      // même si la sauvegarde finale échoue : la trace n’est plus en cours
+  });
   if (!A) { n.innerHTML = '<p class="small muted">Analyse du parcours en cours de calcul…</p>'; return; }
   nextIdx = Math.min(nextIdx, A.legs.length - 1);
   const l = A.legs[nextIdx];

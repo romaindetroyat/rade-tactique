@@ -11,10 +11,10 @@ const EQUIPAGE = {
 const COOKIE = 'rt_acces';
 const MAX_AGE = 400 * 24 * 3600; // durée maximale admise par les navigateurs
 
-// Restent publics : trois noms EXACTS (page de connexion, manifeste, service worker) et les dossiers icons/ et rapports/.
-// Les trois noms sont ancrés par « $ » : /sw.js.map, /sw.jsx, /acces.html.bak… restent privés.
+// Restent publics : quatre noms EXACTS (page de connexion et son script, manifeste, service worker) et les dossiers icons/ et rapports/.
+// Les quatre noms sont ancrés par « $ » : /sw.js.map, /sw.jsx, /acces.html.bak, /acces.json… restent privés.
 export const config = {
-  matcher: ['/((?!acces\\.html$|manifest\\.webmanifest$|sw\\.js$|icons/|rapports/).*)'],
+  matcher: ['/((?!acces\\.html$|acces\\.js$|manifest\\.webmanifest$|sw\\.js$|icons/|rapports/).*)'],
 };
 
 async function membre(code) {
@@ -37,6 +37,28 @@ const versApi = (chemin) => {
   return d === '/api' || d.startsWith('/api/');
 };
 
+// Ce que l'app sert vraiment. Le dépôt entier est publié (outputDirectory « . ») : planification, sources des fonctions, tests, outils, documents
+// et ce fichier-ci (les empreintes des codes) y sont aussi. C'est donc une LISTE BLANCHE, jamais une liste noire : une liste noire laisserait
+// passer le prochain dossier interne (.vercel/, node_modules/, un nouveau fichier de notes). Le chemin est jugé tel que reçu (encodé) :
+// toute forme déguisée (%2F, %2e%2e, //, \, segment en point, majuscules, .js, _) est refusée avant le reste.
+const NOMS_PUBLICS = new Set(['/', '/index.html', '/guide.html', '/regles.html', '/styles.css', '/manifest.webmanifest', '/sw.js', '/acces.html', '/acces.js']);
+const FICHIER_DE_DOSSIER = /^\/(?:js|data|vendor|icons|rapports)\/[A-Za-z0-9][A-Za-z0-9._-]*$/;
+const FONCTION_API = /^\/api\/[a-z0-9-]+$/;
+export function cheminDeLApp(chemin) {
+  if (typeof chemin !== 'string' || !chemin.startsWith('/')) return false;
+  if (/[%\\]|\/\/|\/\./.test(chemin)) return false;
+  return NOMS_PUBLICS.has(chemin) || FICHIER_DE_DOSSIER.test(chemin) || FONCTION_API.test(chemin);
+}
+
+// Un fichier interne n'existe pas, pour un équipier connecté comme pour les autres : corps fixe, jamais le chemin demandé ni un cookie
+const introuvable = (chemin) => {
+  const api = chemin.startsWith('/api');
+  return new Response(api ? '{"error":"introuvable"}' : 'Introuvable.', {
+    status: 404,
+    headers: { 'Content-Type': api ? 'application/json' : 'text/plain; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' },
+  });
+};
+
 const redirige = (location, extra = {}) => new Response(null, { status: 302, headers: { Location: location, 'Cache-Control': 'no-store', ...extra } });
 
 export default async function middleware(req) {
@@ -57,6 +79,8 @@ export default async function middleware(req) {
   const prenom = await membre(lireCookie(req));
   if (prenom) {
     if (req.method === 'GET' && url.pathname === '/api/membre') return Response.json({ membre: prenom }, { headers: { 'Cache-Control': 'no-store' } });
+    // Tout ce qui n'est pas l'app (fichiers internes du dépôt) : 404 sans écho, après authentification seulement
+    if (!cheminDeLApp(url.pathname)) return introuvable(url.pathname);
     // ARCH-01 : les fonctions /api/ apprennent QUI écrit par l'en-tête x-rt-membre, posé ici après vérification du code : c'est la seule source
     // de l'auteur (celui du navigateur est remplacé). Le prénom est encodé (une valeur d'en-tête reste en octets simples). Le cookie du code
     // d'accès n'est pas transmis aux fonctions. Le reste du site passe tel quel.

@@ -13,12 +13,11 @@
 //   2 : Chromium ne peut pas être lancé (toujours exigé : PW_REQUIRED=1 est posé ici, jamais « mesure sautée »)
 //   0 : chaque scénario demandé a affiché « OK <nom> »
 
-import { createServer } from 'node:http';
-import { readFile } from 'node:fs/promises';
 import { readFileSync, mkdirSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { extname, join, normalize } from 'node:path';
+import { join } from 'node:path';
 import assert from 'node:assert/strict';
+import { demarreServeur, lireEntetes, entetesPour } from './serveur-local.mjs';
 
 // unknown : noms demandés qui n’existent pas ; requested : noms à lancer ; ok : noms qui ont affiché « OK » ; chromium : faux s’il n’a pas pu démarrer
 export function verdict({ unknown = [], requested = [], ok = [], chromium = true } = {}) {
@@ -30,15 +29,22 @@ export function verdict({ unknown = [], requested = [], ok = [], chromium = true
 
 const ROOT = fileURLToPath(new URL('../', import.meta.url));
 const DELAI_MS = 240000;
-const MIME = {
-  '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
-  '.json': 'application/json', '.bin': 'application/octet-stream', '.png': 'image/png', '.jpg': 'image/jpeg', '.webmanifest': 'application/manifest+json', '.pol': 'text/plain; charset=utf-8',
-};
+// Serveur local commun (tools/serveur-local.mjs) : les en-têtes de vercel.json et la liste blanche du middleware y sont appliqués comme en production.
+// Violations relevées par toutes les pages de tous les contextes : politique de contenu, ou Permissions-Policy mal formée (fonction inconnue de Chromium)
+const REGLES_VERCEL = lireEntetes(ROOT);
+const CSP_APP = entetesPour('/', REGLES_VERCEL)['content-security-policy'];
+const VIOLATION = /Content.Security.Policy|^CSP :|Unrecognized feature|Error with Permissions-Policy/i;
+const violations = [];
+// Chemins que la liste blanche refuse sans que ce soit un défaut de l’app. /favicon.ico : demande automatique du navigateur. /x : l’image « <img src=x> »
+// du rapport PIÉGÉ de ces scénarios (RAPPORT_TEST), affichée dans le cadre sandbox : c’est le contenu hostile qui la demande, pas l’app.
+const REFUS_ADMIS = { '*': ['/favicon.ico'], archive: ['/x'], archivehors: ['/x'], equipage: ['/x'] };
 
 // Posé avant tout script de la page : accueil désactivé, dessin et téléversement WebGL neutralisés (le rendu logiciel de Chromium sans tête
 // fausse les temps ; tout le travail JavaScript de la 3D reste exécuté), sondes de l’outil
 const INIT = () => {
   try { localStorage.setItem('rade.welcome', '1'); } catch { /* stockage refusé : l’accueil s’ouvrira */ }
+  // toute violation de la politique de contenu devient un message console « CSP : … », relevé par l’outil et jamais masqué par le BRUIT
+  document.addEventListener('securitypolicyviolation', (e) => console.error('CSP : ' + e.violatedDirective + ' ' + e.blockedURI));
   // l’horloge de Playwright remplace performance.mark par une fonction vide : les marques de l’app sont relevées ici (après elle, voir ouvreContexte)
   const marque = performance.mark;
   performance.mark = function (nom) { (window.__marks ||= []).push(String(nom)); return marque.apply(this, arguments); };
@@ -49,10 +55,13 @@ const INIT = () => {
 
 // ───────────────────────── outils communs
 
-async function ouvreContexte(browser, { heure }) {
-  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, locale: 'fr-FR', timezoneId: 'Europe/Paris', serviceWorkers: 'block' });
+// geo : { latitude, longitude } du GPS simulé (l’autorisation est donnée) ; sans lui, aucune position n’est fournie
+async function ouvreContexte(browser, { heure, geo = null }) {
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, locale: 'fr-FR', timezoneId: 'Europe/Paris', serviceWorkers: 'block', ...(geo ? { geolocation: geo, permissions: ['geolocation'] } : {}) });
   await ctx.clock.setFixedTime(new Date(heure));         // d’abord : INIT doit s’exécuter après le script de l’horloge de Playwright
   await ctx.addInitScript(INIT);
+  // chaque page du contexte, fenêtres ouvertes par l’app comprises (« Plein écran » du rapport) : violations relevées avant tout filtre
+  ctx.on('page', (p) => p.on('console', (m) => { if (VIOLATION.test(m.text())) violations.push(m.text().slice(0, 300)); }));
   // seul l’hôte local est joignable ; une route enregistrée ensuite par un scénario passe avant celle-ci
   await ctx.route('**/*', (route) => (new URL(route.request().url()).hostname === '127.0.0.1' ? route.fallback() : route.abort()));
   return ctx;
@@ -70,7 +79,12 @@ function ouvrePage(ctx) {
 }
 // L’app est prête quand la carte l’est (marque rt:map relevée par INIT) : plus aucun redessin automatique ne viendra défaire une saisie
 const pret = (page) => page.waitForFunction(() => window.__marks?.includes('rt:map'), null, { timeout: 90000, polling: 100 });
-const ouvreApp = async (page, base) => { await page.goto(base, { waitUntil: 'load' }); await pret(page); };
+// Le document de l’app porte la politique de contenu de vercel.json : cela prouve que l’émulation des en-têtes est active
+const ouvreApp = async (page, base) => {
+  const rep = await page.goto(base, { waitUntil: 'load' });
+  assert.equal(rep?.headers()['content-security-policy'], CSP_APP, 'le document de l’app doit porter la politique de contenu de vercel.json');
+  await pret(page);
+};
 const sansErreur = (erreurs, quand) => assert.deepEqual(erreurs, [], `erreur de page ${quand} : ${erreurs.join(' ; ')}`);
 
 // Liste des régates affichée : [{ status, rows: [{ id, name, cur }] }] avec les saisons
@@ -617,6 +631,14 @@ async function gpx({ browser, base }) {
   await page.waitForSelector('#rpFrame, #dmGo', { state: 'attached', timeout: 120000 });
   if (await page.locator('#dmGo').isVisible()) { await page.click('#dmGo'); await page.waitForSelector('#rpFrame', { state: 'attached', timeout: 120000 }); }
   await page.waitForFunction(() => document.querySelector('#rpFrame')?.srcdoc?.length > 500, null, { timeout: 120000 });
+  // « Plein écran » : une page à nous (blob) qui enferme le rapport dans un cadre sandbox, sous la politique de contenu ; toute violation, même dans cette fenêtre, fait échouer le scénario
+  const [plein] = await Promise.all([ctx.waitForEvent('page', { timeout: 20000 }), page.click('#rpOpen')]);
+  await plein.waitForLoadState('load');
+  await plein.waitForSelector('iframe[sandbox]', { state: 'attached', timeout: 20000 });
+  assert.ok(await plein.evaluate(() => document.querySelector('iframe[sandbox]').srcdoc.length) > 500, 'la page « Plein écran » enferme le rapport dans un cadre sandbox');
+  assert.equal(await plein.locator('iframe[sandbox]').count(), 1, 'un seul cadre');
+  await plein.waitForTimeout(500);                  // laisse le cadre se charger : une violation y serait relevée
+  await plein.close();
   await page.click('#rpClose');
 
   // le même fichier une seconde fois : « Déjà importée », ni seconde trace ni seconde référence, pas de second questionnaire
@@ -1275,8 +1297,8 @@ async function mondeArchive(depart = '2026-11-07T08:30:00Z') {
 }
 async function avanceHeure(m, ms) { m.t += ms; for (const c of m.ctxs) await c.clock.setFixedTime(new Date(m.t)); }
 // Un téléphone : contexte, prénom donné par le « middleware », route de l’archive (prénom encodé dans x-rt-membre) et décompte des requêtes vues par la page
-async function telephoneArchive(browser, base, m, nom) {
-  const ctx = await ouvreContexte(browser, { heure: new Date(m.t).toISOString() });
+async function telephoneArchive(browser, base, m, nom, opts = {}) {
+  const ctx = await ouvreContexte(browser, { heure: new Date(m.t).toISOString(), ...opts });
   m.ctxs.push(ctx);
   await simuleMembre(ctx, nom);
   m.appels[nom] = 0; m.lourds[nom] = [];                      // lourds : les requêtes d'objets lourds (trace, rapport, jour), méthode et k
@@ -1911,7 +1933,172 @@ async function guide({ browser, base }) {
   await ctx.close();
 }
 
-const SCENARIOS = { reprise, equipage, archive, 'archive-bouees': archiveBouees, archivehors: archiveHors, creer, manche, auteur, ic, 'depuis-ic': depuisIC, vraisemblance, gel, 'debrief-tardif': debriefTardif, gpx, 'gpx-choix': gpxChoix, ia, 'ia-erreurs': iaErreurs, arbitre, bouees, guide };
+// Jour de régate, GPS simulé : le GPS allumé d’office par le mode départ ou la trace s’arrête avec la dernière activité de course (✕, ⏹, Stop) et l’app ne se
+// croit plus en course ; mais jamais tant qu’un chrono, une trace, le mode départ ou un GPS allumé à la main tournent, et rien ne s’échange tant qu’un GPS tourne (D-03).
+// Le verrou de mise à jour se lit à la dernière entrée « verrou » du journal (rade.diag.v1) ; la synchronisation à #rgSync ; le GPS à #gOn / #gOff ; la bande à #raceBar.
+async function retourPort({ browser, base }) {
+  const m = await mondeArchive('2026-11-07T09:30:00Z');                                  // samedi 07/11/2026, 10 h 30 à Paris
+  const tel = await telephoneArchive(browser, base, m, 'Teiva', { geo: { latitude: 43.09, longitude: 5.93 } });
+  const { page } = tel;
+  let etape = 'début';
+  const enPause = async (oui, delai = 12000) => {
+    try { await page.waitForFunction((v) => /^En pause pendant la course/.test(document.querySelector('#rgSync')?.textContent ?? '') === v, oui, { timeout: delai }); }
+    catch { assert.fail(`étape ${etape} : pause ${oui ? 'attendue' : 'levée attendue'}, ligne « ${await ligneSync(page)} », GPS ${await gpsAllume() ? 'allumé' : 'éteint'}, journal ${JSON.stringify((await entrees()).slice(-6).map((x) => `${x.w}:${x.m}`))}`); }
+  };
+  const gpsAllume = () => page.evaluate(() => !!document.querySelector('#gOff') && !document.querySelector('#gOn'));
+  const barre = () => page.evaluate(() => { const b = document.getElementById('raceBar'); return !!b && !b.hidden; });
+  const entrees = async () => { await page.evaluate(() => window.dispatchEvent(new Event('pagehide'))); return JSON.parse(await page.evaluate(() => localStorage.getItem('rade.diag.v1') || '[]')); };
+  const verrou = async () => (await entrees()).filter((x) => x.w === 'verrou').at(-1)?.m ?? null;
+  const gpsArretes = async () => (await entrees()).filter((x) => x.w === 'gps' && x.m.startsWith('arrêté')).map((x) => x.m);
+  const attend = async (quoi, lire, attendu, delai = 25000) => {
+    const fin = Date.now() + delai;
+    for (;;) {
+      const v = await lire();
+      if (v === attendu) return;
+      if (Date.now() > fin) assert.fail(`${quoi} : « ${v} » au lieu de « ${attendu} » après ${delai / 1000} s`);
+      await page.waitForTimeout(400);
+    }
+  };
+  const onglet = (nom) => page.click(`#tabs button[data-tab=${nom}]`);
+  const gpsEtat = async (quoi, allume) => { await onglet('live'); await attend(quoi, gpsAllume, allume, 8000); };
+  const rienNeBouge = async (quoi) => { const n = tel.requetes.length; await page.waitForTimeout(3500); assert.equal(tel.requetes.length, n, `${quoi} : aucun échange avec l’archive tant qu’un GPS ou un chrono tourne`); };
+
+  await creeRegate(page, { nom: 'Régate du jour', debut: '2026-11-07', club: 'CVAT' });
+  await synchronise(m, tel);
+  await gpsEtat('au départ : GPS éteint', false);
+  await attend('verrou avant toute activité', verrou, 'journée de régate');
+
+  etape = 'a';
+  // (a) un chrono : en pause et verrou « en course » ; Stop : la pause disparaît, le verrou du jour de régate reste
+  await onglet('start'); await page.click('#t5');
+  await enPause(true);
+  await attend('verrou pendant le chrono', verrou, 'en course');
+  await page.click('#tstop');
+  await enPause(false);
+  await attend('verrou après Stop', verrou, 'journée de régate');
+  assert.deepEqual(await gpsArretes(), [], 'aucun GPS à éteindre : un chrono seul ne l’allume pas');
+
+  etape = 'b';
+  // (b) mode départ ouvert (GPS d’office), puis ✕ sans chrono : le GPS s’arrête, l’app ne se croit plus en course
+  await onglet('start'); await page.click('#smOpen');
+  await page.waitForSelector('#startMode', { state: 'visible', timeout: 10000 });
+  await enPause(true);
+  await page.click('#startMode [data-a=close]');
+  await gpsEtat('✕ sans chrono : le GPS d’office s’arrête', false);
+  await enPause(false, 8000);
+  await attend('✕ sans chrono : la bande de course disparaît', barre, false, 8000);
+  await attend('verrou après ✕', verrou, 'journée de régate');
+  assert.deepEqual(await gpsArretes(), ['arrêté : mode départ fermé'], 'l’arrêt est consigné au journal avec sa raison');
+
+  etape = 'c';
+  // (c) mode départ, DÉPART 5’, puis ✕ : le chrono tourne, le GPS n’est PAS coupé, toujours en pause ; Stop : tout s’arrête
+  await onglet('start'); await page.click('#smOpen');
+  await page.waitForSelector('#startMode', { state: 'visible', timeout: 10000 });
+  await page.click('#startMode [data-a=go]');
+  await page.click('#startMode [data-a=close]');
+  await gpsEtat('✕ avec un chrono : le GPS reste allumé', true);
+  await enPause(true);
+  await attend('✕ avec un chrono : la bande de course reste', barre, true, 8000);
+  await rienNeBouge('✕ avec un chrono');
+  assert.equal((await gpsArretes()).length, 1, 'rien de plus au journal : le GPS n’a pas été coupé');
+  await onglet('start'); await page.click('#tstop');
+  await gpsEtat('Stop après ✕ : le GPS d’office s’arrête', false);
+  await enPause(false, 8000);
+  assert.deepEqual(await gpsArretes(), ['arrêté : mode départ fermé', 'arrêté : chrono arrêté']);
+  await attend('verrou après Stop (GPS d’office)', verrou, 'journée de régate');
+
+  etape = 'd';
+  // (d) trace : ⏺ allume le GPS d’office, en pause ; une saisie faite pendant la pause attend ; ⏹ éteint le GPS, la pause disparaît, la synchronisation repart
+  await onglet('live'); await page.click('#recStart');
+  await enPause(true);
+  await creeRegate(page, { nom: 'Saisie pendant la trace', debut: '2026-11-14', club: 'CVAT' });
+  await page.click('#rgSyncBtn');
+  await rienNeBouge('pendant la trace');
+  await onglet('live'); await page.click('#recStop');
+  await gpsEtat('⏹ : le GPS allumé par la trace s’arrête', false);
+  await enPause(false, 8000);
+  await synchronise(m, tel);
+  assert.match(await ligneSync(page), /^À jour/, 'la synchronisation repart après ⏹ : « À jour »');
+  assert.ok((await noms(page)).includes('Saisie pendant la trace'));
+  assert.equal((await gpsArretes()).at(-1), 'arrêté : trace arrêtée');
+  await attend('verrou après ⏹', verrou, 'journée de régate');         // le tic de course a vu la fin : le prochain GPS sera vu comme un début
+
+  etape = 'e';
+  // (e) GPS allumé à la main : ✕ du mode départ ne le coupe pas ; « Arrêter le GPS » seul le coupe
+  await onglet('live'); await page.click('#gOn');
+  await gpsEtat('▶ Activer le GPS', true);
+  await enPause(true);
+  await onglet('start'); await page.click('#smOpen');
+  await page.waitForSelector('#startMode', { state: 'visible', timeout: 10000 });
+  await page.click('#startMode [data-a=close]');
+  await gpsEtat('✕ avec un GPS manuel : il reste allumé', true);
+  await enPause(true);
+  await rienNeBouge('GPS allumé à la main');
+  const nArrets = (await gpsArretes()).length;
+  await page.click('#gOff');
+  await gpsEtat('Arrêter le GPS', false);
+  await enPause(false, 8000);
+  assert.equal((await gpsArretes()).length, nArrets, 'le GPS manuel est arrêté par l’équipier, pas par releaseGps');
+
+  etape = 'f';
+  // (f) 🏁 Course finie : le verrou du jour de régate se lève
+  await onglet('live'); await page.click('#raceDone');
+  await toastVu(page, 'Course finie notée', 10000);
+  await attend('verrou après « Course finie »', verrou, 'libre');
+
+  sansErreur(tel.erreurs, 'au retour au port');
+  await tel.ctx.close();
+}
+
+// Défaut du 20/10 : en-têtes de sécurité de vercel.json. L’app, la page d’accès, le partage et le rapport public marchent sous leur politique de contenu ;
+// la moindre violation (relevée par INIT, toutes pages et fenêtres) ou le moindre chemin refusé par la liste blanche fait échouer le scénario (voir main).
+// Aucun vrai code d’accès : seul le faux code « code-de-test » est saisi, et la page visée est interceptée.
+async function entetes({ browser, base }) {
+  const ctx = await ouvreContexte(browser, { heure: '2026-10-19T08:30:00Z' });
+  const { page, erreurs } = await ouvrePage(ctx);
+  const attendu = (chemin) => entetesPour(chemin, REGLES_VERCEL);
+
+  // (a) en-têtes du document de l’app, et nosniff sur un script lu par l’API de requête
+  const rep = await page.goto(base, { waitUntil: 'load' });
+  const h = rep.headers();
+  const e = attendu('/');
+  for (const k of ['content-security-policy', 'x-content-type-options', 'referrer-policy', 'permissions-policy', 'x-frame-options']) assert.equal(h[k], e[k], `en-tête ${k} du document de l’app`);
+  assert.equal(h['x-content-type-options'], 'nosniff');
+  assert.match(h['content-security-policy'], /script-src 'self';/);
+  assert.equal((await page.request.get(base + 'js/app.js')).headers()['x-content-type-options'], 'nosniff', 'nosniff sur js/app.js');
+  await pret(page);
+
+  // (c) fenêtre de partage : le QR code est un SVG dessiné par le code, sous la politique de contenu
+  await page.click('#shareBtn');
+  await page.waitForSelector('svg.qr', { timeout: 10000 });
+
+  // (b) page d’accès : script hors de la page (acces.js), même règle « suite » qu’avant
+  const acces = await ctx.newPage();
+  await acces.goto(base + 'acces.html?erreur=1&suite=%2Fguide.html', { waitUntil: 'load' });
+  assert.equal(await acces.locator('#err').isVisible(), true, 'le message d’erreur est visible (acces.js a tourné)');
+  await acces.fill('#code', '  Code-De-Test  ');
+  await Promise.all([acces.waitForURL((u) => u.pathname === '/guide.html' && u.search === '?acces=code-de-test', { timeout: 10000 }), acces.click('button[type=submit]')]);
+  // une suite vers un autre site est ignorée : retour à « / » (l’adresse visée est interceptée, jamais envoyée au serveur)
+  await acces.route(/\/\?acces=code-de-test$/, (r) => r.fulfill({ status: 200, contentType: 'text/plain; charset=utf-8', body: 'intercepté' }));
+  await acces.goto(base + 'acces.html?suite=%2F%2Fexemple.test', { waitUntil: 'load' });
+  assert.equal(await acces.locator('#err').isVisible(), false, 'pas de message d’erreur sans ?erreur');
+  await acces.fill('#code', 'code-de-test');
+  await Promise.all([acces.waitForURL((u) => u.pathname === '/' && u.search === '?acces=code-de-test', { timeout: 10000 }), acces.click('button[type=submit]')]);
+  await acces.close();
+
+  // (d) rapport public : politique propre aux rapports, son script tourne
+  const rp = await ctx.newPage();
+  const rr = await rp.goto(base + 'rapports/coupe-snpm-2026.html', { waitUntil: 'load' });
+  assert.equal(rr.headers()['content-security-policy'], attendu('/rapports/coupe-snpm-2026.html')['content-security-policy'], 'politique des rapports');
+  assert.equal(rr.headers()['x-frame-options'], 'DENY');
+  await rp.waitForFunction(() => document.getElementById('map')?.childElementCount > 0 && document.getElementById('windChart')?.childElementCount > 0, null, { timeout: 15000 });
+  await rp.close();
+
+  sansErreur(erreurs, 'sous les en-têtes de sécurité');
+  await ctx.close();
+}
+
+const SCENARIOS = { reprise, equipage, archive, 'archive-bouees': archiveBouees, archivehors: archiveHors, creer, manche, auteur, ic, 'depuis-ic': depuisIC, vraisemblance, gel, 'debrief-tardif': debriefTardif, gpx, 'gpx-choix': gpxChoix, ia, 'ia-erreurs': iaErreurs, arbitre, bouees, guide, entetes, 'retour-port': retourPort };
 
 // ───────────────────────── lancement
 
@@ -1926,18 +2113,7 @@ async function main() {
   process.env.PW_REQUIRED = '1';                              // toujours exigeant : tools/pw.mjs sort en 2 si Chromium est introuvable
   const { launchChromium } = await import('./pw.mjs');       // import dynamique : un import statique serait évalué avant la ligne ci-dessus
 
-  const serveur = createServer(async (req, res) => {
-    try {
-      let u = decodeURIComponent(new URL(req.url, 'http://x').pathname);
-      if (u.endsWith('/')) u += 'index.html';
-      const f = normalize(join(ROOT, u));
-      if (f !== ROOT.slice(0, -1) && !f.startsWith(ROOT)) throw new Error('hors dépôt');
-      const octets = await readFile(f);
-      res.writeHead(200, { 'content-type': MIME[extname(f)] || 'application/octet-stream', 'cache-control': 'no-cache' }); res.end(octets);
-    } catch { res.writeHead(404); res.end(); }
-  });
-  await new Promise((ok) => serveur.listen(0, '127.0.0.1', ok));
-  const base = `http://127.0.0.1:${serveur.address().port}/`;
+  const { serveur, base, refuses } = await demarreServeur({ root: ROOT });
   const ok = [];
   let browser, chromium = true;
   try {
@@ -1946,11 +2122,17 @@ async function main() {
     if (chromium) {
       for (const nom of requested) {
         let minuterie;
+        const v0 = violations.length, r0 = refuses.length;
         try {
           await Promise.race([
             SCENARIOS[nom]({ browser, base }),
             new Promise((_, ko) => { minuterie = setTimeout(() => ko(new Error(`délai dépassé (${DELAI_MS / 1000} s)`)), DELAI_MS); }),
           ]);
+          // le moindre écart de sécurité fait échouer le scénario : violation de la politique de contenu, ou chemin refusé par la liste blanche
+          const admis = [...REFUS_ADMIS['*'], ...(REFUS_ADMIS[nom] || [])];
+          const vues = violations.slice(v0), refusees = refuses.slice(r0).filter((x) => !admis.includes(x));
+          if (vues.length) throw new Error(`violation CSP : ${[...new Set(vues)].join(' ; ')}`);
+          if (refusees.length) throw new Error(`chemin refusé par la liste blanche : ${[...new Set(refusees)].join(' ; ')}`);
           console.log(`OK ${nom}`); ok.push(nom);
         } catch (e) { console.log(`ÉCHEC ${nom} : ${String(e.message || e).split('\n')[0].slice(0, 400)}${e && 'actual' in e && 'expected' in e ? ` — obtenu ${JSON.stringify(e.actual)?.slice(0, 200)}, attendu ${JSON.stringify(e.expected)?.slice(0, 200)}` : ''}${e?.stack ? ` @ ${String(e.stack).split('\n').find((l) => /regate-e2e/.test(l))?.trim().slice(-60) ?? ''}` : ''}`); } finally { clearTimeout(minuterie); }
       }
