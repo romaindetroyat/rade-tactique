@@ -1480,7 +1480,7 @@ async function renderTracks() {
   const el = $('section[data-tab=tracks]'); if (!el) return;
   let list = [];
   try { list = await listTracks(); } catch (e) { report('traces', e); /* IndexedDB indisponible : liste vide */ }
-  let html = `<div class="card"><h3><span>Mes traces ${tip('Traces enregistrées dans l’onglet En course, ou importées (GPX d’un autre GPS, d’un équipier). Elles restent sur cet appareil ; exportez-les en GPX pour les garder ou les partager.')}</span></h3>
+  let html = `<div class="card"><h3><span>Mes traces ${tip('Traces enregistrées dans l’onglet En course, ou importées (GPX d’un autre GPS, d’un équipier). Rangées dans la régate de leur jour, elles sont partagées avec l’équipage, hors course ; une trace d’un jour sans régate reste sur ce téléphone seulement. Exportez-les en GPX pour en garder une copie.')}</span></h3>
     ${list.length ? list.map((t) => `<div class="trow"><div><b>${esc(t.name)}</b><div class="small muted">${new Date(t.start).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })} · ${t.n} points</div></div><div class="btns" style="margin:0"><button class="btn small" data-tv="${t.id}">Analyser</button><button class="btn small alt" data-tx="${t.id}">GPX</button><button class="btn small alt" data-td="${t.id}" aria-label="Supprimer">✕</button></div></div>`).join('') : '<p class="small muted">Aucune trace. Lancez « Enregistrer ma trace » dans l’onglet En course.</p>'}
     <button class="btn alt" id="gpxBtn" style="width:100%;margin-top:8px">⤓ Importer un fichier GPX</button><input type="file" id="gpxIn" multiple hidden>
     <div class="small muted" style="margin-top:4px">Depuis Open GPX Tracker ou une autre app : enregistrez la trace dans Fichiers (Partager → « Enregistrer dans Fichiers »), puis choisissez-la ici.</div></div><div id="traceDetail"></div>`;
@@ -1994,7 +1994,7 @@ function renderIC() {
   const cur = currentRegatta(REG), now = Date.now();
   IC = icOf(cur);
   const tel = /(0[1-9](?:[ .-]?\d{2}){4})/.exec(IC.committee || '')?.[1];
-  let html = `<div class="card"><h3><span>Régates ${tip('Chaque régate a sa fiche : jours, manches, Instructions de Course. La régate choisie fixe le jour 🏁, l’heure de départ par défaut et les points clés affichés. Classées par saison, puis Aujourd’hui, À venir, Passées.')}</span><button type="button" class="btn acc small" id="rgNew">＋ Nouvelle régate</button></h3>
+  let html = `<div class="card"><h3><span>Régates ${tip('Chaque régate a sa fiche : jours, manches, Instructions de Course. La régate choisie fixe le jour 🏁, l’heure de départ par défaut et les points clés affichés. Classées par saison, puis Aujourd’hui, À venir, Passée.')}</span><button type="button" class="btn acc small" id="rgNew">＋ Nouvelle régate</button></h3>
     ${listHTML(groupBySeason(REG.list, now), { currentId: cur?.id ?? null, now })}
     <div class="small muted" id="rgWho" style="margin-top:6px">${who() ? `Vous : ${esc(who())}` : 'Vous : — (prénom donné à la prochaine connexion)'}</div>
     <div class="small muted" id="rgSync" hidden></div>

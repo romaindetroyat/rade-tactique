@@ -1,19 +1,18 @@
 ---
 gsd_state_version: "1.0"
 current_phase: 05
-current_phase_name: "Avant la régate : archive amorcée et IA bornée"
-status: executing
-stopped_at: Completed 05-02-PLAN.md
-last_updated: "2026-10-20T09:32:01.736Z"
+status: completed
+stopped_at: Phase 05 complete — all phases complete
+last_updated: "2026-10-20T12:18:02.725Z"
 last_activity: 2026-10-20
-last_activity_desc: Phase 05 execution started
-state_head: 26c029d9548d262f28923aaeed826ca7654bf226
+last_activity_desc: Phase 05 complete
+state_head: fe1abb55c2ec4254f79648835940340894ba69e0
 progress:
   total_phases: 5
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 24
-  completed_plans: 23
-  percent: 80
+  completed_plans: 24
+  percent: 100
 ---
 
 # Project State
@@ -27,17 +26,17 @@ See: .planning/PROJECT.md (updated 2026-10-19)
 
 ## Current Position
 
-Phase: 05 (Avant la régate : archive amorcée et IA bornée) — EXECUTING
-Plan: 3 of 3
-Status: Ready to execute
-Last activity: 2026-10-20 — Phase 05 execution started
+Phase: 05
+Plan: Not started
+Status: All phases complete
+Last activity: 2026-10-20 — Phase 05 complete
 
-Progress: [████████░░] 80%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 21
+- Total plans completed: 24
 - Average duration: -
 - Total execution time: 0 hours
 
@@ -49,6 +48,7 @@ Progress: [████████░░] 80%
 | 2 | 5 | - | - |
 | 3 | 7 | - | - |
 | 4 | 5 | - | - |
+| 05 | 3 | - | - |
 
 **Recent Trend:**
 - Last 5 plans: -
@@ -80,6 +80,7 @@ Progress: [████████░░] 80%
 | Phase 04 P05 | 85 min | 2 tasks | 10 files |
 | Phase 05 P01 | 20 min | 3 tasks | 7 files |
 | Phase 05 P02 | 15 min | 3 tasks | 15 files |
+| Phase 05 P03 | 15 min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -144,6 +145,7 @@ Décisions récentes qui orientent le travail en cours :
 - [Phase 05]: 05-01 : raceTick garde sa ligne scheduleSync(60000) à l’identique (garde de tests/boot.test.mjs) ; reprise() est appelée par une ligne séparée
 - [Phase 05]: 05-02 : le quota d’IA est compté avant l’appel à OpenAI (un appel raté coûte une unité sur 30) et le compteur reste ouvert en panne
 - [Phase 05]: 05-02 : toute fonction d’IA passe par createIA (api/_ia.js) ; une garde statique interdit l’appel direct du client OpenAI ailleurs
+- [Phase 05]: 05-03 : Romain a publié la v32 le 2026-10-20 (« publie » écrit par lui-même) ; PR #6 fusionnée en 3a4fa38 sur main, sw.js de production à n = 32 (855e0d07cb) ; plafond OpenAI de 10 $ à poser par Romain (docs/ia-budget.md, 05-USER-SETUP.md)
 
 ### Pending Todos
 
@@ -157,6 +159,13 @@ Décisions récentes qui orientent le travail en cours :
 - Phase 2 : le comportement réel des iPhone (écran verrouillé, GPS, bouton silencieux, dictée en app installée) ne se tranche qu'en essai sur appareil.
 - Phase 4 : plan Vercel (Hobby ou Pro) et consommation Blob à confirmer ; le store Blob privé est à créer par Romain ; vérifier le contrôle d'accès de toutes les nouvelles routes, aperçus compris.
 - Secrets (clé OpenAI, jeton du store Blob, codes d'accès) : jamais dans le dépôt, les journaux ni les tests.
+
+### Quick Tasks Completed
+
+| # | Description | Date | Commit | Directory |
+|---|-------------|------|--------|-----------|
+| 261020-eaq | Guide de prise en main refait, très clair et exhaustif (v33) | 2026-10-20 | 77b1902 | [261020-eaq-guide-prise-en-main](./quick/261020-eaq-guide-prise-en-main/) |
+| 261020-aid | Aide intégrée mise à jour (v34) | 2026-10-20 | fe1abb5 | [261020-aid-aide-integree](./quick/261020-aid-aide-integree/) |
 
 ### Roadmap Evolution
 
@@ -172,6 +181,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-10-20T09:32:01.580Z
-Stopped at: Completed 05-02-PLAN.md
+Last session: 2026-10-20T09:50:46.657Z
+Stopped at: Phase 05 complete — all phases complete
 Resume file: None

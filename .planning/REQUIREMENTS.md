@@ -58,14 +58,14 @@ Reportés après cette version. Suivis mais hors de la feuille de route actuelle
 
 ### Archive
 
-- **ARCH2-01**: Reprise de la Coupe SNPM et des données déjà présentes sur les téléphones comme premières régates de l'archive
+- [x] **ARCH2-01**: Reprise de la Coupe SNPM et des données déjà présentes sur les téléphones comme premières régates de l'archive
 - **ARCH2-02**: Export d'une régate (JSON et GPX)
 - **ARCH2-03**: Notes d'équipage rapides (cote 1-5, une amélioration, dictée)
 - **ARCH2-04**: Comparaison prévu / réel et ligne de départ mémorisée par manche
 
 ### Sécurité et coûts
 
-- **SECU2-01**: Plafond de dépense OpenAI, quota par équipier et non-conservation des données (`store:false`)
+- [x] **SECU2-01**: Plafond de dépense OpenAI, quota par équipier et non-conservation des données (`store:false`)
 - **SECU2-02**: Jeton de session révocable à la place du code dans le cookie
 
 ### Plans d'eau et code
@@ -117,6 +117,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | ARCH-02 | Phase 3 | Complete |
 | ARCH-03 | Phase 4 | Complete |
 | ARCH-04 | Phase 3 | Complete |
+| ARCH2-01 | Phase 5 | Complete |
+| SECU2-01 | Phase 5 | Complete |
 
 **Coverage:**
 - v1 requirements: 22 total
@@ -126,3 +128,4 @@ Which phases cover which requirements. Updated during roadmap creation.
 ---
 *Requirements defined: 2026-10-19*
 *Last updated: 2026-10-19 after roadmap creation (traceabilité remplie ; total corrigé de 23 à 22 besoins v1)*
+*Mise à jour 2026-10-20 : ARCH2-01 et SECU2-01 (reportés en v2, repris en phase 5) cochés après le plan 05-03 ; le plafond OpenAI reste à poser par Romain (05-USER-SETUP.md)*
