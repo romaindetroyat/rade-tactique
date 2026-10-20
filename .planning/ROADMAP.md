@@ -178,14 +178,14 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
   3. Le plafond de dépense du projet OpenAI est posé côté OpenAI par Romain (geste guidé), et l'app reste utilisable sans l'IA quand il est atteint
   4. v32 sur l'aperçu `apercu-phase-05`, vérifiée, puis en production sur décision de Romain avant le 2 novembre
 
-**Plans:** 1/3 plans executed
+**Plans:** 2/3 plans executed
 
 Plans:
 **Wave 1**
 - [x] 05-01-PLAN.md — Rattrapage des anciennes traces une fois par téléphone (`js/reprise.js`), identifiant stable des anciens imports et rapport annoncé (D-10, D-11), trace enregistrée rangée à l'arrêt (D-09) (vague 1)
 
 **Wave 2** *(blocked on Wave 1 completion : mêmes fichiers `js/app.js`, `tools/regate-e2e.mjs`, `sw.js`, `js/version.js`)*
-- [ ] 05-02-PLAN.md — IA bornée : `api/_ia.js` (`store: false`, 30 appels par équipier et par jour de Paris dans le Blob, erreurs OpenAI en français), quatre fonctions en `createHandler`, messages des quatre écrans, scénario `arbitre` (vague 2)
+- [x] 05-02-PLAN.md — IA bornée : `api/_ia.js` (`store: false`, 30 appels par équipier et par jour de Paris dans le Blob, erreurs OpenAI en français), quatre fonctions en `createHandler`, messages des quatre écrans, scénario `arbitre` (vague 2)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 - [ ] 05-03-PLAN.md — Geste guidé du plafond OpenAI (`docs/ia-budget.md`), guide, v32 sur l'aperçu `apercu-phase-05` avec PR brouillon, porte en `VERCEL_ENV=production`, production seulement sur « publie » de Romain (vague 3, non autonome)

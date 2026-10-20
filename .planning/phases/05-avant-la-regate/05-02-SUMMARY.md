@@ -167,7 +167,7 @@ _Tracer : après la tâche 1, `<verify>` a été rejoué de bout en bout (tests 
 ## Files Created/Modified
 
 - `api/_ia.js` : IA bornée commune (nouveau)
-- `tests/apiia.test.mjs` : 40 tests (nouveau)
+- `tests/apiia.test.mjs` : 36 tests (nouveau)
 - `api/rules.js`, `api/voice.js`, `api/debrief.js`, `api/ic.js` : `createHandler` sur l'aide commune, client direct supprimé
 - `regles.html` : la bulle montre le message du serveur sur 429
 - `js/app.js` : toast de la dictée, `iaMessage` dans `readWithAI`, toast de `nar.iaNote` dans `runDebrief`
@@ -201,7 +201,7 @@ Deux ajouts mineurs hors lettre du plan, sans effet sur le comportement attendu 
 ## Vérifications brutes (tâche 3)
 
 - `npm run check` : `# tests 534`, `# pass 534`, `# fail 0`. `VERCEL_ENV=production npm test` : `# tests 534`, `# pass 534`, `# fail 0`.
-- `node --test … tests/icread.test.mjs tests/apiia.test.mjs tests/diag.test.mjs` : 95 tests, 95 verts. `tests/apiia.test.mjs` compte 40 tests (23 de la tâche 1, 17 de la tâche 2).
+- `node --test … tests/icread.test.mjs tests/apiia.test.mjs tests/diag.test.mjs` : 95 tests, 95 verts. `tests/apiia.test.mjs` compte 36 tests (23 de la tâche 1, 13 de la tâche 2).
 - Garde SNPM : `git diff --quiet f80c365 -- js/courses.js tests/reference/` sort en 0.
 - `PW_REQUIRED=1 node tools/regate-e2e.mjs ia ia-erreurs arbitre reprise gpx debrief-tardif` (sortie 0) :
   ```

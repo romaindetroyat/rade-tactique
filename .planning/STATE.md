@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 05
 current_phase_name: "Avant la régate : archive amorcée et IA bornée"
 status: executing
-stopped_at: Completed 05-01-PLAN.md
-last_updated: "2026-10-20T09:18:38.689Z"
+stopped_at: Completed 05-02-PLAN.md
+last_updated: "2026-10-20T09:32:01.736Z"
 last_activity: 2026-10-20
 last_activity_desc: Phase 05 execution started
-state_head: 381a4c03c7d837a32d2aa926362ca4d55ea8b94d
+state_head: 26c029d9548d262f28923aaeed826ca7654bf226
 progress:
   total_phases: 5
   completed_phases: 4
   total_plans: 24
-  completed_plans: 22
+  completed_plans: 23
   percent: 80
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-10-19)
 ## Current Position
 
 Phase: 05 (Avant la régate : archive amorcée et IA bornée) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
 Last activity: 2026-10-20 — Phase 05 execution started
 
@@ -79,6 +79,7 @@ Progress: [████████░░] 80%
 | Phase 04 P04 | 36min | 3 tasks | 12 files |
 | Phase 04 P05 | 85 min | 2 tasks | 10 files |
 | Phase 05 P01 | 20 min | 3 tasks | 7 files |
+| Phase 05 P02 | 15 min | 3 tasks | 15 files |
 
 ## Accumulated Context
 
@@ -141,6 +142,8 @@ Décisions récentes qui orientent le travail en cours :
 - [Phase 04]: 04-05 : v31 publiée sur l'aperçu apercu-phase-04 seulement ; main inchangée (7fb6401) ; production décidée par Romain (D-02)
 - [Phase 05]: 05-01 : le renommage d’un ancien import GPX (identifiant stable) précède la garde « même début, même nombre de points » : la copie locale prend l’identifiant que les autres téléphones référencent et n’est pas retéléchargée en double
 - [Phase 05]: 05-01 : raceTick garde sa ligne scheduleSync(60000) à l’identique (garde de tests/boot.test.mjs) ; reprise() est appelée par une ligne séparée
+- [Phase 05]: 05-02 : le quota d’IA est compté avant l’appel à OpenAI (un appel raté coûte une unité sur 30) et le compteur reste ouvert en panne
+- [Phase 05]: 05-02 : toute fonction d’IA passe par createIA (api/_ia.js) ; une garde statique interdit l’appel direct du client OpenAI ailleurs
 
 ### Pending Todos
 
@@ -169,6 +172,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-10-20T09:18:38.513Z
-Stopped at: Completed 05-01-PLAN.md
+Last session: 2026-10-20T09:32:01.580Z
+Stopped at: Completed 05-02-PLAN.md
 Resume file: None
