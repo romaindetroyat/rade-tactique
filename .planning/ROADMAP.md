@@ -20,7 +20,7 @@ Les phases décimales s'intercalent entre les phases entières qui les entourent
 - [x] **Phase 1: Mises en ligne sans risque** - Tests des calculs et de l'accès, porte de déploiement, version et fichiers hors réseau générés, mise à jour jamais appliquée en course, import PDF sûr (completed 2026-10-19)
 - [x] **Phase 2: Fiable et juste en mer** - Bips à la seconde, alerte son coupé, voyant d'état, ouverture rapide hors réseau, journal de diagnostic, bouées douteuses signalées et recalables (completed 2026-10-19)
 - [x] **Phase 3: Ouvrir une régate** - Tout équipier crée l'épreuve, ses manches et ses IC relues ; vent du jour figé, fiche de régate, GPX rattaché et débrief lancé (completed 2026-10-19)
-- [ ] **Phase 4: Archive partagée** - Régates en ligne, privées, synchronisées entre les appareils de l'équipage et lisibles hors réseau (phase coupable)
+- [x] **Phase 4: Archive partagée** - Régates en ligne, privées, synchronisées entre les appareils de l'équipage et lisibles hors réseau (phase coupable) (completed 2026-10-20)
 
 ## Phase Details
 
@@ -136,7 +136,7 @@ Plans:
   3. Sans code d'accès, aucune régate, trace, fiche ni aucun rapport de l'archive n'est lisible, quelle que soit l'adresse essayée, et le test d'accès de la phase 1 couvre ces nouvelles adresses.
   4. En mode avion, un équipier ouvre les régates récentes déjà synchronisées sur son appareil : fiche, débrief et rapport.
 
-**Plans:** 5/5 plans executed (v30 : plans 01 à 03 ; v31 : plans 04 et 05)
+**Plans:** 5/5 plans complete (v30 : plans 01 à 03 ; v31 : plans 04 et 05)
 
 Plans:
 **Wave 1**
@@ -164,4 +164,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | 1. Mises en ligne sans risque | 4/4 | Complete    | 2026-10-19 |
 | 2. Fiable et juste en mer | 5/5 | Complete    | 2026-10-19 |
 | 3. Ouvrir une régate | 7/7 | Complete    | 2026-10-19 |
-| 4. Archive partagée | 5/5 | In Progress | - |
+| 4. Archive partagée | 5/5 | Complete    | 2026-10-20 |
