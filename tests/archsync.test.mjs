@@ -7,6 +7,7 @@ import { stampState, markDirty, canon, toShared, legacyStamp } from '../js/archm
 import { createRegatta, upsertRegatta, addRace, setCurrent, removeRegatta, migrate, backfillAuthor, seedNorm, SEED_AT, KEY } from '../js/regates.js';
 import { runSync, applyDoc, buildDoc, canSync, syncStatus } from '../js/archsync.js';
 import { createFakeBlob, invoke } from './helpers/fakeblob.mjs';
+import { sharedMarks, remoteMarkChanges } from '../js/marks.js';
 
 const T0 = Date.parse('2026-11-07T08:00:00Z');
 
@@ -19,6 +20,10 @@ function monde() {
 function telephone(nom, w, { membre = nom, st = { v: 1, current: null, list: [] } } = {}) {
   const p = {
     nom, st, meta: {}, copies: [], online: true, active: false, saisie: false, busy: null,
+    over: {}, marksDel: {}, recus: [],                       // recalages de bouées de ce téléphone (rade.marks.v1) et remises à l’origine non acquittées (SYNC.marksDel)
+    // comme recalMark / resetMark de js/app.js : mémorisé localement, puis la clé « ~marks » est marquée
+    recaler(k, lat, lon, src = 'saisie') { p.over[k] = { lat, lon, src, t: w.clock.t }; delete p.marksDel[k]; markDirty(p.meta, ['~marks']); },
+    remettre(k) { delete p.over[k]; p.marksDel[k] = w.clock.t; markDirty(p.meta, ['~marks']); },
     // équivalent de saveReg(next) : marquage par stampState puis markDirty
     save(next) { const r = stampState(p.st, next, { now: w.clock.t, by: membre }); p.st = r.st; if (r.changed.length) markDirty(p.meta, r.changed); return r.changed; },
     creer(nomRegate, debut = '2026-11-07', fin = '') {
@@ -43,10 +48,17 @@ function telephone(nom, w, { membre = nom, st = { v: 1, current: null, list: [] 
       const r = await invoke(w.handler, { method, url, body, headers: { 'x-rt-membre': encodeURIComponent(membre) } });
       return { status: r.status, body: r.body };
     },
-    getState: () => p.st, setState: (st) => { p.st = st; }, getMarks: () => p.meta.marksDoc || {}, setMarks: (m) => { p.meta.marksDoc = m; },
+    getState: () => p.st, setState: (st) => { p.st = st; }, getMarks: () => sharedMarks(p.over, p.marksDel), setMarks: (m) => recevoir(p, m),
     meta: p.meta, saveMeta() {}, backup() { p.copies.push(JSON.stringify(p.st)); if (p.copieEchoue) throw new Error('stockage plein'); }, isActive: () => p.active, isOnline: () => p.online, canApply: () => !p.saisie,
   };
   return p;
+}
+// comme applyRemoteMarks de js/app.js, sans MARKS ni DOM : ce qui est appliqué, ce qui est retiré, ce qui est acquitté
+function recevoir(p, fusion) {
+  const ch = remoteMarkChanges(fusion, p.over, p.marksDel);
+  for (const [k, { by, ...ov }] of ch.put) { p.over[k] = ov; p.recus.push({ k, by, ...ov }); }
+  for (const k of ch.del) { delete p.over[k]; p.recus.push({ k, by: ch.by[k], del: true }); }
+  for (const k of ch.ack) delete p.marksDel[k];
 }
 const avance = (w, ms) => { w.clock.t += ms; };
 const noms = (p) => p.st.list.map((r) => r.name);
@@ -440,4 +452,81 @@ test('copie de secours : l’index d’avant est copié une seule fois, juste av
   avance(w, 60e3);
   assert.equal((await C.sync('manuel')).merged, true, 'la copie qui échoue ne bloque pas la synchronisation');
   assert.equal(C.copies.length, 1); assert.ok(KEY.endsWith('v1'));
+});
+
+// ───────────────────────── recalages de bouées (D-05, plan 03)
+
+const SITE = [43.0905, 5.9587];
+
+test('D-05 tracer : A recale la bouée 3, B la reçoit avec le prénom de A ; B la remet à l’origine, A la reçoit', async () => {
+  const w = monde(), A = telephone('Teiva', w), B = telephone('Thibaud', w);
+  A.recaler('3', ...SITE);
+  assert.ok(A.meta.dirty['~marks'], 'clé ~marks marquée');
+  assert.equal((await A.sync('manuel')).merged, true);
+  assert.equal(A.recus.length, 0, 'son propre recalage revenu identique : rien à appliquer');
+  avance(w, 60e3);
+  assert.equal((await B.sync('manuel')).merged, true);
+  assert.deepEqual(B.over['3'], { lat: SITE[0], lon: SITE[1], src: 'saisie', t: T0 });
+  assert.equal(B.recus.length, 1); assert.equal(B.recus[0].by, 'Teiva', 'auteur posé par le serveur');
+  assert.deepEqual(B.meta.dirty ?? {}, {}, 'B n’a rien à renvoyer : un recalage reçu ne se renvoie pas');
+  avance(w, 60e3);
+  B.remettre('3');
+  assert.deepEqual(B.over, {}); assert.ok(B.marksDel['3']);
+  await B.sync('manuel');
+  assert.deepEqual(B.marksDel, {}, 'remise à l’origine acquittée par la fusion');
+  avance(w, 60e3);
+  await A.sync('manuel');
+  assert.deepEqual(A.over, {}, 'A revient à la position d’origine');
+  assert.deepEqual(A.recus.at(-1), { k: '3', by: 'Thibaud', del: true });
+});
+
+test('D-05 : deux recalages de la même bouée — le plus récent gagne partout, l’autre reste dans l’historique de la bouée', async () => {
+  for (const ordre of [['A', 'B'], ['B', 'A']]) {
+    const w = monde(), A = telephone('Teiva', w), B = telephone('Thibaud', w), C = telephone('Romain', w);
+    A.recaler('3', 43.09, 5.95); avance(w, 1000);
+    B.recaler('3', 43.0912, 5.9601);
+    const P = { A, B };
+    for (const k of ordre) { avance(w, 60e3); await P[k].sync('manuel'); }
+    for (const k of ordre) { avance(w, 60e3); await P[k].sync('manuel'); }
+    avance(w, 60e3); await C.sync('manuel');
+    for (const t of [A, B, C]) assert.deepEqual([t.over['3'].lat, t.over['3'].lon], [43.0912, 5.9601], `${ordre.join('')} : le plus récent chez ${t.nom}`);
+    const serveur = JSON.parse([...w.blob.store.entries()].find(([k]) => /light\.json$/.test(k))[1].text);
+    assert.equal(serveur.marks['3'].by, 'Thibaud');
+    assert.equal(serveur.marks['3'].h.length, 1, 'l’écrasé est dans l’historique de la bouée');
+    assert.equal(serveur.marks['3'].h[0].by, 'Teiva');
+  }
+});
+
+test('D-05 : recalage fait hors réseau — il part au retour du réseau, un recalage plus récent d’un autre n’est pas écrasé', async () => {
+  const w = monde(), A = telephone('Teiva', w), B = telephone('Thibaud', w);
+  A.online = false; A.recaler('11', 43.08, 6.07);
+  assert.equal((await A.sync('manuel')).skipped, 'hors_reseau');
+  avance(w, 5000); B.recaler('11', 43.081, 6.071); await B.sync('manuel');     // B recale PLUS TARD que A, mais synchronise avant lui
+  A.online = true; avance(w, 60e3);
+  await A.sync('manuel');
+  assert.deepEqual([A.over['11'].lat, A.over['11'].lon], [43.081, 6.071], 'A prend le plus récent');
+  assert.deepEqual(A.marksDel, {});
+});
+
+test('D-05 : une remise à l’origine plus ancienne qu’un recalage d’un autre ne l’efface pas', async () => {
+  const w = monde(), A = telephone('Teiva', w), B = telephone('Thibaud', w);
+  A.recaler('3', ...SITE); await A.sync('manuel'); avance(w, 60e3); await B.sync('manuel');
+  B.remettre('3'); avance(w, 5000);                                              // B remet à l’origine, hors réseau
+  A.recaler('3', 43.0907, 5.9589); avance(w, 60e3); await A.sync('manuel');      // A recale encore, plus tard, et synchronise
+  avance(w, 60e3); await B.sync('manuel');
+  assert.deepEqual([B.over['3']?.lat, B.over['3']?.lon], [43.0907, 5.9589], 'le recalage plus récent revient chez B');
+  assert.deepEqual(B.marksDel, {}, 'sa remise à l’origine est couverte');
+});
+
+test('D-05 : pendant une course rien ne part ni n’est appliqué ; un recalage reçu n’est jamais renvoyé', async () => {
+  const w = monde(), A = telephone('Teiva', w), B = telephone('Thibaud', w);
+  A.recaler('3', ...SITE); await A.sync('manuel'); avance(w, 60e3);
+  B.active = true;
+  assert.equal((await B.sync('manuel')).skipped, 'course');
+  assert.deepEqual(B.over, {}, 'rien d’appliqué pendant la course');
+  B.active = false; avance(w, 60e3);
+  assert.equal((await B.sync('manuel')).merged, true);
+  assert.ok(B.over['3']);
+  const ecrit = w.blob.ops.put; avance(w, 60e3);
+  assert.equal((await B.sync('manuel')).unchanged, true); assert.equal(w.blob.ops.put, ecrit);
 });

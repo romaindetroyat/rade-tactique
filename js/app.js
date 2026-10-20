@@ -28,7 +28,7 @@ import { createStartMode } from './startmode.js';
 import { initUpdates } from './swupdate.js';
 import { createBeeper, audioAlive, milestones, KEY } from './beeper.js';
 import { candidates, ACCURACY_M } from './markfit.js';
-import { MAX_MOVE_M, DOUBT, parseLatLon, loadOverrides, saveOverride, clearOverride, applyOverrides, restoreMark } from './marks.js';
+import { MAX_MOVE_M, DOUBT, parseLatLon, loadOverrides, saveOverride, clearOverride, applyOverrides, restoreMark, sharedMarks, remoteMarkChanges } from './marks.js';
 import { createWakeLock } from './wakelock.js';
 import { computeStatus, lampLabel, actionLabel, GPS_STALE_S } from './status.js';
 import { isActive, isRaceDay, lockState, heavyPaused, parisClock, HEAVY_AFTER_MS } from './racelock.js';
@@ -68,7 +68,7 @@ let IC = icOf(currentRegatta(REG));
 // Archive partagée (ARCH-01) : `SYNC` (rade.sync.v1) ne porte que les compteurs « sale » par clé, rev, essais et plafonds du jour ; l’état marqué EST la file d’envoi.
 // `fromSync` : la réponse du serveur est appliquée telle quelle, sans marquage (ce n’est pas une saisie de l’équipier).
 const SYNC = store.get('rade.sync.v1', {});
-delete SYNC.denied; delete SYNC.outdated;                // code périmé, format plus récent : en mémoire seulement, ils retombent à la prochaine ouverture
+delete SYNC.denied; delete SYNC.outdated; delete SYNC.marksDoc;                // code périmé, format plus récent : en mémoire seulement, ils retombent à la prochaine ouverture
 const saveSync = () => { const { denied, outdated, ...gardes } = SYNC; store.set('rade.sync.v1', gardes); };
 function saveReg(next, { fromSync = false } = {}) {
   if (!fromSync) {
@@ -1587,7 +1587,7 @@ function renderTraceDetail() {
   // bouées à confirmer contournées sur cette trace : jusqu’à trois virages proposés par bouée, l’équipier valide (D-02 amendé, JUST-02)
   const fits = Object.entries(MARKS).filter(([, m]) => DOUBT(m)).map(([k, m]) => ({ k, m, c: candidates(res.P, toXY(m.lat, m.lon)) })).filter((f) => f.c.length);
   const hms = (t) => new Date(t).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-  const fitCard = fits.length ? `<div class="card"><h3><span>Bouées à confirmer ${tip('La trace montre où vous avez contourné la bouée : l’app propose le sommet de votre virage, décalé de 14 m vers l’intérieur. Choisissez le virage qui correspond à votre arrondi : rien n’est changé sans votre validation, et le recalage reste sur ce téléphone.')}</span><small>d’après cette trace</small></h3>
+  const fitCard = fits.length ? `<div class="card"><h3><span>Bouées à confirmer ${tip('La trace montre où vous avez contourné la bouée : l’app propose le sommet de votre virage, décalé de 14 m vers l’intérieur. Choisissez le virage qui correspond à votre arrondi : rien n’est changé sans votre validation, puis le recalage est partagé avec l’équipage à la synchronisation suivante, hors course.')}</span><small>d’après cette trace</small></h3>
     <p class="small muted" style="margin:0 0 4px">Précision attendue ±${ACCURACY_M} m (davantage si l’arrondi était large). Choisissez le virage où vous avez contourné la bouée.</p>
     ${fits.map((f) => `<div style="margin-top:10px"><b>${esc(f.k)} ${esc(f.m.name)}</b> — position à confirmer</div>${f.c.map((c, i) => `<div class="small" style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin:6px 0"><span>virage de ${Math.round(Math.abs(c.turn.D))}° à ${hms(c.turn.t)} · à ${Math.round(c.d0)} m de la position actuelle · passage au plus près à ${Math.round(c.near.d)} m <span class="muted">(pour information)</span></span><button class="btn small acc" data-mkfit="${esc(f.k)}" data-i="${i}">Valider</button></div>`).join('')}`).join('')}</div>` : '';
   el.innerHTML = `<div class="card"><h3><span>${esc(tr.name)}</span><small>${new Date(tr.start).toLocaleTimeString('fr-FR', { timeStyle: 'short' })}</small></h3>
@@ -1702,18 +1702,41 @@ function marksRow(k, m) {
   }
   return html;
 }
-// Applique un recalage validé : mémorisé sur ce téléphone (D-04), appliqué tout de suite à MARKS, puis tout ce qui en dépend est redessiné
+// Applique un recalage validé : mémorisé sur ce téléphone (D-04), appliqué tout de suite à MARKS, puis tout ce qui en dépend est redessiné.
+// D-05 : il est aussi partagé avec l’équipage (clé « ~marks » à envoyer, hors course) ; un recalage plus récent annule une remise à l’origine en attente.
 function recalMark(k, ov) {
   const kept = saveOverride(marksStore(), k, ov);
   applyOverrides(MARKS, { [k]: ov });
+  if (SYNC.marksDel) delete SYNC.marksDel[k];
+  markDirty(SYNC, ['~marks']); saveSync(); scheduleSync(20000);
   refreshMarks();
   const m = MARKS[k];
   toast(`Bouée ${k} ${m.name} recalée${ov.src === 'trace' ? ` : ${m.src} (±${ACCURACY_M} m)` : ` (${m.src})`}${kept ? '' : ' — non gardée après fermeture : mémoire pleine'}`);
 }
 function resetMark(k) {
   clearOverride(marksStore(), k); restoreMark(MARKS, k);
+  (SYNC.marksDel ||= {})[k] = Date.now();                  // la remise à l’origine est envoyée tant que la fusion ne l’a pas couverte
+  markDirty(SYNC, ['~marks']); saveSync(); scheduleSync(20000);
   refreshMarks();
   toast(`Bouée ${k} ${MARKS[k].name} : position d’origine rétablie`);
+}
+// Recalages venus de l’archive (D-05), appliqués seulement après une réponse acceptée hors course (runSync) : mémorisés comme un recalage local,
+// jamais renvoyés. Un toast dit qui les a faits quand ce n’est pas cet équipier ; MARKS n’est touchée qu’ici et dans recalMark / resetMark.
+function applyRemoteMarks(fusion) {
+  const st = marksStore(), ch = remoteMarkChanges(fusion, loadOverrides(st), SYNC.marksDel || {}), msgs = [];
+  let change = false;
+  for (const [k, { by, ...ov }] of ch.put) {
+    if (!MARKS[k]) continue;
+    saveOverride(st, k, ov); applyOverrides(MARKS, { [k]: ov }); change = true;
+    if (by !== who()) msgs.push(`Bouée ${k} ${MARKS[k].name} recalée${by ? ` par ${by}` : ''} (${MARKS[k].src})`);
+  }
+  for (const k of ch.del) {
+    if (!MARKS[k]) continue;
+    clearOverride(st, k); restoreMark(MARKS, k); change = true;
+    if (ch.by[k] !== who()) msgs.push(`Bouée ${k} ${MARKS[k].name} : position d’origine rétablie${ch.by[k] ? ` par ${ch.by[k]}` : ''}`);
+  }
+  for (const k of ch.ack) delete SYNC.marksDel?.[k];
+  if (change) { refreshMarks(); if (msgs.length) toast(msgs.join(' · ')); }
 }
 function refreshMarks() { markEdit = null; renderIC(); drawCourse(); scheduleAnalysis(); if (traceView) renderTraceDetail(); renderLive(); }
 function submitMark() {
@@ -1772,7 +1795,7 @@ function syncDeps() {
       saveReg(st, { fromSync: true });
       refreshRegMarks(); renderIC(); renderDaySeg(); renderBrief(); renderLive();
     },
-    getMarks: () => SYNC.marksDoc || {}, setMarks: (m) => { SYNC.marksDoc = m; },                        // recalages de bouées : branchés au plan 03
+    getMarks: () => sharedMarks(loadOverrides(marksStore()), SYNC.marksDel || {}), setMarks: applyRemoteMarks,        // recalages de bouées (D-05)
     meta: SYNC, saveMeta: saveSync, isActive: () => raceActive(Date.now()), isOnline: () => net.online,
     // copie de secours de l'index avant la première fusion appliquée ; un échec est consigné, jamais bloquant
     backup: () => { try { const brut = localStore()?.getItem(REG_KEY); if (brut != null) localStore().setItem('rade.regates.v1.bak', brut); } catch (e) { note('archive', 'copie de secours non écrite : ' + (e?.name || 'erreur')); } },
@@ -1876,7 +1899,7 @@ function renderIC() {
     ${IC.text ? `<details><summary class="small">Texte complet des IC</summary><pre class="ictext">${esc(IC.text)}</pre></details>` : ''}
     ${cur ? `<button class="btn small alt" id="evDel" style="margin-top:8px">Supprimer cette régate</button>` : ''}</div>
   <div class="card"><h3>Marques <small>cahier de parcours CVAT</small></h3><table class="t"><tr><th>N°</th><th>Marque</th><th>Position</th></tr>${Object.entries(MARKS).filter(([k]) => cvatKey(k)).map(([k, m]) => marksRow(k, m)).join('')}</table>
-    <div class="small muted" style="margin-top:6px">« à confirmer » = position approximative (cartes du cahier ou OpenStreetMap) : à vérifier sur zone, le Comité fait foi. Un recalage reste sur ce téléphone (Safari et l’app installée ne les partagent pas).</div></div>
+    <div class="small muted" style="margin-top:6px">« à confirmer » = position approximative (cartes du cahier ou OpenStreetMap) : à vérifier sur zone, le Comité fait foi. Un recalage est partagé avec l’équipage à la synchronisation suivante, hors course.</div></div>
   <div class="card"><h3>Dangers</h3><ul class="tips small"><li><b>Zone interdite</b> de la presqu’île de Saint-Mandrier (zone Marine nationale, rouge sur la carte).</li>${DANGERS.map((d) => `<li><b>${esc(d.name)}</b> (${fmtLat(d.lat)} ${fmtLon(d.lon)}) : ${esc(d.note)}</li>`).join('')}</ul></div>`;
   el.innerHTML = html;
   bindMarksEdit(el);

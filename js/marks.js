@@ -32,7 +32,8 @@ export function parseCoord(txt) {
 }
 
 // Bornes = data/meta.json (5,8-6,1 E ; 43,00-43,18 N) avec une marge de 0,1°
-export function parseLatLon(txt, bounds = { south: 42.9, north: 43.28, west: 5.7, east: 6.2 }) {
+export const RADE = { south: 42.9, north: 43.28, west: 5.7, east: 6.2 };
+export function parseLatLon(txt, bounds = RADE) {
   const t = parseCoord(txt);
   if (t.length !== 2) return { error: 'Deux coordonnées attendues, par exemple 43°05.845N 005°56.049E' };
   let [a, b] = t;
@@ -81,4 +82,51 @@ export function restoreMark(marks, k) {
   m.lat = m.base.lat; m.lon = m.base.lon; m.src = m.base.src;
   delete m.base; delete m.ov;
   return true;
+}
+
+// ───────────────────────── recalages partagés avec l’archive (D-05) — fonctions pures : MARKS n’est jamais touchée ici (seul js/app.js l’applique)
+
+const NUM_KEY = /^\d+$/;                                  // seules les bouées du cahier CVAT (clés numériques) se recalent et se partagent
+const finiteT = (t) => typeof t === 'number' && isFinite(t);
+const inRade = (lat, lon) => Number.isFinite(lat) && Number.isFinite(lon) && lat >= RADE.south && lat <= RADE.north && lon >= RADE.west && lon <= RADE.east;
+
+// Document envoyé : chaque recalage local { lat, lon, src, t } tel quel ; chaque remise à l’origine non acquittée { del: true, t }.
+// Un recalage plus récent qu’une remise à l’origine l’emporte sur elle. `marksDel` : { [numéro]: instant (ms) }.
+export function sharedMarks(overrides, marksDel) {
+  const out = {};
+  for (const [k, ov] of Object.entries(overrides || {})) {
+    if (!NUM_KEY.test(k) || !ov || !Number.isFinite(ov.lat) || !Number.isFinite(ov.lon) || !finiteT(ov.t)) continue;
+    out[k] = { lat: ov.lat, lon: ov.lon, src: ov.src === 'trace' ? 'trace' : 'saisie', t: ov.t };
+  }
+  for (const [k, t] of Object.entries(marksDel || {})) {
+    if (!NUM_KEY.test(k) || !finiteT(t)) continue;
+    if (!out[k] || out[k].t < t) out[k] = { del: true, t };
+  }
+  return out;
+}
+
+// Ce qu’il faut faire des recalages fusionnés par le serveur : { put: [[k, { lat, lon, src, t, by }]], del: [k], ack: [k], by: { [k]: auteur } }.
+// Le local plus récent que la fusion (modifié pendant l’échange) n’est jamais écrasé ; une position hors de la rade, une clé non numérique ou
+// dangereuse, une valeur mal formée sont ignorées ; `ack` : remises à l’origine locales couvertes par la fusion (à retirer de `marksDel`).
+export function remoteMarkChanges(fusion, overrides, marksDel) {
+  const res = { put: [], del: [], ack: [], by: {} };
+  for (const [k, e] of Object.entries(fusion || {})) {
+    if (!NUM_KEY.test(k) || !e || typeof e !== 'object' || !finiteT(e.t)) continue;
+    const loc = overrides?.[k], ld = marksDel?.[k], lt = loc && finiteT(loc.t) ? loc.t : -Infinity;
+    const by = typeof e.by === 'string' ? e.by.slice(0, 40) : null;
+    if (e.del === true) {
+      if (finiteT(ld) && e.t >= ld) res.ack.push(k);
+      if (loc && e.t >= lt) { res.del.push(k); res.by[k] = by; }
+      continue;
+    }
+    if (!inRade(e.lat, e.lon)) continue;
+    if (finiteT(ld) && e.t >= ld) res.ack.push(k);
+    if (finiteT(ld) && ld > e.t) continue;                  // ma remise à l’origine est plus récente que ce recalage : elle part, rien à appliquer
+    if (loc && lt > e.t) continue;                          // mon recalage est plus récent que la fusion : il part au prochain envoi
+    const src = e.src === 'trace' ? 'trace' : 'saisie';
+    if (loc && loc.lat === e.lat && loc.lon === e.lon && loc.src === src && loc.t === e.t) continue;   // déjà identique
+    res.put.push([k, { lat: e.lat, lon: e.lon, src, t: e.t, by }]);
+    res.by[k] = by;
+  }
+  return res;
 }

@@ -6,7 +6,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { ROOT } from './helpers/setup.mjs';
 import { MARKS } from '../js/courses.js';
 import {
-  OV_KEY, MAX_MOVE_M, DOUBT, parseCoord, parseLatLon, loadOverrides, saveOverride, clearOverride, srcLabel, applyOverrides, restoreMark,
+  OV_KEY, MAX_MOVE_M, DOUBT, parseCoord, parseLatLon, loadOverrides, saveOverride, clearOverride, srcLabel, applyOverrides, restoreMark, sharedMarks, remoteMarkChanges,
 } from '../js/marks.js';
 
 const AVANT = JSON.stringify(MARKS);
@@ -129,6 +129,44 @@ test('le signalement est câblé : carte (« n ? »), mode départ (« Marque n 
   assert.match(app, /position à confirmer<\/span>/);
   assert.match(app, /\(à confirmer\)/);
   assert.match(app, /doubt: DOUBT\(MARKS\[l\.mark\]\)/);
+});
+
+test('sharedMarks : recalages tels quels, remise à l’origine { del, t }, le plus récent des deux l’emporte, clés non numériques écartées', () => {
+  const ov = { 3: { lat: 43.09, lon: 5.95, src: 'saisie', t: 100, base: 'x' }, 11: { lat: 43.08, lon: 6.07, src: 'trace', t: 300 }, X1: { lat: 43, lon: 5.9, src: 'saisie', t: 1 }, 4: { lat: NaN, lon: 5.9, src: 'saisie', t: 1 } };
+  const r = sharedMarks(ov, { 3: 200, 11: 250, 5: 400, __proto__: 5, abc: 9 });
+  assert.deepEqual(r, { 3: { del: true, t: 200 }, 11: { lat: 43.08, lon: 6.07, src: 'trace', t: 300 }, 5: { del: true, t: 400 } });
+  assert.deepEqual(sharedMarks(undefined, undefined), {});
+  assert.deepEqual(sharedMarks({ 3: ov[3] }, {}), { 3: { lat: 43.09, lon: 5.95, src: 'saisie', t: 100 } }, 'seuls les champs du partage');
+});
+
+test('remoteMarkChanges : recalage plus récent ou différent → put (avec l’auteur) ; identique ou plus ancien que le local → rien', () => {
+  const loc = { 3: { lat: 43.09, lon: 5.95, src: 'saisie', t: 100 } };
+  const nouv = { lat: 43.0912, lon: 5.96, src: 'trace', t: 200, by: 'Teiva' };
+  assert.deepEqual(remoteMarkChanges({ 3: nouv }, loc, {}), { put: [['3', nouv]], del: [], ack: [], by: { 3: 'Teiva' } });
+  assert.deepEqual(remoteMarkChanges({ 3: { ...loc[3], by: 'Teiva' } }, loc, {}).put, [], 'identique');
+  assert.deepEqual(remoteMarkChanges({ 3: { ...nouv, t: 50 } }, loc, {}).put, [], 'plus ancien que le local : le local part au prochain envoi');
+  assert.deepEqual(remoteMarkChanges({ 11: nouv }, {}, {}).put, [['11', nouv]], 'bouée sans recalage local');
+  assert.deepEqual(remoteMarkChanges({}, loc, {}), { put: [], del: [], ack: [], by: {} });
+  assert.deepEqual(remoteMarkChanges(undefined, undefined, undefined), { put: [], del: [], ack: [], by: {} });
+});
+
+test('remoteMarkChanges : remise à l’origine plus récente → del ; plus ancienne que le recalage local → rien ; couvrant ma remise → ack', () => {
+  const loc = { 3: { lat: 43.09, lon: 5.95, src: 'saisie', t: 100 } };
+  assert.deepEqual(remoteMarkChanges({ 3: { del: true, t: 200, by: 'Thibaud' } }, loc, {}), { put: [], del: ['3'], ack: [], by: { 3: 'Thibaud' } });
+  assert.deepEqual(remoteMarkChanges({ 3: { del: true, t: 50, by: 'Thibaud' } }, loc, {}).del, []);
+  assert.deepEqual(remoteMarkChanges({ 3: { del: true, t: 200, by: 'Teiva' } }, {}, { 3: 200 }), { put: [], del: [], ack: ['3'], by: {} }, 'ma propre remise revenue : acquittée');
+  assert.deepEqual(remoteMarkChanges({ 3: { del: true, t: 200, by: 'Teiva' } }, {}, { 3: 300 }).ack, [], 'ma remise est plus récente : elle part encore');
+  const plusRecent = { lat: 43.0912, lon: 5.96, src: 'saisie', t: 400, by: 'Teiva' };
+  const r = remoteMarkChanges({ 3: plusRecent }, {}, { 3: 300 });
+  assert.deepEqual([r.put.length, r.ack], [1, ['3']], 'un recalage plus récent que ma remise l’emporte et l’acquitte');
+  assert.deepEqual(remoteMarkChanges({ 3: plusRecent }, {}, { 3: 500 }).put, [], 'ma remise plus récente que le recalage reçu : rien à appliquer');
+});
+
+test('remoteMarkChanges : clés non numériques ou dangereuses, positions non finies, hors de la rade, dates mal formées → ignorées (T-04-18)', () => {
+  const ok = { lat: 43.09, lon: 5.95, src: 'saisie', t: 1 };
+  const mauvais = JSON.parse('{"__proto__":{"lat":43.09,"lon":5.95,"t":1},"constructor":{"lat":43.09,"lon":5.95,"t":1},"X1":{"lat":43.09,"lon":5.95,"t":1},"3":{"lat":null,"lon":5.95,"t":1},"4":{"lat":"43.09","lon":5.95,"t":1},"5":{"lat":48.85,"lon":2.35,"t":1},"6":{"lat":43.09,"lon":5.95},"7":null,"8":42}');
+  assert.deepEqual(remoteMarkChanges({ ...mauvais, 9: ok }, {}, {}).put.map(([k]) => k), ['9']);
+  assert.equal(remoteMarkChanges({ 9: { ...ok, src: '<img onerror=alert(1)>' } }, {}, {}).put[0][1].src, 'saisie', 'source ramenée à trace | saisie');
 });
 
 test('à la fin, le vrai MARKS est identique à sa copie prise au début (Pitfall 11)', () => {

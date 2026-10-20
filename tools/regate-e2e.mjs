@@ -1299,7 +1299,66 @@ async function archive({ browser, base }) {
   await A.ctx.close(); await B.ctx.close();
 }
 
-const SCENARIOS = { archive, creer, manche, auteur, ic, 'depuis-ic': depuisIC, vraisemblance, gel, 'debrief-tardif': debriefTardif, gpx, 'gpx-choix': gpxChoix, ia, 'ia-erreurs': iaErreurs, bouees };
+// D-05 : un recalage de bouée fait sur un téléphone arrive sur l’autre hors course, avec un message qui dit qui l’a fait ; la remise à l’origine aussi
+async function archiveBouees({ browser, base }) {
+  const m = await mondeArchive();
+  const A = await telephoneArchive(browser, base, m, 'Teiva'), B = await telephoneArchive(browser, base, m, 'Thibaud');
+  const bouee = (page, k) => page.evaluate(async (n) => { const { MARKS } = await import('/js/courses.js'); const x = MARKS[n]; return { lat: x.lat, lon: x.lon, src: x.src, name: x.name, base: x.base ?? null }; }, k);
+  const rangee = (page, k) => page.locator('section[data-tab=ic] tr', { has: page.locator(`[data-mkfix="${k}"]`) });
+  const recaler = async (page, k, lat, lon) => {
+    await page.click('#tabs button[data-tab=ic]'); await page.click(`[data-mkfix="${k}"]`);
+    await page.fill('#mkTxt', `${lat} ${lon}`); await page.click('#mkOk');
+    await page.waitForSelector('#mkTxt', { state: 'detached', timeout: 10000 });
+  };
+  const origine = await bouee(A.page, 3), origine11 = await bouee(A.page, 11);
+  assert.equal(origine.src, 'approx'); assert.deepEqual(await bouee(B.page, 3), origine);
+
+  // A recale la bouée 3 (saisie), synchronise ; B reçoit le recalage avec le message « recalée par Teiva »
+  await recaler(A.page, 3, 43.0905, 5.9587);
+  assert.deepEqual([(await bouee(A.page, 3)).lat, (await bouee(A.page, 3)).lon], [43.0905, 5.9587]);
+  await avanceHeure(m, 60e3); await synchronise(m, A);
+  await avanceHeure(m, 60e3);
+  const vu = toastVu(B.page, `Bouée 3 ${origine.name} recalée par Teiva \\(saisie du 07/11\\)`, 20000);
+  await synchronise(m, B); await vu;
+  const b3 = await bouee(B.page, 3);
+  assert.deepEqual([b3.lat, b3.lon, b3.src], [43.0905, 5.9587, 'saisie du 07/11'], 'la carte, le routage et le mode départ lisent MARKS : la nouvelle position y est');
+  await B.page.click('#tabs button[data-tab=ic]');
+  const txt = await rangee(B.page, 3).textContent();
+  assert.match(txt, /saisie du 07\/11/); assert.doesNotMatch(txt, /à confirmer/);
+  assert.equal(JSON.parse(await B.page.evaluate(() => localStorage.getItem('rade.marks.v1')))[3].src, 'saisie', 'gardé sur le téléphone de B');
+  assert.deepEqual(Object.keys((await syncMeta(B.page)).dirty || {}), [], 'un recalage reçu n’est pas renvoyé');
+
+  // B remet la bouée 3 à sa position d’origine ; A la reçoit
+  await B.page.click('[data-mkorig="3"]');
+  assert.deepEqual(await bouee(B.page, 3), origine);
+  await avanceHeure(m, 60e3); await synchronise(m, B);
+  await avanceHeure(m, 60e3);
+  const vu2 = toastVu(A.page, `Bouée 3 ${origine.name} : position d’origine rétablie par Thibaud`, 20000);
+  await synchronise(m, A); await vu2;
+  assert.deepEqual(await bouee(A.page, 3), origine, 'retour à la position d’origine chez A');
+  assert.match(await rangee(A.page, 3).textContent(), /à confirmer/);
+  assert.equal(await A.page.evaluate(() => JSON.parse(localStorage.getItem('rade.marks.v1') || '{}')[3]), undefined);
+
+  // T-04-17 : pendant un chrono sur B, le recalage de A n’est ni reçu ni appliqué ; il arrive après la course
+  await recaler(A.page, 11, +(origine11.lat + 0.001).toFixed(5), +(origine11.lon + 0.001).toFixed(5));
+  await avanceHeure(m, 60e3); await synchronise(m, A);
+  await B.page.click('#tabs button[data-tab=start]'); await B.page.click('#t5');
+  const avant = B.requetes.length;
+  await avanceHeure(m, 60e3);
+  await B.page.click('#tabs button[data-tab=ic]'); await B.page.click('#rgSyncBtn');
+  await B.page.waitForFunction(() => /^En pause pendant la course/.test(document.querySelector('#rgSync')?.textContent ?? ''), null, { timeout: 10000 });
+  await B.page.waitForTimeout(1000);
+  assert.equal(B.requetes.length, avant, 'aucun appel à /api/archive pendant le chrono');
+  assert.deepEqual(await bouee(B.page, 11), origine11, 'la bouée 11 de B est inchangée pendant le chrono');
+  await B.page.click('#tabs button[data-tab=start]'); await B.page.click('#tstop');
+  await synchronise(m, B);
+  const b11 = await bouee(B.page, 11);
+  assert.deepEqual([b11.lat, b11.lon], [+(origine11.lat + 0.001).toFixed(5), +(origine11.lon + 0.001).toFixed(5)], 'recalage de A appliqué après la course');
+  sansErreur(A.erreurs, 'sur A'); sansErreur(B.erreurs, 'sur B');
+  await A.ctx.close(); await B.ctx.close();
+}
+
+const SCENARIOS = { archive, 'archive-bouees': archiveBouees, creer, manche, auteur, ic, 'depuis-ic': depuisIC, vraisemblance, gel, 'debrief-tardif': debriefTardif, gpx, 'gpx-choix': gpxChoix, ia, 'ia-erreurs': iaErreurs, bouees };
 
 // ───────────────────────── lancement
 
