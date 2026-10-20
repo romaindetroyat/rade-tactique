@@ -3,10 +3,10 @@ gsd_state_version: "1.0"
 current_phase: 05
 status: completed
 stopped_at: Phase 05 complete — all phases complete
-last_updated: "2026-10-20T10:11:31.655Z"
+last_updated: "2026-10-20T10:52:32.509Z"
 last_activity: 2026-10-20
 last_activity_desc: Phase 05 complete
-state_head: 12dfd46be127567b67874474a55a3c1204e78efc
+state_head: 77b1902bfa7ff15bc06f30f336de90bb8d430479
 progress:
   total_phases: 5
   completed_phases: 5
@@ -159,6 +159,12 @@ Décisions récentes qui orientent le travail en cours :
 - Phase 2 : le comportement réel des iPhone (écran verrouillé, GPS, bouton silencieux, dictée en app installée) ne se tranche qu'en essai sur appareil.
 - Phase 4 : plan Vercel (Hobby ou Pro) et consommation Blob à confirmer ; le store Blob privé est à créer par Romain ; vérifier le contrôle d'accès de toutes les nouvelles routes, aperçus compris.
 - Secrets (clé OpenAI, jeton du store Blob, codes d'accès) : jamais dans le dépôt, les journaux ni les tests.
+
+### Quick Tasks Completed
+
+| # | Description | Date | Commit | Directory |
+|---|-------------|------|--------|-----------|
+| 261020-eaq | Guide de prise en main refait, très clair et exhaustif (v33) | 2026-10-20 | 77b1902 | [261020-eaq-guide-prise-en-main](./quick/261020-eaq-guide-prise-en-main/) |
 
 ### Roadmap Evolution
 
