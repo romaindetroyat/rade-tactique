@@ -143,3 +143,46 @@ test('couverture : chaque bouton de l’app figure dans le guide, en style touch
   const inconnus = BOUTONS.filter((b) => !CODE.includes(norm(b)));
   assert.deepEqual(inconnus, [], 'boutons de l’inventaire introuvables dans le code (inventaire à corriger)');
 });
+
+// ───────────────────────── aide intégrée (js/help.js et deux bulles de js/app.js) : cohérente avec le guide et avec le code
+const AIDE = lire('js/help.js'), APP = lire('js/app.js');
+const bulle = (titre) => { const m = new RegExp(`${titre} \\$\\{tip\\('((?:[^'\\\\]|\\\\.)*)'\\)\\}`).exec(APP); assert.ok(m, `bulle « ${titre} » introuvable dans js/app.js`); return m[1]; };
+const BULLE_REGATES = bulle('Régates'), BULLE_TRACES = bulle('Mes traces');
+const guideAide = /export const GUIDE = `([\s\S]*?)`;/.exec(AIDE)?.[1] ?? '';
+const syncTip = /export const SYNC_TIP = '((?:[^'\\]|\\.)*)'/.exec(AIDE)?.[1] ?? '';
+const bullesFixes = /const STATIC_TIPS = \{([\s\S]*?)\n\};/.exec(AIDE)?.[1] ?? '';
+const aideTexte = espaces(`${guideAide} ${syncTip} ${bullesFixes} ${BULLE_REGATES} ${BULLE_TRACES}`.replace(/<[^>]+>/g, ''));
+
+test('aide intégrée : plus de formule périmée, repères de la v32 présents', () => {
+  assert.ok(guideAide.length > 1000 && syncTip && bullesFixes, 'GUIDE, SYNC_TIP et STATIC_TIPS lus');
+  assert.ok(!APP.includes('Elles restent sur cet appareil'), 'bulle « Mes traces » : plus de « Elles restent sur cet appareil »');
+  assert.doesNotMatch(BULLE_REGATES, /Passées/, 'bulle Régates : le libellé affiché est « Passée »');
+  assert.match(BULLE_REGATES, /Passée\./);
+  assert.match(BULLE_TRACES, /partagées avec l’équipage/);
+  assert.doesNotMatch(guideAide, /résumés du vent du jour/, 'le partage ne se résume plus au vent du jour');
+  assert.match(guideAide, /vent du jour figé, traces, débriefs et rapports sont partagés/);
+  for (const p of ['Tester le son', 'Course finie', 'Mettre à jour', 'reprise demain', 'Mode départ plein écran', 'Top 5’', 'Top 4’', 'Top 1’', 'GPS, ÉCRAN, SON et RÉSEAU',
+    '30 appels', 'Open GPX Tracker', '25 nœuds', 'Arrêter le GPS', 'Pas encore synchronisé', 'Synchronisation à relancer', 'Plafond du jour atteint · reprise demain',
+    'Code d’accès à renouveler', 'Mettez l’app à jour pour synchroniser', 'premier jour de la régate courante']) assert.ok(aideTexte.includes(p), `l’aide ne cite pas « ${p} »`);
+  assert.ok(AIDE.includes('href="guide.html#minute"'), 'le lien du guide complet ouvre « En 1 minute »');
+  assert.ok(document.getElementById('minute'), 'l’ancre #minute existe dans guide.html');
+  assert.doesNotMatch(aideTexte, /blob\.vercel|vercel-storage|\?acces=|rt_acces|BLOB_READ_WRITE_TOKEN|gpt|claude|opus|sonnet|haiku/i, 'ni code, ni cookie, ni adresse, ni nom de modèle');
+});
+
+// Entre guillemets français : un libellé ou un message de l’app (à retrouver dans le code) ou un exemple/menu système (listé ici avec sa raison)
+const CITATIONS_LIBRES = [
+  // phrases dictées en exemple dans la rubrique « Relevé de vent »
+  'ça refuse d’une dizaine de degrés et ça mollit un peu', 'mistral 18 nœuds avec des rafales à 24', '290 12',
+  // menus d’iOS et d’Android, pas de l’app
+  'Sur l’écran d’accueil', 'Installer l’application',
+  // « n » remplace le nombre de modifications
+  'Hors réseau · n modifications en attente',
+];
+test('aide intégrée : chaque libellé entre guillemets existe dans l’app', () => {
+  const hors = norm(SOURCES.filter((f) => f !== 'js/help.js').map(lire).join('\n'));
+  const cites = [...new Set([...`${guideAide} ${syncTip} ${bullesFixes} ${BULLE_REGATES} ${BULLE_TRACES}`.replace(/<[^>]+>/g, '').matchAll(/«\s*([^»]+?)\s*»/g)].map((m) => m[1]))];
+  assert.ok(cites.length > 10, `citations lues (${cites.length})`);
+  const absentes = cites.filter((c) => !CITATIONS_LIBRES.includes(c) && !hors.includes(norm(c)));
+  assert.deepEqual(absentes, [], 'libellés cités par l’aide et introuvables dans le code');
+  for (const c of CITATIONS_LIBRES.slice(3, 5)) assert.ok(aideTexte.includes(c));
+});
