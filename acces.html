@@ -39,16 +39,6 @@ small { color: var(--muted); display: block; margin-top: 18px; }
   </form>
   <small>Le plus simple : ouvrez le lien personnel reçu de Romain, l’app s’ouvre directement et vous reconnaît pendant un an sur cet appareil. Sur iPhone, si l’app est installée sur l’écran d’accueil, entrez le code une fois dans l’app elle-même.</small>
 </main>
-<script>
-  const q = new URLSearchParams(location.search);
-  // retour seulement vers une page du site
-  const suite = /^\/(?!\/)/.test(q.get('suite') || '') ? q.get('suite') : '/';
-  if (q.get('erreur')) document.getElementById('err').hidden = false;
-  document.getElementById('f').addEventListener('submit', (e) => {
-    e.preventDefault();
-    const code = document.getElementById('code').value.trim().toLowerCase();
-    if (code) location.href = suite + (suite.includes('?') ? '&' : '?') + 'acces=' + encodeURIComponent(code);
-  });
-</script>
+<script src="acces.js"></script>
 </body>
 </html>
