@@ -2,17 +2,17 @@
 gsd_state_version: "1.0"
 current_phase: 05
 current_phase_name: "Avant la régate : archive amorcée et IA bornée"
-status: executing
-stopped_at: Completed 05-02-PLAN.md
-last_updated: "2026-10-20T09:32:01.736Z"
+status: verifying
+stopped_at: Completed 05-03-PLAN.md
+last_updated: "2026-10-20T09:50:46.826Z"
 last_activity: 2026-10-20
 last_activity_desc: Phase 05 execution started
-state_head: 26c029d9548d262f28923aaeed826ca7654bf226
+state_head: 3a4fa38780635450d739138b8669b9cd7ddaf43d
 progress:
   total_phases: 5
   completed_phases: 4
   total_plans: 24
-  completed_plans: 23
+  completed_plans: 24
   percent: 80
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-10-19)
 
 Phase: 05 (Avant la régate : archive amorcée et IA bornée) — EXECUTING
 Plan: 3 of 3
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-10-20 — Phase 05 execution started
 
 Progress: [████████░░] 80%
@@ -80,6 +80,7 @@ Progress: [████████░░] 80%
 | Phase 04 P05 | 85 min | 2 tasks | 10 files |
 | Phase 05 P01 | 20 min | 3 tasks | 7 files |
 | Phase 05 P02 | 15 min | 3 tasks | 15 files |
+| Phase 05 P03 | 15 min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -144,6 +145,7 @@ Décisions récentes qui orientent le travail en cours :
 - [Phase 05]: 05-01 : raceTick garde sa ligne scheduleSync(60000) à l’identique (garde de tests/boot.test.mjs) ; reprise() est appelée par une ligne séparée
 - [Phase 05]: 05-02 : le quota d’IA est compté avant l’appel à OpenAI (un appel raté coûte une unité sur 30) et le compteur reste ouvert en panne
 - [Phase 05]: 05-02 : toute fonction d’IA passe par createIA (api/_ia.js) ; une garde statique interdit l’appel direct du client OpenAI ailleurs
+- [Phase 05]: 05-03 : Romain a publié la v32 le 2026-10-20 (« publie » écrit par lui-même) ; PR #6 fusionnée en 3a4fa38 sur main, sw.js de production à n = 32 (855e0d07cb) ; plafond OpenAI de 10 $ à poser par Romain (docs/ia-budget.md, 05-USER-SETUP.md)
 
 ### Pending Todos
 
@@ -172,6 +174,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-10-20T09:32:01.580Z
-Stopped at: Completed 05-02-PLAN.md
+Last session: 2026-10-20T09:50:46.657Z
+Stopped at: Completed 05-03-PLAN.md
 Resume file: None
