@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 4
 current_phase_name: Archive partagée
 status: executing
-stopped_at: Phase 3 complete, ready to plan Phase 4
-last_updated: "2026-10-20T04:06:12.450Z"
+stopped_at: Completed 04-01-PLAN.md
+last_updated: "2026-10-20T04:26:07.031Z"
 last_activity: 2026-10-20
 last_activity_desc: Phase 4 execution started
-state_head: 530cb29d70b529cd97ddc76a042b1f8567fad7f3
+state_head: fe1f6324ee4dd31115eef303053c6fa0e5d3da53
 progress:
   total_phases: 4
   completed_phases: 3
   total_plans: 21
-  completed_plans: 16
+  completed_plans: 17
   percent: 75
 ---
 
@@ -28,8 +28,8 @@ See: .planning/PROJECT.md (updated 2026-10-19)
 ## Current Position
 
 Phase: 4 (Archive partagée) — EXECUTING
-Plan: 1 of 5
-Status: Executing Phase 4
+Plan: 2 of 5
+Status: Ready to execute
 Last activity: 2026-10-20 — Phase 4 execution started
 
 Progress: [████████░░] 75%
@@ -72,6 +72,7 @@ Progress: [████████░░] 75%
 | Phase 03 P05 | 58 min | 2 tasks | 12 files |
 | Phase 03 P06 | 30 min | 2 tasks | 10 files |
 | Phase 03 P07 | 21 min | 2 tasks | 13 files |
+| Phase 04 P01 | 19 min | 3 tasks | 13 files |
 
 ## Accumulated Context
 
@@ -121,6 +122,9 @@ Décisions récentes qui orientent le travail en cours :
 - [Phase 03]: 03-06 : IA_IC (js/icread.js) masque « Lire avec l'IA » sans toucher au reste ; décision après l'essai réel sur l'aperçu v29 (plan 07)
 - [Phase 03]: Plan 03-07 : une bouée corrigée reste « à confirmer » ; seul le geste Confirmer la fait servir (auteur et date gardés, position d’origine conservée)
 - [Phase 03]: Plan 03-07 : bouées X1… et parcours 101… d’une régate injectés dans MARKS et COURSES par le seul js/app.js (marque fromRegatta, retirés avant chaque injection) ; parcours choisi disparu → parcours 3
+- [Phase 04]: 04-01 : le cookie du code d'accès n'est pas transmis aux fonctions /api/ ; x-rt-membre (prénom encodé) remplace celui du navigateur pour toute écriture de /api/ (majuscules, %61pi)
+- [Phase 04]: 04-01 : la copie trash/ est écrite avant que la régate quitte le document ; une ancienne version déjà connue renvoyée par un téléphone en retard garde son auteur et ne change rien au document
+- [Phase 04]: 04-01 : l'état visible de l'archive converge exactement (2 000 scénarios) ; l'historique (hist, h) est un journal au mieux qui converge après quelques échanges
 
 ### Pending Todos
 
@@ -145,6 +149,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-10-19T23:08:54.249Z
-Stopped at: Phase 3 complete, ready to plan Phase 4
+Last session: 2026-10-20T04:26:06.906Z
+Stopped at: Completed 04-01-PLAN.md
 Resume file: None
