@@ -1698,15 +1698,16 @@ const REPRISE = 'rade.reprise.v1';
 const reprisePosee = (page) => page.waitForFunction((k) => !!JSON.parse(localStorage.getItem(k) || 'null')?.done, REPRISE, { timeout: 60000, polling: 100 });
 const lireReprise = (page) => page.evaluate((k) => JSON.parse(localStorage.getItem(k) || 'null'), REPRISE);
 const journalDe = async (page) => { await page.evaluate(() => window.dispatchEvent(new Event('pagehide'))); return page.evaluate(() => localStorage.getItem('rade.diag.v1') || ''); };
-// Écrit dans la base de traces de la page (même base que l'app) : le GPX de la Coupe SNPM sous l'identifiant donné (ancien import : aléatoire), ou la trace telle quelle
-const poseTrace = (page, texteGpx, { id = null, report = null } = {}) => page.evaluate(async ([txt, i, rp]) => {
+// Écrit dans la base de traces de la page (même base que l'app) : le GPX de la Coupe SNPM, avec un ancien identifiant aléatoire si `suffixe` est donné
+// ('tr' + début + suffixe, comme avant la v31), un rapport local éventuel. Rend { id, stable } (stable = l'identifiant actuel de fromGPX)
+const poseTrace = (page, texteGpx, { suffixe = null, report = null } = {}) => page.evaluate(async ([txt, suf, rp]) => {
   const { fromGPX, saveTrack } = await import('/js/track.js');
-  const tr = fromGPX(txt, 'snpm.gpx');
-  if (i) tr.id = i;
+  const tr = fromGPX(txt, 'snpm.gpx'), stable = tr.id;
+  if (suf) tr.id = 'tr' + tr.start + suf;
   if (rp) tr.report = rp;
   await saveTrack(tr);
-  return tr.id;
-}, [texteGpx, id, report]);
+  return { id: tr.id, stable };
+}, [texteGpx, suffixe, report]);
 const poseOrpheline = (page) => page.evaluate(async () => {
   const { saveTrack } = await import('/js/track.js');
   const t0 = Date.parse('2026-09-01T08:00:00Z');
@@ -1724,7 +1725,7 @@ async function reprise({ browser, base }) {
   await membreGarde(page, NOM);
   await reprisePosee(page);
   assert.equal((await lireReprise(page)).rangees, 0, 'appareil neuf : rien à ranger');
-  const idSnpm = await poseTrace(page, TEXTE), idOrph = await poseOrpheline(page);
+  const idSnpm = (await poseTrace(page, TEXTE)).id, idOrph = await poseOrpheline(page);
   await page.evaluate((k) => localStorage.removeItem(k), REPRISE);                       // premier lancement de la v32 sur un téléphone qui a déjà servi
   await ouvreApp(page, base);
   await toastVu(page, '1 trace rangée dans l’archive', 30000);
@@ -1747,6 +1748,41 @@ async function reprise({ browser, base }) {
   assert.equal((await indexRegates(page)).list.find((r) => r.id === 'snpm-2026').traces.length, 1);
   sansErreur(erreurs, 'rattrapage sur un téléphone');
   await ctx.close();
+
+  // 3) Deux téléphones qui avaient importé le même GPX avant la v31 (deux identifiants au hasard) : une seule référence, un seul envoi au magasin (D-10),
+  //    le rapport fait sur le premier est annoncé et reçu par le second (D-11)
+  const m = await mondeArchive('2026-10-20T10:00:00Z');
+  const A = await telephoneArchive(browser, base, m, 'Teiva'), B = await telephoneArchive(browser, base, m, 'Thibaud');
+  const RAPPORT = { html: '<p>Rapport du premier</p>', t: Date.UTC(2026, 9, 18, 15), name: 'Débrief SNPM' };
+  let stable = null;
+  for (const [tel, suffixe, rapport] of [[A, '417', RAPPORT], [B, '82', null]]) {
+    await reprisePosee(tel.page);                                                         // premier lancement : appareil neuf, rien à ranger
+    stable = (await poseTrace(tel.page, TEXTE, { suffixe, report: rapport })).stable;
+    await tel.page.evaluate((k) => localStorage.removeItem(k), REPRISE);
+    await ouvreApp(tel.page, base);                                                       // premier lancement de la v32 sur ce téléphone
+    await reprisePosee(tel.page);
+    assert.deepEqual((await lireTraces(tel.page)).map((t) => t.id), [stable], `${tel.nom} : l’ancien identifiant est remplacé par l’identifiant stable`);
+    assert.equal((await indexRegates(tel.page)).list.find((r) => r.id === 'snpm-2026').traces.map((t) => t.id).join(), stable);
+  }
+  const chemins = { trace: `preview/trace/${stable}.json`, report: `preview/report/${stable}-${RAPPORT.t}.json` };
+  await avanceHeure(m, 60e3);
+  await synchronise(m, A);
+  await attendre(() => m.blob.store.has(chemins.trace) && m.blob.store.has(chemins.report), 'trace et rapport de A en ligne');
+  await avanceHeure(m, 60e3);
+  await synchronise(m, B);                                                                // la fiche de B rencontre celle de A : une seule référence
+  await attendre(async () => (await lireTraceLocale(B.page, stable))?.report, 'rapport de A reçu par B');
+  assert.equal((await lireTraceLocale(B.page, stable)).report.name, 'Débrief SNPM');
+  for (const tel of [A, B]) {
+    const ref = (await indexRegates(tel.page)).list.find((r) => r.id === 'snpm-2026').traces;
+    assert.deepEqual(ref.map((t) => t.id), [stable], `${tel.nom} : une seule référence, d’identifiant stable`);
+    assert.equal(ref[0].report?.t, RAPPORT.t, `${tel.nom} : le rapport du premier est annoncé sur la référence`);
+    assert.deepEqual((await lireTraces(tel.page)).map((t) => t.id), [stable], `${tel.nom} : aucun identifiant au hasard`);
+  }
+  const ecrits = m.blob.ops.log.filter((o) => o.op === 'put').map((o) => o.path);
+  assert.equal(ecrits.filter((c) => c.includes('/trace/')).length, 1, `un seul envoi de la trace au magasin : ${ecrits}`);
+  assert.equal(ecrits.filter((c) => c.includes('/report/')).length, 1, 'un seul envoi du rapport');
+  sansErreur(A.erreurs, 'sur le premier téléphone'); sansErreur(B.erreurs, 'sur le second téléphone');
+  await A.ctx.close(); await B.ctx.close();
 }
 
 const SCENARIOS = { reprise, equipage, archive, 'archive-bouees': archiveBouees, archivehors: archiveHors, creer, manche, auteur, ic, 'depuis-ic': depuisIC, vraisemblance, gel, 'debrief-tardif': debriefTardif, gpx, 'gpx-choix': gpxChoix, ia, 'ia-erreurs': iaErreurs, bouees };
