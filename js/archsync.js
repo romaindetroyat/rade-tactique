@@ -98,6 +98,10 @@ export async function runSync(d, reason = 'auto') {
   if (res.body.env) meta.env = res.body.env;
   if (res.body.unchanged) { d.saveMeta(); return { unchanged: true }; }
   const out = applyDoc(d.getState(), res.body.doc);                       // la fusion repart de l’état d’AUJOURD’HUI, pas de celui d’avant l’échange
+  if (!meta.bak) {                                                          // copie de secours de l’index d’avant, une seule fois, avant la première fusion appliquée
+    meta.bak = true;
+    try { d.backup?.(); } catch { /* la copie est facultative : un stockage plein ne bloque pas la synchronisation */ }
+  }
   d.setState(out.st); d.setMarks(out.marks);
   for (const k of keys) if (meta.dirty[k] === snapshot[k]) delete meta.dirty[k];
   meta.first = true; meta.rev = res.body.rev;

@@ -6,8 +6,8 @@ import { WindField, speedColor } from './wind.js';
 import { MARKS, COURSES, LINE_PRESETS, FORBIDDEN_ZONE, DANGERS } from './courses.js';
 import { pdfText, parseIC, cleanText } from './events.js';
 import { IA_IC, iaOffer, iaErrorMessage, reviewFromParse, reviewFromRegatta, reviewFromApi, setValue, setKeep, setKeepRace, setKeepMark, setKeepCourse, courseReady, canValidate, checksFor, applyReview, reviewHTML, chipOf, validatedHTML } from './icread.js';
-import { stampState, markDirty, canon } from './archmerge.js';
-import { migrate, saveRegattas, createRegatta, upsertRegatta, removeRegatta, setCurrent as setCurrentRegatta, currentRegatta, todayRegatta, icOf, groupBySeason, lockDates, daysOf, addRace, removeRace, raceSettings, membre, saveMembre, backfillAuthor } from './regates.js';
+import { stampState, markDirty, canon, legacyStamp } from './archmerge.js';
+import { migrate, seedNorm, KEY as REG_KEY, saveRegattas, createRegatta, upsertRegatta, removeRegatta, setCurrent as setCurrentRegatta, currentRegatta, todayRegatta, icOf, groupBySeason, lockDates, daysOf, addRace, removeRace, raceSettings, membre, saveMembre, backfillAuthor } from './regates.js';
 import { THROTTLE_MS, slotKey, freezeAction, obsNeedsCopy, stratNeedsCopy, sliceDays, freezeSummary, strategySummary, compactStrategy, windSourceKind, frozenLabel } from './gel.js';
 import { putSlot, getSlot } from './regstore.js';
 import { listHTML, newRegattaFormHTML, sheetHTML } from './regview.js';
@@ -61,6 +61,8 @@ const DEF = {
 const S = { ...DEF, ...store.get('rade.state', {}) };
 // Régates : l’index (petit) se lit de façon synchrone au chargement, comme l’ancienne fiche courante ; IC garde la forme d’avant (icOf)
 let REG = migrate({ storage: localStore(), now: Date.now(), by: who() });
+// la Coupe SNPM semée est la même fiche sur les trois téléphones (instant commun) : une graine d'avant ramenée à cet instant, index réécrit seulement si l'objet change
+{ const seeded = seedNorm(REG); if (seeded !== REG) { REG = seeded; saveRegattas(localStore(), REG); } }
 let IC = icOf(currentRegatta(REG));
 // Remplace l’état des régates, l’écrit et recalcule IC ; un stockage plein ou refusé laisse l’état en mémoire, avec un message
 // Archive partagée (ARCH-01) : `SYNC` (rade.sync.v1) ne porte que les compteurs « sale » par clé, rev, essais et plafonds du jour ; l’état marqué EST la file d’envoi.
@@ -1772,6 +1774,8 @@ function syncDeps() {
     },
     getMarks: () => SYNC.marksDoc || {}, setMarks: (m) => { SYNC.marksDoc = m; },                        // recalages de bouées : branchés au plan 03
     meta: SYNC, saveMeta: saveSync, isActive: () => raceActive(Date.now()), isOnline: () => net.online,
+    // copie de secours de l'index avant la première fusion appliquée ; un échec est consigné, jamais bloquant
+    backup: () => { try { const brut = localStore()?.getItem(REG_KEY); if (brut != null) localStore().setItem('rade.regates.v1.bak', brut); } catch (e) { note('archive', 'copie de secours non écrite : ' + (e?.name || 'erreur')); } },
     canApply: () => !icBusy() && !markEdit,
   };
 }
@@ -1782,6 +1786,7 @@ async function syncNow(reason) {
   syncBusy = true; paintSync();
   try {
     syncMod ||= await import('./archsync.js');
+    if (!SYNC.first) { const marque = legacyStamp(REG); if (marque !== REG) saveReg(marque, { fromSync: true }); }     // première synchronisation : les éléments d'avant l'archive reçoivent une date
     const res = await syncMod.runSync(syncDeps(), reason);
     note('archive', res.merged ? `fusion faite, ${Object.keys(SYNC.dirty || {}).length} en attente` : res.unchanged ? 'à jour' : res.skipped ? 'reporté : ' + res.skipped : 'échec : ' + res.error);
     if (res.skipped === 'trop_tot') scheduleSync((res.in || 30000) + 500);

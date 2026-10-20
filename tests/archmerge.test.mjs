@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   MAX_HIST, HEAD, LISTS, LOCAL_ONLY, canon, sameBody, wins, mergeRegatta, mergeMarks, emptyDoc, mergeDoc, docEquals, raceId, stamp, stampState,
-  markDirty, toShared, fromShared, slug,
+  markDirty, toShared, fromShared, slug, legacyStamp,
 } from '../js/archmerge.js';
 
 const reg = (over = {}) => ({
@@ -410,4 +410,34 @@ test('convergence : un téléphone qui renvoie deux fois, après une coupure, ne
   assert.deepEqual(ids(m.regattas.rgA.races), ['m1', 'm2']);
   assert.ok(docEquals(m, mergeDoc(m, emptyDoc())), 'fusionner avec un document vide ne change rien');
   assert.ok(docEquals(m, mergeDoc(emptyDoc(), m)));
+});
+
+// ───────────────────────── première synchronisation de l’existant : éléments sans date de modification
+
+test('legacyStamp : un élément sans u reçoit l’instant connu le plus récent et son auteur ; un élément qui a un u ne change pas ; idempotent', () => {
+  const r = {
+    id: 'rgL', name: 'Ancienne', club: 'CVAT', dateStart: '2026-10-18', dateEnd: '', season: '2026', by: 'Teiva', at: 1000,
+    ic: { fields: {}, text: '', source: '', read: 'motifs', excerpts: {}, validated: { by: 'Thibaud', at: 3000 } },
+    races: [{ id: 'm1', n: 1, date: '2026-10-18', time: '10:55', by: 'Romain', at: 1500 }, { id: 'm2', n: 2, date: '2026-10-18', time: '', by: null }],
+    marks: [{ id: 'X1', by: 'Teiva', at: 1200 }], courses: [{ id: 101 }], traces: [{ id: 'tr1', by: 'Romain' }],
+    frozen: { '2026-10-18': { at: 2000, by: 'Romain' } }, tomb: {}, hist: [],
+  };
+  const deja = { id: 'rgM', name: 'Déjà marquée', by: 'Teiva', at: 10, u: 99, ub: 'Teiva', ic: null, races: [{ id: 'm9', u: 50, ub: 'Teiva', at: 10 }], marks: [], courses: [], traces: [], frozen: {} };
+  const st = Object.freeze({ v: 1, current: 'rgL', list: Object.freeze([r, deja]) });
+  const out = legacyStamp(st);
+  const a = out.list[0];
+  assert.equal(a.u, 3000, 'régate : max de at et de la validation des IC');
+  assert.equal(a.ub, 'Thibaud', 'la validation la plus récente est de Thibaud');
+  assert.deepEqual(a.races.map((m) => [m.u, m.ub]), [[1500, 'Romain'], [3000, null]], 'manche : son at, sinon l’instant de la régate ; auteur de la manche');
+  assert.deepEqual([a.marks[0].u, a.marks[0].ub], [1200, 'Teiva']);
+  assert.deepEqual([a.courses[0].u, a.courses[0].ub], [3000, null], 'sans at ni auteur : instant de la régate');
+  assert.deepEqual([a.traces[0].u, a.traces[0].ub], [3000, 'Romain']);
+  assert.deepEqual([a.frozen['2026-10-18'].u, a.frozen['2026-10-18'].ub], [2000, 'Romain']);
+  assert.equal(out.list[1], deja, 'une régate entièrement marquée reste le même objet');
+  assert.equal(legacyStamp(out), out, 'idempotent : état inchangé → même objet');
+  assert.equal(r.u, undefined, 'état d’origine intact');
+  // un seul élément sans u dans une régate qui a un u : seul celui-là est marqué
+  const mixte = { ...deja, races: [{ id: 'm9', u: 50, ub: 'Teiva', at: 10 }, { id: 'm10', by: 'Romain', at: 77 }] };
+  const m = legacyStamp({ v: 1, current: 'rgM', list: [mixte] }).list[0];
+  assert.equal(m.u, 99); assert.deepEqual(m.races.map((x) => x.u), [50, 77]);
 });

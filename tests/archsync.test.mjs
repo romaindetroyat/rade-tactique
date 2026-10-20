@@ -3,8 +3,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHandler } from '../api/archive.js';
-import { stampState, markDirty, canon, toShared } from '../js/archmerge.js';
-import { createRegatta, upsertRegatta, addRace, setCurrent, removeRegatta } from '../js/regates.js';
+import { stampState, markDirty, canon, toShared, legacyStamp } from '../js/archmerge.js';
+import { createRegatta, upsertRegatta, addRace, setCurrent, removeRegatta, migrate, backfillAuthor, seedNorm, SEED_AT, KEY } from '../js/regates.js';
 import { runSync, applyDoc, buildDoc, canSync, syncStatus } from '../js/archsync.js';
 import { createFakeBlob, invoke } from './helpers/fakeblob.mjs';
 
@@ -16,9 +16,9 @@ function monde() {
   return { clock, blob, handler, appels: [], n: n0 };
 }
 // Un téléphone : l’état local (comme REG), la méta (comme rade.sync.v1), l’horloge, le réseau, la course
-function telephone(nom, w, { membre = nom } = {}) {
+function telephone(nom, w, { membre = nom, st = { v: 1, current: null, list: [] } } = {}) {
   const p = {
-    nom, st: { v: 1, current: null, list: [] }, meta: {}, online: true, active: false, saisie: false, busy: null,
+    nom, st, meta: {}, copies: [], online: true, active: false, saisie: false, busy: null,
     // équivalent de saveReg(next) : marquage par stampState puis markDirty
     save(next) { const r = stampState(p.st, next, { now: w.clock.t, by: membre }); p.st = r.st; if (r.changed.length) markDirty(p.meta, r.changed); return r.changed; },
     creer(nomRegate, debut = '2026-11-07', fin = '') {
@@ -31,7 +31,8 @@ function telephone(nom, w, { membre = nom } = {}) {
     },
     supprimer(id) { p.save(removeRegatta(p.st, id)); },
     deps: null,
-    sync(raison = 'manuel') { return runSync(p.deps, raison); },
+    // comme syncNow de js/app.js : avant le premier envoi, les éléments sans date reçoivent la leur
+    sync(raison = 'manuel') { if (!p.meta.first) p.st = legacyStamp(p.st); return runSync(p.deps, raison); },
   };
   p.deps = {
     now: () => w.clock.t,
@@ -43,7 +44,7 @@ function telephone(nom, w, { membre = nom } = {}) {
       return { status: r.status, body: r.body };
     },
     getState: () => p.st, setState: (st) => { p.st = st; }, getMarks: () => p.meta.marksDoc || {}, setMarks: (m) => { p.meta.marksDoc = m; },
-    meta: p.meta, saveMeta() {}, isActive: () => p.active, isOnline: () => p.online, canApply: () => !p.saisie,
+    meta: p.meta, saveMeta() {}, backup() { p.copies.push(JSON.stringify(p.st)); if (p.copieEchoue) throw new Error('stockage plein'); }, isActive: () => p.active, isOnline: () => p.online, canApply: () => !p.saisie,
   };
   return p;
 }
@@ -362,4 +363,81 @@ test('le geste « Synchroniser » franchit l’écart de 30 s mais ni la course 
   assert.equal((await A.sync('manuel')).unchanged, true);
   A.meta.off = true; assert.equal((await A.sync('manuel')).skipped, 'desactivee');
   A.meta.off = false; A.active = true; assert.equal((await A.sync('manuel')).skipped, 'course');
+});
+
+// ───────────────────────── première synchronisation de l’existant (Pitfall 7, Open Question 8)
+
+const mem = () => { const m = new Map(); return { getItem: (k) => (m.has(k) ? m.get(k) : null), setItem: (k, v) => { m.set(k, String(v)); } }; };
+// Un téléphone déjà utilisé : la Coupe SNPM semée à l’installation (instants différents), puis signée de l’équipier par backfillAuthor
+function ancien(nom, w, installe) {
+  const p = telephone(nom, w, { st: migrate({ storage: mem(), now: Date.parse(installe), by: null }) });
+  p.st = backfillAuthor(p.st, nom).st;
+  return p;
+}
+const PERMUTATIONS = [['A', 'B', 'C'], ['A', 'C', 'B'], ['B', 'A', 'C'], ['B', 'C', 'A'], ['C', 'A', 'B'], ['C', 'B', 'A']];
+
+test('graine SNPM sur trois téléphones : semée à des instants et par des équipiers différents, une seule régate sans ligne d’historique, dans tous les ordres', async () => {
+  for (const ordre of PERMUTATIONS) {
+    const w = monde();
+    const T = { A: ancien('Romain', w, '2026-10-18T09:00:00Z'), B: ancien('Teiva', w, '2026-10-19T14:00:00Z'), C: ancien('Thibaud', w, '2026-10-20T08:00:00Z') };
+    // C est un ancien téléphone dont la graine porte encore l’instant d’installation : normalisée au chargement
+    T.C.st = seedNorm({ ...T.C.st, list: T.C.st.list.map((r) => ({ ...r, at: Date.parse('2026-10-20T08:00:00Z'), ic: { ...r.ic, validated: { by: 'Thibaud', at: Date.parse('2026-10-20T08:00:00Z') } } })) });
+    for (let tour = 0; tour < 2; tour++) for (const k of ordre) { avance(w, 60e3); await T[k].sync('manuel'); }
+    for (const k of ordre) {
+      const l = T[k].st.list;
+      assert.equal(l.length, 1, `${ordre.join('')} : une seule régate chez ${k}`);
+      assert.equal(l[0].id, 'snpm-2026');
+      assert.deepEqual(l[0].hist || [], [], `${ordre.join('')} : aucune ligne d’historique chez ${k}`);
+      assert.equal(l[0].ic.validated.at, SEED_AT);
+    }
+    assert.equal(canon(T.A.st.list.map(toShared).map(({ by, ub, ...r }) => r)), canon(T.B.st.list.map(toShared).map(({ by, ub, ...r }) => r)));
+  }
+});
+
+test('fiche revalidée l’emporte : un téléphone qui a relu les IC (lecture « motifs », validation du 21/10) garde sa fiche face aux deux graines intactes, avec une seule ligne d’historique', async () => {
+  const valide = Date.parse('2026-10-21T10:00:00Z');
+  for (const ordre of PERMUTATIONS) {
+    const w = monde();
+    const T = { A: ancien('Romain', w, '2026-10-18T09:00:00Z'), B: ancien('Teiva', w, '2026-10-19T14:00:00Z'), C: ancien('Thibaud', w, '2026-10-20T08:00:00Z') };
+    // B a relu les IC avant la mise à jour : lecture « motifs », VHF 69, validation datée du 21/10, aucune date de modification
+    T.B.st = { ...T.B.st, list: T.B.st.list.map((r) => ({ ...r, ic: { ...r.ic, read: 'motifs', fields: { ...r.ic.fields, vhf: 69 }, validated: { by: 'Teiva', at: valide } } })) };
+    for (let tour = 0; tour < 2; tour++) for (const k of ordre) { avance(w, 60e3); await T[k].sync('manuel'); }
+    for (const k of ['A', 'B', 'C']) {
+      const r = T[k].st.list[0];
+      assert.equal(T[k].st.list.length, 1);
+      assert.equal(r.ic.fields.vhf, 69, `${ordre.join('')} : la fiche revalidée l’emporte chez ${k}`);
+      assert.equal(r.ic.read, 'motifs');
+      assert.equal(r.hist.filter((h) => h.kind === 'head').length, 1, `${ordre.join('')} : une seule ligne d’historique chez ${k}`);
+    }
+  }
+});
+
+test('première synchronisation : toutes les régates partent, même sans compteur « sale » ; renvoyées ensuite, aucune écriture', async () => {
+  const w = monde(), A = telephone('Teiva', w);
+  A.creer('Une'); A.creer('Deux'); A.meta.dirty = {};            // un téléphone d’avant la mise à jour : rien de marqué
+  assert.equal((await A.sync('manuel')).merged, true);
+  const serveur = JSON.parse([...w.blob.store.entries()].find(([k]) => /light\.json$/.test(k))[1].text);
+  assert.deepEqual(Object.values(serveur.regattas).map((r) => r.name).sort(), ['Deux', 'Une']);
+  const ecrit = w.blob.ops.put; avance(w, 60e3);
+  assert.equal((await A.sync('manuel')).unchanged, true); assert.equal(w.blob.ops.put, ecrit);
+});
+
+test('copie de secours : l’index d’avant est copié une seule fois, juste avant la première fusion appliquée ; un échec de copie ne bloque rien', async () => {
+  const w = monde(), A = telephone('Teiva', w), B = telephone('Thibaud', w);
+  B.creer('Venue de B'); await B.sync('manuel'); avance(w, 60e3);
+  A.creer('Locale de A');
+  const avant = JSON.stringify(A.st);
+  assert.equal((await A.sync('manuel')).merged, true);
+  assert.equal(A.copies.length, 1, 'une copie');
+  assert.equal(A.copies[0], avant.length ? A.copies[0] : '', 'copie lisible');
+  const copie = JSON.parse(A.copies[0]);
+  assert.deepEqual(copie.list.map((r) => r.name), ['Locale de A'], 'la copie est l’état d’AVANT la fusion (sans la régate de B)');
+  assert.ok(noms(A).includes('Venue de B'));
+  assert.equal(A.meta.bak, true);
+  A.creer('Autre'); avance(w, 60e3); await A.sync('manuel'); avance(w, 60e3); await A.sync('manuel');
+  assert.equal(A.copies.length, 1, 'jamais réécrite');
+  const C = telephone('Romain', w); C.copieEchoue = true; C.creer('c');
+  avance(w, 60e3);
+  assert.equal((await C.sync('manuel')).merged, true, 'la copie qui échoue ne bloque pas la synchronisation');
+  assert.equal(C.copies.length, 1); assert.ok(KEY.endsWith('v1'));
 });

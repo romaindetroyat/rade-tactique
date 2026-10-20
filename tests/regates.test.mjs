@@ -8,8 +8,9 @@ import { ROOT } from './helpers/setup.mjs';
 import { bodyOf } from './helpers/scan.mjs';
 import {
   KEY, VERSION, STATUS_LABEL, regattaStatus, seasonOf, todayRegatta, lockDates, fromEvent, migrate, saveRegattas, newId, createRegatta,
-  upsertRegatta, removeRegatta, setCurrent, currentRegatta, icOf, groupBySeason,
+  upsertRegatta, removeRegatta, setCurrent, currentRegatta, icOf, groupBySeason, SEED_AT, seedNorm, backfillAuthor,
 } from '../js/regates.js';
+import { parisClock } from '../js/racelock.js';
 import { escHTML, byLine, listHTML, newRegattaFormHTML, sheetHTML } from '../js/regview.js';
 import { IC as SNPM } from '../js/courses.js';
 import { verdict } from '../tools/regate-e2e.mjs';
@@ -68,7 +69,8 @@ test('reprise : une fiche rade.events.v1 devient une régate (CVAT, VHF 72), san
   assert.equal(a.v, VERSION); assert.equal(a.current, 'snpm-2026'); assert.equal(a.list.length, 2);
   const [snpm, tl] = a.list;
   assert.equal(snpm.club, 'CVAT'); assert.equal(snpm.ic.fields.vhf, 72); assert.equal(snpm.ic.read, 'reprise');
-  assert.deepEqual(snpm.ic.validated, { by: 'Teiva', at: 1000 });
+  assert.deepEqual(snpm.ic.validated, { by: null, at: SEED_AT }, 'la graine commune a le même instant sur tous les téléphones, sans auteur');
+  assert.equal(snpm.at, SEED_AT); assert.deepEqual(tl.ic.validated, { by: 'Teiva', at: 1000 }, 'une autre fiche garde l’instant de reprise');
   assert.equal(snpm.dateEnd, '', 'dernier jour antérieur : non gardé');
   assert.equal(tl.club, ''); assert.equal(tl.dateEnd, '2026-11-09', 'dernier jour postérieur : gardé'); assert.equal(tl.season, '2026');
   assert.equal(storage.getItem('rade.events.v1'), ancien, 'rade.events.v1 octet pour octet inchangée');
@@ -381,4 +383,63 @@ test('verdict : nom inconnu → 1 (même sans Chromium) ; Chromium impossible �
   assert.equal(verdict({ requested: ['creer', 'manche'], ok: ['creer', 'manche'] }), 0);
   assert.equal(verdict({ requested: ['creer', 'manche'], ok: ['creer'] }), 1, 'un scénario demandé sans OK (échec ou interrompu)');
   assert.equal(verdict({ requested: ['creer'], ok: ['manche'] }), 1, 'un OK étranger ne compte pas');
+});
+
+// ───────────────────────── graine commune de la Coupe SNPM (04-02, Pitfall 7)
+
+test('SEED_AT : le 18/10/2026 à 00 h 00, heure de Paris ; la graine semée porte cet instant, sans auteur, quel que soit le téléphone', () => {
+  assert.deepEqual(parisClock(SEED_AT), { date: '2026-10-18', hour: 0, minute: 0 });
+  const un = migrate({ storage: mem(), now: t('2026-10-19T10:00:00Z'), by: 'Teiva' }), deux = migrate({ storage: mem(), now: t('2026-10-30T08:00:00Z'), by: 'Thibaud' });
+  assert.equal(un.list[0].at, SEED_AT); assert.deepEqual(un.list[0].ic.validated, { by: null, at: SEED_AT });
+  const sans = (st) => { const { by, ...r } = st.list[0]; return r; };
+  assert.deepEqual(sans(un), sans(deux), 'seul l’auteur de la fiche diffère entre deux téléphones');
+  const autre = fromEvent({ id: 'ev9', event: 'Autre', date: '2026-11-07' }, 4242, 'Teiva');
+  assert.equal(autre.at, 4242); assert.deepEqual(autre.ic.validated, { by: 'Teiva', at: 4242 });
+});
+
+test('seedNorm : une graine jamais revalidée prend l’instant commun ; revalidée, autre régate ou état inchangé : même objet', () => {
+  const ancienne = fromEvent({ id: 'snpm-2026', ...SNPM }, 1, 'Teiva');
+  const vieille = { ...ancienne, at: t('2026-10-20T08:00:00Z'), ic: { ...ancienne.ic, validated: { by: 'Teiva', at: t('2026-10-20T08:00:00Z') } } };
+  const st = deepFreeze({ v: 1, current: 'snpm-2026', list: [vieille, regate({ id: 'z' })] });
+  const n = seedNorm(st);
+  assert.notEqual(n, st);
+  assert.equal(n.list[0].at, SEED_AT); assert.deepEqual(n.list[0].ic.validated, { by: null, at: SEED_AT });
+  assert.equal(n.list[1], st.list[1], 'les autres régates restent le même objet');
+  assert.equal(seedNorm(n), n, 'idempotent : état inchangé → même objet');
+  const revalidee = { ...vieille, ic: { ...vieille.ic, read: 'motifs', validated: { by: 'Thibaud', at: t('2026-10-21T10:00:00Z') } } };
+  const st2 = deepFreeze({ v: 1, current: 'snpm-2026', list: [revalidee] });
+  assert.equal(seedNorm(st2), st2, 'une fiche revalidée est intacte');
+  assert.equal(seedNorm(st2).list[0], revalidee);
+});
+
+test('backfillAuthor : l’auteur de la validation d’une graine commune (instant SEED_AT) n’est jamais complété ; le reste inchangé', () => {
+  const graine = fromEvent({ id: 'snpm-2026', ...SNPM }, 1, null);
+  const autre = regate({ id: 'b', by: null, ic: { fields: {}, text: '', source: '', read: 'saisie', excerpts: {}, validated: { by: null, at: 5 } }, races: [{ n: 1, by: null, at: 1 }] });
+  const { st, n } = backfillAuthor(deepFreeze({ v: 1, current: 'b', list: [graine, autre] }), 'Teiva');
+  assert.equal(st.list[0].ic.validated.by, null, 'la graine reste sans auteur de validation');
+  assert.equal(st.list[0].by, 'Teiva', 'la fiche elle-même est signée');
+  assert.equal(st.list[1].ic.validated.by, 'Teiva', 'une validation réelle est complétée');
+  assert.equal(n, 4, 'régate graine + régate b + son IC + sa manche');
+});
+
+test('garde : js/app.js normalise la graine au chargement (index réécrit seulement si l’objet change), copie de secours et legacyStamp avant le premier envoi', () => {
+  const app = readFileSync(ROOT + 'js/app.js', 'utf8');
+  assert.match(app, /seedNorm\(REG\)/);
+  assert.match(app, /seeded !== REG\)[^\n]*saveRegattas\(/, 'réécrit seulement si l’objet a changé');
+  assert.match(bodyOf(app, 'syncNow'), /!SYNC\.first[^\n]*legacyStamp\(REG\)/);
+  assert.match(app, /rade\.regates\.v1\.bak/);
+});
+
+test('graine SNPM (contrôle W1) : seuls les champs d’instant changent — at, ic.validated.at et l’auteur de la validation ; le contenu de js/courses.js reste celui de la référence', () => {
+  const fiche = { id: 'snpm-2026', ...SNPM, source: 'IC fournies (PDF)' };
+  const ancienne = fromEvent({ ...fiche, id: 'copie' }, 123456, 'Teiva');           // ce que faisait fromEvent pour toute fiche : l’instant de la reprise
+  const graine = fromEvent(fiche, 123456, 'Teiva');
+  const nu = (r) => { const { at, id, ...x } = r; const { validated, ...ic } = x.ic; return { ...x, ic }; };
+  assert.deepEqual(nu(graine), nu(ancienne), 'tout le reste est identique : nom, dates, club, champs de l’IC, texte, séquence, pavillons');
+  assert.deepEqual(Object.keys(graine).sort(), Object.keys(ancienne).sort());
+  assert.deepEqual([ancienne.at, ancienne.ic.validated], [123456, { by: 'Teiva', at: 123456 }]);
+  assert.deepEqual([graine.at, graine.ic.validated], [SEED_AT, { by: null, at: SEED_AT }]);
+  assert.equal(graine.ic.fields.vhf, SNPM.vhf); assert.equal(graine.name, SNPM.event); assert.equal(graine.dateStart, SNPM.date);
+  const src = readFileSync(ROOT + 'js/courses.js', 'utf8');
+  assert.ok(!/SEED_AT/.test(src), 'js/courses.js (référence de la Coupe SNPM) n’est pas touché');
 });

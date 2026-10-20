@@ -186,6 +186,33 @@ export function stampState(prev, next, { now, by = null }) {
 // personne ne l’a re-modifiée pendant l’échange (le compteur n’a pas bougé)
 export function markDirty(meta, keys) { meta.seq = (meta.seq || 0) + 1; meta.dirty ||= {}; for (const k of keys) meta.dirty[k] = meta.seq; }
 
+// Première synchronisation d’un téléphone d’avant l’archive : ses éléments n’ont pas de date de modification `u`. Chacun reçoit l’instant connu le
+// plus récent (régate : max de sa création et de la validation des IC ; manche, bouée, parcours, trace, gel : son `at`, sinon celui de la régate) et
+// son auteur. Ainsi une fiche réellement relue l'emporte sur une graine intacte au lieu d'un départage arbitraire. Un élément déjà marqué ne change
+// pas ; un état déjà marqué est rendu tel quel (même objet).
+export function legacyStamp(st) {
+  let touched = false;
+  const put = (e, inst, by) => {
+    if (!e || e.u != null) return e;
+    touched = true;
+    return { ...e, u: Number.isFinite(e.at) ? e.at : inst, ub: e.by ?? by ?? null };
+  };
+  const list = st.list.map((r) => {
+    const v = r.ic?.validated, va = Number.isFinite(v?.at) ? v.at : 0, ra = Number.isFinite(r.at) ? r.at : 0, inst = Math.max(ra, va);
+    const head = r.u != null ? r : (touched = true, { ...r, u: inst, ub: va > ra && v.by != null ? v.by : r.by ?? null });
+    const sub = (key) => { const l = r[key] || [], m = l.map((e) => put(e, inst, null)); return m.some((e, i) => e !== l[i]) ? m : r[key]; };
+    const out = { ...head };
+    for (const key of Object.values(LISTS)) if (r[key]) out[key] = sub(key);
+    if (r.frozen) {
+      const fz = Object.entries(r.frozen).map(([d, f]) => [d, put(f, inst, null)]);
+      if (fz.some(([d, f]) => f !== r.frozen[d])) out.frozen = Object.fromEntries(fz);
+    }
+    const same = Object.keys(out).every((k) => out[k] === r[k]) && Object.keys(r).every((k) => k in out);
+    return same ? r : out;
+  });
+  return touched ? { ...st, list } : st;
+}
+
 // Même ordre que raceOrder de js/regates.js : jour, puis heure (une manche sans heure après celles du même jour qui en ont une)
 const raceOrder = (a, b) => cmp(String(a.date), String(b.date)) || ((a.time ? 0 : 1) - (b.time ? 0 : 1)) || cmp(String(a.time), String(b.time)) || cmp(String(a.id), String(b.id));
 // Régate sans l’état propre à l’appareil et sans le rang des manches (avant envoi)
