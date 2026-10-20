@@ -59,6 +59,9 @@ const EXIGEES = [
   'Lire une régate hors réseau', 'Télécharger pour le hors réseau', 'six derniers mois et à venir', 'mode avion', '1 Mo par régate', 'sur ce téléphone', 'en ligne seulement', 'écran d’accueil',
   'Archive partagée', 'Historique', 'Désactiver la synchronisation', 'OpenAI ne garde pas les réponses', 'Limite d’IA du jour atteinte — reprise demain',
   'En 1 minute', 'Open GPX Tracker', 'Course finie',
+  // repères de la rédaction : limites, verrous, IA, iPhone
+  '25 nœuds', 'Ce qui ne s’échange pas pendant une course', 'Budget d’IA du mois atteint — l’IA reprend le mois prochain', '30 appels par équipier et par jour',
+  'iOS 18.4', 'Verrouillage automatique', 'GR1 (3)', 'Carqueiranne (11)', 'Le Comité fait foi', 'Les voyants', 'Dépannage',
 ];
 // Formules qui ne doivent jamais apparaître : [motif, raison]
 const INTERDITES = [
@@ -96,4 +99,47 @@ test('exactitude : chaque libellé en style touche (span.k) existe dans le code 
 test('texte visible : apostrophe typographique partout', () => {
   const m = /\p{L}'\p{L}/u.exec(document.body.textContent);
   assert.equal(m, null, m && `apostrophe droite dans « ${document.body.textContent.slice(Math.max(0, m.index - 20), m.index + 20)} »`);
+});
+
+// Messages que l’app affiche et que le guide cite : chacun doit être écrit dans le guide ET retrouvé tel quel dans le code (index.html, js/*.js, api/*.js…).
+const MESSAGES_DE_L_APP = [
+  'Limite d’IA du jour atteinte — reprise demain', 'Budget d’IA du mois atteint — l’IA reprend le mois prochain', 'L’IA est très sollicitée — réessayez dans un instant',
+  'À jour', 'Pas encore synchronisé', 'En attente d’envoi', 'En pause pendant la course', 'Archive non configurée', 'Synchronisation à relancer', 'Plafond du jour atteint · reprise demain',
+  'Code d’accès à renouveler', 'Mettez l’app à jour pour synchroniser', 'Synchronisation désactivée', 'Toucher encore pour désactiver',
+  'Course en cours : mise à jour reportée', 'Course en cours : synchronisation après la course', 'Journée de régate : téléchargement au retour au port', 'Course finie notée',
+  'Déjà importée', 'Chrono repris — touchez l’écran pour réactiver le son', 'Code non reconnu. Vérifiez-le ou demandez-le à Romain.', 'Avez-vous entendu 3 bips ?',
+  'Ligne non pinguée', 'Vent à relever (⚙)', 'Comité pingué ✓', 'Comité : position théorique', 'Une précision', 'figé après le départ', 'position à saisir', 'Votre code personnel',
+  'Écran non maintenu : réglez Verrouillage automatique sur « Jamais » pendant la course', 'Son coupé — touchez pour réactiver', 'Bips non entendus au test — le flash visuel reste actif', 'Son non testé',
+  'Hors ligne — prévisions du', 'Laisser sans régate', 'Confirmer la suppression', 'Copié ✓', 'Confirmer ?',
+];
+
+test('messages : chaque message cité par le guide est celui de l’app', () => {
+  const absentsDuGuide = MESSAGES_DE_L_APP.filter((m) => !texte.includes(m));
+  assert.deepEqual(absentsDuGuide, [], 'messages absents du guide');
+  const absentsDuCode = MESSAGES_DE_L_APP.filter((m) => !CODE.includes(norm(m)));
+  assert.deepEqual(absentsDuCode, [], 'messages introuvables dans le code de l’app : le guide les invente ou l’app a changé');
+});
+
+// Inventaire des boutons de l’app (extrait des <button> de js/*.js, index.html et regles.html le 2026-10-20) : chacun figure dans le guide en style touche.
+const BOUTONS = [
+  '+1 min', '−1 min', '+5°', '−5°', '+10°', '−10°', '1 min', '4 min', '5 min', 'Ajouter la manche', 'Analyser', 'Annuler', 'Arrondir', 'Arrondir à la minute', 'Arrêter le GPS', 'Arrêter le chrono',
+  'Bips', 'Bouée ici', 'Chiffres', 'Choisir cette manche', 'Comité ici', 'Confirmer', 'Continuer', 'Copier', 'Créer la régate', 'Détacher', 'Enregistrer le relevé', 'Exporter GPX', 'Fermer', 'GPX',
+  'Ignorer', 'Ligne', 'Ligne théorique', 'Marque passée ▶', '◀ Marque précédente', 'Masquer', 'Modifier', 'OK', 'Partager', 'Partager le rapport', 'Partager… (WhatsApp, Messages)', 'Plein soleil',
+  'Plein écran', 'Polaire par défaut', 'Position d’origine', 'Ranger…', 'Recaler', 'Relevé de vent ici…', 'Relevés', 'Revenir au plan initial', 'Règles du départ (P, I, U, Z, noir)', 'Stop',
+  'Supprimer cette régate', 'Synchroniser', 'Top 1’', 'Top 4’', 'Top 5’ (avertissement)', 'Télécharger pour le hors réseau', 'Valider', 'Valider les IC', 'Vider', 'Voir', 'Voir la trace',
+  'Voir sur la carte', 'Voix', '↻ Recalculer', '↻ Recalculer la suite depuis ma position', '⏹ Arrêter et enregistrer', '⏺ Enregistrer ma trace', '▶ Activer le GPS', '▶ Animer le parcours',
+  '▶ Rejouer la trace', '⚙', '⚡ Flash visuel', '⤓ Importer un fichier GPX', '＋ Ajouter une manche', '＋ Nouvelle régate', '🎤', '🏁 Course finie — retour au port', '📄 Voir le débrief',
+  '📍 Ping Bouée (GPS)', '📍 Ping Comité (GPS)', '🔊 Tester le son', '🔓',
+  // boutons dont le libellé est construit dans le code
+  'Débrief de course', 'Refaire le débrief de course', 'Débrief', 'Corriger la position', 'Saisir la position', 'Lire avec l’IA (le texte part chez OpenAI)', 'Désactiver la synchronisation',
+  'Réactiver la synchronisation', '＋ Importer des IC (PDF)', 'Caler le départ sur ces IC', 'Mettre à jour', 'Journal de diagnostic', 'Oui, entendus', 'Non', 'Près tribord', 'Près bâbord', 'Compas',
+  'GPS → étrave', 'Aide', 'Relancer', 'Réessayer', 'Réactiver', 'Vérifier', '🔒', 'BOUÉE', 'COMITÉ', 'DÉPART 5’', 'SYNCHRO', '⟳', '⤴', '?', '2D', '3D', '⌖', '◎', '☰', '⏸', '×½', '×1', '×2', '×4',
+];
+
+test('couverture : chaque bouton de l’app figure dans le guide, en style touche', () => {
+  const dansLeGuide = new Set([...document.querySelectorAll('span.k')].map((el) => norm(el.textContent)));
+  const manquants = BOUTONS.filter((b) => !dansLeGuide.has(norm(b)));
+  assert.deepEqual(manquants, [], 'boutons de l’app absents du guide');
+  const inconnus = BOUTONS.filter((b) => !CODE.includes(norm(b)));
+  assert.deepEqual(inconnus, [], 'boutons de l’inventaire introuvables dans le code (inventaire à corriger)');
 });
