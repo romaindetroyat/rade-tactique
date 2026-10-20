@@ -15,7 +15,7 @@
 
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
-import { readFileSync } from 'node:fs';
+import { readFileSync, mkdirSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { extname, join, normalize } from 'node:path';
 import assert from 'node:assert/strict';
@@ -1853,7 +1853,65 @@ async function reprise({ browser, base }) {
   await A.ctx.close(); await B.ctx.close();
 }
 
-const SCENARIOS = { reprise, equipage, archive, 'archive-bouees': archiveBouees, archivehors: archiveHors, creer, manche, auteur, ic, 'depuis-ic': depuisIC, vraisemblance, gel, 'debrief-tardif': debriefTardif, gpx, 'gpx-choix': gpxChoix, ia, 'ia-erreurs': iaErreurs, arbitre, bouees };
+// Guide de prise en main (guide.html, tâche rapide 261020-eaq) : rendu sur téléphone, ancres, aucune requête hors de l’hôte local, impression.
+// GUIDE_SHOT=<dossier> : écrit une seule capture de la page entière en 390 px de large, guide-390.png (pour la relire à l’œil).
+async function guide({ browser, base }) {
+  const ctx = await ouvreContexte(browser, { heure: '2026-11-07T07:30:00Z' });
+  const { page, erreurs } = await ouvrePage(ctx);
+  const dehors = [];
+  page.on('request', (r) => { let h = ''; try { h = new URL(r.url()).hostname; } catch { /* adresse illisible : comptée comme extérieure */ } if (h !== '127.0.0.1') dehors.push(r.url().slice(0, 80)); });
+  await page.goto(base + 'guide.html', { waitUntil: 'load' });
+  const largeur = () => page.evaluate(() => ({ doc: document.documentElement.scrollWidth, vue: document.documentElement.clientWidth }));
+  const sansDefilement = async (quand) => { const l = await largeur(); assert.ok(l.doc <= l.vue, `défilement horizontal ${quand} : page ${l.doc} px pour une fenêtre de ${l.vue} px`); };
+
+  // téléphone 390 × 844 : pas de défilement horizontal, images chargées, ancres résolues
+  await sansDefilement('sur téléphone');
+  const images = await page.evaluate(() => [...document.images].map((i) => i.complete && i.naturalWidth > 0));
+  assert.ok(images.length > 0 && images.every(Boolean), 'toutes les images sont chargées');
+  const cassees = await page.evaluate(() => [...document.querySelectorAll('a[href^="#"]')].filter((a) => !document.getElementById(a.getAttribute('href').slice(1))).map((a) => a.getAttribute('href')));
+  assert.deepEqual(cassees, [], 'chaque lien # a sa destination');
+
+  // une seule capture de la page entière, à la demande, avant tout clic (la barre collante n’a pas encore défilé)
+  if (process.env.GUIDE_SHOT) {
+    mkdirSync(process.env.GUIDE_SHOT, { recursive: true });
+    await page.screenshot({ path: join(process.env.GUIDE_SHOT, 'guide-390.png'), fullPage: true, scale: 'css' });
+  }
+
+  // « En 1 minute » se voit dès l’ouverture, sans défiler : son titre tient dans l’écran et passe sous la barre collante du sommaire
+  const haut = await page.evaluate(() => ({ titre: document.querySelector('#minute h2').getBoundingClientRect().bottom, barre: document.querySelector('nav.toc').getBoundingClientRect().bottom, fenetre: window.innerHeight }));
+  assert.ok(haut.titre > haut.barre && haut.titre < haut.fenetre, `« En 1 minute » visible à l’ouverture (titre à ${Math.round(haut.titre)} px, barre à ${Math.round(haut.barre)} px, fenêtre ${haut.fenetre} px)`);
+
+  // chaque lien du sommaire détaillé et de la barre collante amène sa section à l’écran, sous la barre
+  const ids = await page.evaluate(() => [...document.querySelectorAll('nav.sommaire a')].map((a) => a.getAttribute('href').slice(1)));
+  assert.ok(ids.length >= 17, `le sommaire détaillé liste les sections (${ids.length})`);
+  for (const [nav, lien] of [['nav.sommaire', (id) => `nav.sommaire a[href="#${id}"]`], ['nav.toc', (id) => `nav.toc a[href="#${id}"]`]]) {
+    for (const id of ids) {
+      await page.locator(lien(id)).click();
+      await page.waitForFunction((x) => location.hash === `#${x}`, id, { timeout: 5000 });
+      const r = await page.evaluate((x) => ({ haut: document.getElementById(x).getBoundingClientRect().top, barre: document.querySelector('nav.toc').getBoundingClientRect().bottom, fenetre: window.innerHeight }), id);
+      assert.ok(r.haut >= r.barre - 2 && r.haut < r.fenetre, `${nav} → #${id} : section en haut sous la barre (haut ${Math.round(r.haut)} px, barre ${Math.round(r.barre)} px)`);
+    }
+  }
+  await page.evaluate(() => window.scrollTo(0, 0));
+
+  // paysage 844 × 390
+  await page.setViewportSize({ width: 844, height: 390 });
+  await sansDefilement('en paysage');
+
+  // impression : barre collante cachée, fond blanc, texte noir
+  await page.emulateMedia({ media: 'print' });
+  const imprime = await page.evaluate(() => ({ barre: getComputedStyle(document.querySelector('nav.toc')).display, fond: getComputedStyle(document.body).backgroundColor, encre: getComputedStyle(document.body).color, bouton: getComputedStyle(document.querySelector('.hero a.open')).display }));
+  assert.equal(imprime.barre, 'none', 'barre collante cachée à l’impression');
+  assert.equal(imprime.bouton, 'none', 'boutons du bandeau cachés à l’impression');
+  assert.equal(imprime.fond, 'rgb(255, 255, 255)', 'fond blanc à l’impression');
+  assert.equal(imprime.encre, 'rgb(0, 0, 0)', 'texte noir à l’impression');
+
+  assert.deepEqual(dehors, [], `requête hors de l’hôte local : ${dehors.join(' ; ')}`);
+  sansErreur(erreurs, 'sur le guide');
+  await ctx.close();
+}
+
+const SCENARIOS = { reprise, equipage, archive, 'archive-bouees': archiveBouees, archivehors: archiveHors, creer, manche, auteur, ic, 'depuis-ic': depuisIC, vraisemblance, gel, 'debrief-tardif': debriefTardif, gpx, 'gpx-choix': gpxChoix, ia, 'ia-erreurs': iaErreurs, arbitre, bouees, guide };
 
 // ───────────────────────── lancement
 
