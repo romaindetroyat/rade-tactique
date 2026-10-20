@@ -1,10 +1,11 @@
 // Compréhension d'un relevé de vent dicté en langage naturel (Vercel, fonction Node).
 // Le modèle OpenAI traduit la phrase en intention structurée ; l'app fait les calculs (amure, bascules) et l'enregistrement.
 // Variables d'environnement sur Vercel : OPENAI_API_KEY (obligatoire), OPENAI_MODEL (facultatif, défaut gpt-5.5).
+// L'appel à OpenAI, le quota par équipier et les erreurs passent par api/_ia.js ; `createHandler({ openai, blob, now })` accepte un client et un
+// faux Blob simulés (tests, aucun réseau).
 
-import OpenAI from 'openai';
+import { createIA } from './_ia.js';
 
-let client = null; // créé à la première requête : sans clé, le constructeur lèverait une erreur au chargement
 const MODEL = process.env.OPENAI_MODEL || 'gpt-5.5';
 
 const SYSTEM = `Tu interprètes ce qu'un régatier dit à voix haute sur un J80 dans la rade de Toulon pour mettre à jour le vent réel observé.
@@ -43,26 +44,30 @@ const SCHEMA = {
   },
 };
 
-export default async function handler(req, res) {
-  if (req.method !== 'POST') return res.status(405).json({ error: 'POST uniquement' });
-  if (!process.env.OPENAI_API_KEY) return res.status(503).json({ error: 'no_key' });
-  const { alts = [], last = null, tack = null } = req.body || {};
-  const phrases = (Array.isArray(alts) ? alts : [String(alts)]).map((s) => String(s).slice(0, 300)).filter(Boolean).slice(0, 4);
-  if (!phrases.length) return res.status(400).json({ error: 'phrase vide' });
-  const context = `Dernier vent connu : ${last ? `${Math.round(last.dir)}°, ${Math.round(last.spd)} nœuds` : 'aucun'}. Amure actuelle : ${tack === 1 ? 'bâbord amures' : tack === -1 ? 'tribord amures' : 'inconnue'}.`;
-  const user = `${context}\nCe qu'a entendu la reconnaissance vocale (hypothèses, la première est la plus probable) :\n${phrases.map((p, i) => `${i + 1}. « ${p} »`).join('\n')}`;
-  try {
-    client ??= new OpenAI();
-    const response = await client.responses.create({
-      model: MODEL,
-      instructions: SYSTEM,
-      input: user,
-      reasoning: { effort: 'low' },
-      text: { format: { type: 'json_schema', name: 'releve_vent', schema: SCHEMA, strict: true } },
-    });
-    return res.status(200).json(JSON.parse(response.output_text));
-  } catch (err) {
-    const status = err instanceof OpenAI.APIError ? err.status || 502 : 502;
-    return res.status(status >= 500 ? 502 : status).json({ error: err.message?.slice(0, 200) || 'erreur' });
-  }
+export function createHandler({ openai, blob, now, delai } = {}) {
+  const ia = createIA({ openai, blob, now, delai });
+  return async function handler(req, res) {
+    if (req.method !== 'POST') return res.status(405).json({ error: 'POST uniquement' });
+    if (!process.env.OPENAI_API_KEY) return res.status(503).json({ error: 'no_key' });
+    const { alts = [], last = null, tack = null } = req.body || {};
+    const phrases = (Array.isArray(alts) ? alts : [String(alts)]).map((s) => String(s).slice(0, 300)).filter(Boolean).slice(0, 4);
+    if (!phrases.length) return res.status(400).json({ error: 'phrase vide' });
+    const context = `Dernier vent connu : ${last ? `${Math.round(last.dir)}°, ${Math.round(last.spd)} nœuds` : 'aucun'}. Amure actuelle : ${tack === 1 ? 'bâbord amures' : tack === -1 ? 'tribord amures' : 'inconnue'}.`;
+    const user = `${context}\nCe qu'a entendu la reconnaissance vocale (hypothèses, la première est la plus probable) :\n${phrases.map((p, i) => `${i + 1}. « ${p} »`).join('\n')}`;
+    if (!(await ia.garde(req, res))) return;
+    try {
+      const response = await ia.appelle({
+        model: MODEL,
+        instructions: SYSTEM,
+        input: user,
+        reasoning: { effort: 'low' },
+        text: { format: { type: 'json_schema', name: 'releve_vent', schema: SCHEMA, strict: true } },
+      });
+      return res.status(200).json(JSON.parse(response.output_text));
+    } catch (err) {
+      return ia.repond(res, err);
+    }
+  };
 }
+
+export default createHandler();

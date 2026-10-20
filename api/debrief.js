@@ -1,10 +1,11 @@
 // Rédaction du débrief de course (Vercel, fonction Node).
 // L'app calcule tous les chiffres (trace, vent, route conseillée, écarts) ; le modèle OpenAI les met en mots,
 // en tenant compte des observations de l'équipage. Variables d'environnement : OPENAI_API_KEY, OPENAI_MODEL (défaut gpt-5.5).
+// L'appel à OpenAI, le quota par équipier et les erreurs passent par api/_ia.js ; `createHandler({ openai, blob, now })` accepte un client et un
+// faux Blob simulés (tests, aucun réseau).
 
-import OpenAI from 'openai';
+import { createIA } from './_ia.js';
 
-let client = null; // créé à la première requête : sans clé, le constructeur lèverait une erreur au chargement
 const MODEL = process.env.OPENAI_MODEL || 'gpt-5.5';
 
 const SYSTEM = `Tu es l'entraîneur d'un équipage de J80 qui régate dans la rade de Toulon. Tu rédiges le débriefing d'une course en français,
@@ -29,24 +30,28 @@ const SCHEMA = {
   },
 };
 
-export default async function handler(req, res) {
-  if (req.method !== 'POST') return res.status(405).json({ error: 'POST uniquement' });
-  if (!process.env.OPENAI_API_KEY) return res.status(503).json({ error: 'no_key' });
-  const facts = req.body;
-  if (!facts || !Array.isArray(facts.bords) || !facts.bords.length) return res.status(400).json({ error: 'faits manquants' });
-  const input = JSON.stringify(facts).slice(0, 60000);
-  try {
-    client ??= new OpenAI();
-    const response = await client.responses.create({
-      model: MODEL,
-      instructions: SYSTEM,
-      input: `Faits de la course (JSON) :\n${input}`,
-      reasoning: { effort: 'medium' },
-      text: { format: { type: 'json_schema', name: 'debrief', schema: SCHEMA, strict: true } },
-    });
-    return res.status(200).json(JSON.parse(response.output_text));
-  } catch (err) {
-    const status = err instanceof OpenAI.APIError ? err.status || 502 : 500;
-    return res.status(status).json({ error: String(err.message || err).slice(0, 300) });
-  }
+export function createHandler({ openai, blob, now, delai } = {}) {
+  const ia = createIA({ openai, blob, now, delai });
+  return async function handler(req, res) {
+    if (req.method !== 'POST') return res.status(405).json({ error: 'POST uniquement' });
+    if (!process.env.OPENAI_API_KEY) return res.status(503).json({ error: 'no_key' });
+    const facts = req.body;
+    if (!facts || !Array.isArray(facts.bords) || !facts.bords.length) return res.status(400).json({ error: 'faits manquants' });
+    const input = JSON.stringify(facts).slice(0, 60000);
+    if (!(await ia.garde(req, res))) return;
+    try {
+      const response = await ia.appelle({
+        model: MODEL,
+        instructions: SYSTEM,
+        input: `Faits de la course (JSON) :\n${input}`,
+        reasoning: { effort: 'medium' },
+        text: { format: { type: 'json_schema', name: 'debrief', schema: SCHEMA, strict: true } },
+      });
+      return res.status(200).json(JSON.parse(response.output_text));
+    } catch (err) {
+      return ia.repond(res, err);
+    }
+  };
 }
+
+export default createHandler();
