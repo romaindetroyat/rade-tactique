@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 4
 current_phase_name: Archive partagée
 status: executing
-stopped_at: Completed 04-02-PLAN.md
-last_updated: "2026-10-20T04:46:13.562Z"
+stopped_at: Completed 04-03-PLAN.md
+last_updated: "2026-10-20T05:09:11.516Z"
 last_activity: 2026-10-20
 last_activity_desc: Phase 4 execution started
-state_head: a16f51e219c5645b512a8c18edbd0c4cd7ff0f25
+state_head: 0ec6fa70a5852cb394262251c043f1feef280d87
 progress:
   total_phases: 4
   completed_phases: 3
   total_plans: 21
-  completed_plans: 18
+  completed_plans: 19
   percent: 75
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-10-19)
 ## Current Position
 
 Phase: 4 (Archive partagée) — EXECUTING
-Plan: 3 of 5
+Plan: 4 of 5
 Status: Ready to execute
 Last activity: 2026-10-20 — Phase 4 execution started
 
@@ -74,6 +74,7 @@ Progress: [████████░░] 75%
 | Phase 03 P07 | 21 min | 2 tasks | 13 files |
 | Phase 04 P01 | 19 min | 3 tasks | 13 files |
 | Phase 04 P02 | 19 min | 3 tasks | 11 files |
+| Phase 04 P03 | 21min | 3 tasks | 12 files |
 
 ## Accumulated Context
 
@@ -127,6 +128,8 @@ Décisions récentes qui orientent le travail en cours :
 - [Phase 04]: 04-01 : la copie trash/ est écrite avant que la régate quitte le document ; une ancienne version déjà connue renvoyée par un téléphone en retard garde son auteur et ne change rien au document
 - [Phase 04]: 04-01 : l'état visible de l'archive converge exactement (2 000 scénarios) ; l'historique (hist, h) est un journal au mieux qui converge après quelques échanges
 - [Phase 04]: 04-02 : l'état marqué est la file d'envoi ; denied et outdated en mémoire seulement ; graine SNPM à instant fixe SEED_AT ; legacyStamp avant le premier envoi ; copie rade.regates.v1.bak
+- [Phase 04]: [04-03] remoteMarkChanges borne les positions reçues à la rade et ramène la source à trace | saisie (T-04-18)
+- [Phase 04]: [04-03] Un recalage reçu n'est jamais renvoyé : seule une action de l'équipier marque ~marks
 
 ### Pending Todos
 
@@ -151,6 +154,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-10-20T04:46:05.754Z
-Stopped at: Completed 04-02-PLAN.md
+Last session: 2026-10-20T05:09:11.378Z
+Stopped at: Completed 04-03-PLAN.md
 Resume file: None

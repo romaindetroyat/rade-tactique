@@ -42,7 +42,7 @@ Version visée : prête pour la régate CVAT des 7-9 novembre 2026 (gel du code 
 
 ### Archive partagée (ARCH)
 
-- [ ] **ARCH-01**: Les régates sont stockées en ligne, en privé, et partagées par l'équipage ; chaque téléphone se synchronise dès que le réseau revient, sans rien perdre hors réseau
+- [x] **ARCH-01**: Les régates sont stockées en ligne, en privé, et partagées par l'équipage ; chaque téléphone se synchronise dès que le réseau revient, sans rien perdre hors réseau
 - [x] **ARCH-02**: Liste des régates par saison et fiche de régate : vent et stratégie du jour figés automatiquement (prévisions, relevés, route conseillée), traces, débrief, analyse polaire, rapport, auteur de chaque élément
 - [ ] **ARCH-03**: Les régates récentes restent lisibles hors réseau
 - [x] **ARCH-04**: Un GPX importé (Open GPX Tracker, pauses comprises) se rattache tout seul à la régate du jour et lance le débrief
@@ -113,7 +113,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | REG-02 | Phase 3 | Complete |
 | REG-03 | Phase 3 | Complete |
 | REG-04 | Phase 3 | Complete |
-| ARCH-01 | Phase 4 | Pending |
+| ARCH-01 | Phase 4 | Complete |
 | ARCH-02 | Phase 3 | Complete |
 | ARCH-03 | Phase 4 | Pending |
 | ARCH-04 | Phase 3 | Complete |
