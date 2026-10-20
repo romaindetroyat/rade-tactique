@@ -37,6 +37,14 @@ Hors périmètre : export JSON/GPX (ARCH2-02), notes d'équipage (ARCH2-03), jet
   - Si le compteur est illisible (Blob en panne) : on laisse passer, on consigne, et le plafond OpenAI reste le filet. L'IA ne doit pas tomber à cause du compteur.
 - **D-07 :** plafond de dépense du projet OpenAI à **10 $ par mois**, posé par Romain dans le tableau de bord OpenAI. Le plan fournit un geste guidé pas à pas (à vérifier : limite de budget du projet, bloquante ou seulement une alerte). Quand le budget est atteint, OpenAI refuse les appels : les fonctions renvoient déjà une erreur bornée, à vérifier pour le message affiché.
 
+### Ajouts après la recherche (2026-10-20)
+- **D-09 :** une trace enregistrée dans l'app est désormais rangée à l'arrêt comme un import GPX, par `rangeTrace(tr, { invite: false })`, sans question. C'est la suite logique de « Rattacher au jour » ; Romain en est informé.
+- **D-10 :** une trace importée avant la v31 avait un identifiant aléatoire. Le rattrapage lui donne l'identifiant stable `'tr' + start + '-' + n` (écriture du nouvel enregistrement, puis suppression de l'ancien, idempotent). Il ne rattache jamais une trace si la régate a déjà une référence de même `start` et même `n`. Deux téléphones qui avaient le même fichier ne font ainsi qu'une seule référence et un seul envoi (critère 1).
+- **D-11 :** le rapport de débrief d'une ancienne trace (`tr.report`) est annoncé sur sa référence (`setTraceReport`), pour que les autres téléphones le téléchargent.
+- **Précision de D-05 :** `store: false` empêche la conservation des réponses, mais pas les journaux de surveillance des abus d'OpenAI, gardés jusqu'à 30 jours. Les textes de l'app et du guide disent « OpenAI ne garde pas les réponses », jamais « ne conserve rien ».
+- **Précision de D-06 :** le volume estimé est de 100 à 400 opérations par mois pour l'IA, et de 900 à 1 100 au total avec l'archive, sur un quota Hobby de 2 000. Le plafond théorique (3 × 30 × 30) le dépasserait, mais il n'est pas réaliste. L'usage Blob sera regardé après la régate.
+- **Précision de D-07 :** la limite n'est bloquante que si « Enforce a hard limit » est coché (Project settings → Limits → Spend). L'erreur est un 429 `project_spend_limit_exceeded`, traduite en français par le serveur.
+
 ### Livraison
 - **D-08 :** v32 sur l'aperçu `apercu-phase-05` avec une draft PR, puis production sur « publie » de Romain, avant le 2 novembre. La porte doit passer avec `VERCEL_ENV=production` (leçon de la v31 : `tests/helpers/setup.mjs` neutralise les variables Vercel).
 </decisions>
