@@ -3,10 +3,10 @@ gsd_state_version: "1.0"
 current_phase: 05
 status: completed
 stopped_at: Phase 05 complete — all phases complete
-last_updated: "2026-10-20T10:52:32.509Z"
+last_updated: "2026-10-20T12:18:02.725Z"
 last_activity: 2026-10-20
 last_activity_desc: Phase 05 complete
-state_head: 77b1902bfa7ff15bc06f30f336de90bb8d430479
+state_head: fe1abb55c2ec4254f79648835940340894ba69e0
 progress:
   total_phases: 5
   completed_phases: 5
@@ -165,6 +165,7 @@ Décisions récentes qui orientent le travail en cours :
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
 | 261020-eaq | Guide de prise en main refait, très clair et exhaustif (v33) | 2026-10-20 | 77b1902 | [261020-eaq-guide-prise-en-main](./quick/261020-eaq-guide-prise-en-main/) |
+| 261020-aid | Aide intégrée mise à jour (v34) | 2026-10-20 | fe1abb5 | [261020-aid-aide-integree](./quick/261020-aid-aide-integree/) |
 
 ### Roadmap Evolution
 
