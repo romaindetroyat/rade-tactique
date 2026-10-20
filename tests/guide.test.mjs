@@ -186,3 +186,19 @@ test('aide intégrée : chaque libellé entre guillemets existe dans l’app', (
   assert.deepEqual(absentes, [], 'libellés cités par l’aide et introuvables dans le code');
   for (const c of CITATIONS_LIBRES.slice(3, 5)) assert.ok(aideTexte.includes(c));
 });
+
+// ───────────────────────── GPS laissé seul après la course (261020-sec, P-03) : le guide et l’aide disent la même procédure que le code
+test('retour au port : le guide (#apres et la carte « Rentrer au port ») et l’aide disent que le GPS allumé d’office s’arrête de lui-même', () => {
+  const apres = espaces(document.getElementById('apres').textContent);
+  assert.match(apres, /s’arrête de lui-même/, '#apres : le GPS allumé par le mode départ ou la trace s’arrête de lui-même');
+  assert.match(apres, /Arrêter le GPS/, '#apres garde « Arrêter le GPS » pour le GPS allumé à la main');
+  const carte = [...document.querySelectorAll('h3')].find((h) => /Rentrer au port/.test(h.textContent))?.parentElement;
+  assert.ok(carte, 'la carte « Rentrer au port : dans cet ordre »');
+  const cTexte = espaces(carte.textContent);
+  assert.match(cTexte, /s’arrête de lui-même/);
+  assert.match(cTexte, /Arrêter le GPS/);
+  assert.match(cTexte, /plus de 3 h/, 'un chrono jamais arrêté garde le GPS');
+  assert.match(cTexte, /un chrono, une trace, le mode départ ou un GPS tournent/, 'la raison : tant que l’un d’eux tourne, l’app se croit en course');
+  assert.match(aideTexte, /s’arrête de lui-même/, 'l’aide intégrée dit la même chose');
+  assert.match(aideTexte, /Arrêter le GPS\s*\(sinon l’app se croit encore en course\)/, 'l’aide garde « Arrêter le GPS » pour le GPS allumé à la main');
+});

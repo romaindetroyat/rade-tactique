@@ -55,8 +55,9 @@ const INIT = () => {
 
 // ───────────────────────── outils communs
 
-async function ouvreContexte(browser, { heure }) {
-  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, locale: 'fr-FR', timezoneId: 'Europe/Paris', serviceWorkers: 'block' });
+// geo : { latitude, longitude } du GPS simulé (l’autorisation est donnée) ; sans lui, aucune position n’est fournie
+async function ouvreContexte(browser, { heure, geo = null }) {
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, locale: 'fr-FR', timezoneId: 'Europe/Paris', serviceWorkers: 'block', ...(geo ? { geolocation: geo, permissions: ['geolocation'] } : {}) });
   await ctx.clock.setFixedTime(new Date(heure));         // d’abord : INIT doit s’exécuter après le script de l’horloge de Playwright
   await ctx.addInitScript(INIT);
   // chaque page du contexte, fenêtres ouvertes par l’app comprises (« Plein écran » du rapport) : violations relevées avant tout filtre
@@ -1296,8 +1297,8 @@ async function mondeArchive(depart = '2026-11-07T08:30:00Z') {
 }
 async function avanceHeure(m, ms) { m.t += ms; for (const c of m.ctxs) await c.clock.setFixedTime(new Date(m.t)); }
 // Un téléphone : contexte, prénom donné par le « middleware », route de l’archive (prénom encodé dans x-rt-membre) et décompte des requêtes vues par la page
-async function telephoneArchive(browser, base, m, nom) {
-  const ctx = await ouvreContexte(browser, { heure: new Date(m.t).toISOString() });
+async function telephoneArchive(browser, base, m, nom, opts = {}) {
+  const ctx = await ouvreContexte(browser, { heure: new Date(m.t).toISOString(), ...opts });
   m.ctxs.push(ctx);
   await simuleMembre(ctx, nom);
   m.appels[nom] = 0; m.lourds[nom] = [];                      // lourds : les requêtes d'objets lourds (trace, rapport, jour), méthode et k
@@ -1932,6 +1933,123 @@ async function guide({ browser, base }) {
   await ctx.close();
 }
 
+// Jour de régate, GPS simulé : le GPS allumé d’office par le mode départ ou la trace s’arrête avec la dernière activité de course (✕, ⏹, Stop) et l’app ne se
+// croit plus en course ; mais jamais tant qu’un chrono, une trace, le mode départ ou un GPS allumé à la main tournent, et rien ne s’échange tant qu’un GPS tourne (D-03).
+// Le verrou de mise à jour se lit à la dernière entrée « verrou » du journal (rade.diag.v1) ; la synchronisation à #rgSync ; le GPS à #gOn / #gOff ; la bande à #raceBar.
+async function retourPort({ browser, base }) {
+  const m = await mondeArchive('2026-11-07T09:30:00Z');                                  // samedi 07/11/2026, 10 h 30 à Paris
+  const tel = await telephoneArchive(browser, base, m, 'Teiva', { geo: { latitude: 43.09, longitude: 5.93 } });
+  const { page } = tel;
+  let etape = 'début';
+  const enPause = async (oui, delai = 12000) => {
+    try { await page.waitForFunction((v) => /^En pause pendant la course/.test(document.querySelector('#rgSync')?.textContent ?? '') === v, oui, { timeout: delai }); }
+    catch { assert.fail(`étape ${etape} : pause ${oui ? 'attendue' : 'levée attendue'}, ligne « ${await ligneSync(page)} », GPS ${await gpsAllume() ? 'allumé' : 'éteint'}, journal ${JSON.stringify((await entrees()).slice(-6).map((x) => `${x.w}:${x.m}`))}`); }
+  };
+  const gpsAllume = () => page.evaluate(() => !!document.querySelector('#gOff') && !document.querySelector('#gOn'));
+  const barre = () => page.evaluate(() => { const b = document.getElementById('raceBar'); return !!b && !b.hidden; });
+  const entrees = async () => { await page.evaluate(() => window.dispatchEvent(new Event('pagehide'))); return JSON.parse(await page.evaluate(() => localStorage.getItem('rade.diag.v1') || '[]')); };
+  const verrou = async () => (await entrees()).filter((x) => x.w === 'verrou').at(-1)?.m ?? null;
+  const gpsArretes = async () => (await entrees()).filter((x) => x.w === 'gps' && x.m.startsWith('arrêté')).map((x) => x.m);
+  const attend = async (quoi, lire, attendu, delai = 25000) => {
+    const fin = Date.now() + delai;
+    for (;;) {
+      const v = await lire();
+      if (v === attendu) return;
+      if (Date.now() > fin) assert.fail(`${quoi} : « ${v} » au lieu de « ${attendu} » après ${delai / 1000} s`);
+      await page.waitForTimeout(400);
+    }
+  };
+  const onglet = (nom) => page.click(`#tabs button[data-tab=${nom}]`);
+  const gpsEtat = async (quoi, allume) => { await onglet('live'); await attend(quoi, gpsAllume, allume, 8000); };
+  const rienNeBouge = async (quoi) => { const n = tel.requetes.length; await page.waitForTimeout(3500); assert.equal(tel.requetes.length, n, `${quoi} : aucun échange avec l’archive tant qu’un GPS ou un chrono tourne`); };
+
+  await creeRegate(page, { nom: 'Régate du jour', debut: '2026-11-07', club: 'CVAT' });
+  await synchronise(m, tel);
+  await gpsEtat('au départ : GPS éteint', false);
+  await attend('verrou avant toute activité', verrou, 'journée de régate');
+
+  etape = 'a';
+  // (a) un chrono : en pause et verrou « en course » ; Stop : la pause disparaît, le verrou du jour de régate reste
+  await onglet('start'); await page.click('#t5');
+  await enPause(true);
+  await attend('verrou pendant le chrono', verrou, 'en course');
+  await page.click('#tstop');
+  await enPause(false);
+  await attend('verrou après Stop', verrou, 'journée de régate');
+  assert.deepEqual(await gpsArretes(), [], 'aucun GPS à éteindre : un chrono seul ne l’allume pas');
+
+  etape = 'b';
+  // (b) mode départ ouvert (GPS d’office), puis ✕ sans chrono : le GPS s’arrête, l’app ne se croit plus en course
+  await onglet('start'); await page.click('#smOpen');
+  await page.waitForSelector('#startMode', { state: 'visible', timeout: 10000 });
+  await enPause(true);
+  await page.click('#startMode [data-a=close]');
+  await gpsEtat('✕ sans chrono : le GPS d’office s’arrête', false);
+  await enPause(false, 8000);
+  await attend('✕ sans chrono : la bande de course disparaît', barre, false, 8000);
+  await attend('verrou après ✕', verrou, 'journée de régate');
+  assert.deepEqual(await gpsArretes(), ['arrêté : mode départ fermé'], 'l’arrêt est consigné au journal avec sa raison');
+
+  etape = 'c';
+  // (c) mode départ, DÉPART 5’, puis ✕ : le chrono tourne, le GPS n’est PAS coupé, toujours en pause ; Stop : tout s’arrête
+  await onglet('start'); await page.click('#smOpen');
+  await page.waitForSelector('#startMode', { state: 'visible', timeout: 10000 });
+  await page.click('#startMode [data-a=go]');
+  await page.click('#startMode [data-a=close]');
+  await gpsEtat('✕ avec un chrono : le GPS reste allumé', true);
+  await enPause(true);
+  await attend('✕ avec un chrono : la bande de course reste', barre, true, 8000);
+  await rienNeBouge('✕ avec un chrono');
+  assert.equal((await gpsArretes()).length, 1, 'rien de plus au journal : le GPS n’a pas été coupé');
+  await onglet('start'); await page.click('#tstop');
+  await gpsEtat('Stop après ✕ : le GPS d’office s’arrête', false);
+  await enPause(false, 8000);
+  assert.deepEqual(await gpsArretes(), ['arrêté : mode départ fermé', 'arrêté : chrono arrêté']);
+  await attend('verrou après Stop (GPS d’office)', verrou, 'journée de régate');
+
+  etape = 'd';
+  // (d) trace : ⏺ allume le GPS d’office, en pause ; une saisie faite pendant la pause attend ; ⏹ éteint le GPS, la pause disparaît, la synchronisation repart
+  await onglet('live'); await page.click('#recStart');
+  await enPause(true);
+  await creeRegate(page, { nom: 'Saisie pendant la trace', debut: '2026-11-14', club: 'CVAT' });
+  await page.click('#rgSyncBtn');
+  await rienNeBouge('pendant la trace');
+  await onglet('live'); await page.click('#recStop');
+  await gpsEtat('⏹ : le GPS allumé par la trace s’arrête', false);
+  await enPause(false, 8000);
+  await synchronise(m, tel);
+  assert.match(await ligneSync(page), /^À jour/, 'la synchronisation repart après ⏹ : « À jour »');
+  assert.ok((await noms(page)).includes('Saisie pendant la trace'));
+  assert.equal((await gpsArretes()).at(-1), 'arrêté : trace arrêtée');
+  await attend('verrou après ⏹', verrou, 'journée de régate');         // le tic de course a vu la fin : le prochain GPS sera vu comme un début
+
+  etape = 'e';
+  // (e) GPS allumé à la main : ✕ du mode départ ne le coupe pas ; « Arrêter le GPS » seul le coupe
+  await onglet('live'); await page.click('#gOn');
+  await gpsEtat('▶ Activer le GPS', true);
+  await enPause(true);
+  await onglet('start'); await page.click('#smOpen');
+  await page.waitForSelector('#startMode', { state: 'visible', timeout: 10000 });
+  await page.click('#startMode [data-a=close]');
+  await gpsEtat('✕ avec un GPS manuel : il reste allumé', true);
+  await enPause(true);
+  await rienNeBouge('GPS allumé à la main');
+  const nArrets = (await gpsArretes()).length;
+  await page.click('#gOff');
+  await gpsEtat('Arrêter le GPS', false);
+  await enPause(false, 8000);
+  assert.equal((await gpsArretes()).length, nArrets, 'le GPS manuel est arrêté par l’équipier, pas par releaseGps');
+
+  etape = 'f';
+  // (f) 🏁 Course finie : le verrou du jour de régate se lève
+  await onglet('live'); await page.click('#raceDone');
+  await toastVu(page, 'Course finie notée', 10000);
+  await attend('verrou après « Course finie »', verrou, 'libre');
+
+  sansErreur(tel.erreurs, 'au retour au port');
+  await tel.ctx.close();
+}
+
 // Défaut du 20/10 : en-têtes de sécurité de vercel.json. L’app, la page d’accès, le partage et le rapport public marchent sous leur politique de contenu ;
 // la moindre violation (relevée par INIT, toutes pages et fenêtres) ou le moindre chemin refusé par la liste blanche fait échouer le scénario (voir main).
 // Aucun vrai code d’accès : seul le faux code « code-de-test » est saisi, et la page visée est interceptée.
@@ -1980,7 +2098,7 @@ async function entetes({ browser, base }) {
   await ctx.close();
 }
 
-const SCENARIOS = { reprise, equipage, archive, 'archive-bouees': archiveBouees, archivehors: archiveHors, creer, manche, auteur, ic, 'depuis-ic': depuisIC, vraisemblance, gel, 'debrief-tardif': debriefTardif, gpx, 'gpx-choix': gpxChoix, ia, 'ia-erreurs': iaErreurs, arbitre, bouees, guide, entetes };
+const SCENARIOS = { reprise, equipage, archive, 'archive-bouees': archiveBouees, archivehors: archiveHors, creer, manche, auteur, ic, 'depuis-ic': depuisIC, vraisemblance, gel, 'debrief-tardif': debriefTardif, gpx, 'gpx-choix': gpxChoix, ia, 'ia-erreurs': iaErreurs, arbitre, bouees, guide, entetes, 'retour-port': retourPort };
 
 // ───────────────────────── lancement
 

@@ -1,7 +1,7 @@
 {
-  "n": 34,
+  "n": 35,
   "date": "2026-10-20",
-  "note": "aide intégrée mise à jour",
+  "note": "sécurité : fichiers internes fermés, en-têtes, GPS arrêté après la course",
   "critical": false,
-  "hash": "4a789a4fda"
+  "hash": "153aaa87ec"
 }

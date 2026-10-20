@@ -2,7 +2,8 @@
 // Les instants sont donnés en UTC ; l’heure de Paris est dans le commentaire (été UTC+2 jusqu’au 25/10/2026 03 h, hiver UTC+1 ensuite).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parisClock, isActive, isRaceDay, lockState, TIMER_GRACE_MS, heavyPaused, HEAVY_BEFORE_MS, HEAVY_AFTER_MS } from '../js/racelock.js';
+import { readFileSync } from 'node:fs';
+import { parisClock, isActive, isRaceDay, lockState, TIMER_GRACE_MS, heavyPaused, HEAVY_BEFORE_MS, HEAVY_AFTER_MS, gpsLeftAlone } from '../js/racelock.js';
 
 const t = (s) => Date.parse(s);
 const verrou = (now, o = {}) => lockState({ now: t(now), active: false, ...o });
@@ -142,4 +143,36 @@ test('heavyPaused : pur, ne lit ni l’horloge ni le chrono de la page (même r�
   const a = pause(H - 3 * 60e3), b = pause(H - 3 * 60e3);
   assert.equal(a, b);
   assert.equal(a, true);
+});
+
+// ── GPS laissé seul après la course (261020-sec, P-03) : le GPS allumé d’office s’éteint au geste qui termine la dernière activité
+
+const seul = (o = {}) => gpsLeftAlone({ gpsOn: true, gpsAuto: true, startModeOpen: false, recording: false, timerEnd: null, ...o });
+
+test('gpsLeftAlone : vrai seulement pour un GPS allumé d’office, mode départ fermé, sans trace et sans chrono', () => {
+  assert.equal(seul(), true);
+  assert.equal(seul({ timerEnd: undefined }), true, 'timerEnd absent = pas de chrono');
+});
+
+test('gpsLeftAlone : faux dans chacun des cas où le GPS doit rester allumé', () => {
+  assert.equal(seul({ gpsOn: false }), false, 'GPS éteint : rien à éteindre');
+  assert.equal(seul({ gpsAuto: false }), false, 'GPS allumé à la main (▶ Activer le GPS, ◎) : gardé');
+  assert.equal(seul({ startModeOpen: true }), false, 'mode départ ouvert');
+  assert.equal(seul({ recording: true }), false, 'trace en cours');
+  const H = t('2026-11-07T10:00:00Z');
+  assert.equal(seul({ timerEnd: H }), false, 'chrono dont H est passé de peu');
+  assert.equal(seul({ timerEnd: H + 2 * 3600e3 }), false, 'chrono à H + 2 h');
+  assert.equal(seul({ timerEnd: H + TIMER_GRACE_MS + 3600e3 }), false, 'chrono à H + 4 h, au-delà de la grâce de 3 h : un chrono jamais arrêté garde le GPS');
+  assert.equal(seul({ timerEnd: H - 300e3 }), false, 'chrono avant H');
+  assert.equal(seul({ timerEnd: 0 }), false, 'timerEnd à 0 n’est pas « aucun chrono »');
+});
+
+test('gpsLeftAlone : prédicat pur (aucune horloge, aucun stockage) ; isActive et lockState restent ceux de la v34', () => {
+  const src = readFileSync(new URL('../js/racelock.js', import.meta.url), 'utf8');
+  const corps = /export function gpsLeftAlone[\s\S]*?\n}\n/.exec(src)?.[0] ?? '';
+  assert.ok(corps.length > 40, 'gpsLeftAlone trouvée');
+  assert.ok(!/Date\.|performance\.|localStorage|Intl\./.test(corps), 'aucune lecture d’horloge ni de stockage');
+  // D-01 : un GPS allumé seul vaut toujours activité de course
+  assert.equal(isActive({ now: t('2026-11-07T10:00:00Z'), gpsOn: true }), true);
+  assert.equal(lockState({ now: t('2026-11-07T10:00:00Z'), active: true }).reason, 'course');
 });

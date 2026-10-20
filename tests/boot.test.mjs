@@ -240,3 +240,64 @@ test('archive : les déclencheurs réseau relancent la synchronisation (online, 
   assert.match(bodyOf(app, 'probeNet'), /if \(net\.online\) scheduleSync\(2000\)/);
   assert.match(app, /document\.hidden[\s\S]{0,200}scheduleSync\(2000\)/);
 });
+
+// ── GPS laissé seul après la course (261020-sec, P-03) : gardes statiques ; le comportement réel est exécuté par `node tools/regate-e2e.mjs retour-port`
+
+test('GPS d’office : releaseGps n’est appelée que par ✕ du mode départ, ⏹ de la trace et Stop du chrono, jamais par une horloge', () => {
+  const appels = [...app.matchAll(/releaseGps\(/g)].map((m) => m.index).filter((i) => !/function\s+$/.test(app.slice(Math.max(0, i - 12), i)));
+  assert.equal(appels.length, 3, 'trois appels exactement : ✕, ⏹ et Stop');
+  const apres = (i) => app.slice(i, i + 80);
+  const [closed, tstop, recStop] = [apres(appels[0]), apres(appels[1]), apres(appels[2])];   // dans l’ordre du fichier : mode départ, onglet Départ, onglet En course
+  assert.match(app.slice(app.lastIndexOf('\n', appels[0]), appels[0]), /closed:\s*\(\)\s*=>\s*$/, '✕ : closed de l’api du mode départ');
+  assert.match(closed, /mode départ fermé/);
+  const AUTRE_GESTIONNAIRE = /\$\('#\w+'\)\??\.(?:onclick|addEventListener)/;     // un autre gestionnaire entre l’ancre et l’appel : l’appel serait ailleurs
+  const iRec = app.indexOf("$('#recStop')"), iStop = app.indexOf("$('#tstop')");
+  assert.ok(iRec >= 0 && appels[2] > iRec && !AUTRE_GESTIONNAIRE.test(app.slice(iRec + 12, appels[2])), '⏹ : dans le gestionnaire de #recStop');
+  assert.match(recStop, /trace arrêtée/);
+  assert.ok(iStop >= 0 && appels[1] > iStop && !AUTRE_GESTIONNAIRE.test(app.slice(iStop + 12, appels[1])), 'Stop : dans le gestionnaire de #tstop');
+  assert.match(tstop, /chrono arrêté/);
+  for (const name of ['raceTick', 'statusNow', 'tickTimer', 'renderRaceBar', 'lampTouch', 'fixLamp', 'probeNet']) {
+    const body = bodyOf(app, name);
+    if (body !== null) assert.ok(!/releaseGps/.test(body), `${name} ne doit jamais éteindre le GPS`);
+  }
+  assert.ok(bodyOf(app, 'raceTick') && bodyOf(app, 'statusNow'), 'raceTick et statusNow existent');
+  assert.ok(!/set(?:Interval|Timeout)\([^;]*releaseGps/.test(app), 'jamais depuis un rappel de setInterval ou de setTimeout');
+});
+
+test('releaseGps : décide par gpsLeftAlone puis stopGps ; ne touche ni au chrono, ni aux bips, ni à l’audio', () => {
+  const body = bodyOf(app, 'releaseGps');
+  assert.ok(body, 'releaseGps trouvée');
+  const a = body.indexOf('gpsLeftAlone('), b = body.indexOf('stopGps()');
+  assert.ok(a >= 0 && b > a, 'gpsLeftAlone( puis stopGps()');
+  assert.match(body, /gpsOn:\s*gps\?\.watch != null/);
+  assert.match(body, /gpsAuto:\s*gps\?\.origin === 'auto'/);
+  assert.match(body, /timerEnd:\s*timer\.end/);
+  assert.match(body, /startModeOpen:\s*startMode\.isOpen\(\)/);
+  assert.match(body, /recording:\s*recorder\.active/);
+  assert.match(body, /note\('gps', 'arrêté : ' \+ cause\)/, 'la raison va au journal de diagnostic');
+  assert.ok(!/timer\.end\s*=|beep|audio|setT\(/i.test(body), 'ni chrono, ni bips, ni audio');
+});
+
+test('startGps : chaque appel porte une origine (manuel ou auto) ; aucun startGps nu comme gestionnaire', () => {
+  const def = bodyOf(app, 'startGps');
+  assert.ok(def && /origin:\s*origine/.test(def), 'le GPS garde son origine');
+  assert.match(app, /function startGps\(origine\b/);
+  const appels = [...app.matchAll(/\bstartGps\(([^)]*)\)/g)].filter((m) => !/function\s+$/.test(app.slice(Math.max(0, m.index - 10), m.index)));
+  assert.ok(appels.length >= 5, 'startGps appelée par #gOn, ◎, le mode départ, #recStart et relaunchGps');
+  for (const m of appels) assert.match(m[1], /^(?:'manuel'|'auto'|origine)$/, `startGps(${m[1]}) : origine littérale attendue`);
+  assert.equal(appels.filter((m) => m[1] === 'origine').length, 1, 'seule relaunchGps passe l’origine gardée');
+  assert.match(bodyOf(app, 'relaunchGps'), /gps\?\.origin \?\? 'auto'/, 'relaunchGps garde l’origine');
+  const nus = [...app.matchAll(/\bstartGps\b(?!\s*[(:])/g)].filter((m) => !/function\s+$/.test(app.slice(Math.max(0, m.index - 10), m.index)));
+  assert.deepEqual(nus.map((m) => app.slice(m.index - 30, m.index + 20)), [], 'startGps passée sans origine (gestionnaire d’événement ?)');
+  assert.match(app, /\$\('#gOn'\)\?\.addEventListener\('click', \(\) => startGps\('manuel'\)\)/);
+  assert.match(app, /startGps: \(\) => startGps\('auto'\)/);
+  assert.match(app, /if \(!gps\) startGps\('auto'\)/);
+  assert.match(app, /if \(follow\) startGps\('manuel'\)/);
+});
+
+test('verrou : tout GPS allumé compte toujours (raceActive garde gpsOn) ; la raison du verrou est écrite au journal', () => {
+  assert.match(app, /const raceActive = \(now\) => isActive\(\{[^}]*gpsOn: gps\?\.watch != null/);
+  assert.match(bodyOf(app, 'raceTick'), /note\('verrou'/, 'raceTick consigne le verrou quand sa raison change');
+  const start = src('js/startmode.js');
+  assert.match(bodyOf(start, 'close'), /api\.closed\?\.\(\)/, 'close() appelle api.closed?.()');
+});
