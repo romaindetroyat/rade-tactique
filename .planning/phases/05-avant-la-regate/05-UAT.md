@@ -3,7 +3,7 @@ status: testing
 phase: 05-avant-la-regate
 source: [05-VERIFICATION.md]
 started: 2026-10-20T10:05:00Z
-updated: 2026-10-20T10:05:00Z
+updated: 2026-10-20T10:20:00Z
 ---
 
 ## Current Test
@@ -22,7 +22,7 @@ result: [pending]
 
 ### 2. Quatre appels d'IA réels en production
 expected: Une dictée, un débrief, une question à l'arbitre et une lecture d'IC d'un autre club répondent normalement, sans erreur 500.
-result: [pending]
+result: [pending] — arbitre vérifié le 2026-10-20 par un appel réel en production (HTTP 200 en 10 s, règles 10 et 16.1 citées et vérifiées mot pour mot) : `store: false` est accepté avec le schéma strict et `api/_ia.js` est bien embarqué. Restent la dictée, le débrief et la lecture d'IC, à faire depuis un téléphone.
 
 ### 3. Premier lancement de la v32 sur un iPhone qui a de vieilles traces
 expected: Hors course, la Coupe SNPM n'apparaît qu'une fois dans sa fiche, avec le message de rangement et la ligne `reprise` au Journal, puis chez les autres téléphones après synchronisation.
