@@ -181,6 +181,42 @@ details.obsbox[open] > summary { margin-bottom: 8px; }
 .stepper b { text-align: center; font-size: 30px; font-variant-numeric: tabular-nums; }
 .stepper b small { font-size: 14px; color: var(--mute); }
 input[type=time] { width: 100%; padding: 9px 10px; border: 1px solid #cdd6df; border-radius: 10px; font: inherit; }
+input[type=date] { width: 100%; padding: 9px 10px; border: 1px solid #cdd6df; border-radius: 10px; font: inherit; background: #fff; color: var(--ink); box-sizing: border-box; }
+/* Régates : liste par saison puis par statut, une ligne touchable par régate */
+.rgseason h4 { margin: 10px 0 2px; font-size: 12.5px; color: var(--mute); text-transform: uppercase; letter-spacing: .04em; }
+.rgstatus { margin: 8px 0 4px; font-size: 12.5px; font-weight: 700; color: var(--bg); }
+button.rg { display: block; width: 100%; text-align: left; border: 1px solid var(--line); background: #fff; color: var(--ink); border-radius: 12px; padding: 9px 11px; margin: 0 0 6px; font: inherit; }
+button.rg.on { border-color: var(--accent); background: #fff8ef; }
+.rg .rgn { display: block; font-weight: 700; overflow-wrap: anywhere; }
+.rg .rgm { display: block; font-size: 12.5px; color: var(--mute); }
+.rg .rgb { display: flex; align-items: center; gap: 6px; margin-top: 3px; }
+.rgerr { color: var(--bad); font-size: 12.5px; margin-top: 3px; }
+.rgraces h4, .rgrform h4 { margin: 12px 0 4px; font-size: 14px; }
+.rgrace { border-left: 4px solid #cfd8e2; padding: 6px 10px; margin: 6px 0; background: #f8fafc; border-radius: 0 10px 10px 0; }
+.rgrace.on { border-left-color: var(--accent); background: #fff8ef; }
+.rgrform { margin-top: 10px; padding-top: 4px; border-top: 1px solid var(--line); }
+.rgwinds h4 { margin: 12px 0 4px; font-size: 14px; }
+.rgwind { border-left: 4px solid #cfd8e2; padding: 6px 10px; margin: 6px 0; background: #f8fafc; border-radius: 0 10px 10px 0; }
+.rgtraces h4 { margin: 12px 0 4px; font-size: 14px; }
+.rgtr { border-left: 4px solid #cfd8e2; padding: 6px 10px; margin: 6px 0; background: #f8fafc; border-radius: 0 10px 10px 0; }
+.rgdn, .rgwf { font-weight: 700; }
+.rgdet summary { cursor: pointer; margin-top: 4px; }
+.rgleg { border-top: 1px solid var(--line); padding: 6px 0; overflow-wrap: anywhere; }
+.icf { margin: 0 0 12px; }
+.icf .icex { color: var(--mute); margin-top: 3px; overflow-wrap: anywhere; line-height: 1.35; }
+.icf .icex.none { color: #9a6a00; }
+.icf .icmod { color: #9a6a00; font-weight: 600; }
+.icf .chip { margin-top: 4px; }
+.icrules h4, .icblock h4 { margin: 12px 0 4px; font-size: 14px; }
+.icrule { display: block; margin: 0 0 6px; overflow-wrap: anywhere; }
+.icrule input { margin-right: 6px; }
+.icrule.icoff { opacity: .55; }
+.icmn { font-weight: 700; }
+.rgmarks h4 { margin: 12px 0 4px; font-size: 14px; }
+.rgmk { border-left: 4px solid #f5c400; padding: 6px 10px; margin: 6px 0; background: #f8fafc; border-radius: 0 10px 10px 0; overflow-wrap: anywhere; }
+.rgmk.off { opacity: .55; border-left-color: #cfd8e2; }
+#icBlock { margin: 8px 0 0; font-weight: 600; }
+button.btn:disabled { opacity: .45; }
 table.t tr.sel td { background: #fff3e0; font-weight: 600; }
 .bar { display: block; height: 8px; border-radius: 4px; background: linear-gradient(90deg, var(--ok) var(--w), #e3e8ee var(--w)); min-width: 60px; }
 @media (max-width: 420px) { .obs-grid { grid-template-columns: 1fr; } .dial { max-width: 210px; } }

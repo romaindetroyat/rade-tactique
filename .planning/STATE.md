@@ -1,19 +1,19 @@
 ---
 gsd_state_version: "1.0"
-current_phase: 3
-current_phase_name: Ouvrir une régate
+current_phase: 4
+current_phase_name: Archive partagée
 status: planning
-stopped_at: Phase 2 complete, ready to plan Phase 3
-last_updated: "2026-10-19T17:25:44.816Z"
+stopped_at: Phase 3 complete, ready to plan Phase 4
+last_updated: "2026-10-19T23:09:50.895Z"
 last_activity: 2026-10-19
-last_activity_desc: Phase 2 complete, transitioned to Phase 3
-state_head: a71b921cfe78145f798513ed8aefa7411d7ae955
+last_activity_desc: Phase 3 complete, transitioned to Phase 4
+state_head: 6aea413d55796ee0499a422275e1eafb17f23461
 progress:
   total_phases: 4
-  completed_phases: 2
-  total_plans: 9
-  completed_plans: 9
-  percent: 50
+  completed_phases: 3
+  total_plans: 16
+  completed_plans: 16
+  percent: 75
 ---
 
 # Project State
@@ -23,21 +23,21 @@ progress:
 See: .planning/PROJECT.md (updated 2026-10-19)
 
 **Core value:** Le jour de la régate, l'équipage peut ouvrir l'épreuve, s'en servir en mer sans que rien ne lâche, et retrouver ensuite le débrief : des conseils et des chiffres justes, fiables sur l'eau, et partagés par tout l'équipage.
-**Current focus:** Phase 2 — Fiable et juste en mer
+**Current focus:** Phase 3 — Ouvrir une régate
 
 ## Current Position
 
-Phase: 3 — Ouvrir une régate
+Phase: 4 — Archive partagée
 Plan: Not started
 Status: Ready to plan
-Last activity: 2026-10-19 — Phase 2 complete, transitioned to Phase 3
+Last activity: 2026-10-19 — Phase 3 complete, transitioned to Phase 4
 
-Progress: [█████░░░░░] 50%
+Progress: [████████░░] 75%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 9
+- Total plans completed: 16
 - Average duration: -
 - Total execution time: 0 hours
 
@@ -47,6 +47,7 @@ Progress: [█████░░░░░] 50%
 |-------|-------|-------|----------|
 | 1 | 4 | - | - |
 | 2 | 5 | - | - |
+| 3 | 7 | - | - |
 
 **Recent Trend:**
 - Last 5 plans: -
@@ -64,6 +65,13 @@ Progress: [█████░░░░░] 50%
 | Phase 02 P03 | 40 min | 2 tasks | 13 files |
 | Phase 02 P04 | 13 min | 2 tasks | 10 files |
 | Phase 02 P05 | 25 min | 1 tasks | 4 files |
+| Phase 03 P01 | 20 min | 3 tasks | 10 files |
+| Phase 03 P02 | 14 min | 2 tasks | 11 files |
+| Phase 03 P03 | 25 min | 2 tasks | 9 files |
+| Phase 03 P04 | 22 min | 3 tasks | 13 files |
+| Phase 03 P05 | 58 min | 2 tasks | 12 files |
+| Phase 03 P06 | 30 min | 2 tasks | 10 files |
+| Phase 03 P07 | 21 min | 2 tasks | 13 files |
 
 ## Accumulated Context
 
@@ -96,6 +104,23 @@ Décisions récentes qui orientent le travail en cours :
 - [Phase 02]: Bouées : recalage par la trace = sommet du virage + 14 m vers l’intérieur, jusqu’à 3 candidats, ±20 m, passage au plus près pour information, aucun candidat sans virage net (D-02 amendé) ; mesures SNPM 26,3 m (marque 7) et 30,8 m (marque 6), simulation p90 18,7 m
 - [Phase 02]: 02-04 : recalages de bouées dans localStorage rade.marks.v1 (ce téléphone seulement, D-04), appliqués à MARKS seulement par js/app.js (début d’init et juste après un recalage validé), jamais dans les tests ; saisie bornée à la rade, confirmation au-delà de 2 Nq
 - [Phase 02]: 02-05 : v27 publiée sur l’aperçu apercu-phase-02 ; main inchangé (2a5c5df), mise en production laissée à Romain (avant le gel du 2 novembre, jamais après le 5 novembre au matin)
+- [Phase 03]: 03-01 : statut, verrou et saison calculés au jour de Paris ; rade.events.v1 jamais écrite (index rade.regates.v1, reprise idempotente, Coupe SNPM semée sur appareil neuf)
+- [Phase 03]: 03-01 : auteur = réponse GET /api/membre du middleware (prénom seul, no-store), copie rade.membre.v1 hors réseau, by: null complété au premier succès ; l'étiquette n'est pas une autorité (phase 4)
+- [Phase 03]: 03-01 : l'horloge de Playwright vide performance.mark ; l'outil de bout en bout relève les marques par window.__marks ; codes de sortie stricts décidés par verdict()
+- [Phase 03]: Relecture des IC : brouillon en mémoire, écriture unique par applyReview sur « Valider les IC » ; extraits tirés du texte nettoyé ; puces ✓ ⚠ ✕, une valeur impossible bloque la validation — D-02, D-03 : rien de deviné ni de retenu sans contrôle humain
+- [Phase 03]: 03-03 : sceau au premier signal (manche la plus tôt, sinon IC, sinon fin de la régate à Paris, signal inconnu) ; le gel copie sans calcul, une copie à la fois, jamais reporté pendant la séquence de départ — ARCH-02
+- [Phase 03]: 03-03 : analyse et débrief d'une trace sur les prévisions vivantes si leur jour y figure, sinon le vent figé du jour, sinon le vent manuel annoncé (libellé « vent du jour figé le JJ/MM à HH:MM ») — Pitfall 1
+- [Phase 03]: 03-03 : une écriture refusée par la base rade-regates n'écrit pas de résumé (la fiche ne ment pas) et le nouvel essai attend 10 minutes ; la route conseillée figée (11,9 Ko pour 15 bords) arrive dès la fin de l'analyse
+- [Phase 03]: [03-04] Jour d’une trace = jour de Paris du milieu de son plus long segment ; unique et heure rangent sans question, tout doute (choix, proche, aucune) ouvre une invite : l’app ne devine jamais entre deux régates
+- [Phase 03]: [03-04] Pauses = coupures dans les données (tr.brk, P[i].brk) : trou de plus de 120 s ou nouveau <trkseg> après plus de 5 s ; SNPM 15,25 Nq en 3,55 h actives (test) au lieu de 16,38 Nq en 6,00 h, référence inchangée
+- [Phase 03]: [03-04] La fiche de régate ne lit que r.traces (références et résumés), jamais la liste complète des traces ; résumé et rapport posés sur la référence à l’ouverture de la trace et à la fin du débrief
+- [Phase 03]: [03-05] Le gel du vent est refait sans attendre 10 min quand l'heure du signal change (manche ajoutée ou heure corrigée)
+- [Phase 03]: [03-05] js/events.js ne garde que la lecture du PDF et des IC ; l'ancien formulaire et rade.events.v1 en écriture ont disparu (scénario depuis-ic)
+- [Phase 03]: 03-06 : une règle particulière lue par l'IA est montrée avec le texte de son extrait (celui du PDF), pas avec la reformulation du modèle ; seule une valeur prouvée est affichée
+- [Phase 03]: 03-06 : un 401/403 d'OpenAI (clé refusée) est renvoyé en 502 par api/ic.js, car la page lit 401 comme un refus d'accès à l'app
+- [Phase 03]: 03-06 : IA_IC (js/icread.js) masque « Lire avec l'IA » sans toucher au reste ; décision après l'essai réel sur l'aperçu v29 (plan 07)
+- [Phase 03]: Plan 03-07 : une bouée corrigée reste « à confirmer » ; seul le geste Confirmer la fait servir (auteur et date gardés, position d’origine conservée)
+- [Phase 03]: Plan 03-07 : bouées X1… et parcours 101… d’une régate injectés dans MARKS et COURSES par le seul js/app.js (marque fromRegatta, retirés avant chaque injection) ; parcours choisi disparu → parcours 3
 
 ### Pending Todos
 
@@ -120,6 +145,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-10-19T17:25:05.815Z
-Stopped at: Phase 2 complete, ready to plan Phase 3
+Last session: 2026-10-19T23:08:54.249Z
+Stopped at: Phase 3 complete, ready to plan Phase 4
 Resume file: None

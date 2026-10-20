@@ -19,7 +19,7 @@ Les phases décimales s'intercalent entre les phases entières qui les entourent
 
 - [x] **Phase 1: Mises en ligne sans risque** - Tests des calculs et de l'accès, porte de déploiement, version et fichiers hors réseau générés, mise à jour jamais appliquée en course, import PDF sûr (completed 2026-10-19)
 - [x] **Phase 2: Fiable et juste en mer** - Bips à la seconde, alerte son coupé, voyant d'état, ouverture rapide hors réseau, journal de diagnostic, bouées douteuses signalées et recalables (completed 2026-10-19)
-- [ ] **Phase 3: Ouvrir une régate** - Tout équipier crée l'épreuve, ses manches et ses IC relues ; vent du jour figé, fiche de régate, GPX rattaché et débrief lancé
+- [x] **Phase 3: Ouvrir une régate** - Tout équipier crée l'épreuve, ses manches et ses IC relues ; vent du jour figé, fiche de régate, GPX rattaché et débrief lancé (completed 2026-10-19)
 - [ ] **Phase 4: Archive partagée** - Régates en ligne, privées, synchronisées entre les appareils de l'équipage et lisibles hors réseau (phase coupable)
 
 ## Phase Details
@@ -98,7 +98,30 @@ Plans:
   4. Le vent et la stratégie du jour (prévisions, relevés, route conseillée) sont figés dans la régate sans geste de l'équipage ; la liste des régates par saison mène à une fiche qui réunit ce vent du jour, les traces, le débrief, l'analyse polaire, le rapport et l'auteur de chaque élément.
   5. Un GPX d'Open GPX Tracker importé après la course, pauses comprises, se rattache tout seul à la régate du jour et lance le débrief, sans relier les pauses par une ligne droite.
 
-**Plans**: TBD
+**Plans:** 7/7 plans complete (v28 : plans 01 à 05 ; v29 : plans 06 et 07)
+
+Plans:
+**Wave 1**
+- [x] 03-01-PLAN.md — Régates : création en trois champs, statut et liste par saison, reprise des fiches, verrou lu dans la régate du jour, manches, auteur par `GET /api/membre` (vague 1)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+- [x] 03-02-PLAN.md — IC CVAT relues champ par champ : extraits de `parseIC`, puces de vraisemblance, rien sans « Valider les IC » (vague 2)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+- [x] 03-03-PLAN.md — Vent et route du jour figés sans geste (sceau au premier signal), fiche « Vent du jour », débrief tardif sur le vent figé (vague 3)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+- [x] 03-04-PLAN.md — GPX rangé tout seul dans la régate de son jour et débrief lancé, pauses non reliées, fiche avec traces, polaire, débrief, rapport (vague 4)
+
+**Wave 5** *(blocked on Wave 4 completion)*
+- [x] 03-05-PLAN.md — Onglet « Régates », guide et aide, nettoyage de js/events.js, vérifications `PW_REQUIRED=1`, v28 sur l'aperçu `apercu-phase-03` (vague 5)
+
+**Wave 6** *(blocked on Wave 5 completion)*
+- [x] 03-06-PLAN.md — IC d'un autre club lues par l'IA (`api/ic.js`, extraits vérifiés mot pour mot), même relecture, hors réseau et erreurs, constante `IA_IC` (vague 6)
+
+**Wave 7** *(blocked on Wave 6 completion)*
+- [x] 03-07-PLAN.md — Bouées et parcours d'un autre club à confirmer sur la carte avant usage, guide, v29 sur l'aperçu et essai réel de la lecture IA (vague 7)
+
 **UI hint**: yes
 
 ### Phase 4: Archive partagée
@@ -124,5 +147,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 |-------|----------------|--------|-----------|
 | 1. Mises en ligne sans risque | 4/4 | Complete    | 2026-10-19 |
 | 2. Fiable et juste en mer | 5/5 | Complete    | 2026-10-19 |
-| 3. Ouvrir une régate | 0/TBD | Not started | - |
+| 3. Ouvrir une régate | 7/7 | Complete    | 2026-10-19 |
 | 4. Archive partagée | 0/TBD | Not started | - |

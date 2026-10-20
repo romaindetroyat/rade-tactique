@@ -1,6 +1,7 @@
 // Traces GPS : enregistrement pendant la course, stockage local, analyse après coup, export / import GPX.
 
 import { toXY, distXY, bearingXY, norm180, norm360 } from './geo.js';
+import { segStartsFromDoc, breaksFromInstants, breaksOf, activeStats } from './segments.js';
 
 // ───────────────────────── stockage (IndexedDB)
 const DB = 'rade-traces', ST = 'tracks';
@@ -60,17 +61,21 @@ export class Recorder {
 export function analyzeTrack(tr, { windAt, boatSpeed, legs }) {
   const P = tr.pts.map(([t, lat, lon, sog, cog]) => ({ t, lat, lon, ...toXY(lat, lon), sog, cog }));
   if (P.length < 2) return null;
+  // pauses d'enregistrement et pertes du GPS : jamais reliées (ni lissage, ni distance, ni durée à travers une coupure)
+  const seg = new Array(P.length).fill(0);
+  for (const b of breaksOf(tr)) if (b > 0 && b < P.length) P[b].brk = true;
+  for (let i = 1; i < P.length; i++) seg[i] = seg[i - 1] + (P[i].brk ? 1 : 0);
   // vitesse et cap lissés sur ~8 s (indépendants du GPS du téléphone)
   for (let i = 0; i < P.length; i++) {
-    let j = i; while (j > 0 && P[i].t - P[j - 1].t < 8000) j--;
-    let k = i; while (k < P.length - 1 && P[k + 1].t - P[i].t < 8000) k++;
+    let j = i; while (j > 0 && seg[j - 1] === seg[i] && P[i].t - P[j - 1].t < 8000) j--;
+    let k = i; while (k < P.length - 1 && seg[k + 1] === seg[i] && P[k + 1].t - P[i].t < 8000) k++;
     const a = P[j], b = P[k], dt = (b.t - a.t) / 1000, d = distXY(a, b);
     P[i].v = dt > 1 ? d / dt / 0.5144 : (P[i].sog ?? 0);
-    P[i].hd = d > 4 ? bearingXY(a, b) : (P[i].cog ?? P[Math.max(0, i - 1)].hd ?? 0);
+    P[i].hd = d > 4 ? bearingXY(a, b) : (P[i].cog ?? (P[i].brk ? null : P[i - 1]?.hd) ?? 0);
   }
-  let dist = 0, vmax = 0;
-  for (let i = 1; i < P.length; i++) { dist += distXY(P[i - 1], P[i]); vmax = Math.max(vmax, P[i].v); }
-  const dur = (P[P.length - 1].t - P[0].t) / 1000;
+  let vmax = 0;
+  for (const p of P) vmax = Math.max(vmax, p.v);
+  const { dist, dur } = activeStats(P, distXY);         // enregistrement actif : somme par segment
   // vent du modèle et performance par rapport à la polaire
   let pSum = 0, pN = 0;
   for (const p of P) {
@@ -82,6 +87,7 @@ export function analyzeTrack(tr, { windAt, boatSpeed, legs }) {
   const man = [];
   let side = null, cand = null;
   for (const p of P) {
+    if (p.brk) { side = null; cand = null; }          // une pause efface l'amure en cours : pas de virement « à travers » elle
     if (p.v < 1.5) continue;
     const s = p.twa >= 0 ? 1 : -1;
     if (side == null) { side = s; continue; }
@@ -108,8 +114,11 @@ export function analyzeTrack(tr, { windAt, boatSpeed, legs }) {
 
 // ───────────────────────── GPX
 export function toGPX(tr) {
-  const pts = tr.pts.map(([t, lat, lon, sog, cog]) => `<trkpt lat="${lat}" lon="${lon}"><time>${new Date(t).toISOString()}</time>${sog != null ? `<extensions><speed>${(sog * 0.5144).toFixed(2)}</speed>${cog != null ? `<course>${cog}</course>` : ''}</extensions>` : ''}</trkpt>`).join('\n');
-  return `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="Rade Tactique" xmlns="http://www.topografix.com/GPX/1/1">\n<metadata><name>${tr.name.replace(/[<&]/g, '')}</name><time>${new Date(tr.start).toISOString()}</time></metadata>\n<trk><name>${tr.name.replace(/[<&]/g, '')}</name><trkseg>\n${pts}\n</trkseg></trk>\n</gpx>\n`;
+  const pt = ([t, lat, lon, sog, cog]) => `<trkpt lat="${lat}" lon="${lon}"><time>${new Date(t).toISOString()}</time>${sog != null ? `<extensions><speed>${(sog * 0.5144).toFixed(2)}</speed>${cog != null ? `<course>${cog}</course>` : ''}</extensions>` : ''}</trkpt>`;
+  // un <trkseg> par segment : une pause reste une pause quand le fichier est relu
+  const cuts = [0, ...breaksOf(tr), tr.pts.length];
+  const segs = cuts.slice(0, -1).map((a, k) => `<trkseg>\n${tr.pts.slice(a, cuts[k + 1]).map(pt).join('\n')}\n</trkseg>`).join('\n');
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="Rade Tactique" xmlns="http://www.topografix.com/GPX/1/1">\n<metadata><name>${tr.name.replace(/[<&]/g, '')}</name><time>${new Date(tr.start).toISOString()}</time></metadata>\n<trk><name>${tr.name.replace(/[<&]/g, '')}</name>${segs}</trk>\n</gpx>\n`;
 }
 export function fromGPX(text, name) {
   const doc = new DOMParser().parseFromString(text.replace(/^\uFEFF/, ''), 'application/xml');
@@ -123,7 +132,9 @@ export function fromGPX(text, name) {
   const pts = pos.filter((p) => !isNaN(p[0])).sort((x, y) => x[0] - y[0]).filter((p, i, A) => !i || p[0] > A[i - 1][0]);
   if (pts.length < 2) throw new Error('les points ne sont pas horodatés : réexportez la trace avec l’heure de chaque point');
   const trkName = doc.querySelector('trk > name')?.textContent?.trim();
-  return { id: 'tr' + pts[0][0] + Math.round(Math.random() * 1000), name: trkName || name.replace(/\.(gpx|xml|txt)$/i, ''), start: pts[0][0], course: null, pts, imported: true };
+  // coupures : début de chaque <trkseg> après un trou de plus de 5 s, ou trou de plus de 2 min (js/segments.js)
+  const brk = breaksFromInstants(pts, segStartsFromDoc(doc));
+  return { id: 'tr' + pts[0][0] + Math.round(Math.random() * 1000), name: trkName || name.replace(/\.(gpx|xml|txt)$/i, ''), start: pts[0][0], course: null, pts, brk, imported: true };
 }
 export async function exportGPX(tr) {
   const file = new File([toGPX(tr)], `${tr.name.replace(/[^\w\- ]+/g, '_')}.gpx`, { type: 'application/gpx+xml' });

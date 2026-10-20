@@ -13,7 +13,7 @@ import { ROOT, fixture } from './helpers/setup.mjs';
 const MIN_CARACTERES = 10000;
 
 const appels = [];
-let pdfText, parseIC, PDF_OPTIONS;
+let pdfText, parseIC, cleanText, PDF_OPTIONS;
 
 before(async () => {
   await import(new URL('../vendor/pdf.worker.min.js', import.meta.url));
@@ -26,7 +26,7 @@ before(async () => {
       get: (cible, cle) => (cle === 'getDocument' ? (opts) => { appels.push(opts); return cible.getDocument(opts); } : cible[cle]),
     }),
   };
-  ({ pdfText, parseIC, PDF_OPTIONS } = await import('../js/events.js'));
+  ({ pdfText, parseIC, cleanText, PDF_OPTIONS } = await import('../js/events.js'));
 });
 
 const extraire = async (nom) => pdfText(new Blob([fixture(nom, null)]));
@@ -49,6 +49,68 @@ test('les IC de la Coupe SNPM donnent un texte au-dessus de la borne basse et s�
   assert.equal(f.lastFinishSignal, '16:00');
   assert.equal(f.vhf, 72);
   assert.ok(f.keyRules.length > 0, 'au moins un point clé attendu');
+});
+
+// Sortie de parseIC sur les IC SNPM figée AVANT la phase 3 (relevée sur le code d’alors) : tous les champs sauf `text`.
+// Les extraits `ex` ajoutés ensuite ne doivent rien changer à ces valeurs (Pitfall 13 par analogie).
+test('figé : parseIC sur le texte réel des IC SNPM rend exactement les champs d’avant la phase 3', async () => {
+  const { text, ex, ...f } = parseIC(await extraire('ic-coupe-snpm-2026-10-18.pdf'), 'ic.pdf');
+  const { keyRules, ...champs } = f;
+  assert.deepEqual(champs, {
+    event: 'COUPE de la SNPM CVAT',
+    date: '2026-10-18',
+    firstWarning: '10:55',
+    lastFinishSignal: '16:00',
+    vhf: 72,
+    committee: 'Ludovic JEGO — tél. 06 34 43 36 73',
+    zone: 'de la Grande Rade de Toulon, à un Mille nautique au Sud du Cap Cépet',
+  });
+  assert.equal(keyRules.length, 18);
+  assert.deepEqual(keyRules.slice(0, 2), [
+    'Par ailleurs, les concurrents devront arborer dans leur pataras, ou à défaut dans le hauban tribord , un pavillon blanc pour la classe P, un pavillon « C » pour les autres classes.',
+    'Tout concurrent qui n’est plus en course doit enlever ce pavillon distinctif.',
+  ]);
+  assert.ok(text.length > 10000 && text.length <= 60000, 'le texte brut est gardé (60 000 caractères au plus)');
+});
+
+// D-03 : l’extrait de chaque valeur est le segment du texte nettoyé qui l’a produite (vérifié par construction : il en est tiré)
+test('extraits : chaque valeur lue a son extrait, tiré tel quel du texte nettoyé, et qui contient la valeur sous sa forme du texte', async () => {
+  const brut = await extraire('ic-coupe-snpm-2026-10-18.pdf');
+  const f = parseIC(brut, 'ic.pdf');
+  const propre = cleanText(brut), uneLigne = propre.replace(/\n/g, ' ');
+  const forme = {
+    event: 'COUPE de la SNPM CVAT', date: '18 octobre 2026', firstWarning: '10h55', lastFinishSignal: '16h00', vhf: '72',
+    committee: 'Ludovic JEGO', zone: 'Grande Rade de Toulon',
+  };
+  assert.ok(f.ex && typeof f.ex === 'object', 'parseIC doit rendre f.ex');
+  for (const [cle, attendu] of Object.entries(forme)) {
+    const ex = f.ex[cle];
+    assert.equal(typeof ex, 'string', `f.ex.${cle} manquant`);
+    assert.ok(ex.length > 0 && ex.length <= 260, `f.ex.${cle} : ${ex.length} caractères`);
+    assert.ok(uneLigne.includes(ex) || propre.includes(ex), `f.ex.${cle} ne figure pas dans le texte nettoyé : « ${ex} »`);
+    assert.ok(ex.replace(/\s+/g, ' ').includes(attendu), `f.ex.${cle} ne contient pas « ${attendu} » : « ${ex} »`);
+    assert.equal(ex, ex.trim(), `f.ex.${cle} : blancs en bordure`);
+  }
+  assert.ok(f.ex.committee.includes('06 34 43 36 73'), 'l’extrait du Comité garde le téléphone quand il est proche du nom');
+  assert.ok(Object.keys(f.ex).every((k) => k in forme), 'pas d’extrait pour une clé inconnue');
+});
+
+const blanc = (c) => c === undefined || /\s/.test(c);
+test('extraits : ni coupés au milieu d’un mot, ni pour une valeur non lue', () => {
+  const sans = parseIC('Texte sans rien de reconnaissable à lire ici, ni date ni heure.', 'Mon fichier_IC.pdf');
+  assert.equal(sans.event, 'Mon fichier IC', 'le titre vient du nom de fichier, comme avant');
+  assert.deepEqual(sans.ex, {}, 'aucun extrait quand rien n’est lu (le nom de fichier n’est pas un extrait)');
+  assert.equal(sans.date, undefined); assert.equal(sans.vhf, undefined);
+  const f = parseIC('Instructions.   Le premier signal d’avertissement : 9h30 sera donné au large de la pointe, VHF 69, on repart ensuite vers la bouée de dégagement sans perdre de temps.', 'x.txt');
+  assert.equal(f.firstWarning, '09:30'); assert.equal(f.vhf, 69);
+  const propre = cleanText(f.text);
+  assert.ok(Object.keys(f.ex).length >= 2, 'au moins deux extraits attendus');
+  for (const [cle, ex] of Object.entries(f.ex)) {
+    const i = propre.indexOf(ex);
+    assert.ok(i >= 0, `f.ex.${cle} absent du texte : « ${ex} »`);
+    assert.ok(blanc(propre[i - 1]), `f.ex.${cle} commence au milieu d’un mot : « ${ex} »`);
+    assert.ok(blanc(propre[i + ex.length]) || /[.,;:]/.test(propre[i + ex.length]) || /[.,;:]$/.test(ex), `f.ex.${cle} finit au milieu d’un mot : « ${ex} »`);
+  }
 });
 
 test('le cahier de parcours CVAT s’extrait sans erreur, au-dessus de la borne basse', async (t) => {

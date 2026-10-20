@@ -52,7 +52,7 @@ test('sans code : tout fichier non public, toute fonction /api et tout chemin in
   assert.ok(api.length >= 3, 'les fonctions /api du dépôt doivent être énumérées');
   const chemins = [
     ...fichiers().filter((p) => !estPublic(p)),
-    ...api, '/', '/api/inconnu', '/.planning/STATE.md', '/srv.log', '/package.json', '/middleware.js', '/vercel.json',
+    ...api, '/api/membre', '/', '/api/inconnu', '/.planning/STATE.md', '/srv.log', '/package.json', '/middleware.js', '/vercel.json',
     '/tests/fixtures/coupe-snpm-2026-10-18.gpx', '/inconnu', '/sw.js.map', '/sw.jsx', '/acces.html.bak', '/manifest.webmanifest.old',
   ];
   for (const chemin of new Set(chemins)) {
@@ -102,6 +102,43 @@ test('avec un code valide simulé : cookie accepté, lien ?acces= redirigé avec
   const apres = await appeler('/data/meta.json', { cookie: 'rt_acces=code-de-test' });
   assert.equal(apres.status, 401, 'le faux code doit être refusé une fois le simulacre retiré');
   assert.equal(apres.headers.get('x-middleware-next'), null);
+});
+
+test('GET /api/membre : 401 sans code ; avec un code valide simulé, le prénom seul (no-store), jamais le code ni l’empreinte ; le reste passe toujours', async () => {
+  // prénom et empreinte d’une ligne de la table, lus à l’exécution (jamais affichés ni recopiés)
+  const source = readFileSync(ROOT + 'middleware.js', 'utf8');
+  const ligne = /'([0-9a-f]{64})'\s*:\s*'([^']+)'/.exec(source);
+  assert.ok(ligne, 'la table EQUIPAGE doit contenir au moins une ligne');
+  const [, hex, prenom] = ligne;
+  assert.ok(interceptee('/api/membre'), '/api/membre doit passer par le middleware');
+  for (const h of VISITEURS) {
+    const res = await appeler('/api/membre', h);
+    assert.equal(res.headers.get('x-middleware-next'), null, 'sans code : jamais servie');
+    assert.ok(refuse(res), `sans code : réponse ${res.status} inattendue`);
+    if (!h.accept) { assert.equal(res.status, 401); assert.equal(res.headers.get('content-type'), 'application/json'); }
+  }
+  const octets = Buffer.from(hex, 'hex');
+  const vrai = crypto.subtle.digest.bind(crypto.subtle);
+  const faux = mock.method(crypto.subtle, 'digest', async (algo, data) => (new TextDecoder().decode(data) === 'code-de-test' ? octets.buffer.slice(octets.byteOffset, octets.byteOffset + octets.byteLength) : vrai(algo, data)));
+  try {
+    const res = await appeler('/api/membre', { cookie: 'rt_acces=code-de-test' });
+    assert.equal(res.status, 200);
+    assert.match(res.headers.get('content-type') || '', /^application\/json/);
+    assert.equal(res.headers.get('cache-control'), 'no-store');
+    assert.equal(res.headers.get('x-middleware-next'), null, 'répondue par le middleware, pas transmise');
+    assert.equal(res.headers.get('set-cookie'), null);
+    const texte = await res.text();
+    assert.deepEqual(JSON.parse(texte), { membre: prenom }, 'le prénom et rien d’autre');
+    assert.ok(!texte.includes('code-de-test') && !texte.includes(hex), 'ni le code ni l’empreinte dans le corps');
+    const index = await appeler('/index.html', { cookie: 'rt_acces=code-de-test' });
+    assert.equal(index.headers.get('x-middleware-next'), '1', 'le reste du site passe toujours');
+    const autre = await appeler('/api/voice', { cookie: 'rt_acces=code-de-test' });
+    assert.equal(autre.headers.get('x-middleware-next'), '1', 'les autres fonctions passent toujours');
+  } finally {
+    faux.mock.restore();
+  }
+  const apres = await appeler('/api/membre', { cookie: 'rt_acces=code-de-test' });
+  assert.equal(apres.status, 401, 'simulacre retiré : refusée');
 });
 
 test('vercel.json : aucune réécriture, route, redirection ni cleanUrls qui contournerait le middleware', () => {
