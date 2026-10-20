@@ -1,18 +1,18 @@
 ---
 gsd_state_version: "1.0"
 current_phase: 05
-current_phase_name: avant-la-regate
-status: completed
-stopped_at: Phase 4 complete — all phases complete
-last_updated: "2026-10-20T09:03:53.570Z"
+current_phase_name: "Avant la régate : archive amorcée et IA bornée"
+status: executing
+stopped_at: Completed 05-01-PLAN.md
+last_updated: "2026-10-20T09:18:38.689Z"
 last_activity: 2026-10-20
-last_activity_desc: Phase 4 complete
-state_head: ab80b664aa27402e8c0665c6f96ee15550442fc9
+last_activity_desc: Phase 05 execution started
+state_head: 381a4c03c7d837a32d2aa926362ca4d55ea8b94d
 progress:
   total_phases: 5
   completed_phases: 4
   total_plans: 24
-  completed_plans: 21
+  completed_plans: 22
   percent: 80
 ---
 
@@ -23,14 +23,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-10-19)
 
 **Core value:** Le jour de la régate, l'équipage peut ouvrir l'épreuve, s'en servir en mer sans que rien ne lâche, et retrouver ensuite le débrief : des conseils et des chiffres justes, fiables sur l'eau, et partagés par tout l'équipage.
-**Current focus:** Phase 4 — Archive partagée
+**Current focus:** Phase 05 — Avant la régate : archive amorcée et IA bornée
 
 ## Current Position
 
-Phase: 05 (avant-la-regate) — READY TO EXECUTE
-Plan: Not started
-Status: All phases complete
-Last activity: 2026-10-20 — Phase 4 complete
+Phase: 05 (Avant la régate : archive amorcée et IA bornée) — EXECUTING
+Plan: 2 of 3
+Status: Ready to execute
+Last activity: 2026-10-20 — Phase 05 execution started
 
 Progress: [████████░░] 80%
 
@@ -78,6 +78,7 @@ Progress: [████████░░] 80%
 | Phase 04 P03 | 21min | 3 tasks | 12 files |
 | Phase 04 P04 | 36min | 3 tasks | 12 files |
 | Phase 04 P05 | 85 min | 2 tasks | 10 files |
+| Phase 05 P01 | 20 min | 3 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -138,6 +139,8 @@ Décisions récentes qui orientent le travail en cours :
 - [Phase 04]: 04-04 : les envois lourds ne sont pas limités à l'horizon de 180 jours (sauvegarde des traces anciennes), seuls les téléchargements le sont
 - [Phase 04]: 04-05 : le défaut intermittent du scénario gel venait d'un tic de gel entre la création de la régate et l'ajout de sa manche ; scénario déterministe, et fiche des régates redessinée à l'ouverture de l'onglet après un gel tombé fiche fermée (icStale)
 - [Phase 04]: 04-05 : v31 publiée sur l'aperçu apercu-phase-04 seulement ; main inchangée (7fb6401) ; production décidée par Romain (D-02)
+- [Phase 05]: 05-01 : le renommage d’un ancien import GPX (identifiant stable) précède la garde « même début, même nombre de points » : la copie locale prend l’identifiant que les autres téléphones référencent et n’est pas retéléchargée en double
+- [Phase 05]: 05-01 : raceTick garde sa ligne scheduleSync(60000) à l’identique (garde de tests/boot.test.mjs) ; reprise() est appelée par une ligne séparée
 
 ### Pending Todos
 
@@ -166,6 +169,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-10-20T07:13:38.319Z
-Stopped at: Phase 4 complete — all phases complete
+Last session: 2026-10-20T09:18:38.513Z
+Stopped at: Completed 05-01-PLAN.md
 Resume file: None
