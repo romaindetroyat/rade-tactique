@@ -1,7 +1,7 @@
 {
-  "n": 35,
+  "n": 36,
   "date": "2026-10-20",
-  "note": "sécurité : fichiers internes fermés, en-têtes, GPS arrêté après la course",
+  "note": "voyant de synchronisation à jour dès le geste de course",
   "critical": false,
-  "hash": "153aaa87ec"
+  "hash": "3f2be8a25d"
 }
