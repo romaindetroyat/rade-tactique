@@ -417,3 +417,11 @@ test('parité : prefix() de _ia.js égale celui d’api/archive.js sous VERCEL_E
     await avecEnv(env, () => assert.equal(prefix(), archive.prefix(), String(env)));
   }
 });
+
+test('arbitre : la consigne sur 18.3 dit que c’est le bateau qui a viré qui doit, et impose des sujets sans ambiguïté', () => {
+  const src = readFileSync(ROOT + 'api/rules.js', 'utf8');
+  assert.match(src, /18\.3 \(virer dans la zone d'une marque laissée à bâbord\)/);
+  assert.match(src, /doit LUI donner la place à la marque si c'est le bateau tribord qui devient engagé à l'intérieur/);
+  assert.match(src, /C'est toujours le bateau qui a viré qui doit, jamais l'inverse/);
+  assert.match(src, /nomme chaque bateau sans ambiguïté/);
+});
