@@ -2,6 +2,9 @@
 // Fuseau Paris (les heures affichées en dépendent), DOMParser (fromGPX), fetch local vers les fichiers du dépôt.
 // Le réseau est interdit : un test qui sortirait sur Internet échoue au lieu de dépendre d’un service tiers.
 process.env.TZ = 'Europe/Paris';
+// Les variables du déploiement Vercel ne doivent rien changer aux tests : la porte tourne aussi au build de production
+// (VERCEL_ENV=production y faisait attendre prod/ au lieu de preview/), et aucun test ne doit atteindre le vrai magasin ni l’IA.
+for (const k of ['VERCEL_ENV', 'BLOB_READ_WRITE_TOKEN', 'BLOB_STORE_ID', 'VERCEL_OIDC_TOKEN', 'OPENAI_API_KEY', 'OPENAI_MODEL']) delete process.env[k];
 
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
