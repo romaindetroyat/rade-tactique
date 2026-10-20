@@ -881,6 +881,7 @@ async function ia({ browser, base }) {
   assert.deepEqual(Object.keys(etat.corps[0]), ['text'], 'le corps ne porte que le texte des IC');
   assert.ok(!JSON.stringify(etat.client).match(/cookie|rt_acces/i), 'rien de la requête ne part chez OpenAI');
   assert.equal(etat.client[0].text.format.strict, true);
+  assert.equal(etat.client[0].store, false, 'store: false part avec l’appel');
   rel = await lireRelecture(page);
   assert.equal(rel.firstWarning.valeur, '10:30'); assert.match(rel.firstWarning.extrait, /^Extrait : .*10:30/);
   assert.equal(rel.vhf.valeur, '69'); assert.match(rel.vhf.extrait, /VHF 69/);
@@ -965,6 +966,10 @@ async function iaErreurs({ browser, base }) {
   await essaie('Accès refusé : rouvrez l’app avec votre code', 'accès refusé');
   Object.assign(reponse, { statut: 400, corps: '{"error":"texte des IC manquant ou trop court"}' });
   await essaie('Texte des IC trop court', 'texte court');
+  Object.assign(reponse, { statut: 429, corps: JSON.stringify({ error: 'quota_equipier', message: 'Limite d’IA du jour atteinte — reprise demain' }) });
+  await essaie('Limite d’IA du jour atteinte — reprise demain', 'quota du jour');
+  Object.assign(reponse, { statut: 429, corps: JSON.stringify({ error: 'budget_ia', message: 'Budget d’IA du mois atteint — l’IA reprend le mois prochain' }) });
+  await essaie('Budget d’IA du mois atteint — l’IA reprend le mois prochain', 'budget du mois');
   reponse.abandon = true;
   await essaie('Pas de réseau : la lecture IA se fait avant la régate', 'réseau coupé');
   assert.equal((await lireRelecture(p2)).zone.valeur, 'Rade corrigée à la main', 'les échecs n’ont rien changé à la saisie');

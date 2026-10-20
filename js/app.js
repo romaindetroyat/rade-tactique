@@ -324,6 +324,10 @@ async function understand(alts, last, tack) {
         if (j.confidence === 'low') notes.push('à vérifier');
         return { dir: ((Math.round(dir / 5) * 5) % 360 + 360) % 360, spd: Math.round(spd), gust: j.gust, notes, summary: j.summary, ai: true };
       }
+      if (r.status === 429) {                                                // quota du jour ou budget du mois : le serveur le dit, puis l'analyse locale prend le relais
+        const j = await r.json().catch(() => { /* corps illisible : l'analyse locale suffit, sans message */ return null; });
+        if (typeof j?.message === 'string' && j.message.trim()) toast(j.message.trim().slice(0, 200));
+      }
     } catch { /* hors réseau ou délai dépassé : analyse locale */ }
   }
   for (const a of alts) { const r = parseWind(a, last, tack); if (!r.error) return r; }
@@ -1445,6 +1449,7 @@ async function runDebrief(tr) {
   if (modes) { ans.legModes = modes; busy('Recalcul avec vos réponses…'); await new Promise((r) => setTimeout(r, 30)); an = dbAnalyze(det, ans, api); }
   busy(navigator.onLine ? 'Rédaction de l’analyse…' : 'Rédaction de l’analyse (hors réseau : version automatique)…');
   const nar = await dbNarrative(an, ans);
+  if (typeof nar.iaNote === 'string' && nar.iaNote) toast(nar.iaNote);          // quota ou budget atteint : le rapport est écrit par la rédaction automatique
   const html = await dbBuild(an, ans, nar, det, api);
   tr.report = { html, t: Date.now(), name: `${ans.event || 'Débrief'} ${new Date(an.tStart).toLocaleDateString('fr-FR')}` };
   await saveTrack(tr);
@@ -2175,13 +2180,13 @@ async function readWithAI() {
     const r = await fetch('/api/ic', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: cleanText(icSrc.text) }), signal: ctl.signal });
     const body = await r.json().catch(() => { /* corps illisible : traité comme une erreur juste après */ return null; });
     if (icDraft?.imported !== token) return;                       // relecture fermée ou remplacée entre-temps
-    if (!r.ok || !body || typeof body !== 'object') throw Object.assign(new Error('HTTP ' + r.status), { status: r.status, iaCode: typeof body?.error === 'string' ? body.error : '' });
+    if (!r.ok || !body || typeof body !== 'object') throw Object.assign(new Error('HTTP ' + r.status), { status: r.status, iaCode: typeof body?.error === 'string' ? body.error : '', iaMessage: typeof body?.message === 'string' ? body.message : '' });
     icDraft = { ...reviewFromApi(body, { source: icDraft.source, text: icSrc.text, regatta: currentRegatta(REG) }), imported: token };
     iaMsg = '';
   } catch (err) {
     if (icDraft?.imported !== token) return;
     report('ic-ia', timedOut ? 'délai de 70 s dépassé' : err?.status ? 'HTTP ' + err.status : err?.name || 'erreur');   // jamais le texte des IC
-    iaMsg = iaErrorMessage({ status: err?.status, code: err?.iaCode, timedOut });                    // la relecture à la main reste ouverte, intacte
+    iaMsg = iaErrorMessage({ status: err?.status, code: err?.iaCode, message: err?.iaMessage, timedOut });                    // la relecture à la main reste ouverte, intacte
   } finally {
     clearTimeout(to);
     if (iaCtl === ctl) iaBusy = false;

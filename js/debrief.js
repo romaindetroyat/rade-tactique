@@ -319,18 +319,24 @@ export async function narrative(an, ans) {
       polaire: { source_vent: L.polarSrc, allures: (L.polar || []).map((x) => ({ allure: x.allure, twa: x.twa, vent_nd: x.tws, vitesse_nd: x.v, polaire_nd: x.tgt, pourcentage: x.pct, si_vent_moins_1nd: x.pctLo, si_vent_plus_1nd: x.pctHi })), angles: L.angles || null },
       verdict_auto: L.verdict[1], remarques_auto: L.notes })),
   };
+  let iaNote = '';                                       // 429 : message du serveur (quota du jour, budget du mois), montré par la page
   if (navigator.onLine) {
     try {
       const ctl = new AbortController(), to = setTimeout(() => ctl.abort(), 45000);
       const r = await fetch('api/debrief', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(facts), signal: ctl.signal });
       clearTimeout(to);
       if (r.ok) { const j = await r.json(); if (j?.resume) return { ...j, ai: true }; }
+      else if (r.status === 429) {
+        const j = await r.json().catch(() => { /* corps illisible : rédaction automatique, sans message */ return null; });
+        if (typeof j?.message === 'string') iaNote = j.message.trim().slice(0, 200);
+      }
     } catch { /* hors réseau : rédaction automatique */ }
   }
   // repli : textes construits à partir des chiffres
   const good = an.legs.filter((L) => L.verdict[0] === 'good').map((L) => L.name), bad = an.legs.filter((L) => L.verdict[0] !== 'good');
   return {
     ai: false,
+    ...(iaNote ? { iaNote } : {}),
     resume: {
       bien: good.length ? `Bords conformes à la stratégie : ${good.join(', ')}.` : 'Aucun bord entièrement conforme à la route conseillée.',
       coute: bad.length ? bad.map((L) => `${L.name} : ${L.notes.join(' ')}`).join(' ') : 'Pas d’écart notable avec la route conseillée.',

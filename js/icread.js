@@ -232,10 +232,12 @@ export function iaOffer({ text, parse, online, IA = IA_IC } = {}) {
   if (!online) return { show: true, enabled: false, msg: 'Lecture IA indisponible hors réseau : importez les IC avant la régate' };
   return { show: true, enabled: true, msg: '' };
 }
-// Message français d’un échec de /api/ic ; ni statut ni délai : l’appel n’a pas abouti (réseau)
-export function iaErrorMessage({ status, code, timedOut } = {}) {
+// Message français d’un échec de /api/ic ; ni statut ni délai : l’appel n’a pas abouti (réseau). 429 avec le message du serveur (quota du jour,
+// budget du mois) : ce message, borné à 200 caractères ; il est inséré par escHTML comme les autres.
+export function iaErrorMessage({ status, code, message, timedOut } = {}) {
   if (timedOut) return 'L’IA n’a pas répondu à temps (70 s)';
   if (status == null) return 'Pas de réseau : la lecture IA se fait avant la régate';
+  if (status === 429 && typeof message === 'string' && message.trim()) return message.trim().slice(0, 200);
   if (status === 503 && code === 'no_key') return 'Lecture IA indisponible sur ce déploiement (clé OpenAI absente)';
   if (status === 502) return 'Réponse tronquée ou refusée : réessayez, ou saisissez à la main';
   if (status === 400) return 'Texte des IC trop court';
