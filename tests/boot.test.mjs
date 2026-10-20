@@ -196,3 +196,47 @@ test('init : le champ de vent est préparé (warm) avant le premier updateAll(),
   assert.ok(i1 >= 0 && i2 > i1 && iu > i2, 'warm(hour) puis warm(startTime) puis updateAll()');
   assert.match(bodyOf(app, 'init'), /autoHeavy\(prepareField\)/);
 });
+
+// ── ARCH-01 (plan 04-02) : l’archive partagée n’alourdit jamais l’ouverture et ne circule jamais pendant une course
+
+test('archive : js/archsync.js n’est chargé que par import() dynamique (un seul), jamais statiquement', () => {
+  assert.ok(!/^import[^\n]*['"]\.\/archsync\.js['"]/m.test(app), 'pas d’import statique de ./archsync.js');
+  assert.equal((app.match(/import\('\.\/archsync\.js'\)/g) || []).length, 1, 'un seul import dynamique');
+  assert.match(bodyOf(app, 'syncNow'), /await import\('\.\/archsync\.js'\)/, 'chargé dans syncNow, à la première synchronisation');
+  assert.match(app, /^import \{[^}]*\bstampState\b[^}]*\} from '\.\/archmerge\.js'/m, 'archmerge.js (petit) reste statique : saveReg en a besoin');
+});
+
+test('archive : dans init(), ni syncNow( ni /api/archive avant la marque rt:map ; la première synchronisation vient 3 s après la carte', () => {
+  const init = bodyOf(app, 'init'), map = init.indexOf("performance.mark('rt:map')");
+  assert.ok(map > 0, 'marque rt:map trouvée');
+  assert.ok(!/syncNow\(|\/api\/archive|archsync/.test(init.slice(0, map)), 'rien de l’archive avant rt:map');
+  assert.ok(!init.includes('/api/archive'), 'init() ne cite jamais /api/archive');
+  assert.match(init.slice(map), /setTimeout\(\(\) => syncNow\('ouverture'\), 3000\)/, 'ouverture : rt:map + 3 s');
+  assert.ok(!/\bawait\b[^\n]*(syncNow|archsync|syncFetch)/.test(init), 'init() n’attend jamais l’archive');
+});
+
+test('archive : saveReg marque les modifications (stampState, markDirty) hors fromSync, jamais pour la réponse du serveur', () => {
+  const body = bodyOf(app, 'saveReg');
+  assert.match(app, /function saveReg\(next, \{ fromSync = false \} = \{\}\)/);
+  const garde = body.indexOf('if (!fromSync)');
+  assert.ok(garde >= 0, 'marquage sous if (!fromSync)');
+  const iS = body.indexOf('stampState('), iM = body.indexOf('markDirty('), iR = body.indexOf('REG = next');
+  assert.ok(garde < iS && iS < iM && iM < iR, 'stampState puis markDirty, avant REG = next');
+  assert.match(body, /scheduleSync\(20000\)/, 'envoi 20 s après une modification');
+  assert.match(bodyOf(app, 'syncDeps'), /saveReg\(st, \{ fromSync: true \}\)/, 'la réponse du serveur ne passe pas par le marquage');
+});
+
+test('archive : raceTick abandonne l’échange en cours et programme la synchronisation une minute après la fin de la course', () => {
+  const body = bodyOf(app, 'raceTick');
+  assert.match(body, /syncCtl\?\.abort\(\)/, 'échange abandonné');
+  assert.match(body, /wasRaceActive && !active\) scheduleSync\(60000\)/, 'fin de course : +60 s');
+  assert.match(bodyOf(app, 'syncNow'), /raceActive\(Date\.now\(\)\)/, 'syncNow refuse pendant une course');
+  assert.match(bodyOf(app, 'syncDeps'), /isActive: \(\) => raceActive\(Date\.now\(\)\)/, 'runSync reçoit le même verrou');
+  assert.match(bodyOf(app, 'syncDeps'), /canApply: \(\) => !icBusy\(\) && !markEdit/, 'réponse jetée pendant une saisie');
+});
+
+test('archive : les déclencheurs réseau relancent la synchronisation (online, sonde, retour au premier plan)', () => {
+  assert.match(app, /addEventListener\('online', \(\) => \{[^\n]*scheduleSync\(2000\)/);
+  assert.match(bodyOf(app, 'probeNet'), /if \(net\.online\) scheduleSync\(2000\)/);
+  assert.match(app, /document\.hidden[\s\S]{0,200}scheduleSync\(2000\)/);
+});

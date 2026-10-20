@@ -113,3 +113,253 @@ test('sans modification locale, la synchronisation suivante est un GET condition
   assert.ok(canSync({ now: 1e9, active: false, online: true }).ok);
   assert.equal(canon(toShared(A.st.list[0])).length > 0, true);
 });
+
+// ───────────────────────── freins, plafonds et textes (Pattern 6, Pattern 9)
+
+test('canSync : désactivée, course, hors réseau, 30 s minimum, recul 30 s · 2 min · 10 min · 30 min, 401, document plus récent', () => {
+  const ok = { now: 1e9, active: false, online: true, lastTry: 0 };
+  assert.deepEqual(canSync({ ...ok, off: true }), { ok: false, why: 'desactivee' });
+  assert.equal(canSync({ ...ok, active: true }).why, 'course');
+  assert.equal(canSync({ ...ok, online: false }).why, 'hors_reseau');
+  assert.equal(canSync({ ...ok, lastTry: 1e9 - 10e3 }).why, 'trop_tot');
+  assert.equal(canSync({ ...ok, lastTry: 1e9 - 10e3 }).in, 20e3, 'délai restant rendu');
+  assert.equal(canSync({ ...ok, lastTry: 1e9 - 30e3 }).ok, true, '30 s écoulées : permis');
+  for (const [fails, ms] of [[1, 30e3], [2, 120e3], [3, 600e3], [4, 1800e3], [9, 1800e3]]) {
+    assert.equal(canSync({ ...ok, fails, lastTry: 1e9 - ms + 1 }).why, 'trop_tot', `après ${fails} échecs : ${ms} ms`);
+    assert.equal(canSync({ ...ok, fails, lastTry: 1e9 - ms }).ok, true);
+  }
+  assert.equal(canSync({ ...ok, denied: true }).why, 'acces');
+  assert.equal(canSync({ ...ok, outdated: true }).why, 'ancienne_version');
+});
+
+test('canSync : plafonds par jour de Paris (40 envois, 150 lectures), remis à zéro le jour suivant', () => {
+  const now = Date.parse('2026-11-07T10:00:00Z'), jour = '2026-11-07';
+  const base = { now, active: false, online: true, lastTry: 0, day: jour };
+  assert.equal(canSync({ ...base, w: 39, write: true }).ok, true);
+  assert.equal(canSync({ ...base, w: 40, write: true }).why, 'plafond');
+  assert.equal(canSync({ ...base, w: 40, write: false }).ok, true, 'les lectures ont leur propre plafond');
+  assert.equal(canSync({ ...base, r: 149, write: false }).ok, true);
+  assert.equal(canSync({ ...base, r: 150, write: false }).why, 'plafond');
+  assert.equal(canSync({ ...base, day: '2026-11-06', w: 40, r: 150, write: true }).ok, true, 'jour suivant : compteurs remis à zéro');
+  // 23 h 30 UTC le 7 = 00 h 30 le 8 à Paris : c’est déjà un autre jour
+  assert.equal(canSync({ ...base, now: Date.parse('2026-11-07T23:30:00Z'), w: 40, write: true }).ok, true);
+});
+
+test('syncStatus : tous les textes, niveaux ok / warn / off seulement', () => {
+  const t = (o) => syncStatus({ online: true, ...o });
+  assert.equal(t({}).text, 'Pas encore synchronisé');
+  assert.equal(t({ lastOkAt: 1 }).text, 'À jour');
+  assert.equal(t({ busy: true }).text, 'Synchronisation…');
+  assert.equal(t({ dirty: 1 }).text, 'En attente d’envoi');
+  assert.equal(t({ online: false, dirty: 1 }).text, 'Hors réseau · 1 modification en attente');
+  assert.equal(t({ online: false, dirty: 3 }).text, 'Hors réseau · 3 modifications en attente');
+  assert.equal(t({ online: false }).text, 'Hors réseau');
+  assert.equal(t({ fails: 2 }).text, 'Synchronisation à relancer');
+  assert.equal(t({ active: true }).text, 'En pause pendant la course');
+  assert.equal(t({ off: true }).text, 'Synchronisation désactivée');
+  assert.equal(t({ absent: true }).text, 'Archive non configurée');
+  assert.equal(t({ denied: true }).text, 'Code d’accès à renouveler');
+  assert.equal(t({ capped: true }).text, 'Plafond du jour atteint · reprise demain');
+  assert.equal(t({ outdated: true }).text, 'Mettez l’app à jour pour synchroniser');
+  for (const o of [{}, { lastOkAt: 1 }, { busy: true }, { dirty: 1 }, { online: false, dirty: 2 }, { fails: 1 }, { active: true }, { off: true }, { absent: true }, { denied: true }, { capped: true }, { outdated: true }]) {
+    assert.ok(['ok', 'warn', 'off'].includes(t(o).level), JSON.stringify(o));
+  }
+});
+
+// ───────────────────────── critère 1 : hors réseau, sans perte ni doublon
+
+test('critère 1 : créé hors réseau, rien ne part, tout part au retour du réseau, sans doublon même renvoyé deux fois', async () => {
+  const w = monde(), A = telephone('Teiva', w), B = telephone('Thibaud', w);
+  await A.sync('manuel'); avance(w, 60e3); await B.sync('manuel'); avance(w, 60e3);   // première synchronisation faite des deux côtés
+  A.online = false;
+  const id = A.creer('Régate hors réseau');
+  const avant = w.appels.length;
+  assert.deepEqual(await A.sync('manuel'), { skipped: 'hors_reseau', in: undefined });
+  assert.equal(w.appels.length, avant, 'aucun appel hors réseau');
+  assert.deepEqual(Object.keys(A.meta.dirty), [id], 'compteur « sale » gardé');
+  assert.equal(syncStatus({ online: A.online, dirty: Object.keys(A.meta.dirty).length }).text, 'Hors réseau · 1 modification en attente');
+  A.online = true; avance(w, 60e3);
+  assert.equal((await A.sync('auto')).merged, true);
+  avance(w, 60e3);
+  await B.sync('auto');
+  assert.ok(noms(B).includes('Régate hors réseau'), 'la saisie hors réseau arrive chez B');
+  assert.equal(B.st.list.filter((r) => r.id === id).length, 1);
+  // même document renvoyé deux fois : le serveur ne change rien, aucune ligne d’historique de plus
+  const ecrit = w.blob.ops.put;
+  for (let i = 0; i < 2; i++) { A.meta.dirty = { [id]: ++A.meta.seq }; avance(w, 60e3); await A.sync('auto'); }
+  assert.equal(w.blob.ops.put, ecrit, 'renvoyer le même document n’écrit rien');
+  assert.equal((A.st.list.find((r) => r.id === id).hist || []).length, 0, 'aucune ligne d’historique');
+  // synchronisation sans modification : GET conditionnel et aucune écriture
+  avance(w, 60e3);
+  const r = await A.sync('auto');
+  assert.equal(r.unchanged, true); assert.equal(w.appels.at(-1).method, 'GET'); assert.equal(w.blob.ops.put, ecrit);
+});
+
+test('critère 1 : deux coupures de suite puis un envoi qui échoue — la saisie reste en attente et part au succès suivant', async () => {
+  const w = monde(), A = telephone('Teiva', w), B = telephone('Thibaud', w);
+  await A.sync('manuel'); avance(w, 60e3);
+  const id = A.creer('Après coupure');
+  A.reseau = async () => { throw new Error('Failed to fetch'); };
+  for (let i = 0; i < 2; i++) { avance(w, 3600e3); const r = await A.sync('auto'); assert.ok(r.error, 'échec consigné'); }
+  assert.equal(A.meta.fails, 2); assert.deepEqual(Object.keys(A.meta.dirty), [id]);
+  A.reseau = null; avance(w, 3600e3);
+  assert.equal((await A.sync('auto')).merged, true);
+  assert.equal(A.meta.fails, 0); assert.deepEqual(A.meta.dirty, {});
+  avance(w, 60e3); await B.sync('auto');
+  assert.ok(noms(B).includes('Après coupure'));
+});
+
+// ───────────────────────── critère 2 : ajouts simultanés hors réseau
+
+for (const ordre of ['A puis B puis A', 'B puis A puis B']) {
+  test(`critère 2 : deux équipiers ajoutent chacun une manche hors réseau (${ordre}) — les deux manches, une seule fois, états identiques`, async () => {
+    const w = monde(), A = telephone('Teiva', w), B = telephone('Thibaud', w);
+    const id = A.creer('Régate partagée', '2026-11-07', '2026-11-08');
+    await A.sync('manuel'); avance(w, 60e3); await B.sync('manuel'); avance(w, 60e3);
+    A.online = false; B.online = false;
+    A.manche(id, '10:55', '2026-11-07'); avance(w, 5e3);
+    B.manche(id, '13:25', '2026-11-07');
+    await A.sync('auto'); await B.sync('auto');
+    A.online = true; B.online = true; avance(w, 3600e3);
+    for (const x of ordre.split(' puis ')) { const p = x === 'A' ? A : B; await p.sync('auto'); avance(w, 60e3); }
+    for (const p of [A, B]) { avance(w, 60e3); await p.sync('manuel'); }
+    const courses = (p) => p.st.list.find((r) => r.id === id).races.map((m) => `${m.n}:${m.time}`);
+    assert.deepEqual(courses(A), ['1:10:55', '2:13:25']);
+    assert.deepEqual(courses(B), courses(A));
+    assert.equal(canon(A.st.list.map(toShared)), canon(B.st.list.map(toShared)), 'états identiques');
+    assert.deepEqual(A.meta.dirty, {}); assert.deepEqual(B.meta.dirty, {});
+  });
+}
+
+test('suppression : la régate supprimée sur A disparaît chez B ; un téléphone C resté hors réseau avec l’ancienne copie ne la fait pas revenir', async () => {
+  const w = monde(), A = telephone('Teiva', w), B = telephone('Thibaud', w), C = telephone('Romain', w);
+  const id = A.creer('À supprimer');
+  await A.sync('manuel'); avance(w, 60e3); await B.sync('manuel'); avance(w, 60e3); await C.sync('manuel'); avance(w, 60e3);
+  assert.ok(noms(C).includes('À supprimer'));
+  C.online = false;
+  A.supprimer(id); avance(w, 60e3);
+  await A.sync('manuel'); avance(w, 60e3); await B.sync('manuel');
+  assert.ok(!noms(B).includes('À supprimer'), 'disparue chez B');
+  C.online = true; avance(w, 3600e3);
+  C.meta.dirty = { [id]: ++C.meta.seq };                           // C renvoie son ancienne copie
+  await C.sync('auto');
+  assert.ok(!noms(C).includes('À supprimer'), 'la copie de C est supprimée à son tour');
+  avance(w, 60e3); await A.sync('manuel'); await B.sync('manuel');
+  assert.ok(!noms(A).includes('À supprimer') && !noms(B).includes('À supprimer'), 'ne revient pas');
+  assert.ok([...w.blob.store.keys()].some((k) => /trash\//.test(k)), 'copie dans la corbeille du serveur');
+});
+
+// ───────────────────────── D-03 : rien pendant une course, rien pendant une saisie
+
+test('D-03 : course active — aucun appel, état et compteurs inchangés', async () => {
+  const w = monde(), A = telephone('Teiva', w);
+  A.creer('Pendant la course');
+  A.active = true;
+  const r = await A.sync('manuel');
+  assert.equal(r.skipped, 'course'); assert.equal(w.appels.length, 0);
+  assert.equal(Object.keys(A.meta.dirty).length, 1);
+});
+
+test('D-03 : course commencée pendant l’échange — réponse jetée, état inchangé, compteurs gardés, appliquée après la course', async () => {
+  const w = monde(), A = telephone('Teiva', w), B = telephone('Thibaud', w);
+  const idB = B.creer('Créée par B'); await B.sync('manuel'); avance(w, 60e3);
+  const id = A.creer('Créée par A');
+  A.reseau = async (method, url, body) => {                          // la course commence pendant l’aller-retour
+    const r = await invoke(w.handler, { method, url, body, headers: { 'x-rt-membre': 'Teiva' } });
+    A.active = true; return { status: r.status, body: r.body };
+  };
+  const avant = canon(A.st);
+  const r = await A.sync('manuel');
+  assert.equal(r.skipped, 'course');
+  assert.equal(canon(A.st), avant, 'état inchangé');
+  assert.ok(!noms(A).includes('Créée par B'));
+  assert.deepEqual(Object.keys(A.meta.dirty), [id], 'compteurs gardés');
+  assert.equal(A.meta.first, undefined, 'première synchronisation pas encore acquittée');
+  A.reseau = null; A.active = false; avance(w, 60e3);
+  assert.equal((await A.sync('auto')).merged, true);
+  assert.ok(noms(A).includes('Créée par B')); assert.ok(idB);
+  assert.deepEqual(A.meta.dirty, {});
+});
+
+test('D-03 : échange abandonné par la course (AbortError) — ni échec ni recul', async () => {
+  const w = monde(), A = telephone('Teiva', w);
+  A.creer('x');
+  A.reseau = async () => { A.active = true; throw Object.assign(new Error('aborted'), { name: 'AbortError' }); };
+  const r = await A.sync('manuel');
+  assert.equal(r.skipped, 'course'); assert.equal(A.meta.fails || 0, 0);
+});
+
+test('saisie en cours (canApply faux) : réponse jetée comme pour une course, appliquée ensuite', async () => {
+  const w = monde(), A = telephone('Teiva', w), B = telephone('Thibaud', w);
+  B.creer('Autre'); await B.sync('manuel'); avance(w, 60e3);
+  A.saisie = true;
+  const r = await A.sync('manuel');
+  assert.equal(r.skipped, 'saisie'); assert.deepEqual(noms(A), []);
+  A.saisie = false; avance(w, 60e3);
+  assert.equal((await A.sync('manuel')).merged, true); assert.deepEqual(noms(A), ['Autre']);
+});
+
+// ───────────────────────── réponses du serveur
+
+test('401 : plus aucun essai (même longtemps après) ; 429 : recul maximal ; 503 no_blob : archive non configurée', async () => {
+  const w = monde(), A = telephone('Teiva', w);
+  A.creer('x');
+  A.reseau = async () => ({ status: 401, body: { error: 'acces' } });
+  assert.equal((await A.sync('manuel')).error, 'acces');
+  assert.equal(A.meta.denied, true);
+  A.reseau = null; avance(w, 86400e3 * 3);
+  const avant401 = w.appels.length;
+  assert.deepEqual(await A.sync('manuel'), { skipped: 'acces', in: undefined }, 'aucun nouvel essai, même sur geste');
+  assert.equal(w.appels.length, avant401, 'aucun appel de plus');
+
+  const B = telephone('Thibaud', w); B.creer('y');
+  B.reseau = async () => ({ status: 429, body: { error: 'limite' } });
+  await B.sync('manuel');
+  assert.equal(B.meta.fails, 4, 'recul maximal');
+  B.reseau = null; avance(w, 29 * 60e3);
+  assert.equal((await B.sync('auto')).skipped, 'trop_tot');
+  avance(w, 61e3);
+  assert.equal((await B.sync('auto')).merged, true);
+
+  const C = telephone('Romain', w); C.creer('z');
+  C.reseau = async () => ({ status: 503, body: { error: 'no_blob' } });
+  const avant = canon(C.st);
+  assert.equal((await C.sync('manuel')).error, 'no_blob');
+  assert.equal(C.meta.absent, true); assert.equal(canon(C.st), avant);
+  assert.equal(syncStatus({ absent: C.meta.absent, online: true }).text, 'Archive non configurée');
+});
+
+test('document d’une version plus récente : jamais touché, plus d’essai, « Mettez l’app à jour »', async () => {
+  const w = monde(), A = telephone('Teiva', w);
+  A.creer('x');
+  A.reseau = async () => ({ status: 200, body: { rev: 'r', doc: { v: 2, regattas: { z: { id: 'z', name: 'Futur' } }, tomb: {}, marks: {} } } });
+  const avant = canon(A.st);
+  const r = await A.sync('manuel');
+  assert.equal(r.outdated, true); assert.equal(canon(A.st), avant, 'état inchangé');
+  assert.equal(A.meta.outdated, true);
+  A.reseau = null; avance(w, 3600e3);
+  assert.equal((await A.sync('manuel')).skipped, 'ancienne_version');
+  assert.equal(w.appels.length, 1);
+  assert.equal(syncStatus({ outdated: true, online: true }).text, 'Mettez l’app à jour pour synchroniser');
+});
+
+test('plafonds : 40 envois par jour de Paris, même sur geste ; le jour suivant tout repart ; compteurs du jour dans la méta', async () => {
+  const w = monde(), A = telephone('Teiva', w);
+  w.clock.t = Date.parse('2026-11-07T10:00:00Z');
+  for (let i = 0; i < 40; i++) { A.creer('r' + i); avance(w, 31e3); assert.equal((await A.sync('auto')).merged, true, `envoi ${i + 1}`); }
+  assert.equal(A.meta.w, 40);
+  A.creer('de trop'); avance(w, 31e3);
+  assert.equal((await A.sync('manuel')).skipped, 'plafond');
+  assert.equal(syncStatus({ capped: true, online: true }).text, 'Plafond du jour atteint · reprise demain');
+  w.clock.t = Date.parse('2026-11-08T08:00:00Z');
+  assert.equal((await A.sync('manuel')).merged, true); assert.equal(A.meta.w, 1); assert.equal(A.meta.day, '2026-11-08');
+});
+
+test('le geste « Synchroniser » franchit l’écart de 30 s mais ni la course ni la désactivation', async () => {
+  const w = monde(), A = telephone('Teiva', w);
+  A.creer('Une régate'); await A.sync('manuel'); avance(w, 5e3);
+  assert.equal((await A.sync('auto')).skipped, 'trop_tot');
+  assert.equal((await A.sync('manuel')).unchanged, true);
+  A.meta.off = true; assert.equal((await A.sync('manuel')).skipped, 'desactivee');
+  A.meta.off = false; A.active = true; assert.equal((await A.sync('manuel')).skipped, 'course');
+});

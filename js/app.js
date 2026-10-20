@@ -66,7 +66,8 @@ let IC = icOf(currentRegatta(REG));
 // Archive partagée (ARCH-01) : `SYNC` (rade.sync.v1) ne porte que les compteurs « sale » par clé, rev, essais et plafonds du jour ; l’état marqué EST la file d’envoi.
 // `fromSync` : la réponse du serveur est appliquée telle quelle, sans marquage (ce n’est pas une saisie de l’équipier).
 const SYNC = store.get('rade.sync.v1', {});
-const saveSync = () => store.set('rade.sync.v1', SYNC);
+delete SYNC.denied; delete SYNC.outdated;                // code périmé, format plus récent : en mémoire seulement, ils retombent à la prochaine ouverture
+const saveSync = () => { const { denied, outdated, ...gardes } = SYNC; store.set('rade.sync.v1', gardes); };
 function saveReg(next, { fromSync = false } = {}) {
   if (!fromSync) {
     const r = stampState(REG, next, { now: Date.now(), by: who() });
@@ -1785,7 +1786,7 @@ async function syncNow(reason) {
     note('archive', res.merged ? `fusion faite, ${Object.keys(SYNC.dirty || {}).length} en attente` : res.unchanged ? 'à jour' : res.skipped ? 'reporté : ' + res.skipped : 'échec : ' + res.error);
     if (res.skipped === 'trop_tot') scheduleSync((res.in || 30000) + 500);
     else if (res.skipped === 'saisie') scheduleSync(30000);
-    else if (res.error && res.error !== 'no_blob') scheduleSync(30000);
+    else if (res.error && !['no_blob', 'acces'].includes(res.error)) scheduleSync(syncMod.BACKOFF_MS[Math.min(SYNC.fails || 1, syncMod.BACKOFF_MS.length) - 1] + 500);   // recul : 30 s · 2 min · 10 min · 30 min
     else if (res.merged && Object.keys(SYNC.dirty || {}).length) scheduleSync(20000);                   // modifié pendant l’échange : à renvoyer
   } catch (e) { report('archive', e); } finally { syncBusy = false; syncCtl = null; paintSync(); }
 }
@@ -1794,7 +1795,7 @@ function paintSync() {
   const el = $('#rgSync');
   if (!el) return;
   if (!syncMod) { el.hidden = true; return; }
-  const s = syncMod.syncStatus({ off: SYNC.off, active: raceActive(Date.now()), online: net.online, busy: syncBusy, dirty: Object.keys(SYNC.dirty || {}).length, lastOkAt: SYNC.lastOkAt, fails: SYNC.fails, absent: SYNC.absent });
+  const s = syncMod.syncStatus({ off: SYNC.off, active: raceActive(Date.now()), online: net.online, busy: syncBusy, dirty: Object.keys(SYNC.dirty || {}).length, lastOkAt: SYNC.lastOkAt, fails: SYNC.fails, absent: SYNC.absent, denied: SYNC.denied, outdated: SYNC.outdated, capped: syncMod.capped(SYNC, Date.now()) });
   el.textContent = s.text + (SYNC.env === 'preview' ? ' (essai)' : ''); el.dataset.level = s.level; el.hidden = false;
 }
 let icDraft = null;                          // relecture des IC en cours (import ou « Modifier »), en mémoire de la page seulement : rien n’est écrit avant « Valider les IC »

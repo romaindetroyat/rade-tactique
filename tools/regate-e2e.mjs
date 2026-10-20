@@ -1238,7 +1238,7 @@ const noms = async (page) => (await lireListe(page)).flatMap((s) => s.groups.fla
 async function archive({ browser, base }) {
   const m = await mondeArchive();
   const A = await telephoneArchive(browser, base, m, 'Teiva'), B = await telephoneArchive(browser, base, m, 'Thibaud');
-  await creeRegate(A.page, { nom: 'Régate partagée', debut: '2026-11-07', fin: '2026-11-08', club: 'CVAT' });
+  await creeRegate(A.page, { nom: 'Régate partagée', debut: '2026-11-14', fin: '2026-11-15', club: 'CVAT' });
   await avanceHeure(m, 60e3);
   await synchronise(m, A);
   assert.match(await ligneSync(A.page), /^À jour \(essai\)$/, 'l’aperçu se dit « essai »');
@@ -1247,6 +1247,54 @@ async function archive({ browser, base }) {
   assert.ok((await noms(B.page)).includes('Régate partagée'), 'la régate de A est chez B');
   assert.match(await B.page.locator('section[data-tab=ic] .rg', { hasText: 'Régate partagée' }).textContent(), /par Teiva/, 'auteur posé par le serveur');
   assert.match(await ligneSync(B.page), /^À jour/);
+
+  // hors réseau, sur les deux : A crée une régate ; A et B ajoutent chacun une manche à la régate commune — aucune requête vers l’archive
+  const vues = { A: A.requetes.length, B: B.requetes.length }, serveur = { ...m.appels };
+  await A.ctx.setOffline(true); await B.ctx.setOffline(true);
+  await A.page.waitForFunction(() => !navigator.onLine); await B.page.waitForFunction(() => !navigator.onLine);
+  await creeRegate(A.page, { nom: 'Régate hors réseau', debut: '2026-11-14', club: 'CVAT' });
+  await A.page.waitForFunction(() => /^Hors réseau · 1 modification en attente( \(essai\))?$/.test(document.querySelector('#rgSync')?.textContent ?? ''), null, { timeout: 10000 })
+    .catch(async () => { throw new Error(`indicateur de A hors réseau : « ${await ligneSync(A.page)} » (méta ${JSON.stringify(await syncMeta(A.page))})`); });
+  const rangee = (page) => page.locator('section[data-tab=ic] .rg', { hasText: 'Régate partagée' });
+  await A.page.click('#tabs button[data-tab=ic]'); await rangee(A.page).click(); await ajouteManche(A.page, { heure: '10:55', parcours: '5', cls: 'G', tours: '2' });
+  await B.page.click('#tabs button[data-tab=ic]'); await rangee(B.page).click(); await ajouteManche(B.page, { heure: '13:25', parcours: '3', cls: 'P', tours: '1' });
+  assert.match(await ligneSync(A.page), /^Hors réseau · 2 modifications en attente \(essai\)$/);
+  assert.match(await ligneSync(B.page), /^Hors réseau · 1 modification en attente \(essai\)$/);
+  await A.page.waitForTimeout(1500);
+  assert.deepEqual([A.requetes.length, B.requetes.length], [vues.A, vues.B], 'aucune requête vers /api/archive hors réseau (même échouée)');
+  assert.deepEqual(m.appels, serveur, 'rien n’est arrivé au serveur');
+
+  // retour du réseau sur les deux (l’heure a avancé de plus de 30 s) : l’envoi part de lui-même, sans geste
+  await avanceHeure(m, 120e3);
+  await A.ctx.setOffline(false); await B.ctx.setOffline(false);
+  const parti = (tel) => tel.page.waitForFunction(([h]) => { const x = JSON.parse(localStorage.getItem('rade.sync.v1') || '{}'); return x.lastOkAt === h && !Object.keys(x.dirty || {}).length; }, [m.t], { timeout: 30000, polling: 200 });
+  await Promise.all([parti(A), parti(B)]);
+  await avanceHeure(m, 60e3); await synchronise(m, B);
+  await avanceHeure(m, 60e3); await synchronise(m, A);
+  const etat = (page) => page.evaluate(() => { const i = JSON.parse(localStorage.getItem('rade.regates.v1')); return i.list.filter((r) => /^Régate (partagée|hors réseau)$/.test(r.name)).map((r) => ({ nom: r.name, manches: r.races.map((x) => `${x.n}:${x.time}`) })).sort((a, b) => a.nom.localeCompare(b.nom)); });
+  const attendu = [{ nom: 'Régate hors réseau', manches: [] }, { nom: 'Régate partagée', manches: ['1:10:55', '2:13:25'] }];
+  assert.deepEqual(await etat(A.page), attendu, 'les deux manches, une seule fois, et la régate hors réseau, chez A');
+  assert.deepEqual(await etat(B.page), attendu, 'et chez B');
+  for (const tel of [A, B]) assert.match(await ligneSync(tel.page), /^À jour \(essai\)$/, `${tel.nom} : ${JSON.stringify(await syncMeta(tel.page))}`);
+
+  // D-03 : pendant un chrono, rien n’est envoyé ni reçu ; la saisie attend la fin de la course
+  const reqA = () => A.requetes.length, avantChrono = reqA(), serveurAvant = m.appels.Teiva;
+  await A.page.click('#tabs button[data-tab=start]'); await A.page.click('#t5');
+  await creeRegate(A.page, { nom: 'Régate pendant le chrono', debut: '2026-11-14', club: 'CVAT' });
+  await A.page.click('#rgSyncBtn');
+  await A.page.waitForFunction(() => /^En pause pendant la course/.test(document.querySelector('#rgSync')?.textContent ?? ''), null, { timeout: 10000 });
+  await avanceHeure(m, 120e3);
+  await A.page.evaluate(() => window.dispatchEvent(new Event('online')));
+  await A.page.waitForTimeout(3500);                         // le déclencheur « online » (+2 s) est passé : il doit avoir été refusé
+  assert.equal(reqA(), avantChrono, 'aucun appel à /api/archive pendant un chrono');
+  assert.equal(m.appels.Teiva, serveurAvant, 'rien n’est arrivé au serveur pendant le chrono');
+  assert.equal(await ligneSync(A.page), 'En pause pendant la course (essai)');
+  const putsAvant = A.requetes.filter((x) => x === 'PUT').length;
+  await A.page.click('#tabs button[data-tab=start]'); await A.page.click('#tstop');
+  await synchronise(m, A);
+  assert.equal(A.requetes.filter((x) => x === 'PUT').length - putsAvant, 1, 'exactement un envoi après la course');
+  await avanceHeure(m, 60e3); await synchronise(m, B);
+  assert.ok((await noms(B.page)).includes('Régate pendant le chrono'), 'la régate créée pendant le chrono arrive chez B après la course');
   sansErreur(A.erreurs, 'sur A'); sansErreur(B.erreurs, 'sur B');
   await A.ctx.close(); await B.ctx.close();
 }
