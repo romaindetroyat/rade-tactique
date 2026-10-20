@@ -1340,10 +1340,10 @@ async function archiveBouees({ browser, base }) {
   assert.equal(await A.page.evaluate(() => JSON.parse(localStorage.getItem('rade.marks.v1') || '{}')[3]), undefined);
 
   // T-04-17 : pendant un chrono sur B, le recalage de A n’est ni reçu ni appliqué ; il arrive après la course
+  await B.page.click('#tabs button[data-tab=start]'); await B.page.click('#t5');         // le chrono de B est lancé AVANT le recalage de A : aucun échange légitime de B ne peut le précéder
+  const avant = B.requetes.length;
   await recaler(A.page, 11, +(origine11.lat + 0.001).toFixed(5), +(origine11.lon + 0.001).toFixed(5));
   await avanceHeure(m, 60e3); await synchronise(m, A);
-  await B.page.click('#tabs button[data-tab=start]'); await B.page.click('#t5');
-  const avant = B.requetes.length;
   await avanceHeure(m, 60e3);
   await B.page.click('#tabs button[data-tab=ic]'); await B.page.click('#rgSyncBtn');
   await B.page.waitForFunction(() => /^En pause pendant la course/.test(document.querySelector('#rgSync')?.textContent ?? ''), null, { timeout: 10000 });
@@ -1354,6 +1354,45 @@ async function archiveBouees({ browser, base }) {
   await synchronise(m, B);
   const b11 = await bouee(B.page, 11);
   assert.deepEqual([b11.lat, b11.lon], [+(origine11.lat + 0.001).toFixed(5), +(origine11.lon + 0.001).toFixed(5)], 'recalage de A appliqué après la course');
+
+  // D-04 : deux équipiers changent la même manche (même jour et même heure, parcours différents) — la plus récente reste, l’autre est dans « Historique » de la fiche
+  await creeRegate(A.page, { nom: 'Régate historique', debut: '2026-11-14', club: 'CVAT' });
+  await avanceHeure(m, 60e3); await synchronise(m, A); await avanceHeure(m, 60e3); await synchronise(m, B);
+  const rangeeH = (page) => page.locator('section[data-tab=ic] .rg', { hasText: 'Régate historique' });
+  await B.page.click('#tabs button[data-tab=ic]'); await rangeeH(B.page).click();
+  await ajouteManche(A.page, { heure: '09:30', parcours: '5', cls: 'G', tours: '2' });
+  await ajouteManche(B.page, { heure: '09:30', parcours: '3', cls: 'G', tours: '2' });
+  await avanceHeure(m, 60e3); await synchronise(m, A); await avanceHeure(m, 60e3); await synchronise(m, B); await avanceHeure(m, 60e3); await synchronise(m, A);
+  for (const tel of [A, B]) {
+    await tel.page.click('#tabs button[data-tab=ic]');
+    assert.equal(await tel.page.locator('#rgSheet .rgrace').count(), 1, `${tel.nom} : une seule manche à 09:30`);
+    assert.equal(await tel.page.locator('#rgSheet details.rghist summary').textContent(), 'Historique (1)', `${tel.nom} : l’écrasée est dans l’historique`);
+    assert.equal(await tel.page.locator('#rgSheet details.rghist').evaluate((d) => d.open), false, 'replié');
+    assert.match(await tel.page.locator('#rgSheet .rghl').textContent(), /^Manche · /);
+  }
+
+  // Interrupteur : deux touches pour désactiver, plus aucun échange ; un geste pour réactiver, la saisie en attente part alors
+  await A.page.click('#tabs button[data-tab=ic]');
+  const vuesA = A.requetes.length;
+  await A.page.click('#rgSyncOff');
+  assert.equal(await A.page.locator('#rgSyncOff').textContent(), 'Toucher encore pour désactiver');
+  assert.equal(A.requetes.length, vuesA); assert.notEqual((await syncMeta(A.page)).off, true, 'une seule touche ne désactive rien');
+  await A.page.click('#rgSyncOff');
+  assert.equal(await ligneSync(A.page), 'Synchronisation désactivée (essai)');
+  assert.equal(await A.page.locator('#rgSyncOff').textContent(), 'Réactiver la synchronisation');
+  assert.equal(await A.page.locator('#rgSyncBtn').isDisabled(), true);
+  await recaler(A.page, 3, 43.0906, 5.9588);
+  await avanceHeure(m, 120e3);
+  await A.page.evaluate(() => window.dispatchEvent(new Event('online')));
+  await A.page.waitForTimeout(3500);
+  assert.equal(A.requetes.length, vuesA, 'aucun échange tant que la synchronisation est désactivée');
+  assert.equal((await syncMeta(A.page)).off, true, 'gardé après relance');
+  await A.page.click('#rgSyncOff');
+  assert.equal(await A.page.locator('#rgSyncOff').textContent(), 'Désactiver la synchronisation');
+  await synchronise(m, A);
+  assert.equal(await ligneSync(A.page), 'À jour (essai)');
+  await avanceHeure(m, 60e3); await synchronise(m, B);
+  assert.deepEqual([(await bouee(B.page, 3)).lat, (await bouee(B.page, 3)).lon], [43.0906, 5.9588], 'la saisie faite pendant la désactivation est partie à la réactivation');
   sansErreur(A.erreurs, 'sur A'); sansErreur(B.erreurs, 'sur B');
   await A.ctx.close(); await B.ctx.close();
 }

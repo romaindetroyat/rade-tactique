@@ -6,6 +6,7 @@ import { regattaStatus, STATUS_LABEL, MAX_NAME, MAX_CLUB, MAX_NOTE, daysOf } fro
 import { clockOf } from './gel.js';
 import { MODELS } from './weather.js';
 import { STATUS, waitingFor, fmtPos, sideTxt } from './regmarks.js';
+import { MAX_HIST } from './archmerge.js';
 
 // Échappe & < > " ' (le esc() d’app.js laisse passer l’apostrophe)
 export const escHTML = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', '\'': '&#39;' }[c]));
@@ -197,6 +198,37 @@ export function marksSectionHTML(r, { markFix = null, nmOf = (d) => `${(d / 1852
     + `${ms.map((m) => markRowHTML(m, markFix, { nmOf })).join('')}${cs.length ? `<h4>Parcours lus</h4>${cs.map((c) => courseRowHTML(r, c)).join('')}` : ''}</div>`;
 }
 
+// ───────────────────────── historique des valeurs écrasées (D-04)
+// r.hist : [{ kind, id, t, by, v }] produit par mergeRegatta (js/archmerge.js), venu d’AUTRES téléphones : jamais fiable. Tout passe par escHTML,
+// chaque entrée est vérifiée, le texte de l’ancienne valeur est borné et la liste ne dépasse pas MAX_HIST lignes. Aucun appel qui puisse lever.
+const HIST_KIND = { head: 'Fiche', race: 'Manche', mark: 'Bouée', course: 'Parcours', trace: 'Trace' };
+const HIST_MAX_LINES = MAX_HIST, HIST_MAX_CHARS = 120;
+const str = (x) => (typeof x === 'string' || typeof x === 'number' ? String(x) : '');
+const jour = (d) => (/^\d{4}-\d{2}-\d{2}$/.test(str(d)) ? `${d.slice(8, 10)}/${d.slice(5, 7)}` : str(d).slice(0, 20));
+// Ancienne valeur en une ligne de texte brut (échappée plus tard), sans jamais lever
+function histValue(kind, v) {
+  if (v == null) return '(texte des IC non conservé)';
+  if (typeof v !== 'object' || Array.isArray(v)) return '';
+  const nom = str(v.name);
+  if (kind === 'head') return [nom, str(v.club), v.dateStart ? `${jour(v.dateStart)}${v.dateEnd && v.dateEnd !== v.dateStart ? ` au ${jour(v.dateEnd)}` : ''}` : ''].filter(Boolean).join(' · ');
+  if (kind === 'race') return [v.date ? `jour ${jour(v.date)}` : '', v.time ? `signal ${str(v.time)}` : 'signal : heure inconnue', v.cls ? `classe ${str(v.cls)}` : ''].filter(Boolean).join(' · ');
+  if (kind === 'mark') return [nom, Number.isFinite(v.lat) && Number.isFinite(v.lon) ? fmtPos(v.lat, v.lon) : ''].filter(Boolean).join(' · ');
+  if (kind === 'trace') return [nom, Number.isFinite(v.start) ? tClock(v.start) : ''].filter(Boolean).join(' · ');
+  return nom;
+}
+const clip = (x) => (x.length > HIST_MAX_CHARS ? x.slice(0, HIST_MAX_CHARS - 1) + '…' : x);
+export function historySectionHTML(r) {
+  const list = (Array.isArray(r?.hist) ? r.hist : []).filter((x) => x && typeof x === 'object' && Number.isFinite(x.t) && typeof x.kind === 'string')
+    .sort((a, b) => b.t - a.t).slice(0, HIST_MAX_LINES);
+  if (!list.length) return '';
+  const lignes = list.map((x) => {
+    const quand = x.t > 0 ? tClock(x.t) : '—', par = typeof x.by === 'string' && x.by ? `par ${escHTML(x.by.slice(0, 40))}` : '—';
+    return `<div class="small rghl" data-kind="${escHTML(HIST_KIND[x.kind] ? x.kind : 'autre')}"><span class="rghk">${HIST_KIND[x.kind] || 'Modification'}</span> · ${quand} · ${par} · <span class="muted rghv">${escHTML(clip(histValue(x.kind, x.v)))}</span></div>`;
+  });
+  return `<details class="rghist"><summary class="small">Historique (${list.length})</summary>`
+    + `<p class="small muted">Valeurs remplacées par une modification plus récente : quoi, de qui, quand, et ce qu’elle contenait avant.</p>${lignes.join('')}</details>`;
+}
+
 // Fiche de la régate courante : nom, club, dates, statut, auteur, puis les manches (courses = parcours connus [{ id, title }]) et le vent du jour
 export function sheetHTML(r, { now = Date.now(), courses = [], raceDraft = null, raceErrors = {}, markFix = null, nmOf } = {}) {
   if (!r) return '<div class="card" id="rgSheet"><p class="small muted">Aucune régate courante : créez-en une ou choisissez-en une dans la liste.</p></div>';
@@ -208,5 +240,6 @@ export function sheetHTML(r, { now = Date.now(), courses = [], raceDraft = null,
     ${raceDraft ? raceFormHTML(r, raceDraft, raceErrors, courses) : '<div class="btns"><button type="button" class="btn small acc" id="rcNew">＋ Ajouter une manche</button></div>'}</div>
     ${marksSectionHTML(r, { markFix, nmOf })}
     ${windSectionHTML(r, { now, courses })}
-    ${tracesSectionHTML(r)}</div>`;
+    ${tracesSectionHTML(r)}
+    ${historySectionHTML(r)}</div>`;
 }

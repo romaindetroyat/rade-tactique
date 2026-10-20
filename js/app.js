@@ -20,7 +20,7 @@ import { optimalAngles, boatSpeed, trimAdvice, spiMinTwa, getPolar, setPolar, re
 import { renderJ80 } from './j80.js';
 import { modelPoints, modelAt, idwAt, scoreModels, renderObsCard } from './obs.js';
 import { route } from './router.js';
-import { initTips, maybeWelcome, openGuide, openShare, tip } from './help.js';
+import { initTips, maybeWelcome, openGuide, openShare, tip, SYNC_TIP } from './help.js';
 import { parseWind, listen, say } from './voice.js';
 import { Recorder, listTracks, getTrack, deleteTrack, saveTrack, analyzeTrack, exportGPX, fromGPX } from './track.js';
 import { shroudsFor } from './tuning.js';
@@ -1799,12 +1799,13 @@ function syncDeps() {
     meta: SYNC, saveMeta: saveSync, isActive: () => raceActive(Date.now()), isOnline: () => net.online,
     // copie de secours de l'index avant la première fusion appliquée ; un échec est consigné, jamais bloquant
     backup: () => { try { const brut = localStore()?.getItem(REG_KEY); if (brut != null) localStore().setItem('rade.regates.v1.bak', brut); } catch (e) { note('archive', 'copie de secours non écrite : ' + (e?.name || 'erreur')); } },
-    canApply: () => !icBusy() && !markEdit,
+    canApply: () => !icBusy() && !markEdit && !SYNC.off,
   };
 }
 async function syncNow(reason) {
   if (syncBusy || (!syncReady && reason !== 'manuel')) return;
   clearTimeout(syncTimer);
+  if (SYNC.off) { paintSync(); return; }                     // désactivée sur ce téléphone : aucun échange, le module n’est même pas chargé
   if (raceActive(Date.now())) { if (reason === 'manuel') toast('Course en cours : synchronisation après la course'); paintSync(); return; }
   syncBusy = true; paintSync();
   try {
@@ -1819,10 +1820,17 @@ async function syncNow(reason) {
   } catch (e) { report('archive', e); } finally { syncBusy = false; syncCtl = null; paintSync(); }
 }
 // Ligne d’état sous « Vous : » ; masquée tant que le module n’est pas chargé. Texte posé par textContent, jamais rouge.
+// Interrupteur (Open Question 16) : couper l’échange sur CE téléphone, d’abord sur deux touches, remettre d’un geste. L’échange en cours est jeté (canApply).
+function toggleSync(btn) {
+  if (SYNC.off) { SYNC.off = false; saveSync(); renderIC(); scheduleSync(2000); return; }
+  if (btn.dataset.c !== '1') { btn.dataset.c = '1'; btn.textContent = 'Toucher encore pour désactiver'; return; }
+  SYNC.off = true; saveSync(); clearTimeout(syncTimer); renderIC();
+}
 function paintSync() {
   const el = $('#rgSync');
   if (!el) return;
-  if (!syncMod) { el.hidden = true; return; }
+  if (!syncMod && !SYNC.off) { el.hidden = true; return; }
+  if (!syncMod) { el.textContent = 'Synchronisation désactivée'; el.dataset.level = 'off'; el.hidden = false; return; }      // désactivée avant tout chargement : le module reste dehors
   const s = syncMod.syncStatus({ off: SYNC.off, active: raceActive(Date.now()), online: net.online, busy: syncBusy, dirty: Object.keys(SYNC.dirty || {}).length, lastOkAt: SYNC.lastOkAt, fails: SYNC.fails, absent: SYNC.absent, denied: SYNC.denied, outdated: SYNC.outdated, capped: syncMod.capped(SYNC, Date.now()) });
   el.textContent = s.text + (SYNC.env === 'preview' ? ' (essai)' : ''); el.dataset.level = s.level; el.hidden = false;
 }
@@ -1880,7 +1888,7 @@ function renderIC() {
     ${listHTML(groupBySeason(REG.list, now), { currentId: cur?.id ?? null, now })}
     <div class="small muted" id="rgWho" style="margin-top:6px">${who() ? `Vous : ${esc(who())}` : 'Vous : — (prénom donné à la prochaine connexion)'}</div>
     <div class="small muted" id="rgSync" hidden></div>
-    <div class="btns" style="margin:6px 0 0"><button type="button" class="btn small alt" id="rgSyncBtn">Synchroniser</button></div></div>`;
+    <div class="btns" style="margin:6px 0 0"><button type="button" class="btn small alt" id="rgSyncBtn"${SYNC.off ? ' disabled' : ''}>Synchroniser</button><button type="button" class="btn small alt" id="rgSyncOff">${SYNC.off ? 'Réactiver la synchronisation' : 'Désactiver la synchronisation'}</button>${tip(SYNC_TIP)}</div></div>`;
   if (rgDraft) html += newRegattaFormHTML(rgDraft, rgErr);
   html += sheetHTML(cur, { now, courses: courseList(), raceDraft, raceErrors: raceErr, markFix, nmOf: fmtNm });
   if (icDraft) html += reviewHTML(icDraft, icChecks(), { ia: iaState(), isLand: T ? (x, y) => T.isLand(x, y) : undefined });
@@ -1904,6 +1912,7 @@ function renderIC() {
   el.innerHTML = html;
   bindMarksEdit(el);
   $('#rgSyncBtn').onclick = () => syncNow('manuel');
+  $('#rgSyncOff').onclick = (e) => toggleSync(e.currentTarget);
   paintSync();
   // liste : toucher une régate en fait la courante
   $$('[data-rg]', el).forEach((b) => b.addEventListener('click', () => { saveReg(setCurrentRegatta(REG, b.dataset.rg)); icDraft = null; afterRegChange(); }));

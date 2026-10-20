@@ -11,7 +11,7 @@ import {
   upsertRegatta, removeRegatta, setCurrent, currentRegatta, icOf, groupBySeason, SEED_AT, seedNorm, backfillAuthor,
 } from '../js/regates.js';
 import { parisClock } from '../js/racelock.js';
-import { escHTML, byLine, listHTML, newRegattaFormHTML, sheetHTML } from '../js/regview.js';
+import { escHTML, byLine, listHTML, newRegattaFormHTML, sheetHTML, historySectionHTML } from '../js/regview.js';
 import { IC as SNPM } from '../js/courses.js';
 import { verdict } from '../tools/regate-e2e.mjs';
 
@@ -442,4 +442,68 @@ test('graine SNPM (contrôle W1) : seuls les champs d’instant changent — at,
   assert.equal(graine.ic.fields.vhf, SNPM.vhf); assert.equal(graine.name, SNPM.event); assert.equal(graine.dateStart, SNPM.date);
   const src = readFileSync(ROOT + 'js/courses.js', 'utf8');
   assert.ok(!/SEED_AT/.test(src), 'js/courses.js (référence de la Coupe SNPM) n’est pas touché');
+});
+
+// ───────────────────────── historique des valeurs écrasées (D-04, plan 04-03)
+
+const H0 = Date.parse('2026-10-21T12:05:00Z');                    // 21/10 14:05 à Paris
+const hist = (extra = {}) => ([
+  { kind: 'head', id: 'r1', t: H0, by: 'Teiva', v: { name: 'Ancien nom', club: 'CVAT', dateStart: '2026-11-07', dateEnd: '2026-11-08' } },
+  { kind: 'race', id: 'm202611071055', t: H0 + 60e3, by: 'Thibaud', v: { id: 'm202611071055', date: '2026-11-07', time: '10:55', courseId: 3, cls: 'G', laps: 2 } },
+  { kind: 'mark', id: 'X1', t: H0 + 120e3, by: null, v: { id: 'X1', name: 'Alpha', lat: 43.097417, lon: 5.93415, status: 'a_confirmer' } },
+  { kind: 'course', id: '101', t: H0 + 180e3, by: 'Teiva', v: { id: '101', name: 'Parcours A' } },
+  { kind: 'trace', id: 't1', t: H0 + 240e3, by: 'Romain', v: { id: 't1', name: 'Sortie du dimanche', start: H0 } },
+  { kind: 'head', id: 'r1', t: H0 - 1000, by: 'Romain', v: null },
+]).map((x, i) => (i === 0 ? { ...x, ...extra } : x));
+
+test('historySectionHTML : rien sans historique ; sinon un <details> replié « Historique (n) », de la plus récente à la plus ancienne', () => {
+  assert.equal(historySectionHTML({}), ''); assert.equal(historySectionHTML({ hist: [] }), ''); assert.equal(historySectionHTML(null), ''); assert.equal(historySectionHTML({ hist: 'x' }), '');
+  const { document } = parseHTML(`<html><body>${historySectionHTML({ hist: hist() })}</body></html>`);
+  const d = document.querySelector('details.rghist');
+  assert.ok(d && !d.hasAttribute('open'), 'replié');
+  assert.equal(d.querySelector('summary').textContent, 'Historique (6)');
+  const lignes = [...d.querySelectorAll('.rghl')].map((l) => l.textContent);
+  assert.equal(lignes.length, 6);
+  assert.match(lignes[0], /^Trace · 21\/10 14:09 · par Romain/); assert.match(lignes[0], /Sortie du dimanche/);
+  assert.match(lignes[1], /^Parcours · .* par Teiva/); assert.match(lignes[1], /Parcours A/);
+  assert.match(lignes[2], /^Bouée · .* — /); assert.match(lignes[2], /Alpha/); assert.match(lignes[2], /43°/);
+  assert.match(lignes[3], /^Manche · 21\/10 14:06 · par Thibaud/); assert.match(lignes[3], /07\/11/); assert.match(lignes[3], /10:55/);
+  assert.match(lignes[4], /^Fiche · 21\/10 14:05 · par Teiva/); assert.match(lignes[4], /Ancien nom/); assert.match(lignes[4], /CVAT/); assert.match(lignes[4], /07\/11/);
+  assert.match(lignes[5], /\(texte des IC non conservé\)/, 'valeur nulle : seule la trace de l’écrasement reste');
+});
+
+test('historySectionHTML : un nom, un prénom ou une ancienne valeur piégés ne produisent ni img ni script ni attribut on* ; texte borné à 120 caractères ; 30 lignes au plus', () => {
+  const piege = '<img src=x onerror=alert(1)>"\'<script>x</script>';
+  const h = [
+    { kind: 'head', id: 'r', t: H0, by: piege, v: { name: piege, club: piege, dateStart: piege, dateEnd: '' } },
+    { kind: 'race', id: piege, t: H0 + 1, by: '<b>Pirate</b>', v: { date: piege, time: piege } },
+    { kind: 'mark', id: 'X1', t: H0 + 2, by: 'a', v: { name: piege, lat: 'x', lon: {} } },
+    { kind: piege, id: 'z', t: H0 + 3, by: 'a', v: { name: piege } },
+    { kind: 'trace', id: 't', t: H0 + 4, by: 'a', v: { name: 'N'.repeat(5000) } },
+    null, 42, { kind: 'race' }, { kind: 'race', t: 'x', v: {} },
+  ];
+  const html = historySectionHTML({ hist: h });
+  const { document } = parseHTML(`<html><body>${html}</body></html>`);
+  assert.equal(document.querySelectorAll('img, script, b').length, 0, 'balise injectée');
+  for (const el of document.querySelectorAll('*')) for (const a of el.getAttributeNames()) assert.ok(!/^on/i.test(a), `attribut ${a} sur ${el.tagName}`);
+  assert.ok(document.body.textContent.includes('<img src=x onerror=alert(1)>'), 'affiché en texte');
+  for (const l of document.querySelectorAll('.rghl .rghv')) assert.ok(l.textContent.length <= 120, `valeur de ${l.textContent.length} caractères`);
+  assert.equal(document.querySelectorAll('.rghl').length, 5, 'les entrées mal formées sont écartées');
+  const beaucoup = Array.from({ length: 80 }, (_, i) => ({ kind: 'race', id: 'm' + i, t: H0 + i, by: 'a', v: { date: '2026-11-07', time: '10:55' } }));
+  assert.equal(parseHTML(`<html><body>${historySectionHTML({ hist: beaucoup })}</body></html>`).document.querySelectorAll('.rghl').length, 30);
+});
+
+test('sheetHTML : la fiche contient la section « Historique » quand r.hist n’est pas vide, et pas sinon', () => {
+  const now = t('2026-11-08T10:00:00Z');
+  const sans = parseHTML(`<html><body>${sheetHTML(regate({}), { now })}</body></html>`).document;
+  assert.equal(sans.querySelector('details.rghist'), null);
+  const avec = parseHTML(`<html><body>${sheetHTML(regate({ hist: hist() }), { now })}</body></html>`).document;
+  assert.ok(avec.querySelector('#rgSheet details.rghist'));
+});
+
+test('interrupteur : « Désactiver la synchronisation » en deux touches, « Réactiver » en une ; branché sur SYNC.off et le test canSync off reste vert', () => {
+  const app = readFileSync(ROOT + 'js/app.js', 'utf8');
+  assert.match(app, /id="rgSyncOff"/);
+  assert.match(app, /Désactiver la synchronisation/); assert.match(app, /Toucher encore pour désactiver/); assert.match(app, /Réactiver la synchronisation/);
+  assert.match(app, /SYNC\.off = /);
 });
