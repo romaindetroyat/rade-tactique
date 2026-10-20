@@ -6,6 +6,7 @@ import { WindField, speedColor } from './wind.js';
 import { MARKS, COURSES, LINE_PRESETS, FORBIDDEN_ZONE, DANGERS } from './courses.js';
 import { pdfText, parseIC, cleanText } from './events.js';
 import { IA_IC, iaOffer, iaErrorMessage, reviewFromParse, reviewFromRegatta, reviewFromApi, setValue, setKeep, setKeepRace, setKeepMark, setKeepCourse, courseReady, canValidate, checksFor, applyReview, reviewHTML, chipOf, validatedHTML } from './icread.js';
+import { stampState, markDirty, canon } from './archmerge.js';
 import { migrate, saveRegattas, createRegatta, upsertRegatta, removeRegatta, setCurrent as setCurrentRegatta, currentRegatta, todayRegatta, icOf, groupBySeason, lockDates, daysOf, addRace, removeRace, raceSettings, membre, saveMembre, backfillAuthor } from './regates.js';
 import { THROTTLE_MS, slotKey, freezeAction, obsNeedsCopy, stratNeedsCopy, sliceDays, freezeSummary, strategySummary, compactStrategy, windSourceKind, frozenLabel } from './gel.js';
 import { putSlot, getSlot } from './regstore.js';
@@ -62,7 +63,16 @@ const S = { ...DEF, ...store.get('rade.state', {}) };
 let REG = migrate({ storage: localStore(), now: Date.now(), by: who() });
 let IC = icOf(currentRegatta(REG));
 // Remplace l’état des régates, l’écrit et recalcule IC ; un stockage plein ou refusé laisse l’état en mémoire, avec un message
-function saveReg(next) {
+// Archive partagée (ARCH-01) : `SYNC` (rade.sync.v1) ne porte que les compteurs « sale » par clé, rev, essais et plafonds du jour ; l’état marqué EST la file d’envoi.
+// `fromSync` : la réponse du serveur est appliquée telle quelle, sans marquage (ce n’est pas une saisie de l’équipier).
+const SYNC = store.get('rade.sync.v1', {});
+const saveSync = () => store.set('rade.sync.v1', SYNC);
+function saveReg(next, { fromSync = false } = {}) {
+  if (!fromSync) {
+    const r = stampState(REG, next, { now: Date.now(), by: who() });
+    next = r.st;
+    if (r.changed.length) { markDirty(SYNC, r.changed); saveSync(); scheduleSync(20000); paintSync(); }
+  }
   REG = next; IC = icOf(currentRegatta(REG));
   if (!saveRegattas(localStore(), REG)) { note('regates', 'index non écrit : stockage plein ou refusé'); toast('Mémoire pleine : la régate ne sera pas gardée après fermeture'); }
   return REG;
@@ -127,9 +137,13 @@ async function init() {
   setInterval(raceTick, 5000);
   setInterval(lampTick, 1000);
   addEventListener('pagehide', saveRaceActivity);
-  document.addEventListener('visibilitychange', () => { note('page', document.hidden ? 'masquée' : 'visible'); if (document.hidden) saveRaceActivity(); else { lastProbe = Date.now(); probeNet(); renderRaceBar(); } });
-  addEventListener('online', () => { note('reseau', 'en ligne'); probeNet(); if (!who()) refreshMembre(); });
-  addEventListener('offline', () => { net.online = false; note('reseau', 'hors ligne'); renderRaceBar(); paintIa(); });
+  document.addEventListener('visibilitychange', () => {
+    note('page', document.hidden ? 'masquée' : 'visible');
+    if (document.hidden) saveRaceActivity();
+    else { lastProbe = Date.now(); probeNet(); renderRaceBar(); if (!(Date.now() - SYNC.lastOkAt < 300000)) scheduleSync(2000); }   // retour au premier plan, dernier succès de plus de 5 min
+  });
+  addEventListener('online', () => { note('reseau', 'en ligne'); probeNet(); scheduleSync(2000); if (!who()) refreshMembre(); });
+  addEventListener('offline', () => { net.online = false; note('reseau', 'hors ligne'); renderRaceBar(); paintIa(); paintSync(); });
   // ── temps 2 : la carte et le vent
   await nextFrame();
   refreshMembre();                                     // prénom de l’équipier : jamais attendu
@@ -150,6 +164,7 @@ async function init() {
   initTips();
   await autoHeavy(prepareField);                       // app ouverte pendant la séquence de départ : reporté après H+1 min
   performance.mark('rt:map');
+  syncReady = true; setTimeout(() => syncNow('ouverture'), 3000);   // archive partagée : jamais avant la carte, ni attendue
   mapOk();                                              // showTrace et le débrief attendaient la carte : ils peuvent continuer
   freezeTick('ouverture');                              // prévisions en cache ou embarquées déjà lues : le gel marche aussi hors réseau, sans rien attendre
   maybeWelcome();
@@ -761,9 +776,15 @@ function raceLock(now = Date.now()) {
   return lockState({ now, active: raceActive(now), raceFrom, raceTo, lastActiveAt: RL.lastActiveAt ?? null, finishedAt: RL.finishedAt ?? null });
 }
 function saveRaceActivity() { const now = Date.now(); if (raceActive(now)) { RL.lastActiveAt = now; saveRL(now); } }
+let wasRaceActive = false;
 function raceTick() {
   const now = Date.now();
-  if (raceActive(now)) { RL.lastActiveAt = now; if (now - rlSavedAt >= 30000) saveRL(now); }
+  const active = raceActive(now);
+  if (active) { RL.lastActiveAt = now; if (now - rlSavedAt >= 30000) saveRL(now); }
+  // D-03 : une course qui commence abandonne l’échange en cours ; une course qui finit relance la synchronisation une minute plus tard
+  if (active) syncCtl?.abort();
+  if (wasRaceActive && !active) scheduleSync(60000);
+  if (active !== wasRaceActive) { wasRaceActive = active; paintSync(); }
   const locked = raceLock(now).locked;
   updates?.refresh();
   if (wasLocked && !locked) updates?.check();    // le téléchargement était suspendu pendant le verrou
@@ -1055,8 +1076,8 @@ async function probeNet() {
     net.lastOkAt = Date.now(); net.rtt = performance.now() - t0; net.online = true;
   } catch { net.rtt = null; net.online = false; /* aucune réponse : réseau injoignable, ce n’est pas une erreur de l’app */ }
   finally { clearTimeout(to); probing = false; }
-  if (net.online !== avant) note('reseau', net.online ? 'sonde : réseau joignable' : 'sonde : aucune réponse');
-  renderRaceBar(); paintIa();
+  if (net.online !== avant) { note('reseau', net.online ? 'sonde : réseau joignable' : 'sonde : aucune réponse'); if (net.online) scheduleSync(2000); }   // réseau revenu : l’archive repart
+  renderRaceBar(); paintIa(); paintSync();
 }
 function statusNow() {
   const now = Date.now();
@@ -1725,6 +1746,57 @@ async function refreshMembre() {
     if (!icBusy()) renderIC();                           // « Vous : prénom » et les auteurs complétés
   } catch (e) { note('membre', 'prénom indisponible : ' + (e?.message || e)); } finally { clearTimeout(to); }
 }
+// ───────────────────────── ARCHIVE PARTAGÉE (ARCH-01, D-03, D-04)
+// js/archsync.js n’est jamais importé statiquement : il est chargé à la première synchronisation, après la carte (l’ouverture ne l’attend pas).
+// Tout échange et toute application de réponse sont interdits pendant une course (raceActive) ; un échange commencé avant est abandonné (raceTick).
+let syncMod = null, syncTimer = null, syncBusy = false, syncCtl = null, syncReady = false;
+function scheduleSync(ms) { clearTimeout(syncTimer); syncTimer = setTimeout(() => syncNow('auto'), ms); }
+async function syncFetch(method, query, body) {
+  const ctl = new AbortController(), to = setTimeout(() => ctl.abort(), 15000);
+  syncCtl = ctl;
+  try {
+    const r = await fetch('/api/archive?' + new URLSearchParams(query), { method, cache: 'no-store', credentials: 'same-origin', signal: ctl.signal, ...(body ? { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) } : {}) });
+    let j = null;
+    try { j = await r.json(); } catch { /* corps vide ou illisible : seul le code de réponse compte */ }
+    return { status: r.status, body: j };
+  } finally { clearTimeout(to); }
+}
+function syncDeps() {
+  return {
+    now: Date.now, fetchJson: syncFetch, getState: () => REG,
+    setState: (st) => {
+      if (canon([st.list, st.tomb, st.current]) === canon([REG.list, REG.tomb, REG.current])) return;          // rien de nouveau : ni écriture ni redessin
+      saveReg(st, { fromSync: true });
+      refreshRegMarks(); renderIC(); renderDaySeg(); renderBrief(); renderLive();
+    },
+    getMarks: () => SYNC.marksDoc || {}, setMarks: (m) => { SYNC.marksDoc = m; },                        // recalages de bouées : branchés au plan 03
+    meta: SYNC, saveMeta: saveSync, isActive: () => raceActive(Date.now()), isOnline: () => net.online,
+    canApply: () => !icBusy() && !markEdit,
+  };
+}
+async function syncNow(reason) {
+  if (syncBusy || (!syncReady && reason !== 'manuel')) return;
+  clearTimeout(syncTimer);
+  if (raceActive(Date.now())) { if (reason === 'manuel') toast('Course en cours : synchronisation après la course'); paintSync(); return; }
+  syncBusy = true; paintSync();
+  try {
+    syncMod ||= await import('./archsync.js');
+    const res = await syncMod.runSync(syncDeps(), reason);
+    note('archive', res.merged ? `fusion faite, ${Object.keys(SYNC.dirty || {}).length} en attente` : res.unchanged ? 'à jour' : res.skipped ? 'reporté : ' + res.skipped : 'échec : ' + res.error);
+    if (res.skipped === 'trop_tot') scheduleSync((res.in || 30000) + 500);
+    else if (res.skipped === 'saisie') scheduleSync(30000);
+    else if (res.error && res.error !== 'no_blob') scheduleSync(30000);
+    else if (res.merged && Object.keys(SYNC.dirty || {}).length) scheduleSync(20000);                   // modifié pendant l’échange : à renvoyer
+  } catch (e) { report('archive', e); } finally { syncBusy = false; syncCtl = null; paintSync(); }
+}
+// Ligne d’état sous « Vous : » ; masquée tant que le module n’est pas chargé. Texte posé par textContent, jamais rouge.
+function paintSync() {
+  const el = $('#rgSync');
+  if (!el) return;
+  if (!syncMod) { el.hidden = true; return; }
+  const s = syncMod.syncStatus({ off: SYNC.off, active: raceActive(Date.now()), online: net.online, busy: syncBusy, dirty: Object.keys(SYNC.dirty || {}).length, lastOkAt: SYNC.lastOkAt, fails: SYNC.fails, absent: SYNC.absent });
+  el.textContent = s.text + (SYNC.env === 'preview' ? ' (essai)' : ''); el.dataset.level = s.level; el.hidden = false;
+}
 let icDraft = null;                          // relecture des IC en cours (import ou « Modifier »), en mémoire de la page seulement : rien n’est écrit avant « Valider les IC »
 // Lecture par l’IA (plan 03-06) : `imported` = numéro de l’import qui a ouvert la relecture (un autre import, « Annuler » ou « Modifier » rend la réponse en attente caduque) ;
 // `icSrc` = le texte du PDF importé, en mémoire seulement. Le texte ne part chez OpenAI (via /api/ic) que sur le geste « Lire avec l’IA ».
@@ -1777,7 +1849,9 @@ function renderIC() {
   const tel = /(0[1-9](?:[ .-]?\d{2}){4})/.exec(IC.committee || '')?.[1];
   let html = `<div class="card"><h3><span>Régates ${tip('Chaque régate a sa fiche : jours, manches, Instructions de Course. La régate choisie fixe le jour 🏁, l’heure de départ par défaut et les points clés affichés. Classées par saison, puis Aujourd’hui, À venir, Passées.')}</span><button type="button" class="btn acc small" id="rgNew">＋ Nouvelle régate</button></h3>
     ${listHTML(groupBySeason(REG.list, now), { currentId: cur?.id ?? null, now })}
-    <div class="small muted" id="rgWho" style="margin-top:6px">${who() ? `Vous : ${esc(who())}` : 'Vous : — (prénom donné à la prochaine connexion)'}</div></div>`;
+    <div class="small muted" id="rgWho" style="margin-top:6px">${who() ? `Vous : ${esc(who())}` : 'Vous : — (prénom donné à la prochaine connexion)'}</div>
+    <div class="small muted" id="rgSync" hidden></div>
+    <div class="btns" style="margin:6px 0 0"><button type="button" class="btn small alt" id="rgSyncBtn">Synchroniser</button></div></div>`;
   if (rgDraft) html += newRegattaFormHTML(rgDraft, rgErr);
   html += sheetHTML(cur, { now, courses: courseList(), raceDraft, raceErrors: raceErr, markFix, nmOf: fmtNm });
   if (icDraft) html += reviewHTML(icDraft, icChecks(), { ia: iaState(), isLand: T ? (x, y) => T.isLand(x, y) : undefined });
@@ -1800,6 +1874,8 @@ function renderIC() {
   <div class="card"><h3>Dangers</h3><ul class="tips small"><li><b>Zone interdite</b> de la presqu’île de Saint-Mandrier (zone Marine nationale, rouge sur la carte).</li>${DANGERS.map((d) => `<li><b>${esc(d.name)}</b> (${fmtLat(d.lat)} ${fmtLon(d.lon)}) : ${esc(d.note)}</li>`).join('')}</ul></div>`;
   el.innerHTML = html;
   bindMarksEdit(el);
+  $('#rgSyncBtn').onclick = () => syncNow('manuel');
+  paintSync();
   // liste : toucher une régate en fait la courante
   $$('[data-rg]', el).forEach((b) => b.addEventListener('click', () => { saveReg(setCurrentRegatta(REG, b.dataset.rg)); icDraft = null; afterRegChange(); }));
   // « Nouvelle régate » : trois champs (le premier jour vaut aujourd’hui, jour de Paris, tant qu’on ne le change pas)

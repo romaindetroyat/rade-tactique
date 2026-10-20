@@ -1190,7 +1190,68 @@ async function bouees({ browser, base }) {
   await ctx.close();
 }
 
-const SCENARIOS = { creer, manche, auteur, ic, 'depuis-ic': depuisIC, vraisemblance, gel, 'debrief-tardif': debriefTardif, gpx, 'gpx-choix': gpxChoix, ia, 'ia-erreurs': iaErreurs, bouees };
+// ───────────────────────── archive partagée (ARCH-01, D-03, D-04) : deux téléphones, un faux Blob, la VRAIE fonction api/archive.js
+
+// Le serveur travaille à l’heure fixée des téléphones (sinon il ramènerait leurs dates « futures » à sa propre heure) : `avanceHeure` règle les deux
+async function mondeArchive() {
+  const { createHandler } = await import('../api/archive.js');
+  const { createFakeBlob, invoke } = await import('../tests/helpers/fakeblob.mjs');
+  const m = { t: Date.parse('2026-11-07T08:30:00Z'), blob: createFakeBlob(), appels: {}, ctxs: [], invoke };
+  m.handler = createHandler({ blob: m.blob, now: () => m.t });
+  return m;
+}
+async function avanceHeure(m, ms) { m.t += ms; for (const c of m.ctxs) await c.clock.setFixedTime(new Date(m.t)); }
+// Un téléphone : contexte, prénom donné par le « middleware », route de l’archive (prénom encodé dans x-rt-membre) et décompte des requêtes vues par la page
+async function telephoneArchive(browser, base, m, nom) {
+  const ctx = await ouvreContexte(browser, { heure: new Date(m.t).toISOString() });
+  m.ctxs.push(ctx);
+  await simuleMembre(ctx, nom);
+  m.appels[nom] = 0;
+  await ctx.route('**/api/archive*', async (route) => {
+    const req = route.request(), u = new URL(req.url());
+    m.appels[nom]++;
+    const r = await m.invoke(m.handler, { method: req.method(), url: u.pathname + u.search, body: req.postData() ? JSON.parse(req.postData()) : undefined, headers: { 'x-rt-membre': encodeURIComponent(nom) } });
+    await route.fulfill({ status: r.status, contentType: 'application/json', headers: { 'cache-control': 'no-store' }, body: JSON.stringify(r.body ?? null) });
+  });
+  const { page, erreurs } = await ouvrePage(ctx);
+  const requetes = [];                                         // toute tentative vue par la page, même celle qu’un réseau coupé fait échouer
+  page.on('request', (r) => { if (r.url().includes('/api/archive')) requetes.push(r.method()); });
+  await ouvreApp(page, base);
+  await membreGarde(page, nom);
+  return { nom, ctx, page, erreurs, requetes };
+}
+const syncMeta = (page) => page.evaluate(() => JSON.parse(localStorage.getItem('rade.sync.v1') || '{}'));
+const ligneSync = (page) => page.evaluate(() => document.querySelector('#rgSync')?.textContent ?? '');
+// « Synchroniser » jusqu’à ce qu’un échange complet ait eu lieu à l’heure `m.t` : plus rien en attente et dernier succès daté de maintenant
+async function synchronise(m, tel) {
+  const fait = ([h]) => { const x = JSON.parse(localStorage.getItem('rade.sync.v1') || '{}'); return x.lastOkAt === h && !Object.keys(x.dirty || {}).length; };
+  for (let i = 0; i < 12; i++) {
+    await tel.page.click('#tabs button[data-tab=ic]');
+    await tel.page.click('#rgSyncBtn');                      // sans effet pendant un échange déjà en cours : on retouche
+    try { await tel.page.waitForFunction(fait, [m.t], { timeout: 2500, polling: 100 }); return; } catch { /* échange en cours ou refusé : nouvel essai */ }
+  }
+  throw new Error(`${tel.nom} : synchronisation non terminée (${await ligneSync(tel.page)})`);
+}
+const noms = async (page) => (await lireListe(page)).flatMap((s) => s.groups.flatMap((g) => g.rows.map((r) => r.name)));
+
+// ARCH-01 : la régate créée sur un téléphone apparaît sur l’autre, signée par le serveur
+async function archive({ browser, base }) {
+  const m = await mondeArchive();
+  const A = await telephoneArchive(browser, base, m, 'Teiva'), B = await telephoneArchive(browser, base, m, 'Thibaud');
+  await creeRegate(A.page, { nom: 'Régate partagée', debut: '2026-11-07', fin: '2026-11-08', club: 'CVAT' });
+  await avanceHeure(m, 60e3);
+  await synchronise(m, A);
+  assert.match(await ligneSync(A.page), /^À jour \(essai\)$/, 'l’aperçu se dit « essai »');
+  await avanceHeure(m, 60e3);
+  await synchronise(m, B);
+  assert.ok((await noms(B.page)).includes('Régate partagée'), 'la régate de A est chez B');
+  assert.match(await B.page.locator('section[data-tab=ic] .rg', { hasText: 'Régate partagée' }).textContent(), /par Teiva/, 'auteur posé par le serveur');
+  assert.match(await ligneSync(B.page), /^À jour/);
+  sansErreur(A.erreurs, 'sur A'); sansErreur(B.erreurs, 'sur B');
+  await A.ctx.close(); await B.ctx.close();
+}
+
+const SCENARIOS = { archive, creer, manche, auteur, ic, 'depuis-ic': depuisIC, vraisemblance, gel, 'debrief-tardif': debriefTardif, gpx, 'gpx-choix': gpxChoix, ia, 'ia-erreurs': iaErreurs, bouees };
 
 // ───────────────────────── lancement
 
