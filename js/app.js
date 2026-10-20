@@ -169,6 +169,7 @@ async function init() {
   performance.mark('rt:map');
   syncReady = true; setTimeout(() => syncNow('ouverture'), 3000);   // archive partagée : jamais avant la carte, ni attendue
   mapOk();                                              // showTrace et le débrief attendaient la carte : ils peuvent continuer
+  setTimeout(() => reprise(), 1500);                    // rattrapage des anciennes traces (ARCH2-01) : après la carte, avant la synchronisation d’ouverture, jamais attendu
   freezeTick('ouverture');                              // prévisions en cache ou embarquées déjà lues : le gel marche aussi hors réseau, sans rien attendre
   maybeWelcome();
   renderTracks();
@@ -788,10 +789,11 @@ function raceTick() {
   // D-03 : une course qui commence abandonne l’échange en cours ; une course qui finit relance la synchronisation une minute plus tard
   if (active) syncCtl?.abort();
   if (wasRaceActive && !active) scheduleSync(60000);
+  if (wasRaceActive && !active) reprise();         // le rattrapage reporté pendant la course repart à sa fin (D-03)
   if (active !== wasRaceActive) { wasRaceActive = active; paintSync(); }
   const locked = raceLock(now).locked;
   updates?.refresh();
-  if (wasLocked && !locked) { updates?.check(); scheduleSync(60000); }    // le téléchargement était suspendu pendant le verrou ; l'archive (objets lourds compris) repart une minute plus tard
+  if (wasLocked && !locked) { updates?.check(); scheduleSync(60000); reprise(); }    // le téléchargement était suspendu pendant le verrou ; l'archive (objets lourds compris) repart une minute plus tard
   wasLocked = locked;
   freezeTick('tic');                             // copie du vent du jour (gel) : jamais reportée, voir plus bas
 }
@@ -1890,6 +1892,28 @@ async function runHeavyNow({ only = null, manuel = false } = {}) {
   } finally { heavyBusy = false; syncCtl = null; }
   if (res && (res.up || res.down) && !res.error) setTimeout(() => runHeavyNow({ only }).catch((e) => report('archive', e)), 3000);     // la suite du plan (6 objets par passage)
   return res;
+}
+// Rattrapage des traces gardées avant l’archive (ARCH2-01) : une seule fois par téléphone, hors course et hors journée verrouillée (D-03).
+// REPRISE_KEY = { done: true, at, rangees, laissees } : posé seulement quand la boucle est allée au bout ; reportée, interrompue ou base illisible, elle est rejouée.
+// Une fois posé, plus jamais de rattrapage : une trace que l’équipier détache ensuite ne revient pas. Le module est chargé par import() seulement (FIAB-06).
+const REPRISE_KEY = 'rade.reprise.v1';
+let repriseBusy = false;
+async function reprise() {
+  if (repriseBusy || store.get(REPRISE_KEY, null)?.done) return;
+  repriseBusy = true;
+  try {
+    const mod = await import('./reprise.js');
+    const res = await mod.runReprise({
+      listTracks, getTrack, saveTrack, deleteTrack, getList: () => REG.list,
+      save: (r) => { saveReg(upsertRegatta(REG, r)); refreshSheet(); },
+      who, now: Date.now, isActive: () => raceActive(Date.now()), isLocked: () => raceLock().locked, report,
+    });
+    const dit = res.skipped ? 'reportée : ' + res.skipped
+      : `${res.rangees} rangée(s), ${res.laissees} laissée(s) sans régate, ${res.deja} déjà rangée(s)${res.renommees ? `, ${res.renommees} renommée(s)` : ''}${res.erreurs ? `, ${res.erreurs} erreur(s)` : ''}${res.error ? ' · échec : ' + res.error : ''}`;
+    note('reprise', dit);
+    if (!res.skipped && !res.error) store.set(REPRISE_KEY, { done: true, at: Date.now(), rangees: res.rangees, laissees: res.laissees });
+    if (res.rangees > 0) { toast(res.rangees === 1 ? '1 trace rangée dans l’archive' : `${res.rangees} traces rangées dans l’archive`); renderTracks(); }
+  } catch (e) { report('reprise', e); } finally { repriseBusy = false; }
 }
 // Ligne d’état sous « Vous : » ; masquée tant que le module n’est pas chargé. Texte posé par textContent, jamais rouge.
 // Interrupteur (Open Question 16) : couper l’échange sur CE téléphone, d’abord sur deux touches, remettre d’un geste. L’échange en cours est jeté (canApply).

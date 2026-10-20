@@ -1692,7 +1692,64 @@ async function equipage({ browser, base }) {
   for (const t of tous) await t.ctx.close();
 }
 
-const SCENARIOS = { equipage, archive, 'archive-bouees': archiveBouees, archivehors: archiveHors, creer, manche, auteur, ic, 'depuis-ic': depuisIC, vraisemblance, gel, 'debrief-tardif': debriefTardif, gpx, 'gpx-choix': gpxChoix, ia, 'ia-erreurs': iaErreurs, bouees };
+// ───────────────────────── rattrapage des traces d'avant l'archive (ARCH2-01, D-01 à D-03, D-10, D-11)
+
+const REPRISE = 'rade.reprise.v1';
+const reprisePosee = (page) => page.waitForFunction((k) => !!JSON.parse(localStorage.getItem(k) || 'null')?.done, REPRISE, { timeout: 60000, polling: 100 });
+const lireReprise = (page) => page.evaluate((k) => JSON.parse(localStorage.getItem(k) || 'null'), REPRISE);
+const journalDe = async (page) => { await page.evaluate(() => window.dispatchEvent(new Event('pagehide'))); return page.evaluate(() => localStorage.getItem('rade.diag.v1') || ''); };
+// Écrit dans la base de traces de la page (même base que l'app) : le GPX de la Coupe SNPM sous l'identifiant donné (ancien import : aléatoire), ou la trace telle quelle
+const poseTrace = (page, texteGpx, { id = null, report = null } = {}) => page.evaluate(async ([txt, i, rp]) => {
+  const { fromGPX, saveTrack } = await import('/js/track.js');
+  const tr = fromGPX(txt, 'snpm.gpx');
+  if (i) tr.id = i;
+  if (rp) tr.report = rp;
+  await saveTrack(tr);
+  return tr.id;
+}, [texteGpx, id, report]);
+const poseOrpheline = (page) => page.evaluate(async () => {
+  const { saveTrack } = await import('/js/track.js');
+  const t0 = Date.parse('2026-09-01T08:00:00Z');
+  await saveTrack({ id: 'tr' + t0, name: 'Entraînement du 01/09', start: t0, course: null, pts: [0, 1, 2].map((i) => [t0 + i * 60000, 43.07, 5.93, null, null, 5]) });
+  return 'tr' + t0;
+});
+
+async function reprise({ browser, base }) {
+  const NOM = 'Équipier test', TEXTE = readFileSync(GPX_SNPM, 'utf8');
+  // 1) Un téléphone qui a déjà servi : appareil neuf (aucune trace) → passage sans trace, drapeau posé ; puis ses traces d'avant sont posées et le drapeau retiré
+  const ctx = await ouvreContexte(browser, { heure: '2026-10-20T10:00:00Z' });          // lendemain de régate : aucun verrou
+  await simuleMembre(ctx, NOM);
+  const { page, erreurs } = await ouvrePage(ctx);
+  await ouvreApp(page, base);
+  await membreGarde(page, NOM);
+  await reprisePosee(page);
+  assert.equal((await lireReprise(page)).rangees, 0, 'appareil neuf : rien à ranger');
+  const idSnpm = await poseTrace(page, TEXTE), idOrph = await poseOrpheline(page);
+  await page.evaluate((k) => localStorage.removeItem(k), REPRISE);                       // premier lancement de la v32 sur un téléphone qui a déjà servi
+  await ouvreApp(page, base);
+  await toastVu(page, '1 trace rangée dans l’archive', 30000);
+  await reprisePosee(page);
+  const flag1 = await lireReprise(page);
+  assert.equal(flag1.rangees, 1); assert.equal(flag1.laissees, 1);
+  const idx = await indexRegates(page);
+  const snpm = idx.list.find((r) => r.id === 'snpm-2026');
+  assert.equal(snpm.traces.length, 1, 'la Coupe SNPM porte une seule référence');
+  assert.equal(snpm.traces[0].id, idSnpm); assert.equal(snpm.traces[0].by, NOM); assert.equal(snpm.traces[0].n, 9538);
+  assert.ok(idx.list.every((r) => !r.traces.some((t) => t.id === idOrph)), 'l’orpheline n’est dans aucune régate');
+  assert.equal(idx.list.length, 1, 'aucune fiche créée (D-02)');
+  assert.ok((await lireTraces(page)).some((t) => t.id === idOrph), 'l’orpheline reste dans « Traces »');
+  assert.ok((await lireTraces(page)).some((t) => t.id === idSnpm), 'la trace rangée reste aussi sur le téléphone');
+  assert.match(await journalDe(page), /reprise/, 'une ligne reprise au journal');
+  // 2) Relance : sans effet (même drapeau, même instant, toujours une seule référence)
+  await ouvreApp(page, base);
+  await page.waitForTimeout(4000);
+  assert.deepEqual(await lireReprise(page), flag1, 'drapeau inchangé après une relance');
+  assert.equal((await indexRegates(page)).list.find((r) => r.id === 'snpm-2026').traces.length, 1);
+  sansErreur(erreurs, 'rattrapage sur un téléphone');
+  await ctx.close();
+}
+
+const SCENARIOS = { reprise, equipage, archive, 'archive-bouees': archiveBouees, archivehors: archiveHors, creer, manche, auteur, ic, 'depuis-ic': depuisIC, vraisemblance, gel, 'debrief-tardif': debriefTardif, gpx, 'gpx-choix': gpxChoix, ia, 'ia-erreurs': iaErreurs, bouees };
 
 // ───────────────────────── lancement
 
