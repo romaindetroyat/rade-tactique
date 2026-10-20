@@ -3,11 +3,17 @@
 // 429 sans appel à OpenAI), prénom lu dans le seul en-tête du middleware, compteur ouvert en panne, erreurs d’OpenAI traduites et bornées.
 import { test, before, after, mock } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync, readdirSync } from 'node:fs';
 import OpenAI from 'openai';
-import './helpers/setup.mjs';
+import { ROOT } from './helpers/setup.mjs';
 import {
   QUOTA, DELAI_MS, MESSAGES, BUDGET_CODES, jourParis, cheminQuota, compte, erreurIA, createIA, prefix,
 } from '../api/_ia.js';
+import * as voix from '../api/voice.js';
+import * as debrief from '../api/debrief.js';
+import * as lecture from '../api/ic.js';
+import * as regles from '../api/rules.js';
+import * as archive from '../api/archive.js';
 import { createHandler as creeArbitre } from '../api/rules.js';
 import { createFakeBlob, createGate, invoke } from './helpers/fakeblob.mjs';
 
@@ -299,4 +305,115 @@ test('erreurs d’OpenAI vues par la page : budget → 429 budget_ia, occupé �
   const { handler } = arbitre({ client: faux(SORTIE_ARBITRE, erreurApi(401, 'invalid_api_key', 'Incorrect API key')).client });
   const r = await demande(handler);
   assert.equal(r.status, 502);
+});
+
+// ── les quatre fonctions partagent la même aide (tâche 2)
+
+// Corps valide minimal de chaque fonction
+const FONCTIONS = [
+  ['voice', voix, '/api/voice', { alts: ['vent au 300 12 nœuds'] }],
+  ['debrief', debrief, '/api/debrief', { bords: [{ nom: 'Bord 1' }] }],
+  ['rules', regles, '/api/rules', { question: 'Bâbord / tribord ?' }],
+  ['ic', lecture, '/api/ic', { text: 'Instructions de course. '.repeat(20) }],
+];
+function fonction(module, { blob = createFakeBlob(), client = faux().client } = {}) {
+  assert.equal(typeof module.createHandler, 'function', 'la fonction exporte createHandler({ openai, blob, now })');
+  return module.createHandler({ openai: client, blob, now: () => T });
+}
+const appelFonction = (handler, url, body, nom = 'Romain') => invoke(handler, { method: 'POST', url, body, headers: nom ? entete(nom) : {} });
+
+for (const [nom, module, url, corps] of FONCTIONS) {
+  test(`${nom} : store:false dans l’argument du seul appel d’OpenAI, et le compteur du prénom passe à 1`, async () => {
+    const { client, appels } = faux();
+    const blob = createFakeBlob();
+    const r = await appelFonction(fonction(module, { blob, client }), url, corps);
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(appels.length, 1);
+    assert.equal(appels[0].store, false);
+    assert.equal(blob.store.get(`preview/quota/${JOUR}/romain.json`).text, '{"n":1}');
+  });
+
+  test(`${nom} : sans prénom du middleware → 403 sans appel ; 400 et 503 ne sont pas comptés`, async () => {
+    const { client, appels } = faux();
+    const blob = createFakeBlob();
+    const handler = fonction(module, { blob, client });
+    let r = await appelFonction(handler, url, corps, null);
+    assert.equal(r.status, 403); assert.deepEqual(r.body, { error: 'membre_inconnu' });
+    r = await appelFonction(handler, url, {});
+    assert.equal(r.status, 400);
+    const cle = process.env.OPENAI_API_KEY;
+    delete process.env.OPENAI_API_KEY;
+    try { r = await appelFonction(handler, url, corps); assert.equal(r.status, 503); } finally { process.env.OPENAI_API_KEY = cle; }
+    assert.equal(appels.length, 0);
+    assert.equal(blob.ops.get, 0); assert.equal(blob.ops.put, 0);
+  });
+}
+
+test('garde statique : aucun fichier de api/ n’appelle le client OpenAI sans passer par api/_ia.js', () => {
+  const fichiers = readdirSync(ROOT + 'api').filter((f) => f.endsWith('.js'));
+  assert.ok(fichiers.includes('_ia.js') && fichiers.length >= 6);
+  for (const f of fichiers) {
+    const source = readFileSync(ROOT + 'api/' + f, 'utf8');
+    if (f === '_ia.js') { assert.equal((source.match(/responses\s*\.\s*create/g) || []).length, 1, 'un seul appel du client, dans _ia.js'); continue; }
+    assert.ok(!/responses\s*\.\s*create/.test(source), `${f} : appel direct du client OpenAI`);
+    assert.ok(!/new\s+OpenAI\s*\(/.test(source), `${f} : client OpenAI créé hors de _ia.js`);
+  }
+  for (const f of ['voice.js', 'debrief.js', 'ic.js', 'rules.js']) {
+    const source = readFileSync(ROOT + 'api/' + f, 'utf8');
+    assert.equal((source.match(/createIA\(/g) || []).length, 1, `${f} : createIA( une fois`);
+    assert.match(source, /export default createHandler\(\)/, `${f} : export par défaut`);
+  }
+});
+
+test('quota commun : 10 dictées + 10 débriefs + 10 questions puis une lecture d’IC du même équipier → 429 ; un autre équipier → 200', async () => {
+  const { client, appels } = faux();
+  const blob = createFakeBlob();
+  const [voice, deb, reg, ic] = FONCTIONS.map(([, module]) => fonction(module, { blob, client }));
+  const [, , urlIc, corpsIc] = FONCTIONS[3];
+  for (let i = 0; i < 10; i++) {
+    assert.equal((await appelFonction(voice, FONCTIONS[0][2], FONCTIONS[0][3])).status, 200);
+    assert.equal((await appelFonction(deb, FONCTIONS[1][2], FONCTIONS[1][3])).status, 200);
+    assert.equal((await appelFonction(reg, FONCTIONS[2][2], FONCTIONS[2][3])).status, 200);
+  }
+  assert.equal(appels.length, QUOTA);
+  const puts = blob.ops.put;
+  const r = await appelFonction(ic, urlIc, corpsIc);
+  assert.equal(r.status, 429);
+  assert.deepEqual(r.body, { error: 'quota_equipier', message: 'Limite d’IA du jour atteinte — reprise demain' });
+  assert.equal(appels.length, QUOTA, 'la lecture d’IC ne part pas chez OpenAI');
+  assert.equal(blob.ops.put, puts);
+  assert.equal((await appelFonction(ic, urlIc, corpsIc, 'Thibaud')).status, 200, 'un autre équipier le même jour');
+});
+
+test('ic : incomplete → 502, JSON illisible → 502, 429 → ia_occupee avec message, 401 → 502, erreur simple → 500', async () => {
+  const corps = FONCTIONS[3][3], url = FONCTIONS[3][2];
+  const cas = async (client) => appelFonction(fonction(lecture, { client }), url, corps);
+  let r = await cas({ responses: { create: async () => ({ status: 'incomplete', output_text: '' }) } });
+  assert.equal(r.status, 502);
+  r = await cas({ responses: { create: async () => ({ status: 'completed', output_text: '{ pas du json' }) } });
+  assert.equal(r.status, 502);
+  r = await cas(faux(null, erreurApi(429, 'rate_limit_exceeded')).client);
+  assert.equal(r.status, 429); assert.equal(r.body.error, 'ia_occupee'); assert.ok(r.body.message.length > 0);
+  r = await cas(faux(null, erreurApi(401, 'invalid_api_key')).client);
+  assert.equal(r.status, 502);
+  r = await cas(faux(null, new Error('panne')).client);
+  assert.equal(r.status, 500);
+});
+
+// ── parité avec api/archive.js (le prénom et le préfixe doivent y être lus de la même façon)
+
+test('parité : membre() de _ia.js est nul exactement quand api/archive.js répond 403 membre_inconnu', async () => {
+  const { membre } = await import('../api/_ia.js');
+  const blob = createFakeBlob(), handler = archive.createHandler({ blob, now: () => T });
+  const enTetes = ['Romain', encodeURIComponent('Éloïse'), encodeURIComponent('Anne-Sophie'), encodeURIComponent('D’Artagnan'), '  Teiva  ', '', 'x'.repeat(40), 'x'.repeat(41), '%E0%A4%A', encodeURIComponent('Rom/ain'), encodeURIComponent('Jean.Luc'), encodeURIComponent('<b>'), '123', undefined];
+  for (const h of enTetes) {
+    const r = await invoke(handler, { method: 'GET', url: '/api/archive?k=light', headers: h === undefined ? {} : { 'x-rt-membre': h } });
+    assert.equal(membre(h) === null, r.status === 403, `en-tête ${JSON.stringify(h)} : membre=${membre(h)}, archive=${r.status}`);
+  }
+});
+
+test('parité : prefix() de _ia.js égale celui d’api/archive.js sous VERCEL_ENV production, preview et absent', async () => {
+  for (const env of ['production', 'preview', 'development', undefined]) {
+    await avecEnv(env, () => assert.equal(prefix(), archive.prefix(), String(env)));
+  }
 });
