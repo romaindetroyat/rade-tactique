@@ -1350,6 +1350,8 @@ async function freezeWrite({ why, now, day, rid, action, d, ser, obs, slot, ana,
   await putSlot(slotKey(rid, day, 'obs'), { day, at: now, obs });
   const cur = REG.list.find((x) => x.id === rid);                                    // la régate a pu changer pendant l’écriture : l’index est relu
   if (!cur) return;
+  // archive partagée : ce jour est à envoyer, et un téléchargement ne remplacera JAMAIS ces copies avant leur envoi (marqué après l’écriture des copies)
+  const hq = (SYNC.hq ||= {}), cle = `day:${rid}|${day}`; hq[cle] = Math.max(Date.now(), (hq[cle] || 0) + 1); saveSync();
   saveReg(upsertRegatta(REG, { ...cur, frozen: { ...(cur.frozen || {}), [day]: summary } }));
   note('gel', `${action === 'rien' ? (strat ? 'route' : 'relevés') : action} · ${why} · ${obs.length} relevé(s)${strat ? ` · ${strat.legs.length} bords` : ''}`);
   if ($('section[data-tab=ic]')?.classList.contains('on') && !icBusy()) renderIC();     // la fiche, si elle est ouverte, montre le gel qui vient d’avoir lieu
@@ -1830,14 +1832,16 @@ async function syncNow(reason) {
   } catch (e) { report('archive', e); } finally { syncBusy = false; syncCtl = null; paintSync(); }
   if (leger) runHeavyNow().catch((e) => report('archive', e));            // objets lourds : seulement après une synchronisation légère réussie
 }
-// Objets lourds (ARCH-03) : traces et rapports (vent figé du jour : tâche suivante). js/archheavy.js se charge à la première fois (jamais à l'ouverture).
+// Objets lourds (ARCH-03) : vent figé du jour, traces et rapports. js/archheavy.js se charge à la première fois (jamais à l'ouverture).
 // D-03 : ni pendant une course ni pendant la journée de régate (jusqu'au retour au port), vérifié avant le passage et entre deux objets.
 let heavyMod = null, heavyBusy = false;
 function heavyDeps() {
   return {
     now: Date.now, meta: SYNC, saveMeta: saveSync, getList: () => REG.list,
     fetchJson: (method, query, body) => syncFetch(method, query, body, 60000),
-    listTracks, getTrack, saveTrack, isActive: () => raceActive(Date.now()), isLocked: () => raceLock().locked, report,
+    me: who, listTracks, getTrack, saveTrack, getSlot, putSlot, slotKey,
+    estimate: () => navigator.storage?.estimate?.(),
+    isActive: () => raceActive(Date.now()), isLocked: () => raceLock().locked, report,
   };
 }
 async function runHeavyNow({ only = null, manuel = false } = {}) {
@@ -1851,6 +1855,10 @@ async function runHeavyNow({ only = null, manuel = false } = {}) {
     res = await heavyMod.runHeavy(heavyDeps(), { only });
     note('archive', `lourds : ${res.up} envoyé(s), ${res.down} reçu(s)${res.skipped ? ' · reporté : ' + res.skipped : ''}${res.error ? ' · échec : ' + res.error : ''}`);
     if (res.up || res.down) { renderTracks(); refreshSheet(); }
+    if (!res.error && !res.skipped && !SYNC.persisted) {                              // une fois : demander au navigateur de ne pas purger les données de l’app (iOS)
+      SYNC.persisted = true; saveSync();
+      try { await navigator.storage?.persist?.(); } catch { /* refusé ou indisponible : sans effet */ }
+    }
   } finally { heavyBusy = false; syncCtl = null; }
   if (res && (res.up || res.down) && !res.error) setTimeout(() => runHeavyNow({ only }).catch((e) => report('archive', e)), 3000);     // la suite du plan (6 objets par passage)
   return res;

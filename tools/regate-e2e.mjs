@@ -1193,10 +1193,10 @@ async function bouees({ browser, base }) {
 // ───────────────────────── archive partagée (ARCH-01, D-03, D-04) : deux téléphones, un faux Blob, la VRAIE fonction api/archive.js
 
 // Le serveur travaille à l’heure fixée des téléphones (sinon il ramènerait leurs dates « futures » à sa propre heure) : `avanceHeure` règle les deux
-async function mondeArchive() {
+async function mondeArchive(depart = '2026-11-07T08:30:00Z') {
   const { createHandler } = await import('../api/archive.js');
   const { createFakeBlob, invoke } = await import('../tests/helpers/fakeblob.mjs');
-  const m = { t: Date.parse('2026-11-07T08:30:00Z'), blob: createFakeBlob(), appels: {}, ctxs: [], invoke };
+  const m = { t: Date.parse(depart), blob: createFakeBlob(), appels: {}, lourds: {}, ctxs: [], invoke };
   m.handler = createHandler({ blob: m.blob, now: () => m.t });
   return m;
 }
@@ -1206,10 +1206,11 @@ async function telephoneArchive(browser, base, m, nom) {
   const ctx = await ouvreContexte(browser, { heure: new Date(m.t).toISOString() });
   m.ctxs.push(ctx);
   await simuleMembre(ctx, nom);
-  m.appels[nom] = 0;
+  m.appels[nom] = 0; m.lourds[nom] = [];                      // lourds : les requêtes d'objets lourds (trace, rapport, jour), méthode et k
   await ctx.route('**/api/archive*', async (route) => {
     const req = route.request(), u = new URL(req.url());
     m.appels[nom]++;
+    if (u.searchParams.get('k') !== 'light') m.lourds[nom].push(`${req.method()} ${u.searchParams.get('k')}`);
     const r = await m.invoke(m.handler, { method: req.method(), url: u.pathname + u.search, body: req.postData() ? JSON.parse(req.postData()) : undefined, headers: { 'x-rt-membre': encodeURIComponent(nom) } });
     await route.fulfill({ status: r.status, contentType: 'application/json', headers: { 'cache-control': 'no-store' }, body: JSON.stringify(r.body ?? null) });
   });
@@ -1473,6 +1474,48 @@ async function archiveHors({ browser, base }) {
   const hors = (e) => e.filter((x) => !/Blocked script execution|Failed to read the 'serviceWorker'.*sandboxed/.test(x));
   sansErreur(hors(A.erreurs), 'sur A'); sansErreur(hors(B.erreurs), 'sur B');
   await A.ctx.close(); await B.ctx.close();
+
+  // 5) vent figé du jour : A le fige le jour de la régate (signal à 10:55, il est 10:00) ; pendant la journée de régate (verrou) rien de lourd ne part ;
+  //    le lendemain à 08:00 il part ; B, qui ouvre l'app après, le reçoit et le lit réseau coupé
+  const m2 = await mondeArchive('2026-10-18T08:00:00Z');
+  const A2 = await telephoneArchive(browser, base, m2, 'Teiva');
+  await creeRegate(A2.page, { nom: 'Coupe du gel', debut: '2026-10-18', club: 'CVAT' });
+  await ajouteManche(A2.page, { heure: '10:55', parcours: '5', cls: 'G', tours: '2' });
+  const rid = (await regateCourante(A2.page)).id, cleJour = `day:${rid}|2026-10-18`;
+  await attendGel(A2.page, '2026-10-18', (x) => x.signal === 'manche' && x.strategy, 'vent et route du jour figés');
+  assert.ok((await syncMeta(A2.page)).hq?.[cleJour], 'le jour figé est en file d’envoi');
+  await avanceHeure(m2, 60e3);
+  await synchronise(m2, A2);                                                     // synchronisation légère : permise ; lourde : verrou de la journée de régate
+  await A2.page.waitForTimeout(2500);
+  assert.deepEqual(m2.lourds.Teiva, [], 'aucun appel lourd pendant la journée de régate');
+  assert.ok((await syncMeta(A2.page)).hq?.[cleJour], 'toujours en file');
+  // la Coupe SNPM semée est « du jour » elle aussi : son vent est figé et part avec l'autre (deux jours, un par régate)
+  const jourM2 = () => [...m2.blob.store.keys()].filter((c) => c.includes('/day/'));
+  assert.deepEqual(jourM2(), [], 'rien en ligne');
+  await avanceHeure(m2, Date.parse('2026-10-19T06:00:00Z') - m2.t);             // lendemain, 08:00 à Paris : plus de verrou
+  await synchronise(m2, A2);
+  const monJour = `preview/day/${rid}/2026-10-18/teiva.json`;
+  await attendre(() => m2.blob.store.has(monJour), 'le jour figé de A en ligne');
+  assert.ok(jourM2().every((c) => /\/2026-10-18\/teiva\.json$/.test(c)), 'sous le prénom de A, jamais un autre');
+  assert.ok(m2.lourds.Teiva.length >= 1 && m2.lourds.Teiva.every((x) => x === 'PUT day'), `seuls des jours sont partis : ${m2.lourds.Teiva}`);
+  await attendre(async () => !(await syncMeta(A2.page)).hq?.[cleJour], 'jour sorti de la file');
+  const oj = JSON.parse(m2.blob.store.get(monJour).text);
+  console.log(`  mesure archivehors : vent du jour ${Buffer.byteLength(m2.blob.store.get(monJour).text)} octets (prévisions ${JSON.stringify(oj.wx).length}, route ${JSON.stringify(oj.strat).length}, relevés ${JSON.stringify(oj.obs).length})`);
+  assert.ok(oj.wx.multi.hourly.time.length === 25 && oj.strat.legs.length >= 8 && Array.isArray(oj.obs.obs), 'les trois copies du jour');
+  const B2 = await telephoneArchive(browser, base, m2, 'Thibaud');
+  await synchronise(m2, B2);
+  await attendre(async () => (await lireSlot(B2.page, `${rid}|2026-10-18|wx`)) && (await lireSlot(B2.page, `${rid}|2026-10-18|strat`)) && (await lireSlot(B2.page, `${rid}|2026-10-18|obs`)), 'les trois copies du jour chez B');
+  assert.ok(m2.lourds.Thibaud.length >= 1 && m2.lourds.Thibaud.every((x) => x === 'GET day'), `B n’a fait que recevoir : ${m2.lourds.Thibaud}`);
+  await B2.ctx.setOffline(true); await B2.page.waitForFunction(() => !navigator.onLine);
+  await ongletIC(B2.page);
+  await B2.page.locator('section[data-tab=ic] .rg', { hasText: 'Coupe du gel' }).click();
+  await B2.page.waitForFunction(() => /Figé automatiquement/.test(document.querySelector('#rgSheet .rgwind[data-day="2026-10-18"]')?.textContent || ''), null, { timeout: 20000 });
+  assert.match(await texteVent(B2.page, '2026-10-18'), /Figé automatiquement à 10:00/, 'la fiche de B montre le vent du jour figé par A, réseau coupé');
+  const wxB = await lireSlot(B2.page, `${rid}|2026-10-18|wx`);
+  assert.equal(wxB.multi.hourly.time.length, 25, 'les prévisions du jour de A sont dans la base de B');
+  assert.ok((await syncMeta(B2.page)).down?.[cleJour], 'noté reçu : il ne repartira pas');
+  sansErreur(A2.erreurs, 'sur A (jour figé)'); sansErreur(B2.erreurs, 'sur B (jour figé)');
+  await A2.ctx.close(); await B2.ctx.close();
 }
 
 const SCENARIOS = { archive, 'archive-bouees': archiveBouees, archivehors: archiveHors, creer, manche, auteur, ic, 'depuis-ic': depuisIC, vraisemblance, gel, 'debrief-tardif': debriefTardif, gpx, 'gpx-choix': gpxChoix, ia, 'ia-erreurs': iaErreurs, bouees };
