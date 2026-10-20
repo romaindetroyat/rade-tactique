@@ -123,7 +123,8 @@ test('création : champs manquants, date impossible, dernier jour antérieur ign
   assert.equal(createRegatta({ name: 'R', dateStart: '2026-11-07', dateEnd: '2026-11-07' }, { now }).regatta.dateEnd, '', 'même jour : une régate d’un jour');
   assert.equal(createRegatta({ name: 'R', dateStart: '2026-11-07', dateEnd: '2026-02-30' }, { now }).regatta.dateEnd, '', 'dernier jour impossible ignoré');
   assert.equal(createRegatta({ name: 'R', dateStart: '2026-11-07' }, { now }).regatta.club, '', 'club facultatif');
-  const ids = new Set(Array.from({ length: 200 }, () => createRegatta({ name: 'R', dateStart: '2026-11-07' }, { now }).regatta.id));
+  // tirages déterministes : avec Math.random, 200 identifiants de même instant ont environ 1 chance sur 80 d'en croiser deux (4 caractères au hasard) et le test échouait de temps en temps
+  const ids = new Set(Array.from({ length: 200 }, (_, i) => createRegatta({ name: 'R', dateStart: '2026-11-07' }, { now, rnd: () => (i + 1) / 251 }).regatta.id));
   assert.equal(ids.size, 200, 'identifiants distincts');
   assert.match(newId(now, () => 0.123456789), /^rg[0-9a-z]+$/);
 });
