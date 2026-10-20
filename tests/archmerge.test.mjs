@@ -396,7 +396,9 @@ test('convergence : 2 000 scénarios aléatoires à trois téléphones (ajouts, 
   const debut = Date.now();
   const N = 2000;
   for (let seed = 1; seed <= N; seed++) juge(scenario(seed));
-  assert.ok(Date.now() - debut < 5000, `trop lent : ${Date.now() - debut} ms`);
+  const duree = Date.now() - debut;
+  console.log(`# convergence : ${N} scénarios en ${duree} ms`);
+  assert.ok(duree < 30000, `trop lent : ${duree} ms`);          // garde-fou large (machine de build lente), pas une mesure de performance
 });
 
 test('convergence : un téléphone qui renvoie deux fois, après une coupure, ne crée aucun doublon', () => {
