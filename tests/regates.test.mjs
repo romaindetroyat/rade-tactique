@@ -11,7 +11,7 @@ import {
   upsertRegatta, removeRegatta, setCurrent, currentRegatta, icOf, groupBySeason, SEED_AT, seedNorm, backfillAuthor,
 } from '../js/regates.js';
 import { parisClock } from '../js/racelock.js';
-import { escHTML, byLine, listHTML, newRegattaFormHTML, sheetHTML, historySectionHTML } from '../js/regview.js';
+import { escHTML, byLine, listHTML, newRegattaFormHTML, sheetHTML, historySectionHTML, tracesSectionHTML } from '../js/regview.js';
 import { IC as SNPM } from '../js/courses.js';
 import { verdict } from '../tools/regate-e2e.mjs';
 
@@ -506,4 +506,59 @@ test('interrupteur : « Désactiver la synchronisation » en deux touches, « R�
   assert.match(app, /id="rgSyncOff"/);
   assert.match(app, /Désactiver la synchronisation/); assert.match(app, /Toucher encore pour désactiver/); assert.match(app, /Réactiver la synchronisation/);
   assert.match(app, /SYNC\.off = /);
+});
+
+// ───────────────────────── lisible hors réseau (plan 04-04, ARCH-03)
+
+const PIEGE_ID = 'tr1"><img src=x onerror=alert(1)>';
+const refTrace = (id, over = {}) => ({ id, name: 'Trace <b>x</b>', start: t('2026-11-07T09:00:00Z'), n: 600, by: 'Teiva', at: t('2026-11-07T12:00:00Z'), ...over });
+const rendu = (html) => parseHTML(`<html><body>${html}</body></html>`).document;
+
+test('fiche : chaque trace dit « sur ce téléphone » ou « en ligne seulement » ; sans cet état, la fiche reste comme avant ; une trace absente n’a ni « Voir la trace » ni « Débrief »', () => {
+  const r = regate({ traces: [refTrace('tr1'), refTrace('tr2', { report: { t: 5, by: 'Teiva' } })] });
+  const sans = rendu(tracesSectionHTML(r));
+  assert.equal(sans.querySelectorAll('.chip').length, 0, 'état inconnu : rien d’affiché');
+  assert.equal(sans.querySelectorAll('[data-trv]').length, 2); assert.equal(sans.querySelectorAll('[data-trd]').length, 2);
+  const avec = rendu(tracesSectionHTML(r, { local: new Set(['tr1']) }));
+  const lignes = [...avec.querySelectorAll('.rgtr')];
+  assert.match(lignes[0].textContent, /sur ce téléphone/); assert.doesNotMatch(lignes[0].textContent, /en ligne seulement/);
+  assert.match(lignes[1].textContent, /en ligne seulement/);
+  assert.ok(lignes[0].querySelector('[data-trv]') && lignes[0].querySelector('[data-trd]'));
+  assert.equal(lignes[1].querySelector('[data-trv]'), null, 'pas de lecture d’une trace absente'); assert.equal(lignes[1].querySelector('[data-trd]'), null);
+  assert.ok(lignes[1].querySelector('[data-trx]'), 'on peut toujours détacher');
+});
+
+test('fiche : « Télécharger pour le hors réseau » quand une trace ou un jour figé par un autre équipier manque ; rien quand tout est là ou que l’état est inconnu ; texte échappé', () => {
+  const now = t('2026-11-08T10:00:00Z');
+  const r = regate({ id: 'rg1', traces: [refTrace('tr1'), refTrace(PIEGE_ID)], frozen: { '2026-11-07': { at: 1, by: 'Teiva' }, '2026-11-08': { at: 2, by: 'Thibaud' }, '2026-11-09': { at: 3, by: 'Éric <i>' } } });
+  const tout = { local: new Set(['tr1', PIEGE_ID]), daysLocal: new Set(['rg1|2026-11-07', 'rg1|2026-11-08', 'rg1|2026-11-09']), me: 'Thibaud' };
+  assert.equal(rendu(sheetHTML(r, { now, ...tout })).querySelector('[data-rg-dl]'), null, 'tout est là');
+  assert.equal(rendu(sheetHTML(r, { now })).querySelector('[data-rg-dl]'), null, 'état inconnu');
+  const trace = rendu(sheetHTML(r, { now, ...tout, local: new Set(['tr1']) })), b = trace.querySelector('[data-rg-dl]');
+  assert.ok(b, 'une trace manque'); assert.equal(b.textContent.trim(), 'Télécharger pour le hors réseau'); assert.equal(b.getAttribute('data-rg-dl'), 'rg1');
+  assert.match(trace.querySelector('.rgdl').textContent, /1 trace/);
+  const jours = rendu(sheetHTML(r, { now, ...tout, daysLocal: new Set(['rg1|2026-11-08']) }));
+  assert.match(jours.querySelector('.rgdl').textContent, /2 jours de vent figé/, 'les jours de Teiva et d’Éric manquent ; celui de Thibaud (moi) ne compte pas');
+  const moi = rendu(sheetHTML(r, { now, ...tout, daysLocal: new Set(), me: 'thibaud' }));
+  assert.match(moi.querySelector('.rgdl').textContent, /2 jours/, 'mon jour n’est jamais « à télécharger »');
+  const sansNom = rendu(sheetHTML(r, { now, ...tout, daysLocal: new Set(), me: null }));
+  assert.equal(sansNom.querySelector('[data-rg-dl]'), null, 'prénom inconnu : on ne sait pas quels jours sont les miens');
+  // aucune balise ni attribut injecté par un identifiant ou un nom venu d’un autre téléphone
+  const piege = rendu(sheetHTML(regate({ id: 'rg"><img src=y>', traces: [refTrace(PIEGE_ID)], frozen: { '2026-11-07': { at: 1, by: 'Éric <i>' } } }), { now, local: new Set(), daysLocal: new Set(), me: 'Thibaud' }));
+  assert.equal(piege.querySelectorAll('img, i').length, 0, 'balise injectée');
+  for (const el of piege.querySelectorAll('*')) for (const a of el.getAttributeNames()) assert.ok(!/^on/i.test(a), `attribut ${a} sur ${el.tagName}`);
+  assert.equal(piege.querySelector('[data-rg-dl]').getAttribute('data-rg-dl'), 'rg"><img src=y>', 'identifiant intact, hors balise');
+});
+
+test('câblage du téléchargement : le geste respecte la course et le verrou du jour avant tout appel, passe par runHeavyNow({ only }) et ne contourne pas le désactivé', () => {
+  const app = readFileSync(ROOT + 'js/app.js', 'utf8');
+  const lourd = bodyOf(app, 'runHeavyNow'), geste = bodyOf(app, 'telecharger');
+  assert.ok(lourd && geste);
+  const a = lourd.indexOf('raceActive(Date.now())'), v = lourd.indexOf('raceLock().locked'), r = lourd.indexOf('runHeavy(');
+  assert.ok(a >= 0 && v > a && r > v, 'course, puis verrou du jour, puis le passage');
+  assert.match(lourd, /Course en cours : téléchargement après la course/); assert.match(lourd, /Journée de régate : téléchargement au retour au port/);
+  assert.match(lourd, /SYNC\.off/);
+  assert.match(geste, /runHeavyNow\(\{ only: rid, manuel: true \}\)/); assert.match(geste, /SYNC\.off/);
+  assert.match(app, /\$\$\('\[data-rg-dl\]', el\)\.forEach/);
+  assert.match(app, /local: LOCAL\?\.traces \?\? null, daysLocal: LOCAL\?\.days \?\? null, me: who\(\)/);
 });

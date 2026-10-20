@@ -1491,6 +1491,7 @@ async function renderTracks() {
     importGpx(files).catch((err) => { report('import', err); toast('Import impossible : ' + (err?.message || err)); });
   };
   if (traceView) renderTraceDetail();
+  refreshLocal();
 }
 // Régate qui garde la référence de cette trace (null : trace sans régate)
 const regOfTrace = (id) => REG.list.find((r) => (r.traces || []).some((x) => x.id === id)) || null;
@@ -1832,9 +1833,34 @@ async function syncNow(reason) {
   } catch (e) { report('archive', e); } finally { syncBusy = false; syncCtl = null; paintSync(); }
   if (leger) runHeavyNow().catch((e) => report('archive', e));            // objets lourds : seulement après une synchronisation légère réussie
 }
+// Geste « Télécharger pour le hors réseau » : tout ce qui manque à CETTE régate, sans tenir compte de l'horizon de 180 jours ; la course et le verrou du jour passent avant
+async function telecharger(rid, btn) {
+  if (SYNC.off) { toast('Synchronisation désactivée sur ce téléphone'); return; }
+  if (!net.online) { toast('Hors réseau : à faire dès le retour du réseau'); return; }
+  if (heavyBusy) { toast('Un échange est déjà en cours : patientez un instant'); return; }
+  if (btn) { btn.disabled = true; btn.textContent = 'Téléchargement…'; }
+  try {
+    const res = await runHeavyNow({ only: rid, manuel: true });
+    if (!res) { if (btn && btn.isConnected) { btn.disabled = false; btn.textContent = 'Télécharger pour le hors réseau'; } return; }
+    toast(res.error ? 'Téléchargement interrompu : réessayez plus tard' : res.storage ? 'Espace insuffisant sur ce téléphone : rien de plus n’est téléchargé' : res.capped ? 'Plafond du jour atteint : suite demain' : res.down ? `${res.down} élément${res.down > 1 ? 's' : ''} téléchargé${res.down > 1 ? 's' : ''}` : 'Rien de plus à télécharger pour le moment');
+  } catch (e) { report('archive', e); toast('Téléchargement impossible : ' + (e?.message || e)); }
+}
 // Objets lourds (ARCH-03) : vent figé du jour, traces et rapports. js/archheavy.js se charge à la première fois (jamais à l'ouverture).
 // D-03 : ni pendant une course ni pendant la journée de régate (jusqu'au retour au port), vérifié avant le passage et entre deux objets.
 let heavyMod = null, heavyBusy = false;
+// Ce qui est lisible hors réseau sur CE téléphone, pour la fiche : identifiants des traces locales et jours de vent dont les copies sont là.
+// null tant que la base n'a pas été lue (la fiche ne dit alors rien de l'état). Relu par renderTracks et après chaque passage lourd.
+let LOCAL = null;
+async function refreshLocal() {
+  try {
+    const traces = new Set((await listTracks()).map((t) => t.id)), days = new Set();
+    for (const r of REG.list) for (const d of Object.keys(r.frozen || {})) if ((await getSlot(slotKey(r.id, d, 'wx'))) != null) days.add(`${r.id}|${d}`);
+    const nouveau = { traces, days };
+    const meme = LOCAL && LOCAL.traces.size === traces.size && LOCAL.days.size === days.size && [...traces].every((x) => LOCAL.traces.has(x)) && [...days].every((x) => LOCAL.days.has(x));
+    LOCAL = nouveau;
+    if (!meme) refreshSheet();
+  } catch (e) { report('archive', e); /* bases illisibles : la fiche ne dit rien de l'état local */ }
+}
 function heavyDeps() {
   return {
     now: Date.now, meta: SYNC, saveMeta: saveSync, getList: () => REG.list,
@@ -1854,7 +1880,7 @@ async function runHeavyNow({ only = null, manuel = false } = {}) {
     heavyMod ||= await import('./archheavy.js');
     res = await heavyMod.runHeavy(heavyDeps(), { only });
     note('archive', `lourds : ${res.up} envoyé(s), ${res.down} reçu(s)${res.skipped ? ' · reporté : ' + res.skipped : ''}${res.error ? ' · échec : ' + res.error : ''}`);
-    if (res.up || res.down) { renderTracks(); refreshSheet(); }
+    if (res.up || res.down) { renderTracks(); refreshLocal(); }
     if (!res.error && !res.skipped && !SYNC.persisted) {                              // une fois : demander au navigateur de ne pas purger les données de l’app (iOS)
       SYNC.persisted = true; saveSync();
       try { await navigator.storage?.persist?.(); } catch { /* refusé ou indisponible : sans effet */ }
@@ -1934,7 +1960,7 @@ function renderIC() {
     <div class="small muted" id="rgSync" hidden></div>
     <div class="btns" style="margin:6px 0 0"><button type="button" class="btn small alt" id="rgSyncBtn"${SYNC.off ? ' disabled' : ''}>Synchroniser</button><button type="button" class="btn small alt" id="rgSyncOff">${SYNC.off ? 'Réactiver la synchronisation' : 'Désactiver la synchronisation'}</button>${tip(SYNC_TIP)}</div></div>`;
   if (rgDraft) html += newRegattaFormHTML(rgDraft, rgErr);
-  html += sheetHTML(cur, { now, courses: courseList(), raceDraft, raceErrors: raceErr, markFix, nmOf: fmtNm });
+  html += sheetHTML(cur, { now, courses: courseList(), raceDraft, raceErrors: raceErr, markFix, nmOf: fmtNm, local: LOCAL?.traces ?? null, daysLocal: LOCAL?.days ?? null, me: who() });
   if (icDraft) html += reviewHTML(icDraft, icChecks(), { ia: iaState(), isLand: T ? (x, y) => T.isLand(x, y) : undefined });
   html += `<div class="card"><h3>Instructions de course <small>${cur?.ic ? 'validées' : 'à importer'}</small></h3>
     <div class="btns" style="margin:0 0 6px"><label class="btn acc small" for="icFile" style="cursor:pointer">＋ Importer des IC (PDF)</label><button class="btn alt small" id="evEdit">Modifier</button></div>
@@ -2009,6 +2035,7 @@ function renderIC() {
     if (b.dataset.c !== '1') { b.dataset.c = '1'; b.textContent = 'Détacher ?'; return; }
     saveReg(upsertRegatta(REG, detachTrace(cur, b.dataset.trx))); renderIC(); if (traceView) renderTraceDetail(); toast('Trace détachée de la régate');
   }));
+  $$('[data-rg-dl]', el).forEach((b) => b.addEventListener('click', () => telecharger(b.dataset.rgDl, b)));       // « Télécharger pour le hors réseau » (geste)
   bindRegMarks(el, cur);
   $('#evEdit').onclick = () => { icDraft = reviewFromRegatta(cur); renderIC(); $('#icReview')?.scrollIntoView({ behavior: 'smooth' }); };
   $('#evDel')?.addEventListener('click', (e) => { if (e.target.dataset.c !== '1') { e.target.dataset.c = '1'; e.target.textContent = 'Confirmer la suppression'; return; } icDraft = null; saveReg(removeRegatta(REG, cur.id)); afterRegChange(); });

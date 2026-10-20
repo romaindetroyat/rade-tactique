@@ -61,8 +61,10 @@ async function ouvreContexte(browser, { heure }) {
 function ouvrePage(ctx) {
   const erreurs = [];
   return ctx.newPage().then((page) => {
-    page.on('pageerror', (e) => erreurs.push(e.message));
-    page.on('console', (m) => { if (m.type() === 'error' && !/Failed to load resource|net::ERR/.test(m.text())) erreurs.push(m.text()); });
+    // bruits attendus du cadre sandboxé du rapport (aucun script, origine opaque) : l'init de l'outil (horloge, accueil) y est refusée par le navigateur ; ils ne viennent pas de l'app
+    const BRUIT = /Failed to load resource|net::ERR|Failed to read the 'serviceWorker'.*sandboxed|Blocked script execution in 'about:srcdoc'/;
+    page.on('pageerror', (e) => { if (!BRUIT.test(e.message)) erreurs.push(e.message); });
+    page.on('console', (m) => { if (m.type() === 'error' && !BRUIT.test(m.text())) erreurs.push(m.text()); });
     return { page, erreurs };
   });
 }
@@ -1407,7 +1409,7 @@ async function attendre(cond, quoi, delai = 40000) {
 }
 const lireTraceLocale = (page, id) => page.evaluate((i) => new Promise((ok, ko) => {
   const r = indexedDB.open('rade-traces', 1);
-  r.onsuccess = () => { const q = r.result.transaction('tracks').objectStore('tracks').get(i); q.onsuccess = () => ok(q.result ? { id: q.result.id, n: q.result.pts.length, report: q.result.report ?? null } : null); q.onerror = () => ko(q.error); };
+  r.onsuccess = () => { const q = r.result.transaction('tracks').objectStore('tracks').get(i); q.onsuccess = () => ok(q.result ? { id: q.result.id, name: q.result.name, n: q.result.pts.length, report: q.result.report ?? null } : null); q.onerror = () => ko(q.error); };
   r.onerror = () => ko(r.error);
 }), id);
 // Pose un rapport dans la trace locale (même base que l'app) ; la référence de la fiche suit quand l'équipier ouvre la trace (syncRef)
@@ -1471,9 +1473,39 @@ async function archiveHors({ browser, base }) {
   assert.equal(B.requetes.filter((x) => x === 'PUT').length, envoisB, 'B n’a rien renvoyé');
   assert.equal(m.blob.ops.log.filter((o) => o.op === 'put').length, puts, 'aucune écriture en ligne de plus');
   // Chromium consigne le script bloqué du rapport piégé (preuve du bac à sable) et Playwright, en mode « service worker bloqué », se plaint dans le cadre sandboxé : deux bruits attendus
-  const hors = (e) => e.filter((x) => !/Blocked script execution|Failed to read the 'serviceWorker'.*sandboxed/.test(x));
-  sansErreur(hors(A.erreurs), 'sur A'); sansErreur(hors(B.erreurs), 'sur B');
+  // « Mes traces » de B liste la trace reçue (nom, date, points) ; importer le même GPX une seconde fois ne la double pas
+  await B.page.click('#rpClose');
+  await ongletTraces(B.page);
+  const lignes = (await B.page.locator('section[data-tab=tracks] .trow').allTextContents()).map((x) => x.replace(/\s+/g, ' '));
+  assert.equal(lignes.length, 1, `une seule trace chez B : ${lignes}`);
+  assert.ok(lignes[0].includes(tb.name), `nom de la trace reçue : ${lignes[0]}`);
+  assert.match(lignes[0], /18\/10\/2026/); assert.match(lignes[0], /9538 points/);
+  await B.page.setInputFiles('#gpxIn', GPX_SNPM);
+  await toastVu(B.page, 'Déjà importée', 30000);
+  await B.page.waitForTimeout(1000);
+  assert.equal((await lireTraces(B.page)).length, 1, 'toujours une seule trace en base chez B'); assert.equal((await regateCourante(B.page)).traces.length, 1, 'toujours une seule référence');
+  assert.equal(id, (await lireTraces(B.page))[0].id, 'même GPX, même identifiant sur les deux téléphones');
+  sansErreur(A.erreurs, 'sur A'); sansErreur(B.erreurs, 'sur B');
   await A.ctx.close(); await B.ctx.close();
+
+  // 4 bis) une régate de plus de 180 jours reste lisible en version légère ; « Télécharger pour le hors réseau » apporte la trace et le rapport d'un geste
+  m.t = Date.parse('2027-04-20T10:00:00Z');
+  const C = await telephoneArchive(browser, base, m, 'Romain');
+  await synchronise(m, C);
+  await C.page.waitForTimeout(2500);
+  assert.deepEqual(m.lourds.Romain, [], 'hors horizon (184 jours) : rien de lourd tout seul');
+  await ongletIC(C.page);
+  await C.page.waitForSelector('#rgSheet .rgtr', { timeout: 20000 });
+  await C.page.waitForSelector('#rgSheet [data-rg-dl]', { timeout: 20000 });
+  assert.match(await C.page.locator('#rgSheet .rgtr').first().textContent(), /en ligne seulement/);
+  assert.equal(await C.page.locator('#rgSheet .rgtr [data-trv]').count(), 0, 'pas de lecture d’une trace qui n’est pas là');
+  assert.match(await C.page.locator('#rgSheet .rgtr').first().textContent(), /\d+,\d Nq/, 'mais son résumé se lit déjà (version légère)');
+  await C.page.click('#rgSheet [data-rg-dl]');
+  await attendre(async () => (await lireTraceLocale(C.page, id))?.report, 'trace et rapport téléchargés par le geste');
+  await C.page.waitForFunction(() => /sur ce téléphone/.test(document.querySelector('#rgSheet .rgtr')?.textContent || '') && !document.querySelector('#rgSheet [data-rg-dl]'), null, { timeout: 20000 });
+  assert.deepEqual(m.lourds.Romain, ['GET trace', 'GET report']);
+  sansErreur(C.erreurs, 'sur C (régate ancienne)');
+  await C.ctx.close();
 
   // 5) vent figé du jour : A le fige le jour de la régate (signal à 10:55, il est 10:00) ; pendant la journée de régate (verrou) rien de lourd ne part ;
   //    le lendemain à 08:00 il part ; B, qui ouvre l'app après, le reçoit et le lit réseau coupé

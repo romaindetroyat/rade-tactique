@@ -147,7 +147,8 @@ export function fromGPX(text, name) {
   const trkName = doc.querySelector('trk > name')?.textContent?.trim();
   // coupures : début de chaque <trkseg> après un trou de plus de 5 s, ou trou de plus de 2 min (js/segments.js)
   const brk = breaksFromInstants(pts, segStartsFromDoc(doc));
-  return { id: 'tr' + pts[0][0] + Math.round(Math.random() * 1000), name: trkName || name.replace(/\.(gpx|xml|txt)$/i, ''), start: pts[0][0], course: null, pts, brk, imported: true };
+  // identifiant déterministe (même fichier = même trace, sur n'importe quel téléphone : l'archive partagée ne la garde qu'une fois) ; les traces déjà enregistrées gardent le leur
+  return { id: 'tr' + pts[0][0] + '-' + pts.length, name: trkName || name.replace(/\.(gpx|xml|txt)$/i, ''), start: pts[0][0], course: null, pts, brk, imported: true };
 }
 export async function exportGPX(tr) {
   const file = new File([toGPX(tr)], `${tr.name.replace(/[^\w\- ]+/g, '_')}.gpx`, { type: 'application/gpx+xml' });

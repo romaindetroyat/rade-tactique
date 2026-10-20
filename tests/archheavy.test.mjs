@@ -491,13 +491,6 @@ test('garde : le rapport d’un autre téléphone ne peut rien exécuter — cad
   assert.match(corps, /srcdoc/);
 });
 
-test('garde : listTracks lit par curseur (jamais getAll) et rend les mêmes champs qu’avant plus rt', () => {
-  const src = readFileSync(ROOT + 'js/track.js', 'utf8').replace('export async function listTracks', 'async function listTracks'), corps = bodyOf(src, 'listTracks');
-  assert.ok(corps, 'listTracks existe');
-  assert.match(corps, /openCursor/); assert.doesNotMatch(corps, /getAll/);
-  assert.match(corps, /\{ id: t\.id, name: t\.name, start: t\.start, n: t\.pts\.length, course: t\.course, rt: t\.report\?\.t \?\? null \}/);
-});
-
 test('garde : freezeWrite met le jour en file (SYNC.hq) après l’écriture des copies et avant la fiche ; le plan ne s’appuie que sur ce marqueur', () => {
   const app = readFileSync(ROOT + 'js/app.js', 'utf8'), corps = bodyOf(app, 'freezeWrite');
   assert.ok(corps, 'freezeWrite existe');

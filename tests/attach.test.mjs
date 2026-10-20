@@ -9,6 +9,7 @@ import { fromGPX } from '../js/track.js';
 import { parseHTML } from 'linkedom';
 import * as ATT from '../js/attach.js';           // lu aussi par espace de noms (traceSummary, setTraceReport, setTraceSummary) : un module incomplet échoue sur « is not a function »
 import { sheetHTML } from '../js/regview.js';
+import { bodyOf } from './helpers/scan.mjs';
 const { trackDay, matchRegattas, raceOfTrack, sameTrack, attachTrace, detachTrace } = ATT;
 
 const t = (s) => Date.parse(s);
@@ -116,9 +117,29 @@ test('doublon : même début et même nombre de points → la trace existante es
   assert.equal(sameTrack(liste, { start: snpm.start, pts: snpm.pts.slice(1) }), null, 'même début mais autre nombre de points : une autre trace');
   assert.equal(sameTrack(liste, { start: snpm.start + 1000, pts: snpm.pts }), null);
   assert.equal(sameTrack([], snpm), null);
-  // le même fichier lu deux fois donne des identifiants différents (aléa) mais reste reconnu
+  // le même fichier lu deux fois : même identifiant (déterministe) et reconnu comme doublon
   const encore = fromGPX(fixture('coupe-snpm-2026-10-18.gpx'), 'copie.gpx');
   assert.ok(sameTrack([{ id: snpm.id, name: snpm.name, start: snpm.start, n: snpm.pts.length }], encore));
+});
+
+test('identifiant déterministe (Pitfall 8) : le même GPX lu deux fois donne la même trace, deux fichiers différents deux identifiants', () => {
+  const a = fromGPX(fixture('coupe-snpm-2026-10-18.gpx'), 'a.gpx'), b = fromGPX(fixture('coupe-snpm-2026-10-18.gpx'), 'b.gpx');
+  assert.equal(a.id, b.id);
+  assert.equal(a.id, `tr${a.pts[0][0]}-${a.pts.length}`, 'tr + premier instant + - + nombre de points');
+  assert.equal(a.id, `tr${snpm.start}-9538`);
+  const gpx = (t0, n) => `<?xml version="1.0"?><gpx version="1.1" xmlns="http://www.topografix.com/GPX/1/1"><trk><trkseg>${Array.from({ length: n }, (_, i) => `<trkpt lat="43.07" lon="${5.9 + i * 1e-4}"><time>${new Date(t0 + i * 2000).toISOString()}</time></trkpt>`).join('')}</trkseg></trk></gpx>`;
+  const x = fromGPX(gpx(Date.UTC(2026, 10, 7, 9), 10), 'x.gpx'), y = fromGPX(gpx(Date.UTC(2026, 10, 7, 9), 12), 'y.gpx'), z = fromGPX(gpx(Date.UTC(2026, 10, 7, 10), 10), 'z.gpx');
+  assert.equal(new Set([x.id, y.id, z.id]).size, 3, 'autre nombre de points ou autre début : autre trace');
+  assert.equal(fromGPX(gpx(Date.UTC(2026, 10, 7, 9), 10), 'copie.gpx').id, x.id);
+});
+
+test('garde : listTracks lit par curseur (jamais getAll), un enregistrement à la fois, et rend les mêmes champs qu’avant plus rt', () => {
+  const src = readFileSync(ROOT + 'js/track.js', 'utf8').replace('export async function listTracks', 'async function listTracks'), corps = bodyOf(src, 'listTracks');
+  assert.ok(corps, 'listTracks existe');
+  assert.match(corps, /openCursor/); assert.doesNotMatch(corps, /getAll/);
+  assert.match(corps, /cur\.continue\(\)/, 'un enregistrement après l’autre');
+  assert.match(corps, /\{ id: t\.id, name: t\.name, start: t\.start, n: t\.pts\.length, course: t\.course, rt: t\.report\?\.t \?\? null \}/);
+  assert.match(corps, /sort\(\(a, b\) => b\.start - a\.start\)/, 'tri inchangé : la plus récente d’abord');
 });
 
 test('rattachement : une référence (id, name, start, n, by, at), une seule même posée deux fois, régates d’entrée intactes', () => {
