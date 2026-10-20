@@ -2,11 +2,12 @@
 // Le modèle OpenAI ne s'appuie que sur le texte officiel des RRS 2025-2028 (api/_rrs.js) et sur les IC CVAT ;
 // chaque citation anglaise renvoyée est vérifiée mot pour mot dans ce texte avant d'être affichée.
 // Variables d'environnement : OPENAI_API_KEY, OPENAI_MODEL (défaut gpt-5.5).
+// L'appel à OpenAI, le quota par équipier et les erreurs passent par api/_ia.js ; `createHandler({ openai, blob, now })` accepte un client et un
+// faux Blob simulés (tests, aucun réseau).
 
-import OpenAI from 'openai';
 import RRS from './_rrs.js';
+import { createIA } from './_ia.js';
 
-let client = null; // créé à la première requête : sans clé, le constructeur lèverait une erreur au chargement
 const MODEL = process.env.OPENAI_MODEL || 'gpt-5.5';
 
 const CVAT = `Instructions de course habituelles du CVAT (Toulon), qui modifient les RRS :
@@ -61,28 +62,32 @@ const norm = (s) => String(s).replace(/[’‘]/g, "'").replace(/[“”]/g, '"'
 const CORPUS = norm(RRS);
 const verbatim = (en) => { const n = norm(en).replace(/^["«\s]+|["»\s]+$/g, ''); return n.length > 20 && CORPUS.includes(n); };
 
-export default async function handler(req, res) {
-  if (req.method !== 'POST') return res.status(405).json({ error: 'POST uniquement' });
-  if (!process.env.OPENAI_API_KEY) return res.status(503).json({ error: 'no_key' });
-  const question = String(req.body?.question || '').trim().slice(0, 1500);
-  if (!question) return res.status(400).json({ error: 'question manquante' });
-  const history = (Array.isArray(req.body?.history) ? req.body.history : []).slice(-6)
-    .map((h) => ({ role: h.role === 'assistant' ? 'assistant' : 'user', content: String(h.content || '').slice(0, 1500) }))
-    .filter((h) => h.content);
-  try {
-    client ??= new OpenAI();
-    const response = await client.responses.create({
-      model: MODEL,
-      instructions: SYSTEM,
-      input: [...history, { role: 'user', content: question }],
-      reasoning: { effort: 'low' },
-      text: { format: { type: 'json_schema', name: 'arbitre', schema: SCHEMA, strict: true } },
-    });
-    const out = JSON.parse(response.output_text);
-    out.regles = (out.regles || []).map((r) => ({ ...r, verifie: verbatim(r.en) }));
-    return res.status(200).json(out);
-  } catch (err) {
-    const status = err instanceof OpenAI.APIError ? err.status || 502 : 500;
-    return res.status(status).json({ error: String(err.message || err).slice(0, 300) });
-  }
+export function createHandler({ openai, blob, now, delai } = {}) {
+  const ia = createIA({ openai, blob, now, delai });
+  return async function handler(req, res) {
+    if (req.method !== 'POST') return res.status(405).json({ error: 'POST uniquement' });
+    if (!process.env.OPENAI_API_KEY) return res.status(503).json({ error: 'no_key' });
+    const question = String(req.body?.question || '').trim().slice(0, 1500);
+    if (!question) return res.status(400).json({ error: 'question manquante' });
+    const history = (Array.isArray(req.body?.history) ? req.body.history : []).slice(-6)
+      .map((h) => ({ role: h.role === 'assistant' ? 'assistant' : 'user', content: String(h.content || '').slice(0, 1500) }))
+      .filter((h) => h.content);
+    if (!(await ia.garde(req, res))) return;
+    try {
+      const response = await ia.appelle({
+        model: MODEL,
+        instructions: SYSTEM,
+        input: [...history, { role: 'user', content: question }],
+        reasoning: { effort: 'low' },
+        text: { format: { type: 'json_schema', name: 'arbitre', schema: SCHEMA, strict: true } },
+      });
+      const out = JSON.parse(response.output_text);
+      out.regles = (out.regles || []).map((r) => ({ ...r, verifie: verbatim(r.en) }));
+      return res.status(200).json(out);
+    } catch (err) {
+      return ia.repond(res, err);
+    }
+  };
 }
+
+export default createHandler();

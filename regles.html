@@ -706,7 +706,8 @@ a { color: var(--sea); }
     try {
       const r = await fetch('api/rules', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ question: q, history }) });
       const a = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(a.error === 'no_key' ? 'L’arbitre n’est pas configuré (clé OpenAI absente).' : 'L’arbitre n’a pas pu répondre. Réessayez dans un instant.');
+      // 429 : quota du jour ou budget du mois, le serveur donne le message en français (affiché par textContent, borné)
+      if (!r.ok) throw new Error(a.error === 'no_key' ? 'L’arbitre n’est pas configuré (clé OpenAI absente).' : r.status === 429 && typeof a.message === 'string' && a.message.trim() ? a.message.trim().slice(0, 300) : 'L’arbitre n’a pas pu répondre. Réessayez dans un instant.');
       wait.innerHTML = render(a);
       wait.querySelector('.say-btn').onclick = () => speak(`${a.verdict.replace(/[.\s]+$/, '')}. ${a.explication}${a.ic ? '. Instructions de course : ' + a.ic : ''}`);
       history.push({ role: 'user', content: q }, { role: 'assistant', content: `${a.verdict} ${a.explication}` });

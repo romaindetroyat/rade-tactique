@@ -825,6 +825,7 @@ const importeTexte = async (page, texte, nom = 'ic-autre-club.txt') => {
 
 // Sert POST /api/ic avec la VRAIE fonction serveur (api/ic.js, vérification mot pour mot comprise) et un client OpenAI simulé : aucun réseau, aucune clé réelle.
 // `sortie(texteEnvoye)` rend ce que dirait le modèle. Rend l'état observé : demandes reçues, corps, arguments donnés au client simulé.
+const PRENOM_IA = 'Teiva';                                    // prénom de test posé comme le ferait le middleware
 async function serviaIA(ctx, sortie) {
   const { createHandler } = await import('../api/ic.js');
   process.env.OPENAI_API_KEY ||= 'cle-de-test';
@@ -837,7 +838,8 @@ async function serviaIA(ctx, sortie) {
     const corps = JSON.parse(req.postData() || 'null');
     etat.corps.push(corps); etat.enTetes.push(req.headers());
     const out = { code: 200, body: null, status(c) { out.code = c; return out; }, json(b) { out.body = b; return out; }, setHeader() { return out; } };
-    await handler({ method: req.method(), headers: req.headers(), body: corps }, out);
+    // le middleware pose le prénom de l’équipier sur toute demande /api/ (api/_ia.js ne compte que sous ce prénom)
+    await handler({ method: req.method(), headers: { ...req.headers(), 'x-rt-membre': encodeURIComponent(PRENOM_IA) }, body: corps }, out);
     await route.fulfill({ status: out.code, contentType: 'application/json', body: JSON.stringify(out.body) });
   });
   return etat;
@@ -1015,6 +1017,67 @@ async function iaErreurs({ browser, base }) {
   assert.match(await p3.locator('#rgSheet .rgrace').textContent(), /Manche 1[\s\S]*10:30[\s\S]*parcours à préciser/);
   sansErreur(e3, 'manches lues');
   await ctx3.close();
+}
+
+// SECU2-01 (D-05, D-06, D-07) : l'arbitre de poche borné de bout en bout. Page des règles → VRAIE fonction api/rules.js → faux Blob → client OpenAI simulé.
+// Faux Blob et client simulé : aucune clé réelle, aucun réseau ; on observe ce qui part chez « OpenAI » (store: false) et le compteur du jour.
+async function arbitre({ browser, base }) {
+  const { createHandler } = await import('../api/rules.js');
+  const { cheminQuota, prefix, MESSAGES } = await import('../api/_ia.js');
+  const { createFakeBlob, invoke } = await import('../tests/helpers/fakeblob.mjs');
+  process.env.OPENAI_API_KEY ||= 'cle-de-test';
+  const HEURE = '2026-10-21T08:00:00Z';
+  const blob = createFakeBlob(), appels = [];
+  const verdict = 'B doit s’écarter : il est sous le vent';
+  const client = { responses: { create: async (args) => { appels.push(args); return { status: 'completed', output_text: JSON.stringify({ verdict, explication: 'Bâbord amures doit s’écarter.', regles: [], ic: '', attention: '' }) }; } } };
+  const handler = createHandler({ openai: client, blob, now: () => Date.parse(HEURE) });
+  const chemin = cheminQuota(prefix(), PRENOM_IA, Date.parse(HEURE));
+  const compteur = () => blob.store.get(chemin)?.text;
+
+  const ctx = await ouvreContexte(browser, { heure: HEURE });
+  await ctx.route('**/api/rules', async (route) => {
+    const req = route.request();
+    const r = await invoke(handler, { method: req.method(), url: '/api/rules', body: JSON.parse(req.postData() || 'null'), headers: { 'x-rt-membre': encodeURIComponent(PRENOM_IA) } });
+    await route.fulfill({ status: r.status, contentType: 'application/json', body: JSON.stringify(r.body ?? null) });
+  });
+  const { page, erreurs } = await ouvrePage(ctx);
+  await page.goto(base + 'regles.html', { waitUntil: 'load' });
+  const questionne = async (q) => {
+    await page.fill('#chatIn', q);
+    await page.click('#chatGo');
+    await page.waitForFunction(() => !document.querySelector('#chatGo').disabled, null, { timeout: 15000 });
+  };
+
+  // (a) une question : le verdict s'affiche, OpenAI reçoit store: false, le compteur du jour vaut 1
+  await questionne('Bâbord ou tribord, qui passe ?');
+  await page.waitForSelector('#chatLog .msg.bot .verdict', { timeout: 10000 });
+  assert.equal(await page.locator('#chatLog .msg.bot .verdict').last().textContent(), verdict);
+  assert.equal(appels.length, 1, 'un appel chez OpenAI');
+  assert.equal(appels[0].store, false, 'store: false part avec chaque appel');
+  assert.equal(compteur(), '{"n":1}', 'le compteur de l’équipier vaut 1');
+
+  // (b) 30 appels déjà faits aujourd'hui : le message du quota s'affiche tel quel, sans appel chez OpenAI ni nouvelle écriture
+  await blob.put(chemin, '{"n":30}', { access: 'private', contentType: 'application/json', allowOverwrite: true });
+  const puts = blob.ops.put;
+  await questionne('Et si je suis engagé à la marque ?');
+  assert.equal(await page.locator('#chatLog .msg.err').last().textContent(), 'Limite d’IA du jour atteinte — reprise demain');
+  assert.equal(MESSAGES.quota_equipier, 'Limite d’IA du jour atteinte — reprise demain');
+  assert.equal(appels.length, 1, 'le 31e appel ne part pas chez OpenAI');
+  assert.equal(blob.ops.put, puts, 'ni écriture de plus');
+  assert.equal(compteur(), '{"n":30}');
+
+  // (c) compteur en panne : l'arbitre répond quand même (le serveur écrit un avertissement, capté ici)
+  await blob.put(chemin, '{"n":0}', { access: 'private', contentType: 'application/json', allowOverwrite: true });
+  blob.failNext(new Error('panne du magasin'), { op: 'get' });
+  const avertissements = [], avertir = console.warn;
+  console.warn = (...a) => { avertissements.push(a.join(' ')); };
+  try { await questionne('Et au départ, avant le signal ?'); } finally { console.warn = avertir; }
+  await page.waitForFunction((n) => document.querySelectorAll('#chatLog .msg.bot .verdict').length === n, 2, { timeout: 10000 });
+  assert.equal(appels.length, 2, 'le compteur en panne n’empêche pas l’appel');
+  assert.equal(avertissements.length, 1, 'un avertissement côté serveur');
+  assert.ok(!/Teiva|cle-de-test|Et au départ/i.test(avertissements[0]), 'ni prénom, ni clé, ni texte dans l’avertissement');
+  sansErreur(erreurs, 'pendant le scénario');
+  await ctx.close();
 }
 
 // ───────────────────────── bouées et parcours d'un autre club « à confirmer » (plan 03-07, D-04, REG-04)
@@ -1785,7 +1848,7 @@ async function reprise({ browser, base }) {
   await A.ctx.close(); await B.ctx.close();
 }
 
-const SCENARIOS = { reprise, equipage, archive, 'archive-bouees': archiveBouees, archivehors: archiveHors, creer, manche, auteur, ic, 'depuis-ic': depuisIC, vraisemblance, gel, 'debrief-tardif': debriefTardif, gpx, 'gpx-choix': gpxChoix, ia, 'ia-erreurs': iaErreurs, bouees };
+const SCENARIOS = { reprise, equipage, archive, 'archive-bouees': archiveBouees, archivehors: archiveHors, creer, manche, auteur, ic, 'depuis-ic': depuisIC, vraisemblance, gel, 'debrief-tardif': debriefTardif, gpx, 'gpx-choix': gpxChoix, ia, 'ia-erreurs': iaErreurs, arbitre, bouees };
 
 // ───────────────────────── lancement
 
