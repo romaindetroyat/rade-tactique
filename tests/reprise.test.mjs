@@ -5,7 +5,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { ROOT, fixture } from './helpers/setup.mjs';
-import { fromGPX } from '../js/track.js';
+import { fromGPX, canonicalTraceId } from '../js/track.js';
+import { mergeRegatta } from '../js/archmerge.js';
 import { runReprise } from '../js/reprise.js';
 
 const T0 = Date.parse('2026-10-20T10:00:00Z');
@@ -170,4 +171,109 @@ test('gardes statiques : js/app.js importe reprise.js une seule fois, et seuleme
   assert.equal(/^\s*import\s[^;\n]*from\s+['"]\.\/reprise\.js['"]/m.test(app), false, 'aucun import statique (ouverture FIAB-06)');
   const src = readFileSync(ROOT + 'js/reprise.js', 'utf8');
   for (const mot of ['indexedDB', 'document', 'localStorage']) assert.equal(src.includes(mot), false, `js/reprise.js ne doit pas contenir ${mot}`);
+});
+
+// ───────────────────────── identifiant stable des anciens imports, doublon entre téléphones, rapport annoncé (D-10, D-11)
+// Avant la v31 un GPX importé recevait un identifiant aléatoire : 'tr' + début + un nombre au hasard.
+const STABLE = 'tr' + snpm.start + '-' + snpm.pts.length;
+const ancien = (suffixe, over = {}) => ({ ...clone(snpm), id: 'tr' + snpm.start + suffixe, ...over });
+
+test('canonicalTraceId(fromGPX(GPX SNPM)) est l’identifiant de fromGPX : tr + start + - + 9538', () => {
+  assert.equal(canonicalTraceId(snpm), snpm.id);
+  assert.equal(snpm.id, STABLE);
+  assert.equal(snpm.pts.length, 9538);
+});
+
+test('ancien import à identifiant aléatoire non rangé → enregistré sous l’identifiant stable, ancien effacé, référence stable, renommees 1', async () => {
+  const p = telephone({ traces: [ancien('417')] });
+  const res = await runReprise(p.deps);
+  assert.equal(res.renommees, 1);
+  assert.equal(res.rangees, 1);
+  assert.deepEqual(p.renames, [STABLE], 'saveTrack appelé une fois, sous le nouvel identifiant');
+  assert.deepEqual(p.effaces, ['tr' + snpm.start + '417']);
+  assert.deepEqual([...p.tracks.keys()], [STABLE], 'une seule trace locale, jamais zéro');
+  assert.deepEqual(p.list[0].traces.map((x) => x.id), [STABLE]);
+  assert.equal(p.tracks.get(STABLE).pts.length, 9538, 'tous les points ont suivi');
+});
+
+test('écrire avant d’effacer : saveTrack échoue → l’ancienne trace est intacte, erreur consignée, rien de rangé', async () => {
+  const p = telephone({ traces: [ancien('417')] });
+  p.deps.saveTrack = async () => { throw new Error('quota dépassé'); };
+  const res = await runReprise(p.deps);
+  assert.equal(res.erreurs, 1);
+  assert.equal(res.rangees, 0);
+  assert.deepEqual(p.effaces, [], 'jamais d’effacement sans écriture réussie');
+  assert.ok(p.tracks.has('tr' + snpm.start + '417'));
+});
+
+test('interruption entre l’écriture et l’effacement (les deux identifiants présents) → seul l’ancien est effacé, saveTrack jamais appelé', async () => {
+  const p = telephone({ traces: [ancien('417'), { ...clone(snpm) }] });
+  const res = await runReprise(p.deps);
+  assert.deepEqual(p.renames, [], 'saveTrack non appelé');
+  assert.deepEqual(p.effaces, ['tr' + snpm.start + '417']);
+  assert.deepEqual([...p.tracks.keys()], [STABLE]);
+  assert.equal(p.list[0].traces.length, 1, 'une seule référence');
+  assert.equal(res.rangees, 1);
+});
+
+test('même interruption, ordre inverse dans la liste → le même résultat', async () => {
+  const p = telephone({ traces: [{ ...clone(snpm) }, ancien('417')] });
+  await runReprise(p.deps);
+  assert.deepEqual(p.renames, []);
+  assert.deepEqual([...p.tracks.keys()], [STABLE]);
+  assert.equal(p.list[0].traces.length, 1);
+});
+
+test('trace enregistrée dans l’app (sans imported) → identifiant inchangé, jamais renommée', async () => {
+  const rec = { ...clone(snpm), id: 'tr' + snpm.start, imported: undefined };
+  delete rec.imported;
+  const p = telephone({ traces: [rec] });
+  const res = await runReprise(p.deps);
+  assert.equal(res.renommees, 0);
+  assert.deepEqual(p.renames, []);
+  assert.deepEqual(p.effaces, []);
+  assert.deepEqual(p.list[0].traces.map((x) => x.id), ['tr' + snpm.start]);
+});
+
+test('ancien identifiant déjà référencé (téléphone qui l’avait rangé en v31) → ni renommé, ni rattaché de nouveau', async () => {
+  const old = 'tr' + snpm.start + '82';
+  const ref = { id: old, name: snpm.name, start: snpm.start, n: snpm.pts.length, by: 'Thibaud', at: 1 };
+  const p = telephone({ traces: [ancien('82')], list: [regate({ traces: [ref] })] });
+  const res = await runReprise(p.deps);
+  assert.equal(res.deja, 1);
+  assert.equal(res.renommees, 0);
+  assert.deepEqual(p.renames, []);
+  assert.deepEqual(p.effaces, []);
+  assert.equal(p.saves.length, 0);
+});
+
+test('la régate a déjà une référence de même début et même nombre de points sous un autre identifiant → aucune seconde référence', async () => {
+  const ref = { id: 'tr' + snpm.start + '555', name: snpm.name, start: snpm.start, n: snpm.pts.length, by: 'Thibaud', at: 1 };
+  const p = telephone({ traces: [ancien('417')], list: [regate({ traces: [ref] })] });
+  const res = await runReprise(p.deps);
+  assert.equal(res.deja, 1);
+  assert.equal(res.rangees, 0);
+  assert.equal(p.saves.length, 0);
+  assert.equal(p.list[0].traces.length, 1);
+});
+
+test('le même GPX sous deux identifiants aléatoires sur deux téléphones → même identifiant de référence, la fusion n’en garde qu’une', async () => {
+  const A = telephone({ traces: [ancien('417')] }), B = telephone({ traces: [ancien('82')] });
+  B.deps.who = () => 'Thibaud';
+  await runReprise(A.deps);
+  await runReprise(B.deps);
+  assert.equal(A.list[0].traces[0].id, B.list[0].traces[0].id);
+  const fusion = mergeRegatta(A.list[0], B.list[0]);
+  assert.deepEqual(fusion.traces.map((x) => x.id), [STABLE], 'une seule référence, donc un seul envoi au magasin');
+});
+
+test('rapport local de l’ancienne trace → la référence porte report { t, by } ; sans rapport, pas de champ report', async () => {
+  const t = Date.parse('2026-10-18T15:00:00Z');
+  const avec = telephone({ traces: [ancien('417', { report: { html: '<p>Rapport</p>', t, name: 'Débrief SNPM' } })] });
+  await runReprise(avec.deps);
+  assert.deepEqual(avec.list[0].traces[0].report, { t, by: 'Teiva' });
+  assert.equal(avec.saves.length, 1, 'un seul enregistrement de la régate');
+  const sans = telephone({ traces: [snpm] });
+  await runReprise(sans.deps);
+  assert.equal('report' in sans.list[0].traces[0], false);
 });
