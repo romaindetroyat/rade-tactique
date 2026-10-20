@@ -122,7 +122,7 @@ status: complete
 ## Task Commits
 
 1. **Task 1 (tracer) : v32 sur l'aperçu** : `29001e3` (chore, geste guidé, guide, release v32, porte verte avec `VERCEL_ENV=production`)
-2. **Task 2 (checkpoint:decision, blocking) :** Romain a répondu lui-même « publie » le 2026-10-20. L'heure indiquée par l'orchestrateur est « vers 10 h, heure de Paris » ; les horodatages de Git (tâche 1 à 11:43 Paris, fusion à 11:46 Paris) sont postérieurs, donc l'heure exacte est à prendre avec prudence. Aucun commit.
+2. **Task 2 (checkpoint:decision, blocking) :** Romain a répondu lui-même « publie » le 2026-10-20 vers 11 h 45, heure de Paris, juste avant la fusion de 11 h 46. Aucun commit.
 3. **Task 3 : production** : fusion `3a4fa38` de la PR #6 par l'orchestrateur avec les outils GitHub de la session (aucune poussée locale vers `main`).
 
 **Plan metadata:** commit `docs(05-03)` suivant ce fichier.
@@ -162,7 +162,6 @@ _Tracer : après la tâche 1, `<verify>` a été rejoué de bout en bout (voir c
 
 ## Issues Encountered
 
-- L'heure de la décision de Romain donnée par l'orchestrateur (vers 10 h, Paris) précède les horodatages de la tâche 1 et de la fusion ; elle est consignée telle que reçue, avec cette réserve.
 
 ## Consignes pour Romain (plan, tâche 3, points a à d)
 
