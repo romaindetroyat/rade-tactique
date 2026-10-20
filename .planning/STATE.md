@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 4
 current_phase_name: Archive partagée
 status: executing
-stopped_at: Completed 04-01-PLAN.md
-last_updated: "2026-10-20T04:26:07.031Z"
+stopped_at: Completed 04-02-PLAN.md
+last_updated: "2026-10-20T04:46:13.562Z"
 last_activity: 2026-10-20
 last_activity_desc: Phase 4 execution started
-state_head: fe1f6324ee4dd31115eef303053c6fa0e5d3da53
+state_head: a16f51e219c5645b512a8c18edbd0c4cd7ff0f25
 progress:
   total_phases: 4
   completed_phases: 3
   total_plans: 21
-  completed_plans: 17
+  completed_plans: 18
   percent: 75
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-10-19)
 ## Current Position
 
 Phase: 4 (Archive partagée) — EXECUTING
-Plan: 2 of 5
+Plan: 3 of 5
 Status: Ready to execute
 Last activity: 2026-10-20 — Phase 4 execution started
 
@@ -73,6 +73,7 @@ Progress: [████████░░] 75%
 | Phase 03 P06 | 30 min | 2 tasks | 10 files |
 | Phase 03 P07 | 21 min | 2 tasks | 13 files |
 | Phase 04 P01 | 19 min | 3 tasks | 13 files |
+| Phase 04 P02 | 19 min | 3 tasks | 11 files |
 
 ## Accumulated Context
 
@@ -125,6 +126,7 @@ Décisions récentes qui orientent le travail en cours :
 - [Phase 04]: 04-01 : le cookie du code d'accès n'est pas transmis aux fonctions /api/ ; x-rt-membre (prénom encodé) remplace celui du navigateur pour toute écriture de /api/ (majuscules, %61pi)
 - [Phase 04]: 04-01 : la copie trash/ est écrite avant que la régate quitte le document ; une ancienne version déjà connue renvoyée par un téléphone en retard garde son auteur et ne change rien au document
 - [Phase 04]: 04-01 : l'état visible de l'archive converge exactement (2 000 scénarios) ; l'historique (hist, h) est un journal au mieux qui converge après quelques échanges
+- [Phase 04]: 04-02 : l'état marqué est la file d'envoi ; denied et outdated en mémoire seulement ; graine SNPM à instant fixe SEED_AT ; legacyStamp avant le premier envoi ; copie rade.regates.v1.bak
 
 ### Pending Todos
 
@@ -149,6 +151,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-10-20T04:26:06.906Z
-Stopped at: Completed 04-01-PLAN.md
+Last session: 2026-10-20T04:46:05.754Z
+Stopped at: Completed 04-02-PLAN.md
 Resume file: None

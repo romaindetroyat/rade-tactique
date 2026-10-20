@@ -136,14 +136,14 @@ Plans:
   3. Sans code d'accès, aucune régate, trace, fiche ni aucun rapport de l'archive n'est lisible, quelle que soit l'adresse essayée, et le test d'accès de la phase 1 couvre ces nouvelles adresses.
   4. En mode avion, un équipier ouvre les régates récentes déjà synchronisées sur son appareil : fiche, débrief et rapport.
 
-**Plans:** 1/5 plans executed (v30 : plans 01 à 03 ; v31 : plans 04 et 05)
+**Plans:** 2/5 plans executed (v30 : plans 01 à 03 ; v31 : plans 04 et 05)
 
 Plans:
 **Wave 1**
 - [x] 04-01-PLAN.md — Serveur de l'archive : fusion par éléments (`js/archmerge.js`), `api/archive.js` sur Vercel Blob privé (`@vercel/blob` 2.8.0), auteur posé par le middleware (`x-rt-membre`), test d'accès étendu (vague 1)
 
 **Wave 2** *(blocked on Wave 1 completion)*
-- [ ] 04-02-PLAN.md — Synchronisation des régates sur le téléphone : `saveReg` marque, « Synchroniser », hors réseau sans perte ni doublon, rien pendant une course, première synchronisation de l'existant (vague 2)
+- [x] 04-02-PLAN.md — Synchronisation des régates sur le téléphone : `saveReg` marque, « Synchroniser », hors réseau sans perte ni doublon, rien pendant une course, première synchronisation de l'existant (vague 2)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 - [ ] 04-03-PLAN.md — Recalages de bouées partagés (D-05), historique de la fiche, indicateur et interrupteur, guide, v30 sur l'aperçu `apercu-phase-04` (vague 3)
@@ -164,4 +164,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | 1. Mises en ligne sans risque | 4/4 | Complete    | 2026-10-19 |
 | 2. Fiable et juste en mer | 5/5 | Complete    | 2026-10-19 |
 | 3. Ouvrir une régate | 7/7 | Complete    | 2026-10-19 |
-| 4. Archive partagée | 1/5 | In Progress | - |
+| 4. Archive partagée | 2/5 | In Progress | - |
