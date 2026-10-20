@@ -98,7 +98,7 @@ Aucun nouveau paquet. Tout se fait avec l'existant :
 ### Supporting
 | Library | Version | Purpose | When to Use |
 |---------|---------|---------|-------------|
-| `tools/regate-e2e.mjs` + Playwright 1.56.1 | module trouvé dans `/opt/node-tools/node_modules/playwright` ; **aucun Chromium installé ici** (`~/.cache/ms-playwright` absent, `PW_CHROMIUM` vide) | Scénarios de bout en bout (nouveau scénario `reprise`, extension de `ia-erreurs`) | Mesure exigée par `PW_REQUIRED=1` ; si Chromium manque dans l'environnement d'exécution, c'est un échec de sortie 2, pas une mesure sautée. |
+| `tools/regate-e2e.mjs` + Playwright 1.56.1 | module trouvé dans `/opt/node-tools/node_modules/playwright` ; **Chromium présent dans /opt/pw-browsers (trouvé par tools/pw.mjs ; `PW_REQUIRED=1 node tools/regate-e2e.mjs gel` vert le 2026-10-20)** | Scénarios de bout en bout (nouveau scénario `reprise`, extension de `ia-erreurs`) | Mesure exigée par `PW_REQUIRED=1` ; si Chromium manque dans l'environnement d'exécution, c'est un échec de sortie 2, pas une mesure sautée. |
 
 ### Alternatives Considered
 | Instead of | Could Use | Tradeoff |
@@ -432,16 +432,17 @@ Le chiffre « de l'ordre de 2 000 opérations avancées par mois » de D-06 est 
 | A8 | « Enforce a hard limit » coupe réellement l'API malgré les retours de la communauté de 2025-2026 | Plafond | Le plafond de 10 $ ne protège pas : le quota de 30 appels/jour reste le seul frein ; contrôle de coupure facultatif au geste 8. |
 | A9 | Les 3 téléphones lancent la v32 avant le 7 novembre et hors verrou | Pitfall 4 | Rattrapage reporté ; les traces anciennes ne sont partagées qu'après (pas de perte). |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Les traces enregistrées dans l'app après le rattrapage resteront-elles sans régate ?**
    - What we know : l'arrêt de l'enregistrement ne fait que `toast` + `renderTracks()` (`js/app.js:1205`, `:1246`) ; seul le geste « Ranger… » (`#trPlace`) ou un import GPX les range.
    - What's unclear : si Romain veut que les futures traces enregistrées dans l'app se rangent aussi toutes seules (règle `unique`/`heure`, jamais de question). Open GPX Tracker reste la référence (FIAB2-01), donc peu urgent.
    - Recommendation : hors D-01 à D-08 ; ne pas le faire sans décision. Si oui, c'est une ligne : `rangeTrace(tr, { invite: false })` après `recorder.stop()`.
-2. **Quel projet OpenAI porte la clé de Vercel ?** À lire dans *API keys* avant de poser la limite (le plafond ne vaut que pour ce projet).
-3. **Plan Vercel réel (Hobby ou Pro) et usage Blob actuel ?** Conditionne la marge de A1-A3 ; à relever dans *Vercel → Storage → rade-tactique-blob → usage* avant et après le week-end du 7-9 novembre.
-4. **L'aperçu `apercu-phase-05` a-t-il `OPENAI_API_KEY` et le jeton Blob ?** Sans clé, les quatre fonctions répondent 503 `no_key` et les vérifications réelles de `store:false` sont impossibles ; sans jeton Blob, le compteur est ouvert (aucun test du vrai compteur).
-5. **Texte « ne conserve rien » dans le guide de l'équipage ?** Voir Pitfall 6 : à reformuler.
+   - **RESOLVED :** oui, décision D-09 (05-CONTEXT.md), plan 05-01 tâche 3.
+2. **Quel projet OpenAI porte la clé de Vercel ?** À lire dans *API keys* avant de poser la limite (le plafond ne vaut que pour ce projet). **RESOLVED :** geste guidé de `docs/ia-budget.md` et contrôle humain de 05-03, fait par Romain.
+3. **Plan Vercel réel (Hobby ou Pro) et usage Blob actuel ?** Conditionne la marge de A1-A3 ; à relever dans *Vercel → Storage → rade-tactique-blob → usage* avant et après le week-end du 7-9 novembre. **RESOLVED :** contrôle humain de 05-03 (relevé par Romain) ; le compteur reste ouvert en panne.
+4. **L'aperçu `apercu-phase-05` a-t-il `OPENAI_API_KEY` et le jeton Blob ?** Sans clé, les quatre fonctions répondent 503 `no_key` et les vérifications réelles de `store:false` sont impossibles ; sans jeton Blob, le compteur est ouvert (aucun test du vrai compteur). **RESOLVED :** contrôle humain de 05-03 sur l'aperçu, avant « publie ».
+5. **Texte « ne conserve rien » dans le guide de l'équipage ?** Voir Pitfall 6 : à reformuler. **RESOLVED :** formule imposée « OpenAI ne garde pas les réponses » (D-05 précisée, 05-03 tâche 1).
 
 ## Environment Availability
 
@@ -452,7 +453,7 @@ Le chiffre « de l'ordre de 2 000 opérations avancées par mois » de D-06 est 
 | `VERCEL_ENV=production npm run gate` | D-08 | ✓ | verte avant tout changement | — |
 | Garde SNPM `git diff --quiet f80c365 -- js/courses.js tests/reference/` | D-04 | ✓ | sortie 0 relevée cette session | — |
 | Playwright (module) | scénarios e2e | ✓ | 1.56.1 dans `/opt/node-tools/node_modules/playwright` | — |
-| Chromium pour Playwright | scénarios e2e | ✗ | aucun navigateur installé ici (`~/.cache/ms-playwright` absent, `PW_CHROMIUM` vide) | Définir `PW_CHROMIUM`/`PW_MODULE` vers une installation existante ; sinon `PW_REQUIRED=1` sort en code 2 : le plan doit le dire, pas sauter la mesure |
+| Chromium pour Playwright | scénarios e2e | ✓ | /opt/pw-browsers/chromium (trouvé par `tools/pw.mjs`, scénario `gel` vert avec `PW_REQUIRED=1` le 2026-10-20) | — |
 | OpenAI (clé) / Vercel / Blob réel | vérifications réelles | ✗ | non joignables depuis le bac à sable | Contrôles humains sur l'aperçu |
 | `gh` | draft PR | non testé ici | — | Création manuelle par Romain |
 
