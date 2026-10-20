@@ -136,7 +136,7 @@ Plans:
   3. Sans code d'accès, aucune régate, trace, fiche ni aucun rapport de l'archive n'est lisible, quelle que soit l'adresse essayée, et le test d'accès de la phase 1 couvre ces nouvelles adresses.
   4. En mode avion, un équipier ouvre les régates récentes déjà synchronisées sur son appareil : fiche, débrief et rapport.
 
-**Plans:** 4/5 plans executed (v30 : plans 01 à 03 ; v31 : plans 04 et 05)
+**Plans:** 5/5 plans executed (v30 : plans 01 à 03 ; v31 : plans 04 et 05)
 
 Plans:
 **Wave 1**
@@ -152,7 +152,7 @@ Plans:
 - [x] 04-04-PLAN.md — Objets lourds : vent du jour figé, traces et rapports partagés, lisibles en mode avion, jamais pendant la journée de régate (vague 4)
 
 **Wave 5** *(blocked on Wave 4 completion)*
-- [ ] 04-05-PLAN.md — Trois téléphones de bout en bout, guide de la lecture hors réseau, v31 sur l'aperçu `apercu-phase-04` (vague 5)
+- [x] 04-05-PLAN.md — Trois téléphones de bout en bout, guide de la lecture hors réseau, v31 sur l'aperçu `apercu-phase-04` (vague 5)
 
 ## Progress
 
@@ -164,4 +164,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | 1. Mises en ligne sans risque | 4/4 | Complete    | 2026-10-19 |
 | 2. Fiable et juste en mer | 5/5 | Complete    | 2026-10-19 |
 | 3. Ouvrir une régate | 7/7 | Complete    | 2026-10-19 |
-| 4. Archive partagée | 4/5 | In Progress | - |
+| 4. Archive partagée | 5/5 | In Progress | - |
