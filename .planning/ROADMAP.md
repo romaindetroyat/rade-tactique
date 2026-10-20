@@ -21,7 +21,7 @@ Les phases décimales s'intercalent entre les phases entières qui les entourent
 - [x] **Phase 2: Fiable et juste en mer** - Bips à la seconde, alerte son coupé, voyant d'état, ouverture rapide hors réseau, journal de diagnostic, bouées douteuses signalées et recalables (completed 2026-10-19)
 - [x] **Phase 3: Ouvrir une régate** - Tout équipier crée l'épreuve, ses manches et ses IC relues ; vent du jour figé, fiche de régate, GPX rattaché et débrief lancé (completed 2026-10-19)
 - [x] **Phase 4: Archive partagée** - Régates en ligne, privées, synchronisées entre les appareils de l'équipage et lisibles hors réseau (phase coupable) (completed 2026-10-20)
-- [ ] **Phase 5: Avant la régate : archive amorcée et IA bornée** - Coupe SNPM et données des téléphones versées dans l'archive ; IA en `store: false`, plafond par équipier et plafond de dépense OpenAI (avant le gel du 2 novembre)
+- [x] **Phase 5: Avant la régate : archive amorcée et IA bornée** - Coupe SNPM et données des téléphones versées dans l'archive ; IA en `store: false`, plafond par équipier et plafond de dépense OpenAI (avant le gel du 2 novembre) (completed 2026-10-20)
 
 ## Phase Details
 
@@ -178,7 +178,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
   3. Le plafond de dépense du projet OpenAI est posé côté OpenAI par Romain (geste guidé), et l'app reste utilisable sans l'IA quand il est atteint
   4. v32 sur l'aperçu `apercu-phase-05`, vérifiée, puis en production sur décision de Romain avant le 2 novembre
 
-**Plans:** 3/3 plans executed
+**Plans:** 3/3 plans complete
 
 Plans:
 **Wave 1**

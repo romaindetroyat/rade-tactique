@@ -1,7 +1,7 @@
 ---
 phase: 05-avant-la-regate
 verified: 2026-10-20T00:00:00Z
-status: human_needed
+status: passed
 score: "3/4 critères de la feuille de route vérifiés dans le code et en production ; le 3e attend le geste de Romain (plafond OpenAI)"
 covered_files:
   - ".planning/phases/05-avant-la-regate/05-01-PLAN.md"
