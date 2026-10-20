@@ -480,10 +480,13 @@ async function gel({ browser, base }) {
   const ctx2 = await ouvreContexte(browser, { heure: '2026-10-18T09:30:00Z' });
   const { page: p2, erreurs: e2 } = await ouvrePage(ctx2);
   await ouvreApp(p2, base);
-  await creeRegate(p2, { nom: 'Ouverte trop tard', debut: '2026-10-18', club: 'CVAT' });
-  await ajouteManche(p2, { heure: '10:55', parcours: '5', cls: 'G', tours: '2' });
+  // (l'onglet Régates n'est ouvert qu'après la copie : la fiche doit alors montrer le gel qui a eu lieu fiche fermée — ancien défaut d'affichage « Pas encore figé » corrigé avec icStale)
+  // La régate et sa manche de 10:55 sont posées dans le stockage AVANT l'ouverture de l'app : la première copie voit déjà le signal, donc sans signal ni copie antérieure elle est « tardive »
+  // (créée par l'interface, un tic de gel pouvait tomber entre la création et l'ajout de la manche : copie « signal inconnu », puis « sceau » et non « tardive » — échec une fois sur six)
+  const manche1 = { n: 1, date: '2026-10-18', time: '10:55', courseId: 5, cls: 'G', laps: 2, note: '', by: null, at: 0 };
+  await sème(p2, base, [{ ...regateSemee('tard', 'Ouverte trop tard', '2026-10-18'), races: [manche1] }], 'tard');
   const id2 = (await regateCourante(p2)).id;
-  const t = await attendGel(p2, '2026-10-18', (x) => x.signal === 'manche', 'copie tardive à jour avec le signal de la manche');   // une copie faite avant l’ajout de la manche (signal inconnu) n’est jamais « tardive » : on attend la copie refaite avec le signal
+  const t = await attendGel(p2, '2026-10-18', (x) => x.signal === 'manche', 'copie tardive');
   assert.equal(t.late, true, 'copie marquée tardive'); assert.equal(t.sealed, true, 'et scellée d’emblée');
   assert.ok(await lireSlot(p2, `${id2}|2026-10-18|wx`), 'les prévisions sont tout de même copiées');
   await ongletIC(p2);

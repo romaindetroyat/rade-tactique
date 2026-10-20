@@ -578,3 +578,11 @@ test('aide et guide : « Télécharger pour le hors réseau » a sa bulle, le gu
   // ni code d'accès ni adresse du magasin dans le guide ou les bulles (T-04-31)
   for (const texte of [guide, DL_TIP, SYNC_TIP]) assert.doesNotMatch(texte, /blob\.vercel|vercel-storage|\?acces=|rt_acces|BLOB_READ_WRITE_TOKEN/i);
 });
+
+test('garde : un gel tombé fiche fermée est montré à la prochaine ouverture de l’onglet Régates (icStale), sans redessiner la fiche à chaque changement d’onglet', () => {
+  const app = readFileSync(ROOT + 'js/app.js', 'utf8');
+  assert.match(app, /let freezeBusy = false, freezeAgain = false, freezeFailAt = 0, icStale = false;/);
+  const ecrit = bodyOf(app, 'freezeWrite');
+  assert.match(ecrit, /renderIC\(\);[^\n]*\n\s*else icStale = true;/, 'fiche fermée ou occupée : marquée à redessiner');
+  assert.match(app, /if \(b\.dataset\.tab === 'ic' && icStale && !icBusy\(\)\) \{ icStale = false; renderIC\(\); \}/, 'redessinée une seule fois, à l’ouverture de l’onglet');
+});

@@ -487,6 +487,7 @@ function bindShell() {
     const b = e.target.closest('button'); if (!b) return;
     $$('#tabs button').forEach((x) => x.classList.toggle('on', x === b));
     $$('#content section').forEach((s) => s.classList.toggle('on', s.dataset.tab === b.dataset.tab));
+    if (b.dataset.tab === 'ic' && icStale && !icBusy()) { icStale = false; renderIC(); }
     if (sheet === 'min') setSheet('half');
   });
   bindSheet();
@@ -1308,7 +1309,7 @@ function renderPlan() {
 // toutes les 10 minutes (js/gel.js décide). Ce n’est pas un recalcul automatique : aucune copie ne lance de calcul, elle n’est donc jamais
 // reportée de H−6 min à H+1 min (le sceau tombe justement à H−5 min) et ne passe ni par autoHeavy ni par deferHeavy. Une seule copie à la fois,
 // lancée hors du tour courant ; une base refusée ou pleine est consignée et ne gêne ni l’interface ni le chrono.
-let freezeBusy = false, freezeAgain = false, freezeFailAt = 0;
+let freezeBusy = false, freezeAgain = false, freezeFailAt = 0, icStale = false;     // icStale : un gel est tombé fiche fermée ou occupée ; elle est redessinée à la prochaine ouverture de l’onglet Régates
 const couvre = (d, day) => !!d?.multi?.hourly?.time?.some((t) => String(t).startsWith(day));
 const obsStamp = (obs) => obs.reduce((m, o) => Math.max(m, o.t || 0), 0);
 const obsCopy = (o) => ({ day: o.day, h: o.h, t: o.t, dir: o.dir, spd: o.spd, lat: o.lat, lon: o.lon });
@@ -1355,6 +1356,7 @@ async function freezeWrite({ why, now, day, rid, action, d, ser, obs, slot, ana,
   saveReg(upsertRegatta(REG, { ...cur, frozen: { ...(cur.frozen || {}), [day]: summary } }));
   note('gel', `${action === 'rien' ? (strat ? 'route' : 'relevés') : action} · ${why} · ${obs.length} relevé(s)${strat ? ` · ${strat.legs.length} bords` : ''}`);
   if ($('section[data-tab=ic]')?.classList.contains('on') && !icBusy()) renderIC();     // la fiche, si elle est ouverte, montre le gel qui vient d’avoir lieu
+  else icStale = true;                                                                    // sinon elle dirait « Pas encore figé » à l’ouverture de l’onglet
 }
 // Réglages qui ont servi à calculer l’analyse en cours : figés avec la route conseillée pour pouvoir la recalculer plus tard
 function stratSettings(cls) {
