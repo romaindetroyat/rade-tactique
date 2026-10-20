@@ -1,2 +1,2 @@
 // Généré par tools/stamp.mjs — ne pas modifier à la main.
-export const BUILD = {"n":29,"date":"2026-10-20","label":"v29 · 20/10","note":"lecture IA des IC d’un autre club, bouées à confirmer","critical":false,"id":"d3b8574933"};
+export const BUILD = {"n":30,"date":"2026-10-20","label":"v30 · 20/10","note":"archive partagée : régates et bouées sur les trois téléphones","critical":false,"id":"d3b8574933"};
