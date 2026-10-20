@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 4
 status: completed
 stopped_at: Phase 4 complete — all phases complete
-last_updated: "2026-10-20T07:14:31.421Z"
+last_updated: "2026-10-20T08:24:27.730Z"
 last_activity: 2026-10-20
 last_activity_desc: Phase 4 complete
-state_head: 8d061473a6ba574cff87620ba67c433e3fc630d3
+state_head: 78d4a1d883f65dd259f3279484cef504797597a5
 progress:
-  total_phases: 4
+  total_phases: 5
   completed_phases: 4
   total_plans: 21
   completed_plans: 21
-  percent: 100
+  percent: 80
 ---
 
 # Project State
@@ -31,7 +31,7 @@ Plan: Not started
 Status: All phases complete
 Last activity: 2026-10-20 — Phase 4 complete
 
-Progress: [██████████] 100%
+Progress: [████████░░] 80%
 
 ## Performance Metrics
 
@@ -150,6 +150,10 @@ Décisions récentes qui orientent le travail en cours :
 - Phase 2 : le comportement réel des iPhone (écran verrouillé, GPS, bouton silencieux, dictée en app installée) ne se tranche qu'en essai sur appareil.
 - Phase 4 : plan Vercel (Hobby ou Pro) et consommation Blob à confirmer ; le store Blob privé est à créer par Romain ; vérifier le contrôle d'accès de toutes les nouvelles routes, aperçus compris.
 - Secrets (clé OpenAI, jeton du store Blob, codes d'accès) : jamais dans le dépôt, les journaux ni les tests.
+
+### Roadmap Evolution
+
+- Phase 5 added: Avant la régate : archive amorcée et IA bornée (ARCH2-01, SECU2-01), choix de Romain le 2026-10-20
 
 ## Deferred Items
 
