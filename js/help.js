@@ -9,7 +9,10 @@ const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<
 export const tip = (text) => `<button type="button" class="tip-i" data-tip="${esc(text)}" aria-label="Aide">i</button>`;
 
 // Bulle de l’indicateur de synchronisation (onglet Régates), cohérente avec la carte « Archive partagée » du guide
-export const SYNC_TIP = 'Régates, manches, IC validées, bouées confirmées, recalages des bouées, résumés du vent du jour et références des traces sont partagés avec l’équipage, en privé, jamais pendant une course. « À jour » : tout est échangé. « En attente d’envoi » : une modification part dans la minute. « Hors réseau · n modifications en attente » : elles partiront au retour du réseau. « En pause pendant la course » : rien ne circule pendant un chrono, une trace ou le mode départ. « Archive non configurée » : l’app marche comme avant. « (essai) » : version d’essai. Une valeur écrasée reste dans « Historique » de la fiche. « Désactiver la synchronisation » coupe tout échange sur ce téléphone.';
+export const SYNC_TIP = 'Régates, manches, IC validées, bouées confirmées, recalages des bouées, vent du jour figé, traces, débriefs et rapports sont partagés avec l’équipage, en privé, jamais pendant une course. « À jour » : tout est échangé. « En attente d’envoi » : une modification part dans la minute. « Hors réseau · n modifications en attente » : elles partiront au retour du réseau. « En pause pendant la course » : rien ne circule pendant un chrono, une trace ou le mode départ. « Archive non configurée » : l’app marche comme avant. « (essai) » : version d’essai. Une valeur écrasée reste dans « Historique » de la fiche. « Désactiver la synchronisation » coupe tout échange sur ce téléphone.';
+
+// Bulle du bouton « Télécharger pour le hors réseau » (fiche de régate), cohérente avec la carte « Lire une régate hors réseau » du guide
+export const DL_TIP = 'Les régates des six derniers mois et à venir sont déjà entières sur le téléphone après une synchronisation : fiche, vent du jour, traces, débrief et rapport, lisibles en mode avion. Pour une régate plus ancienne, ce bouton rapatrie d’un geste ses traces, rapports et vent du jour (environ 1 Mo par régate). À faire avec du réseau, hors course : rien de lourd ne circule pendant la journée de régate.';
 
 // Infobulles des éléments fixes de l'interface
 const STATIC_TIPS = {

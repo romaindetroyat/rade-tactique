@@ -166,11 +166,11 @@ export function missingOffline(r, { local = null, daysLocal = null, me = null } 
   return { traces, days };
 }
 export function downloadHTML(r, opts) {
-  const m = missingOffline(r, opts);
+  const m = missingOffline(r, opts), aide = typeof opts?.tipHtml === 'string' ? opts.tipHtml : '';        // aide : bouton « i » déjà construit par l'appelant (help.js)
   if (!m.traces && !m.days) return '';
   const parts = [m.traces ? `${m.traces} trace${m.traces > 1 ? 's' : ''}` : '', m.days ? `${m.days} jour${m.days > 1 ? 's' : ''} de vent figé` : ''].filter(Boolean).join(' et ');
   return `<div class="rgdl"><p class="small muted">Pas encore sur ce téléphone : ${parts} (en ligne seulement).</p>`
-    + `<div class="btns"><button type="button" class="btn small acc" data-rg-dl="${escHTML(r.id)}">Télécharger pour le hors réseau</button></div></div>`;
+    + `<div class="btns"><button type="button" class="btn small acc" data-rg-dl="${escHTML(r.id)}">Télécharger pour le hors réseau</button>${aide}</div></div>`;
 }
 
 // ───────────────────────── bouées et parcours lus dans les IC d’un autre club (D-04, REG-04)
@@ -249,7 +249,7 @@ export function historySectionHTML(r) {
 }
 
 // Fiche de la régate courante : nom, club, dates, statut, auteur, puis les manches (courses = parcours connus [{ id, title }]) et le vent du jour
-export function sheetHTML(r, { now = Date.now(), courses = [], raceDraft = null, raceErrors = {}, markFix = null, nmOf, local = null, daysLocal = null, me = null } = {}) {
+export function sheetHTML(r, { now = Date.now(), courses = [], raceDraft = null, raceErrors = {}, markFix = null, nmOf, local = null, daysLocal = null, me = null, tipHtml = '' } = {}) {
   if (!r) return '<div class="card" id="rgSheet"><p class="small muted">Aucune régate courante : créez-en une ou choisissez-en une dans la liste.</p></div>';
   const races = r.races || [];
   return `<div class="card" id="rgSheet"><h3><span>${escHTML(r.name)}</span><small>${escHTML(r.club || 'club à préciser')}</small></h3>
@@ -260,6 +260,6 @@ export function sheetHTML(r, { now = Date.now(), courses = [], raceDraft = null,
     ${marksSectionHTML(r, { markFix, nmOf })}
     ${windSectionHTML(r, { now, courses })}
     ${tracesSectionHTML(r, { local })}
-    ${downloadHTML(r, { local, daysLocal, me })}
+    ${downloadHTML(r, { local, daysLocal, me, tipHtml })}
     ${historySectionHTML(r)}</div>`;
 }

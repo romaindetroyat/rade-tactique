@@ -483,7 +483,7 @@ async function gel({ browser, base }) {
   await creeRegate(p2, { nom: 'Ouverte trop tard', debut: '2026-10-18', club: 'CVAT' });
   await ajouteManche(p2, { heure: '10:55', parcours: '5', cls: 'G', tours: '2' });
   const id2 = (await regateCourante(p2)).id;
-  const t = await attendGel(p2, '2026-10-18', () => true, 'copie tardive');
+  const t = await attendGel(p2, '2026-10-18', (x) => x.signal === 'manche', 'copie tardive à jour avec le signal de la manche');   // une copie faite avant l’ajout de la manche (signal inconnu) n’est jamais « tardive » : on attend la copie refaite avec le signal
   assert.equal(t.late, true, 'copie marquée tardive'); assert.equal(t.sealed, true, 'et scellée d’emblée');
   assert.ok(await lireSlot(p2, `${id2}|2026-10-18|wx`), 'les prévisions sont tout de même copiées');
   await ongletIC(p2);
@@ -1233,7 +1233,7 @@ async function synchronise(m, tel) {
     await tel.page.click('#rgSyncBtn');                      // sans effet pendant un échange déjà en cours : on retouche
     try { await tel.page.waitForFunction(fait, [m.t], { timeout: 2500, polling: 100 }); return; } catch { /* échange en cours ou refusé : nouvel essai */ }
   }
-  throw new Error(`${tel.nom} : synchronisation non terminée (${await ligneSync(tel.page)})`);
+  throw new Error(`${tel.nom} : synchronisation non terminée (${await ligneSync(tel.page)}) ${JSON.stringify(await syncMeta(tel.page))} m.t=${m.t}`);
 }
 const noms = async (page) => (await lireListe(page)).flatMap((s) => s.groups.flatMap((g) => g.rows.map((r) => r.name)));
 
@@ -1550,7 +1550,146 @@ async function archiveHors({ browser, base }) {
   await A2.ctx.close(); await B2.ctx.close();
 }
 
-const SCENARIOS = { archive, 'archive-bouees': archiveBouees, archivehors: archiveHors, creer, manche, auteur, ic, 'depuis-ic': depuisIC, vraisemblance, gel, 'debrief-tardif': debriefTardif, gpx, 'gpx-choix': gpxChoix, ia, 'ia-erreurs': iaErreurs, bouees };
+// ───────────────────────── l'équipage au complet : trois téléphones, toute la phase 4 d'un seul tenant
+
+const NOM_EQUIPAGE = 'Régate de l’équipage', NOM_SNPM = 'Coupe de la SNPM — CVAT';
+const regateNommee = (page, nom) => page.evaluate((n) => JSON.parse(localStorage.getItem('rade.regates.v1')).list.find((r) => r.name === n) ?? null, nom);
+// Heures, auteurs et nombre d'exemplaires de la régate de l'équipage, tels que gardés sur le téléphone
+const mancheLocales = (page) => page.evaluate((n) => JSON.parse(localStorage.getItem('rade.regates.v1')).list.filter((r) => r.name === n).map((r) => r.races.map((x) => `${x.n}:${x.time}:${x.by}`)), NOM_EQUIPAGE);
+
+// Critères 1, 2 et 4 et D-03 réunis, avec ce que les scénarios archive, archive-bouees et archivehors vérifient séparément : A (Teiva) crée hors réseau,
+// B (Thibaud) et A complètent chacun hors réseau, tout part au retour du réseau sans perte ni doublon et C (Romain) le reçoit ; rien n'est échangé
+// pendant le chrono de A ; C lit ensuite, réseau coupé, la fiche, la trace, le débrief et le rapport faits par A
+async function equipage({ browser, base }) {
+  const m = await mondeArchive();
+  const A = await telephoneArchive(browser, base, m, 'Teiva'), B = await telephoneArchive(browser, base, m, 'Thibaud'), C = await telephoneArchive(browser, base, m, 'Romain');
+  const tous = [A, B, C];
+  const rangee = (page) => page.locator('section[data-tab=ic] .rg', { hasText: NOM_EQUIPAGE });
+  const parti = (tel) => tel.page.waitForFunction(([h]) => { const x = JSON.parse(localStorage.getItem('rade.sync.v1') || '{}'); return x.lastOkAt === h && !Object.keys(x.dirty || {}).length; }, [m.t], { timeout: 30000, polling: 200 });
+  const horsReseau = async (...tels) => { for (const t of tels) { await t.ctx.setOffline(true); await t.page.waitForFunction(() => !navigator.onLine); } };
+  const enLigne = async (...tels) => { for (const t of tels) await t.ctx.setOffline(false); };
+
+  // 0) chaque téléphone a déjà synchronisé une fois en ligne (modules d'échange chargés : sans service worker dans l'outil, un module demandé réseau coupé échouerait pour de bon)
+  for (const t of tous) { await avanceHeure(m, 60e3); await synchronise(m, t); }
+  await A.page.waitForTimeout(1500);
+
+  // 1) A et B hors réseau ; A crée la régate de l'équipage et sa première manche ; le réseau revient chez A, l'envoi part tout seul
+  const serveur0 = { ...m.appels }, vues0 = tous.map((t) => t.requetes.length);
+  await horsReseau(A, B);
+  await creeRegate(A.page, { nom: NOM_EQUIPAGE, debut: '2026-11-14', fin: '2026-11-15', club: 'CVAT' });
+  await ajouteManche(A.page, { heure: '10:55', parcours: '5', cls: 'G', tours: '2' });
+  await A.page.waitForTimeout(1500);
+  assert.equal(A.requetes.length, vues0[0], 'A hors réseau : aucune requête vers /api/archive');
+  assert.equal(m.appels.Teiva, serveur0.Teiva, 'rien n’est arrivé au serveur');
+  await avanceHeure(m, 120e3);
+  await enLigne(A);
+  await parti(A);
+  // B reçoit la régate de A, puis repasse hors réseau (A aussi)
+  await avanceHeure(m, 60e3);
+  await enLigne(B);
+  await synchronise(m, B);
+  assert.deepEqual(await mancheLocales(B.page), [['1:10:55:Teiva']], 'la régate de A et sa manche, signées de A, chez B');
+  await horsReseau(A, B);
+
+  // 2) hors réseau, B ajoute 13:30 et A ajoute 15:00 à la même régate ; aucune requête
+  await B.page.click('#tabs button[data-tab=ic]'); await rangee(B.page).click();
+  await ajouteManche(B.page, { heure: '13:30', parcours: '3', cls: 'P', tours: '1' });
+  await A.page.click('#tabs button[data-tab=ic]'); await rangee(A.page).click();
+  await ajouteManche(A.page, { heure: '15:00', parcours: '5', cls: 'G', tours: '2' });
+  const avantRetour = { A: A.requetes.length, B: B.requetes.length, serveur: { ...m.appels } };
+  await A.page.waitForTimeout(1500);
+  assert.deepEqual([A.requetes.length, B.requetes.length], [avantRetour.A, avantRetour.B], 'aucune requête hors réseau');
+  // retour du réseau sur les deux (l'heure a avancé de plus de 30 s) : l'envoi part de lui-même, puis chacun reçoit ce que l'autre a envoyé
+  await avanceHeure(m, 120e3);
+  await enLigne(A, B);
+  await Promise.all([parti(A), parti(B)]);
+  await avanceHeure(m, 60e3); await synchronise(m, B);
+  await avanceHeure(m, 60e3); await synchronise(m, A);
+  await avanceHeure(m, 60e3); await synchronise(m, C);
+  const attendu = ['1:10:55:Teiva', '2:13:30:Thibaud', '3:15:00:Teiva'];
+  for (const t of tous) {
+    assert.deepEqual(await mancheLocales(t.page), [attendu], `${t.nom} : une seule régate de l’équipage, trois manches, chacune une fois et signée de son auteur`);
+    assert.equal((await noms(t.page)).filter((x) => x === NOM_EQUIPAGE).length, 1, `${t.nom} : une seule ligne dans la liste`);
+    assert.match(await ligneSync(t.page), /^À jour \(essai\)$/, `${t.nom} : ${JSON.stringify(await syncMeta(t.page))}`);
+  }
+  await C.page.click('#tabs button[data-tab=ic]'); await rangee(C.page).click();
+  const lignesC = (await C.page.locator('#rgSheet .rgrace').allTextContents()).map((x) => x.replace(/\s+/g, ' '));
+  assert.equal(lignesC.length, 3, `trois manches dans la fiche de C : ${lignesC}`);
+  assert.ok(/par Thibaud/.test(lignesC[1]) && /par Teiva/.test(lignesC[0]) && /par Teiva/.test(lignesC[2]), `auteurs affichés chez C : ${lignesC}`);
+
+  // 3) D-03 : A lance le chrono, modifie la régate (quatrième manche) et touche « Synchroniser » : rien n'est échangé ; après « Stop », la modification part et arrive chez C
+  const reqA = A.requetes.length, serveurA = m.appels.Teiva;
+  await A.page.click('#tabs button[data-tab=start]'); await A.page.click('#t5');
+  await A.page.click('#tabs button[data-tab=ic]'); await rangee(A.page).click();
+  await ajouteManche(A.page, { heure: '16:20', parcours: '3', cls: 'P', tours: '1' });
+  await A.page.click('#rgSyncBtn');
+  await A.page.waitForFunction(() => /^En pause pendant la course/.test(document.querySelector('#rgSync')?.textContent ?? ''), null, { timeout: 10000 });
+  await avanceHeure(m, 120e3);
+  await A.page.evaluate(() => window.dispatchEvent(new Event('online')));
+  await A.page.waitForTimeout(3500);                          // le déclencheur « online » (+2 s) est passé : il doit avoir été refusé
+  assert.equal(A.requetes.length, reqA, 'aucun appel à /api/archive pendant le chrono de A');
+  assert.equal(m.appels.Teiva, serveurA, 'rien n’est arrivé au serveur pendant le chrono');
+  assert.equal(await ligneSync(A.page), 'En pause pendant la course (essai)');
+  assert.equal((await mancheLocales(C.page))[0].length, 3, 'et C ne voit pas encore la quatrième manche');
+  await A.page.click('#tabs button[data-tab=start]'); await A.page.click('#tstop');
+  await synchronise(m, A);
+  await avanceHeure(m, 60e3); await synchronise(m, C);
+  const apres = ['1:10:55:Teiva', '2:13:30:Thibaud', '3:15:00:Teiva', '4:16:20:Teiva'];
+  assert.deepEqual(await mancheLocales(C.page), [apres], 'la manche ajoutée pendant le chrono arrive chez C après la course');
+  await avanceHeure(m, 60e3); await synchronise(m, B);
+  assert.deepEqual(await mancheLocales(B.page), [apres], 'et chez B');
+
+  // 4) A range la trace de la Coupe SNPM (régate non courante), pose le rapport marqueur, l'analyse, puis tout part : la fiche légère, puis la trace et le rapport
+  await ongletTraces(A.page);
+  await A.page.setInputFiles('#gpxIn', GPX_SNPM);
+  await toastVu(A.page, 'Trace rangée dans Coupe de la SNPM — CVAT');
+  await A.page.waitForSelector('#dqCancel', { timeout: 60000 }); await A.page.click('#dqCancel');
+  const id = (await regateNommee(A.page, NOM_SNPM)).traces[0].id;
+  assert.match(id, /^tr\d+/, 'trace rangée dans la Coupe SNPM');
+  await poseRapport(A.page, id, RAPPORT_TEST);
+  await ongletTraces(A.page);
+  await A.page.click('[data-tv]');
+  await A.page.waitForFunction((n) => { const t = JSON.parse(localStorage.getItem('rade.regates.v1')).list.find((r) => r.name === n)?.traces[0]; return t?.sum && t?.report?.t; }, NOM_SNPM, { timeout: 60000 });
+  await avanceHeure(m, 60e3); await synchronise(m, A);
+  const chemins = [`preview/trace/${id}.json`, `preview/report/${id}-${RAPPORT_TEST.t}.json`];
+  await attendre(() => chemins.every((c) => m.blob.store.has(c)), 'trace et rapport en ligne');
+  assert.equal(chemins.filter((c) => m.blob.ops.log.filter((o) => o.op === 'put' && o.path === c).length > 1).length, 0, 'ni trace ni rapport écrits deux fois');
+
+  // 5) C reçoit (fiche légère, puis objets lourds), coupe le réseau et lit tout sans appel : fiche, trace (carte et analyse), débrief, rapport
+  await avanceHeure(m, 60e3); await synchronise(m, C);
+  await attendre(async () => (await lireTraceLocale(C.page, id))?.report, 'trace et rapport reçus par C');
+  const tc = await lireTraceLocale(C.page, id);
+  assert.equal(tc.n, 9538, 'la trace complète est chez C'); assert.equal(tc.report.name, 'Rapport archive test');
+  await horsReseau(C);
+  const avant = { requetes: C.requetes.length, serveur: m.appels.Romain, puts: C.requetes.filter((x) => x === 'PUT').length, ecritures: m.blob.ops.log.filter((o) => o.op === 'put').length };
+  await C.page.click('#tabs button[data-tab=ic]');
+  await C.page.locator('section[data-tab=ic] .rg', { hasText: 'Coupe de la SNPM' }).click();
+  await C.page.waitForSelector('#rgSheet .rgtr', { timeout: 20000 });
+  const ligne = (await C.page.locator('#rgSheet .rgtr').first().textContent()).replace(/\s+/g, ' ');
+  assert.match(ligne, /\d+,\d Nq · [^·]*actives/, `résumé de la trace chez C : ${ligne}`);
+  assert.match(ligne, /sur ce téléphone/, 'trace lisible sur le téléphone de C');
+  assert.match(ligne, /Débrief par Teiva/, 'le rapport de A, signé de A');
+  await C.page.click('#rgSheet [data-trv]');
+  await C.page.waitForSelector('#traceDetail .kpis', { timeout: 60000 });
+  assert.match(await C.page.locator('#traceDetail').textContent(), /Nq parcourus/, 'l’analyse de la trace de A, chez C');
+  await C.page.click('#tabs button[data-tab=ic]');
+  assert.equal((await C.page.locator('#rgSheet [data-trd]').first().textContent()).trim(), 'Voir le débrief');
+  await C.page.click('#rgSheet [data-trd]');
+  await C.page.waitForFunction(() => /Rapport archive test/.test(document.querySelector('#rpFrame')?.srcdoc || '') && !document.querySelector('#modal')?.hidden, null, { timeout: 20000 });
+  assert.equal(await C.page.evaluate(() => document.querySelector('#rpFrame').getAttribute('sandbox')), '', 'cadre du rapport en sandbox sans permission');
+  await C.page.waitForTimeout(500);
+  assert.deepEqual(await C.page.evaluate(() => [window.__xss ?? null, localStorage.getItem('xss')]), [null, null], 'le script du rapport n’a rien exécuté');
+  assert.equal(C.requetes.length, avant.requetes, 'aucune requête vers /api/archive pendant la lecture hors réseau');
+  assert.equal(m.appels.Romain, avant.serveur, 'rien n’est arrivé au serveur');
+  assert.equal(C.requetes.filter((x) => x === 'PUT').length, avant.puts, 'C n’a rien renvoyé');
+  assert.equal(m.blob.ops.log.filter((o) => o.op === 'put').length, avant.ecritures, 'aucune écriture en ligne de plus');
+  assert.equal((await lireTraces(C.page)).length, 1, 'une seule trace chez C'); assert.equal((await regateNommee(C.page, NOM_SNPM)).traces.length, 1, 'une seule référence');
+  assert.deepEqual(await mancheLocales(C.page), [apres], 'les manches de l’équipage sont toujours lisibles chez C, réseau coupé');
+  for (const t of tous) sansErreur(t.erreurs, `sur ${t.nom}`);
+  for (const t of tous) await t.ctx.close();
+}
+
+const SCENARIOS = { equipage, archive, 'archive-bouees': archiveBouees, archivehors: archiveHors, creer, manche, auteur, ic, 'depuis-ic': depuisIC, vraisemblance, gel, 'debrief-tardif': debriefTardif, gpx, 'gpx-choix': gpxChoix, ia, 'ia-erreurs': iaErreurs, bouees };
 
 // ───────────────────────── lancement
 

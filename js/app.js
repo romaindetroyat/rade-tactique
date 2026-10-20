@@ -20,7 +20,7 @@ import { optimalAngles, boatSpeed, trimAdvice, spiMinTwa, getPolar, setPolar, re
 import { renderJ80 } from './j80.js';
 import { modelPoints, modelAt, idwAt, scoreModels, renderObsCard } from './obs.js';
 import { route } from './router.js';
-import { initTips, maybeWelcome, openGuide, openShare, tip, SYNC_TIP } from './help.js';
+import { initTips, maybeWelcome, openGuide, openShare, tip, SYNC_TIP, DL_TIP } from './help.js';
 import { parseWind, listen, say } from './voice.js';
 import { Recorder, listTracks, getTrack, deleteTrack, saveTrack, analyzeTrack, exportGPX, fromGPX } from './track.js';
 import { shroudsFor } from './tuning.js';
@@ -1960,7 +1960,7 @@ function renderIC() {
     <div class="small muted" id="rgSync" hidden></div>
     <div class="btns" style="margin:6px 0 0"><button type="button" class="btn small alt" id="rgSyncBtn"${SYNC.off ? ' disabled' : ''}>Synchroniser</button><button type="button" class="btn small alt" id="rgSyncOff">${SYNC.off ? 'Réactiver la synchronisation' : 'Désactiver la synchronisation'}</button>${tip(SYNC_TIP)}</div></div>`;
   if (rgDraft) html += newRegattaFormHTML(rgDraft, rgErr);
-  html += sheetHTML(cur, { now, courses: courseList(), raceDraft, raceErrors: raceErr, markFix, nmOf: fmtNm, local: LOCAL?.traces ?? null, daysLocal: LOCAL?.days ?? null, me: who() });
+  html += sheetHTML(cur, { now, courses: courseList(), raceDraft, raceErrors: raceErr, markFix, nmOf: fmtNm, local: LOCAL?.traces ?? null, daysLocal: LOCAL?.days ?? null, me: who(), tipHtml: tip(DL_TIP) });
   if (icDraft) html += reviewHTML(icDraft, icChecks(), { ia: iaState(), isLand: T ? (x, y) => T.isLand(x, y) : undefined });
   html += `<div class="card"><h3>Instructions de course <small>${cur?.ic ? 'validées' : 'à importer'}</small></h3>
     <div class="btns" style="margin:0 0 6px"><label class="btn acc small" for="icFile" style="cursor:pointer">＋ Importer des IC (PDF)</label><button class="btn alt small" id="evEdit">Modifier</button></div>

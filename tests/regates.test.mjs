@@ -562,3 +562,19 @@ test('câblage du téléchargement : le geste respecte la course et le verrou du
   assert.match(app, /\$\$\('\[data-rg-dl\]', el\)\.forEach/);
   assert.match(app, /local: LOCAL\?\.traces \?\? null, daysLocal: LOCAL\?\.days \?\? null, me: who\(\)/);
 });
+
+test('aide et guide : « Télécharger pour le hors réseau » a sa bulle, le guide explique la lecture hors réseau et ne dit plus que traces et rapports restent sur un seul téléphone', async () => {
+  const { DL_TIP, SYNC_TIP, tip } = await import('../js/help.js');
+  const now = t('2026-11-08T10:00:00Z');
+  const r = regate({ id: 'rg1', traces: [refTrace('tr1')] });
+  const doc = rendu(sheetHTML(r, { now, local: new Set(), daysLocal: new Set(), me: 'Thibaud', tipHtml: tip(DL_TIP) }));
+  const bulle = doc.querySelector('.rgdl .tip-i');
+  assert.ok(bulle, 'bulle d’aide à côté du bouton'); assert.equal(bulle.getAttribute('data-tip'), DL_TIP);
+  assert.equal(rendu(sheetHTML(r, { now, local: new Set(), daysLocal: new Set(), me: 'Thibaud' })).querySelector('.rgdl .tip-i'), null, 'sans bulle fournie, rien de plus');
+  assert.match(DL_TIP, /six derniers mois/); assert.match(DL_TIP, /mode avion/); assert.match(SYNC_TIP, /traces, débriefs et rapports/);
+  const guide = readFileSync(ROOT + 'guide.html', 'utf8');
+  for (const motif of [/Lire une régate hors réseau/, /Télécharger pour le hors réseau/, /six derniers mois et à venir/, /mode avion/, /1 Mo par régate/, /sur ce téléphone/, /en ligne seulement/, /écran d’accueil/]) assert.match(guide, motif);
+  assert.doesNotMatch(guide, /sur le téléphone qui les a|restent pour l’instant|viendra avec la version suivante|pas encore partagés/, 'plus de mention d’un partage à venir');
+  // ni code d'accès ni adresse du magasin dans le guide ou les bulles (T-04-31)
+  for (const texte of [guide, DL_TIP, SYNC_TIP]) assert.doesNotMatch(texte, /blob\.vercel|vercel-storage|\?acces=|rt_acces|BLOB_READ_WRITE_TOKEN/i);
+});
