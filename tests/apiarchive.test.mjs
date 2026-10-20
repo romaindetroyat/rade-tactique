@@ -3,9 +3,12 @@
 // perte ni doublon, préfixe d’environnement, accès toujours privé, magasin jamais énuméré, aucune écriture quand rien ne change.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createHandler } from '../api/archive.js';
+import { readFileSync, readdirSync } from 'node:fs';
+import { ROOT } from './helpers/setup.mjs';
+import { createHandler, cleanDoc, attribute, mutateLight, MAX_LIGHT, MAX_REGATTA, MAX_REGATTAS } from '../api/archive.js';
+import { emptyDoc, mergeDoc } from '../js/archmerge.js';
 import middleware from '../middleware.js';
-import { createFakeBlob, invoke } from './helpers/fakeblob.mjs';
+import { createFakeBlob, createGate, invoke } from './helpers/fakeblob.mjs';
 import { avecCodeSimule, COOKIE_TEST } from './helpers/codesimule.mjs';
 
 const T = 2_000_000;                                           // « maintenant » du serveur ; les dates `u` des tests sont toutes antérieures
@@ -182,4 +185,327 @@ test('un prénom accentué passe encodé dans l’en-tête et signe correctement
   const r = await invoke(handler, { method: 'PUT', url: PUT, body: { doc: doc(regatta()) }, headers: { 'x-rt-membre': encodeURIComponent('Éloïse-Marie') } });
   assert.equal(r.status, 200);
   assert.equal(r.body.doc.regattas.rgA.by, 'Éloïse-Marie');
+});
+
+// ───────────────────────── fusion à trois téléphones par la vraie fonction (D-04)
+
+test('trois équipiers complètent la même régate : ajouts gardés, plus récent gagnant avec l’autre dans l’historique, suppression définitive, renvois sans doublon', async () => {
+  const { blob, romain, teiva, thibaud } = installe();
+  const base = regatta({ name: 'Coupe', races: [manche('2026-11-07', '10:55'), manche('2026-11-07', '12:00')] });
+  await teiva('PUT', PUT, { doc: doc(base) });
+  // chacun part du même état, hors réseau
+  const parRomain = { ...base, name: 'Coupe de Romain', u: 2000, races: [...base.races, manche('2026-11-08', '09:30', { u: 2100 })] };
+  const parThibaud = { ...base, name: 'Coupe de Thibaud', u: 3000, tomb: { 'race:m202611071200': { t: 3100 } }, races: [base.races[0], manche('2026-11-09', '14:00', { u: 3200 })] };
+  const parTeiva = { ...base, races: [{ ...base.races[0], note: 'départ retardé', u: 2500 }, base.races[1]] };
+  const r1 = await romain('PUT', PUT, { doc: doc(parRomain) });
+  const r2 = await thibaud('PUT', PUT, { doc: doc(parThibaud) });
+  const r3 = await teiva('PUT', PUT, { doc: doc(parTeiva) });
+  for (const r of [r1, r2, r3]) assert.equal(r.status, 200);
+  const fin = r3.body.doc.regattas.rgA;
+  assert.equal(fin.name, 'Coupe de Thibaud', 'la plus récente gagne');
+  assert.ok(fin.hist.some((h) => h.kind === 'head' && h.v.name === 'Coupe de Romain' && h.by === 'Romain'), 'l’autre version est dans l’historique de la fiche');
+  assert.deepEqual(fin.races.map((m) => m.id).sort(), ['m202611071055', 'm202611080930', 'm202611091400'], 'ajouts des trois côtés gardés, manche supprimée absente');
+  assert.equal(fin.races.find((m) => m.id === 'm202611071055').note, 'départ retardé');
+  assert.equal(fin.races.find((m) => m.id === 'm202611080930').by, 'Romain');
+  assert.equal(fin.races.find((m) => m.id === 'm202611091400').by, 'Thibaud');
+  // tout renvoyer, deux fois, dans le désordre, après une coupure : l’état ne bouge plus (aucun doublon, aucune écriture)
+  const ecritures = blob.ops.put;
+  const etat = JSON.stringify((await thibaud('GET', GET)).body.doc);
+  for (const [qui, corps] of [[thibaud, parThibaud], [romain, parRomain], [teiva, parTeiva], [romain, parRomain], [thibaud, parThibaud]]) {
+    const r = await qui('PUT', PUT, { doc: doc(corps) });
+    assert.equal(r.body.changed, false);
+  }
+  assert.equal(blob.ops.put, ecritures);
+  assert.equal(JSON.stringify((await romain('GET', GET)).body.doc), etat);
+  assert.equal(JSON.parse(etat).regattas.rgA.races.length, 3);
+});
+
+test('recalages de bouées partagés : l’auteur est posé par le serveur, le plus récent gagne, la suppression est une valeur, rien n’est écrit si rien ne change', async () => {
+  const { blob, romain, teiva, thibaud } = installe();
+  const m = (over) => ({ lat: 43.07, lon: 5.93, src: 'trace', t: 1000, ...over });
+  const un = await teiva('PUT', PUT, { doc: { ...doc(), marks: { 3: m({ by: 'Usurpateur', inconnu: 'x'.repeat(1000) }) } } });
+  assert.equal(un.body.doc.marks[3].by, 'Teiva');
+  assert.ok(!('inconnu' in un.body.doc.marks[3]), 'seuls les champs connus sont gardés');
+  const deux = await romain('PUT', PUT, { doc: { ...doc(), marks: { 3: m({ lat: 43.08, src: 'saisie', t: 2000 }) } } });
+  assert.equal(deux.body.doc.marks[3].lat, 43.08); assert.equal(deux.body.doc.marks[3].by, 'Romain');
+  assert.equal(deux.body.doc.marks[3].h[0].lat, 43.07, 'la position écrasée reste dans l’historique');
+  const sup = await teiva('PUT', PUT, { doc: { ...doc(), marks: { 3: { del: true, t: 3000 } } } });
+  assert.equal(sup.body.doc.marks[3].del, true); assert.equal(sup.body.doc.marks[3].by, 'Teiva');
+  const ecritures = blob.ops.put;
+  const encore = await romain('PUT', PUT, { doc: { ...doc(), marks: { 3: m({ lat: 43.08, src: 'saisie', t: 2000 }) } } });
+  assert.equal(encore.body.changed, false);
+  assert.equal(encore.body.doc.marks[3].del, true, 'une modification plus ancienne que la suppression ne la défait pas');
+  assert.equal(blob.ops.put, ecritures);
+  // un téléphone en retard renvoie une ancienne version qu'un autre équipier avait écrite : elle garde son auteur et ne change rien
+  const vieux = await thibaud('PUT', PUT, { doc: { ...doc(), marks: { 3: m({ lat: 43.08, src: 'saisie', t: 2000, by: 'Thibaud' }) } } });
+  assert.equal(vieux.body.changed, false, 'version déjà connue de l’historique : pas de nouvelle écriture');
+  assert.deepEqual(vieux.body.doc.marks[3].h.map((x) => x.by), ['Romain', 'Teiva'], 'l’historique garde les auteurs d’origine');
+  // clés invalides ou dangereuses ignorées
+  const sale = await teiva('PUT', PUT, { doc: JSON.parse('{"v":1,"regattas":{},"tomb":{"__proto__":{"t":1}},"marks":{"__proto__":{"t":1,"polluted":1},"trop-long-pour-une-bouée":{"t":1},"4":{"t":"x"}}}') });
+  assert.equal(sale.status, 200);
+  assert.deepEqual(Object.keys(sale.body.doc.marks), ['3']);
+  assert.equal(({}).polluted, undefined);
+});
+
+// ───────────────────────── contrat de la fonction : méthodes, bornes, dates, concurrence
+
+test('autre méthode : 405 ; k inconnu ou absent (trace, report, day arrivent au plan 04) : 400', async () => {
+  const { teiva, blob } = installe();
+  for (const method of ['POST', 'DELETE', 'PATCH']) {
+    const r = await teiva(method, PUT, { doc: doc() });
+    assert.equal(r.status, 405, method);
+    assert.deepEqual(r.body, { error: 'GET ou PUT' });
+  }
+  for (const url of ['/api/archive', '/api/archive?k=', '/api/archive?k=trace&id=x', '/api/archive?k=report&id=x&t=1', '/api/archive?k=day&r=x&d=2026-11-07', '/api/archive?k=../light', '/api/archive?k=LIGHT']) {
+    const r = await teiva('GET', url);
+    assert.equal(r.status, 400, url);
+    assert.deepEqual(r.body, { error: 'k inconnu' });
+  }
+  assert.equal(blob.ops.log.length, 0, 'rien n’est lu pour une demande refusée');
+});
+
+test('400 : document illisible, identifiant invalide, liste qui n’en est pas une, élément sans identifiant, version de format inconnue ; rien n’est écrit', async () => {
+  const { teiva, blob } = installe();
+  const mauvais = {
+    'sans document': undefined, 'corps vide': {}, 'document en liste': { doc: [] }, 'document en texte': { doc: 'x' },
+    'version inconnue': { doc: { v: 2, regattas: {}, tomb: {}, marks: {} } },
+    'identifiant de régate invalide': { doc: { v: 1, regattas: { 'mauvais id!': regatta({ id: 'mauvais id!' }) } } },
+    'identifiant qui ne correspond pas à la clé': { doc: { v: 1, regattas: { rgA: regatta({ id: 'rgB' }) } } },
+    'régate en texte': { doc: { v: 1, regattas: { rgA: 'x' } } },
+    'manches qui n’en sont pas': { doc: doc(regatta({ races: 'beaucoup' })) },
+    'manche sans identifiant': { doc: doc(regatta({ races: [{ date: '2026-11-07' }] })) },
+    'manche à identifiant invalide': { doc: doc(regatta({ races: [{ id: '../x', date: '2026-11-07' }] })) },
+    'élément en texte': { doc: doc(regatta({ traces: ['x'] })) },
+  };
+  for (const [nom, corps] of Object.entries(mauvais)) {
+    const r = await teiva('PUT', PUT, corps);
+    assert.equal(r.status, 400, nom);
+    assert.ok(typeof r.body.error === 'string' && r.body.error.length <= 300, `${nom} : message borné`);
+  }
+  assert.equal(blob.ops.put, 0);
+  assert.equal(blob.store.size, 0);
+  // l’identifiant de la régate dans un message reste court et ne contient pas le document
+  const long = await teiva('PUT', PUT, { doc: { v: 1, regattas: { ['x'.repeat(200)]: regatta({ id: 'x'.repeat(200) }) } } });
+  assert.equal(long.status, 400);
+  assert.ok(long.body.error.length < 60);
+});
+
+test('413 : régate de plus de 150 Ko, plus de 200 régates, document de plus de 3,5 Mo ; sous la borne, 200', async () => {
+  const { teiva, blob } = installe();
+  const gros = (id, n) => regatta({ id, name: 'x'.repeat(n) });
+  const juste = await teiva('PUT', PUT, { doc: doc(gros('rgA', MAX_REGATTA - 2000)) });
+  assert.equal(juste.status, 200);
+  const trop = await teiva('PUT', PUT, { doc: doc(gros('rgB', MAX_REGATTA + 10)) });
+  assert.equal(trop.status, 413);
+  assert.match(trop.body.error, /trop volumineuse/);
+  const toutes = Object.fromEntries(Array.from({ length: MAX_REGATTAS + 1 }, (_, i) => [`r${i}`, regatta({ id: `r${i}` })]));
+  const nombre = await teiva('PUT', PUT, { doc: { v: 1, regattas: toutes, tomb: {}, marks: {} } });
+  assert.equal(nombre.status, 413);
+  assert.match(nombre.body.error, /trop de régates/);
+  const enorme = Object.fromEntries(Array.from({ length: 30 }, (_, i) => [`e${i}`, gros(`e${i}`, MAX_REGATTA - 5000)]));
+  const lourd = await teiva('PUT', PUT, { doc: { v: 1, regattas: enorme, tomb: {}, marks: {} } });
+  assert.equal(lourd.status, 413);
+  assert.ok(MAX_LIGHT === 3_500_000);
+  assert.equal(blob.ops.put, 1, 'seule la première écriture a eu lieu');
+});
+
+test('une date future (plus de 5 min d’avance) est ramenée à l’heure du serveur ; un décalage normal est conservé', async () => {
+  const { teiva } = installe();
+  const futur = T + 10 * 60e3, proche = T + 60e3;
+  const r = await teiva('PUT', PUT, { doc: {
+    v: 1,
+    regattas: { rgA: regatta({ u: futur, races: [manche('2026-11-07', '10:55', { u: futur }), manche('2026-11-08', '10:55', { u: proche })], frozen: { '2026-11-07': { wx: 1, u: futur } },
+      tomb: { 'race:mx': { t: futur }, 'race:my': { t: proche } }, traces: [{ id: 'tr1', u: 1, report: { t: futur, html: 'x' } }] }) },
+    tomb: { 'regatta:rgZ': { t: futur } }, marks: { 2: { lat: 1, lon: 2, src: 'saisie', t: futur } },
+  } });
+  assert.equal(r.status, 200);
+  const g = r.body.doc.regattas.rgA;
+  assert.equal(g.u, T);
+  assert.equal(g.races.find((m) => m.id === 'm202611071055').u, T);
+  assert.equal(g.races.find((m) => m.id === 'm202611081055').u, proche, 'moins de 5 min d’avance : conservé');
+  assert.equal(g.frozen['2026-11-07'].u, T);
+  assert.equal(g.tomb['race:mx'].t, T); assert.equal(g.tomb['race:my'].t, proche);
+  assert.equal(g.traces[0].report.t, T);
+  assert.equal(r.body.doc.tomb['regatta:rgZ'].t, T);
+  assert.equal(r.body.doc.marks[2].t, T);
+});
+
+test('deux écritures simultanées : la perdante relit et refusionne, les deux ajouts sont gardés (création, puis écrasement avec ifMatch)', async () => {
+  // 1. le document n’existe pas encore : les deux lisent « rien », la seconde création échoue et reprend
+  {
+    const { blob, romain, thibaud } = installe({ blob: { gate: createGate(2) } });
+    const [a, b] = await Promise.all([
+      romain('PUT', PUT, { doc: doc(regatta({ races: [manche('2026-11-08', '09:30', { u: 2100 })] })) }),
+      thibaud('PUT', PUT, { doc: doc(regatta({ races: [manche('2026-11-09', '14:00', { u: 2200 })] })) }),
+    ]);
+    assert.equal(a.status, 200); assert.equal(b.status, 200);
+    const final = JSON.parse([...blob.store.values()][0].text);
+    assert.deepEqual(final.regattas.rgA.races.map((m) => m.id), ['m202611080930', 'm202611091400']);
+    assert.ok(blob.ops.get >= 3, 'la perdante a relu');
+    assert.equal(blob.store.size, 1);
+  }
+  // 2. le document existe : la seconde écriture est refusée par ifMatch (BlobPreconditionFailedError), relue, refusionnée
+  {
+    let porte = null;                                        // armée seulement après la première écriture
+    const { blob, teiva, romain, thibaud } = installe({ blob: { gate: (...a) => porte?.(...a) } });
+    const base = regatta({ races: [manche('2026-11-07', '10:55')] });
+    await teiva('PUT', PUT, { doc: doc(base) });
+    porte = createGate(2);
+    const lus = blob.ops.get, avant = blob.ops.log.filter((o) => o.op === 'put').length;
+    const [a, b] = await Promise.all([
+      romain('PUT', PUT, { doc: doc({ ...base, races: [...base.races, manche('2026-11-08', '09:30', { u: 2100 })] }) }),
+      thibaud('PUT', PUT, { doc: doc({ ...base, races: [...base.races, manche('2026-11-09', '14:00', { u: 2200 })] }) }),
+    ]);
+    assert.equal(a.status, 200); assert.equal(b.status, 200);
+    const final = JSON.parse(blob.store.get('preview/light.json').text);
+    assert.deepEqual(final.regattas.rgA.races.map((m) => m.id), ['m202611071055', 'm202611080930', 'm202611091400']);
+    assert.equal(blob.ops.get - lus, 3, 'deux lectures simultanées, puis une relecture par la perdante');
+    const puts = blob.ops.log.filter((o) => o.op === 'put').slice(avant);
+    assert.equal(puts.length, 3, 'trois écritures : la gagnante, la perdante refusée, la perdante refaite');
+    assert.ok(puts.every((o) => o.opts.ifMatch), 'chaque écrasement est conditionnel (ifMatch)');
+  }
+});
+
+test('écritures simultanées au-delà de 4 essais : 409 ; une erreur du magasin n’est pas prise pour une course perdue', async () => {
+  const { blob, teiva } = installe();
+  await teiva('PUT', PUT, { doc: doc(regatta()) });
+  const avant = blob.ops.get;
+  blob.failNext(new blob.BlobPreconditionFailedError(), { op: 'put', times: 99 });
+  const r = await teiva('PUT', PUT, { doc: doc(regatta({ races: [manche('2026-11-07', '10:55')] })) });
+  assert.equal(r.status, 409);
+  assert.match(r.body.error, /réessayez/);
+  assert.equal(blob.ops.get - avant, 4, 'quatre essais, pas un de plus');
+  // une panne du magasin autre qu'une course perdue ressort telle quelle (502), sans relire quatre fois
+  const b2 = createFakeBlob(), h = createHandler({ blob: b2, now: () => T });
+  const phone = (nom) => (corps) => invoke(h, { method: 'PUT', url: PUT, body: corps, headers: { 'x-rt-membre': nom } });
+  await phone('Teiva')({ doc: doc(regatta()) });
+  const lus = b2.ops.get;
+  b2.failNext(new b2.BlobError('boum'), { op: 'put' });
+  const e = await phone('Teiva')({ doc: doc(regatta({ races: [manche('2026-11-07', '10:55')] })) });
+  assert.equal(e.status, 502);
+  assert.match(e.body.error, /boum/);
+  assert.equal(b2.ops.get - lus, 1, 'une seule lecture : ce n’était pas une écriture simultanée');
+});
+
+test('régate supprimée : copie sous <env>/trash/ avant de quitter le document ; un téléphone en retard ne la ressuscite pas ; copie impossible = suppression refusée', async () => {
+  const { blob, romain, teiva, thibaud } = installe();
+  await teiva('PUT', PUT, { doc: doc(regatta({ name: 'À supprimer', races: [manche('2026-11-07', '10:55')] })) });
+  const sup = await romain('PUT', PUT, { doc: { v: 1, regattas: {}, tomb: { 'regatta:rgA': { t: 1800 } }, marks: {} } });
+  assert.equal(sup.status, 200);
+  assert.deepEqual(Object.keys(sup.body.doc.regattas), []);
+  assert.equal(sup.body.doc.tomb['regatta:rgA'].by, 'Romain');
+  const copies = [...blob.store.keys()].filter((k) => k.startsWith('preview/trash/'));
+  assert.equal(copies.length, 1);
+  assert.match(copies[0], /^preview\/trash\/rgA-2000000-r\d+\.json$/);
+  assert.equal(JSON.parse(blob.store.get(copies[0]).text).name, 'À supprimer');
+  assert.ok(blob.ops.log.filter((o) => o.path.includes('/trash/')).every((o) => o.opts.access === 'private'));
+  // un téléphone en retard renvoie la régate (même modifiée après) : elle reste supprimée et la corbeille n’est pas réécrite
+  const tard = await thibaud('PUT', PUT, { doc: doc(regatta({ u: 99_999, races: [manche('2026-11-07', '10:55', { u: 99_999 })] })) });
+  assert.deepEqual(Object.keys(tard.body.doc.regattas), []);
+  assert.equal([...blob.store.keys()].filter((k) => k.startsWith('preview/trash/')).length, 1);
+  // la copie dans la corbeille échoue : la régate reste dans le document (rien n’est perdu)
+  const { blob: b2, teiva: t2, romain: r2 } = installe();
+  await t2('PUT', PUT, { doc: doc(regatta({ name: 'Gardée' })) });
+  b2.failNext(new Error('corbeille indisponible'), { op: 'put' });
+  const refus = await r2('PUT', PUT, { doc: { v: 1, regattas: {}, tomb: { 'regatta:rgA': { t: 1800 } }, marks: {} } });
+  assert.equal(refus.status, 502);
+  assert.equal(JSON.parse(b2.store.get('preview/light.json').text).regattas.rgA.name, 'Gardée');
+});
+
+test('limite du stockage (429) : réponse 429 avec Retry-After, sans détail interne', async () => {
+  const { blob, teiva } = installe();
+  blob.failNext(new blob.BlobServiceRateLimited(42), { op: 'get' });
+  const r = await teiva('GET', GET);
+  assert.equal(r.status, 429);
+  assert.equal(r.headers['retry-after'], '42');
+  assert.match(r.body.error, /réessayez plus tard/);
+  blob.failNext(new blob.BlobServiceRateLimited(), { op: 'put' });
+  const w = await teiva('PUT', PUT, { doc: doc(regatta()) });
+  assert.equal(w.status, 429);
+  assert.equal(w.headers['retry-after'], '60', 'valeur par défaut quand le magasin n’en donne pas');
+  assert.equal(w.headers['cache-control'], 'no-store');
+  // pas de nouvelle tentative à la création quand c’est la limite (elle ne ressemble pas à « existe déjà »)
+  assert.equal(blob.ops.get, 2);
+});
+
+test('les erreurs du magasin sont bornées à 300 caractères et ne contiennent pas le contenu des régates', async () => {
+  const { blob, teiva } = installe();
+  blob.failNext(new Error('panne '.repeat(200)), { op: 'get' });
+  const r = await teiva('PUT', PUT, { doc: doc(regatta({ name: 'Secret du club' })) });
+  assert.equal(r.status, 502);
+  assert.ok(r.body.error.length <= 300);
+  assert.doesNotMatch(JSON.stringify(r.body), /Secret du club/);
+  // un document stocké illisible : 502 explicite, rien n’est écrasé
+  const { blob: b2, teiva: t2 } = installe();
+  b2.store.set('preview/light.json', { text: '{pas du json', etag: '"x"', contentType: 'application/json', uploadedAt: new Date(0) });
+  const g = await t2('GET', GET);
+  assert.equal(g.status, 502);
+  const p = await t2('PUT', PUT, { doc: doc(regatta()) });
+  assert.equal(p.status, 502);
+  assert.equal(b2.ops.put, 0);
+});
+
+test('cleanDoc, attribute et mutateLight : unités exportées (sel retiré, auteur ignoré, fusion sans écriture inutile)', async () => {
+  const sale = cleanDoc({ v: 1, regattas: { rgA: regatta({ sel: 2, by: 'Moi', hist: 'pas une liste', tomb: [1, 2], frozen: { 'pas-un-jour': {}, '2026-11-07': { u: 1 }, '2026-11-08': 'x' } }) } }, T);
+  assert.ok(!('sel' in sale.regattas.rgA));
+  assert.deepEqual(sale.regattas.rgA.hist, []);
+  assert.deepEqual(sale.regattas.rgA.tomb, {});
+  assert.deepEqual(Object.keys(sale.regattas.rgA.frozen), ['2026-11-07']);
+  const a = attribute(sale, emptyDoc(), 'Teiva');
+  assert.equal(a.regattas.rgA.by, 'Teiva'); assert.equal(a.regattas.rgA.ub, 'Teiva');
+  const blob = createFakeBlob();
+  const r1 = await mutateLight(blob, 'preview/light.json', (stored) => ({ doc: mergeDoc(stored, a) }));
+  assert.equal(r1.changed, true);
+  const r2 = await mutateLight(blob, 'preview/light.json', (stored) => ({ doc: mergeDoc(stored, a) }));
+  assert.equal(r2.changed, false);
+  assert.equal(r2.rev, r1.rev);
+  assert.equal(blob.ops.put, 1);
+  assert.equal(MAX_REGATTAS, 200); assert.equal(MAX_REGATTA, 150_000);
+});
+
+// ───────────────────────── gardes statiques
+
+// Source sans commentaires (un commentaire qui cite une option interdite ne doit ni déclencher ni masquer la garde) ; les chaînes sont respectées
+function sansCommentaires(src) {
+  let out = '';
+  for (let i = 0; i < src.length; i++) {
+    const c = src[i], n = src[i + 1];
+    if (c === '/' && n === '/') { while (i < src.length && src[i] !== '\n') i++; out += '\n'; continue; }
+    if (c === '/' && n === '*') { const e = src.indexOf('*/', i + 2); i = e < 0 ? src.length : e + 1; continue; }
+    if (c === '\'' || c === '"' || c === '`') {
+      let j = i + 1;
+      while (j < src.length && src[j] !== c) j += src[j] === '\\' ? 2 : 1;
+      out += src.slice(i, j + 1); i = j; continue;
+    }
+    out += c;
+  }
+  return out;
+}
+
+test('garde statique : api/archive.js n’a que des accès privés et n’énumère jamais le magasin', () => {
+  const src = readFileSync(ROOT + 'api/archive.js', 'utf8');
+  const code = sansCommentaires(src);
+  assert.ok(src.includes('//') && code.length < src.length, 'les commentaires sont bien retirés');
+  const acces = [...code.matchAll(/\baccess\s*:\s*([^,}\s]+)/g)].map((m) => m[1]);
+  assert.ok(acces.length >= 4, 'chaque appel au magasin déclare son accès');
+  assert.deepEqual([...new Set(acces)], ["'private'"], 'aucune option d’accès autre que privée');
+  assert.doesNotMatch(code, /\bpublic\b/);
+  assert.doesNotMatch(code, /\blist\s*\(/, 'aucune énumération du magasin');
+  assert.doesNotMatch(code, /\{[^}]*\blist\b[^}]*\}\s*from\s*['"]@vercel\/blob/);
+  assert.doesNotMatch(code, /\bdownloadUrl\b|\bblob\.url\b|\bpathname\b/, 'aucune URL Blob manipulée ni renvoyée');
+  assert.doesNotMatch(code, /json\([^)]*(BLOB_READ_WRITE_TOKEN|BLOB_STORE_ID)/, 'le jeton n’est jamais renvoyé');
+  // le détecteur voit un commentaire piégé comme un commentaire, et un accès public caché dans le code comme un accès public
+  assert.deepEqual([...sansCommentaires("// access: 'public'\nconst a = { access: 'private' }; /* list( */").matchAll(/\baccess\s*:\s*([^,}\s]+)/g)].map((m) => m[1]), ["'private'"]);
+  assert.deepEqual([...sansCommentaires("const a = { access: 'public' };").matchAll(/\baccess\s*:\s*([^,}\s]+)/g)].map((m) => m[1]), ["'public'"]);
+});
+
+test('garde statique : aucun fichier de js/ ne contient d’adresse de magasin Blob, de jeton ni d’import du SDK', () => {
+  for (const f of readdirSync(ROOT + 'js').filter((n) => n.endsWith('.js'))) {
+    const code = sansCommentaires(readFileSync(ROOT + 'js/' + f, 'utf8'));
+    assert.doesNotMatch(code, /blob\.vercel-storage\.com/i, `js/${f} : adresse de magasin Blob`);
+    assert.doesNotMatch(code, /BLOB_READ_WRITE_TOKEN|BLOB_STORE_ID|VERCEL_OIDC_TOKEN/, `js/${f} : nom de jeton`);
+    assert.doesNotMatch(code, /@vercel\/blob/, `js/${f} : le SDK ne se charge que dans la fonction`);
+  }
+  const vue = readFileSync(ROOT + 'index.html', 'utf8');
+  assert.doesNotMatch(vue, /blob\.vercel-storage\.com|BLOB_READ_WRITE_TOKEN/i);
 });

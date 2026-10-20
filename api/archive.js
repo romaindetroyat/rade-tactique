@@ -14,6 +14,7 @@ const TRIES = 4, FUTURE_MS = 5 * 60e3;
 const ID = /^[A-Za-z0-9._-]{1,80}$/, DAY = /^\d{4}-\d{2}-\d{2}$/, NAME = /^[\p{L}\p{M} '’-]{1,40}$/u, TOMB_KEY = /^[\w:.|-]{1,120}$/, MARK_KEY = /^\w{1,12}$/;
 const DANGER = new Set(['__proto__', 'constructor', 'prototype']);
 const fail = (message, status) => Object.assign(new Error(message), { status });
+const validId = (id) => (typeof id === 'string' || Number.isFinite(id)) && ID.test(String(id));    // un identifiant absent ne devient pas la chaîne « undefined »
 const isObj = (x) => x && typeof x === 'object' && !Array.isArray(x);
 // Les données d’un aperçu ne se mélangent jamais à celles de la production (le même magasin est branché aux deux environnements)
 export const prefix = () => (process.env.VERCEL_ENV === 'production' ? 'prod' : 'preview');
@@ -22,7 +23,8 @@ const bornee = (e) => String(e?.message || e).slice(0, 300);
 // ───────────────────────── validation et attribution
 
 const clampU = (e, now) => (isObj(e) && e.u > now + FUTURE_MS ? { ...e, u: now } : e);   // horloge d’un téléphone dans le futur : ramenée à l’heure du serveur
-const clampT = (t, now) => Math.min(t, now + FUTURE_MS);
+const clampT = (t, now) => (t > now + FUTURE_MS ? now : t);                     // au-delà de 5 min d'avance : l'heure du serveur ; en deçà, le décalage normal entre téléphones est sans effet
+const clampReport = (e, now) => (isObj(e.report) && e.report.t > now + FUTURE_MS ? { ...e, report: { ...e.report, t: now } } : e);   // le rapport le plus récent gagne : une date future le ferait gagner pour toujours
 const tombs = (src, now) => Object.fromEntries(Object.entries(isObj(src) ? src : {}).filter(([k, v]) => !DANGER.has(k) && TOMB_KEY.test(k) && Number.isFinite(v?.t)).map(([k, v]) => [k, { t: clampT(v.t, now), by: null }]));
 const mark = (v, now) => {                                                          // recalage de bouée : seuls les champs connus, `by` posé plus tard par le serveur
   const o = { t: clampT(v.t, now) };
@@ -42,12 +44,12 @@ export function cleanDoc(doc, now) {
   if (ids.length > MAX_REGATTAS) throw fail('trop de régates', 413);
   for (const id of ids) {
     const r = doc.regattas[id];
-    if (!ID.test(id) || !isObj(r) || String(r.id) !== id) throw fail(`régate invalide : ${id.slice(0, 20)}`, 400);
+    if (!ID.test(id) || !isObj(r) || r.id !== id) throw fail(`régate invalide : ${id.slice(0, 20)}`, 400);
     if (JSON.stringify(r).length > MAX_REGATTA) throw fail('régate trop volumineuse', 413);
     const c = { ...r }; for (const k of LOCAL_ONLY) delete c[k];
     for (const key of Object.values(LISTS)) {
       if (c[key] != null && !Array.isArray(c[key])) throw fail(`${key} invalide`, 400);
-      c[key] = (c[key] || []).map((e) => { if (!isObj(e) || !ID.test(String(e.id))) throw fail(`élément invalide dans ${key}`, 400); return clampU(e, now); });
+      c[key] = (c[key] || []).map((e) => { if (!isObj(e) || !validId(e.id)) throw fail(`élément invalide dans ${key}`, 400); return clampReport(clampU(e, now), now); });
     }
     c.frozen = Object.fromEntries(Object.entries(isObj(c.frozen) ? c.frozen : {}).filter(([d, f]) => DAY.test(d) && isObj(f)).map(([d, f]) => [d, clampU(f, now)]));
     c.tomb = tombs(c.tomb, now);
@@ -59,23 +61,41 @@ export function cleanDoc(doc, now) {
   return out;
 }
 
-// Auteur : tout ce qui est nouveau ou différent de ce qui est stocké est signé par l’équipier connecté (le `by` du client est ignoré)
+// Auteur : tout ce qui est nouveau ou différent de ce qui est stocké est signé par l'équipier connecté (le `by` du client est ignoré).
+// Exception : une ancienne version déjà connue du serveur (elle figure dans l'historique de la fiche ou d'un recalage) que renvoie un téléphone en
+// retard garde son auteur d'origine : renvoyer un état périmé ne réécrit pas l'histoire et ne change rien au document.
+const knownRegatta = (hist, kind, id, e, fields) => (hist || []).find((h) => h.kind === kind && h.id === String(id) && h.t === (e.u || 0) && h.v && sameBody(h.v, fields ? Object.fromEntries(fields.map((k) => [k, e[k]])) : e));
+const knownMark = (marks, v) => (marks?.h || []).find((x) => x.t === v.t && x.lat === (v.lat ?? null) && x.lon === (v.lon ?? null) && x.src === (v.src ?? null) && x.del === !!v.del);
+
 export function attribute(incoming, stored, who) {
   const out = emptyDoc();
   for (const [id, r] of Object.entries(incoming.regattas)) {
     const s = stored.regattas?.[id], o = { ...r };
     const head = (x) => canon(Object.fromEntries(HEAD.map((k) => [k, x?.[k]])));
-    if (!s) { o.by = who; o.ub = who; } else { o.by = s.by ?? who; o.ub = head(s) === head(r) ? s.ub ?? null : who; }
+    if (!s) { o.by = who; o.ub = who; }
+    else {
+      o.by = s.by ?? who;
+      o.ub = head(s) === head(r) ? s.ub ?? null : (knownRegatta(s.hist, 'head', id, r, HEAD.filter((k) => k in r))?.by ?? who);
+    }
     for (const key of Object.values(LISTS)) {
-      const S = new Map((s?.[key] || []).map((e) => [String(e.id), e]));
-      o[key] = o[key].map((e) => { const p = S.get(String(e.id)); return !p ? { ...e, by: who, ub: who } : sameBody(p, e) ? { ...e, by: p.by ?? null, ub: p.ub ?? null } : { ...e, by: p.by ?? who, ub: who }; });
+      const kind = Object.keys(LISTS).find((k) => LISTS[k] === key), S = new Map((s?.[key] || []).map((e) => [String(e.id), e]));
+      o[key] = o[key].map((e) => {
+        const p = S.get(String(e.id));
+        if (!p) return { ...e, by: who, ub: who };
+        if (sameBody(p, e)) return { ...e, by: p.by ?? null, ub: p.ub ?? null };
+        return { ...e, by: p.by ?? who, ub: knownRegatta(s.hist, kind, e.id, e)?.by ?? who };
+      });
     }
     o.frozen = Object.fromEntries(Object.entries(o.frozen).map(([d, f]) => { const p = s?.frozen?.[d]; return [d, p && sameBody(p, f) ? { ...f, by: p.by, ub: p.ub } : { ...f, by: who, ub: who }]; }));
     o.tomb = Object.fromEntries(Object.entries(o.tomb || {}).map(([k, v]) => [k, { t: v.t, by: s?.tomb?.[k]?.by ?? who }]));
     out.regattas[id] = o;
   }
   out.tomb = Object.fromEntries(Object.entries(incoming.tomb).map(([k, v]) => [k, { t: v.t, by: stored.tomb?.[k]?.by ?? who }]));
-  out.marks = Object.fromEntries(Object.entries(incoming.marks).map(([k, v]) => [k, stored.marks?.[k] && canon({ ...stored.marks[k], h: 0 }) === canon({ ...v, by: stored.marks[k].by, h: 0 }) ? stored.marks[k] : { ...v, by: who }]));
+  out.marks = Object.fromEntries(Object.entries(incoming.marks).map(([k, v]) => {
+    const p = stored.marks?.[k];
+    if (p && canon({ ...p, h: 0 }) === canon({ ...v, by: p.by, h: 0 })) return [k, p];
+    return [k, { ...v, by: knownMark(p, v)?.by ?? who }];
+  }));
   return out;
 }
 

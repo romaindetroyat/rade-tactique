@@ -10,15 +10,35 @@ export const LISTS = { race: 'races', mark: 'marks', course: 'courses', trace: '
 export const LOCAL_ONLY = ['sel'];                                                 // état d’affichage de CET appareil : jamais partagé
 const DANGER = new Set(['__proto__', 'constructor', 'prototype']);                // clés refusées partout (pollution de prototype)
 
-const sorted = (o) => (Array.isArray(o) ? o.map(sorted) : o && typeof o === 'object'
-  ? Object.fromEntries(Object.keys(o).filter((k) => !DANGER.has(k)).sort().map((k) => [k, sorted(o[k])])) : o);
-export const canon = (o) => JSON.stringify(sorted(o));
+// Forme canonique d'une valeur JSON : clés triées, clés refusées omises, comme JSON.stringify (undefined omis d'un objet, null dans une liste).
+// Écrite directement en texte (sans objet intermédiaire) : elle sert à comparer chaque élément à chaque fusion.
+function ser(o) {
+  if (Array.isArray(o)) { let r = '['; for (let i = 0; i < o.length; i++) r += (i ? ',' : '') + (ser(o[i]) ?? 'null'); return r + ']'; }
+  if (o && typeof o === 'object') {
+    let r = '{', first = true;
+    for (const k of Object.keys(o).sort()) {
+      if (DANGER.has(k)) continue;
+      const v = ser(o[k]);
+      if (v !== undefined) { r += (first ? '' : ',') + JSON.stringify(k) + ':' + v; first = false; }
+    }
+    return r + '}';
+  }
+  return JSON.stringify(o);
+}
+export const canon = (o) => ser(o) ?? 'null';
 const body = (e) => { const { u, ub, by, ...rest } = e || {}; return rest; };       // contenu d’un élément sans ses métadonnées (date, modifié par, créé par : posées par le serveur)
 export const sameBody = (a, b) => canon(body(a)) === canon(body(b));
 // > 0 si `a` gagne : la plus récente, à égalité le contenu le plus grand (arbitraire mais identique sur tous les appareils)
 const cmp = (x, y) => (x < y ? -1 : x > y ? 1 : 0);
-export const wins = (a, b) => ((a?.u || 0) - (b?.u || 0)) || cmp(canon(body(a)), canon(body(b)))
+// ca, cb : contenus canoniques déjà calculés (la fusion en a besoin deux fois : pour départager et pour savoir s'il y a un écrasement)
+const winsC = (a, b, ca, cb) => ((a?.u || 0) - (b?.u || 0)) || cmp(ca, cb)
   || ((a?.by != null) - (b?.by != null)) || cmp(String(a?.by), String(b?.by)) || cmp(String(a?.ub), String(b?.ub));   // à contenu égal : celui qui a un auteur (posé par le serveur)
+export const wins = (a, b) => winsC(a, b, canon(body(a)), canon(body(b)));
+// { gagnante: 1 si a, 0 si b ; ecrase: les contenus diffèrent }
+function duel(a, b) {
+  const ca = canon(body(a)), cb = a === b ? ca : canon(body(b));
+  return { a: winsC(a, b, ca, cb) >= 0, same: ca === cb };
+}
 
 // Nom d’équipier ou de régate réduit à un identifiant de chemin : sans accent, minuscules, tirets (le serveur et la page calculent le même)
 export const slug = (n) => String(n || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
@@ -27,19 +47,28 @@ const hist = (kind, id, e) => {
   let v = body(e); if (canon(v).length > MAX_HIST_BYTES) v = null;                  // gros contenu (texte des IC) : seule la trace de l’écrasement reste
   return { kind, id: String(id), t: e.u || 0, by: e.ub ?? null, v };
 };
+// Pierre tombale : la plus récente gagne ; à égalité de date (deux équipiers suppriment la même chose au même instant), celle qui a un auteur,
+// puis l'auteur le plus grand : le résultat ne dépend pas de l'ordre de la fusion
+const tombWins = (v, o) => (v.t - o.t) || ((v.by != null) - (o.by != null)) || cmp(String(v.by), String(o.by));
 const mergeTomb = (a = {}, b = {}) => {
   const out = Object.create(null);
-  for (const src of [a, b]) for (const [k, v] of Object.entries(src)) if (!DANGER.has(k) && (!out[k] || (v.t || 0) > out[k].t)) out[k] = { t: v.t || 0, by: v.by ?? null };
+  for (const src of [a, b]) for (const [k, v] of Object.entries(src)) {
+    if (DANGER.has(k)) continue;
+    const t = { t: v.t || 0, by: v.by ?? null };
+    if (!out[k] || tombWins(t, out[k]) > 0) out[k] = t;
+  }
   return { ...out };
 };
 const headOf = (r) => ({ ...Object.fromEntries(HEAD.filter((k) => k in r).map((k) => [k, r[k]])), u: r.u, ub: r.ub });
 // rang d’un gel de jour : une copie « tardive » (app ouverte après le signal) ne remplace jamais une copie prise avant ; ensuite la plus récente
 const frozenWins = (a, b) => ((a.late ? 0 : 1) - (b.late ? 0 : 1)) || wins(a, b);
 
+const authorWins = (x, o) => { const d = (x.by != null) - (o.by != null); return d ? d > 0 : cmp(String(x.by), String(o.by)) > 0; };
+
 export function mergeRegatta(a, b) {
   const h = [...(a.hist || []), ...(b.hist || [])];
-  const ha = headOf(a), hb = headOf(b), hw = wins(ha, hb) >= 0 ? ha : hb, hl = hw === ha ? hb : ha;
-  if (!sameBody(ha, hb)) h.push(hist('head', a.id, hl));
+  const ha = headOf(a), hb = headOf(b), dh = duel(ha, hb), hw = dh.a ? ha : hb, hl = dh.a ? hb : ha;
+  if (!dh.same) h.push(hist('head', a.id, hl));
   const tomb = mergeTomb(a.tomb, b.tomb);
   const ord = cmp(a.at ?? Infinity, b.at ?? Infinity) || ((b.by != null) - (a.by != null)) || cmp(String(a.by), String(b.by));
   const first = ord <= 0 ? a : b;                                                  // le créateur : le plus ancien, à égalité celui qui a un auteur
@@ -49,8 +78,9 @@ export function mergeRegatta(a, b) {
     const A = new Map((a[key] || []).map((e) => [String(e.id), e])), B = new Map((b[key] || []).map((e) => [String(e.id), e])), res = [];
     for (const id of new Set([...A.keys(), ...B.keys()])) {
       const ea = A.get(id), eb = B.get(id);
-      let pick = ea && eb ? (wins(ea, eb) >= 0 ? ea : eb) : ea || eb;
-      if (ea && eb && !sameBody(ea, eb)) h.push(hist(kind, id, pick === ea ? eb : ea));
+      const d = ea && eb ? duel(ea, eb) : null;
+      let pick = d ? (d.a ? ea : eb) : ea || eb;
+      if (d && !d.same) h.push(hist(kind, id, pick === ea ? eb : ea));
       if (kind === 'trace' && ea && eb) {                                           // rapport : le plus récent (t) gagne quel que soit u
         const rp = [ea.report, eb.report].filter(Boolean).sort((x, y) => (y.t || 0) - (x.t || 0))[0];
         pick = rp ? { ...pick, report: rp } : pick;
@@ -68,9 +98,13 @@ export function mergeRegatta(a, b) {
     frozen[d] = fa && fb ? (frozenWins(fa, fb) >= 0 ? fa : fb) : fa || fb;
   }
   out.frozen = frozen; out.tomb = tomb;
-  const seen = new Set();
-  out.hist = h.filter((x) => { const k = `${x.kind}|${x.id}|${x.t}|${canon(x.v)}`; if (seen.has(k)) return false; seen.add(k); return true; })
-    .sort((x, y) => (y.t - x.t) || (canon(x) < canon(y) ? -1 : 1)).slice(0, MAX_HIST);
+  // une même version écrasée vue des deux côtés n'entre qu'une fois ; si ses copies ne diffèrent que par l'auteur, celle qui en a un garde la place
+  const best = new Map();
+  for (const x of h) {
+    const k = `${x.kind}|${x.id}|${x.t}|${canon(x.v)}`, o = best.get(k);
+    if (!o || authorWins(x, o.x)) best.set(k, { x, k });
+  }
+  out.hist = [...best.values()].sort((p, q) => (q.x.t - p.x.t) || cmp(p.k, q.k)).slice(0, MAX_HIST).map((e) => e.x);
   return out;
 }
 
