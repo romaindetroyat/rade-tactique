@@ -1996,9 +1996,10 @@ function setOpen(id) {
 function openGesture(id) {
   iaCtl?.abort(); iaBusy = false; iaMsg = '';
   icDraft = null; raceDraft = null; markFix = null;
-  setOpen(id); afterRegChange();
+  setOpen(id);
   const r = openReg();
   toast(r ? `Régate ouverte : ${r.name}` : 'Retour à l’entraînement libre');
+  afterRegChange();                                                // si le parcours choisi disparaît, son message (plus important) passe en dernier
   if (r) $('#rgSheet')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 // Bandeau du panneau, sur tous les onglets : textContent seulement (un nom de régate peut venir d’un autre téléphone)
@@ -2022,8 +2023,9 @@ function dayOpenTick(now, active) {
   const r = openOnNewDay({ now, list: REG.list, openId: OPEN, day: openDay });
   openDay = r.day;
   if (r.openId === OPEN) return;
-  setOpen(r.openId); afterRegChange();
+  setOpen(r.openId);
   toast(`Jour de régate : ${openReg()?.name || ''} ouverte`);
+  afterRegChange();
 }
 
 // Après un changement de régate ouverte ou de ses données : tout ce qui lit IC ou le verrou est redessiné
