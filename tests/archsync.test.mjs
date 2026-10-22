@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHandler } from '../api/archive.js';
 import { stampState, markDirty, canon, toShared, legacyStamp } from '../js/archmerge.js';
-import { createRegatta, upsertRegatta, addRace, setCurrent, removeRegatta, migrate, backfillAuthor, seedNorm, SEED_AT, KEY } from '../js/regates.js';
+import { createRegatta, upsertRegatta, addRace, removeRegatta, migrate, backfillAuthor, seedNorm, SEED_AT, KEY } from '../js/regates.js';
 import { runSync, applyDoc, buildDoc, canSync, syncStatus } from '../js/archsync.js';
 import { createFakeBlob, invoke } from './helpers/fakeblob.mjs';
 import { sharedMarks, remoteMarkChanges } from '../js/marks.js';
@@ -17,7 +17,7 @@ function monde() {
   return { clock, blob, handler, appels: [], n: n0 };
 }
 // Un téléphone : l’état local (comme REG), la méta (comme rade.sync.v1), l’horloge, le réseau, la course
-function telephone(nom, w, { membre = nom, st = { v: 1, current: null, list: [] } } = {}) {
+function telephone(nom, w, { membre = nom, st = { v: 1, list: [] } } = {}) {
   const p = {
     nom, st, meta: {}, copies: [], online: true, active: false, saisie: false, busy: null,
     over: {}, marksDel: {}, recus: [],                       // recalages de bouées de ce téléphone (rade.marks.v1) et remises à l’origine non acquittées (SYNC.marksDel)
@@ -28,7 +28,7 @@ function telephone(nom, w, { membre = nom, st = { v: 1, current: null, list: [] 
     save(next) { const r = stampState(p.st, next, { now: w.clock.t, by: membre }); p.st = r.st; if (r.changed.length) markDirty(p.meta, r.changed); return r.changed; },
     creer(nomRegate, debut = '2026-11-07', fin = '') {
       const r = createRegatta({ name: nomRegate, dateStart: debut, dateEnd: fin, club: 'CVAT' }, { now: w.clock.t, by: membre, rnd: () => (++w.n % 97) / 97 });
-      p.save(setCurrent(upsertRegatta(p.st, r.regatta), r.regatta.id)); return r.regatta.id;
+      p.save(upsertRegatta(p.st, r.regatta)); return r.regatta.id;      // créer n’ouvre rien : la régate ouverte n’est pas dans l’état (D-A4)
     },
     manche(id, heure, date) {
       const reg = p.st.list.find((x) => x.id === id), r = addRace(reg, { date, time: heure, courseId: 3, cls: 'G', laps: 2 }, { now: w.clock.t, by: membre, courses: [{ id: 3 }] });
@@ -79,7 +79,7 @@ test('tracer : la régate créée sur A apparaît sur B, signée par le serveur 
   const r = B.st.list[0];
   assert.equal(r.by, 'Teiva', 'auteur posé par le serveur'); assert.equal(r.races[0].by, 'Teiva');
   assert.equal(r.races[0].n, 1);
-  assert.equal(B.st.current, r.id, 'la courante est celle de CET appareil, ou la première si aucune');
+  assert.ok(!('current' in B.st), 'aucune clé current dans l’état reçu : la régate ouverte est un état de la page');
 });
 
 test('l’auteur vient du serveur : le by du téléphone est ignoré', async () => {
@@ -91,21 +91,21 @@ test('l’auteur vient du serveur : le by du téléphone est ignoré', async () 
   assert.equal(A.st.list[0].by, 'Teiva');
 });
 
-test('applyDoc : garde current et sel de l’appareil, renumérote les manches et trie la liste', () => {
+test('applyDoc : garde sel de l’appareil, ne pose aucune régate ouverte, renumérote les manches et trie la liste', () => {
   const w = monde(), A = telephone('Teiva', w);
   const id = A.creer('Zèbre', '2026-12-01', '2026-12-02'), id2 = A.creer('Alpha', '2026-11-01');
   A.manche(id, '13:25', '2026-12-01'); A.manche(id, '10:55', '2026-12-01');
   const reg = A.st.list.find((r) => r.id === id);
   assert.deepEqual(reg.races.map((m) => m.time), ['10:55', '13:25']);
   A.save(upsertRegatta(A.st, { ...reg, sel: 2 }));                // manche choisie : la seconde (13:25)
-  A.st = { ...A.st, current: id };
+  A.st = { ...A.st, current: id };                                 // un état d’avant (v36) qui portait encore current
   // un autre équipier a ajouté une manche à 09:00 : elle passe en tête, `sel` doit suivre la manche 13:25
   const distant = buildDoc(A.st, {});
   const r0 = distant.regattas[id];
   distant.regattas[id] = { ...r0, races: [...r0.races, { id: 'm202612010900', date: '2026-12-01', time: '09:00', courseId: 3, cls: 'G', laps: 2, note: '', by: 'Thibaud', at: 1, u: w.clock.t, ub: 'Thibaud' }] };
   const { st } = applyDoc(A.st, distant);
   assert.deepEqual(st.list.map((r) => r.name), ['Alpha', 'Zèbre'], 'liste triée par date de début');
-  assert.equal(st.current, id, 'current gardé');
+  assert.ok(!('current' in st), 'applyDoc ne pose ni ne garde aucune régate ouverte');
   const z = st.list.find((r) => r.id === id);
   assert.deepEqual(z.races.map((m) => [m.n, m.time]), [[1, '09:00'], [2, '10:55'], [3, '13:25']], 'manches renumérotées');
   assert.equal(z.sel, 3, 'sel suit sa manche (13:25)');
@@ -529,4 +529,17 @@ test('D-05 : pendant une course rien ne part ni n’est appliqué ; un recalage 
   assert.ok(B.over['3']);
   const ecrit = w.blob.ops.put; avance(w, 60e3);
   assert.equal((await B.sync('manuel')).unchanged, true); assert.equal(w.blob.ops.put, ecrit);
+});
+
+test('D-A4 : le document envoyé ne porte jamais d’état d’ouverture ; un document distant qui en porte un est ignoré', () => {
+  const w = monde(), A = telephone('Teiva', w);
+  const id = A.creer('Régate ouverte ailleurs', '2026-11-21');
+  const avecCurrent = { ...A.st, current: id, open: id };                // un état (hypothétique) qui porterait l’ouverture
+  assert.ok(!/"current"|"open"/.test(JSON.stringify(buildDoc(avecCurrent, { marks: {} }))), 'buildDoc : aucune clé d’ouverture');
+  assert.ok(!/"current"|"open"/.test(JSON.stringify(buildDoc(avecCurrent, { ids: [id], marks: {} }))));
+  const distant = { ...buildDoc(A.st, {}), current: 'inconnue', open: 'x' };
+  const { st } = applyDoc(A.st, distant);
+  assert.ok(!('current' in st), 'applyDoc : état sans current');
+  assert.deepEqual(st.list.map((r) => r.id), [id], 'régates fusionnées');
+  assert.ok(!('current' in applyDoc(avecCurrent, buildDoc(A.st, {})).st), 'un état d’avant perd son current');
 });

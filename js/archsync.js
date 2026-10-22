@@ -54,14 +54,14 @@ export function buildDoc(st, { ids, marks = {} }) {
   doc.marks = marks;
   return doc;
 }
-// Réponse du serveur appliquée à l’état local : `sel` et `current` restent ceux de CET appareil ; les manches sont triées et renumérotées
+// Réponse du serveur appliquée à l’état local : `sel` reste celui de CET appareil ; la régate ouverte n’est pas dans l’état (D-A4) ; les manches sont triées et renumérotées
 export function applyDoc(st, remote) {
   const local = { ...emptyDoc(), regattas: Object.fromEntries(st.list.map((r) => [r.id, toShared(r)])), tomb: Object.fromEntries(Object.entries(st.tomb || {}).map(([id, t]) => [`regatta:${id}`, t])) };
   const m = mergeDoc(local, remote), byId = new Map(st.list.map((r) => [r.id, r]));
   const list = Object.values(m.regattas).map((r) => fromShared(r, byId.get(r.id))).sort((a, b) => String(a.dateStart).localeCompare(String(b.dateStart)) || String(a.id).localeCompare(String(b.id)));
   const tomb = Object.fromEntries(Object.entries(m.tomb).map(([k, t]) => [k.replace(/^regatta:/, ''), t]));
-  const current = list.some((r) => r.id === st.current) ? st.current : list[0]?.id ?? null;
-  return { st: { ...st, list, tomb, current }, marks: m.marks };
+  const { current, ...rest } = st;                                         // un état d’avant qui portait `current` le perd ici
+  return { st: { ...rest, list, tomb }, marks: m.marks };
 }
 
 // ───────────────────────── une synchronisation

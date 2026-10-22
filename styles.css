@@ -123,10 +123,10 @@ a { color: var(--blue); }
   .hour output { min-width: 40px; }
   .seg button { padding: 5px 8px; }
   #panel { position: fixed; left: 0; right: 0; bottom: 0; height: 46vh; border-left: 0; border-radius: 18px 18px 0 0; box-shadow: 0 -6px 24px rgba(0,0,0,.25); transition: height .25s; }
-  #panel.min { height: calc(96px + var(--safeB)); } #panel.max { height: calc(100% - var(--topH) - var(--safeT) - 8px); }
+  #panel.min { height: calc(136px + var(--safeB)); } #panel.max { height: calc(100% - var(--topH) - var(--safeT) - 8px); }
   #grab { display: flex; justify-content: center; padding: 7px 0 3px; touch-action: none; cursor: grab; }
   #grab span { width: 44px; height: 5px; border-radius: 3px; background: #c5ced8; }
-  #legend { bottom: calc(46vh + 8px); } body[data-sheet=min] #legend { bottom: calc(104px + var(--safeB)); } body[data-sheet=max] #legend { display: none; }
+  #legend { bottom: calc(46vh + 8px); } body[data-sheet=min] #legend { bottom: calc(144px + var(--safeB)); } body[data-sheet=max] #legend { display: none; }
   #legend .bar { width: 150px; }
   #legend { top: 72px; bottom: auto !important; left: 12px; padding: 4px 8px; }
   #legend .small { display: none; }
@@ -182,14 +182,22 @@ details.obsbox[open] > summary { margin-bottom: 8px; }
 .stepper b small { font-size: 14px; color: var(--mute); }
 input[type=time] { width: 100%; padding: 9px 10px; border: 1px solid #cdd6df; border-radius: 10px; font: inherit; }
 input[type=date] { width: 100%; padding: 9px 10px; border: 1px solid #cdd6df; border-radius: 10px; font: inherit; background: #fff; color: var(--ink); box-sizing: border-box; }
-/* Régates : liste par saison puis par statut, une ligne touchable par régate */
-.rgseason h4 { margin: 10px 0 2px; font-size: 12.5px; color: var(--mute); text-transform: uppercase; letter-spacing: .04em; }
-.rgstatus { margin: 8px 0 4px; font-size: 12.5px; font-weight: 700; color: var(--bg); }
-button.rg { display: block; width: 100%; text-align: left; border: 1px solid var(--line); background: #fff; color: var(--ink); border-radius: 12px; padding: 9px 11px; margin: 0 0 6px; font: inherit; }
-button.rg.on { border-color: var(--accent); background: #fff8ef; }
+/* Régates : liste classée En préparation, En cours, Terminées ; une ligne par régate avec « Ouvrir » à droite */
+.rggroup h4 { margin: 10px 0 4px; font-size: 12.5px; color: var(--mute); text-transform: uppercase; letter-spacing: .04em; }
+.rg { display: flex; align-items: center; gap: 8px; border: 1px solid var(--line); background: #fff; color: var(--ink); border-radius: 12px; padding: 9px 11px; margin: 0 0 6px; }
+.rg.on { border-color: var(--accent); background: #fff8ef; }
+.rg .rgt { flex: 1; min-width: 0; }
+.rg .btn, .rg .rgopen { flex-shrink: 0; }
+.rg .rgopen { margin: 0; }
 .rg .rgn { display: block; font-weight: 700; overflow-wrap: anywhere; }
 .rg .rgm { display: block; font-size: 12.5px; color: var(--mute); }
 .rg .rgb { display: flex; align-items: center; gap: 6px; margin-top: 3px; }
+/* Bandeau du panneau : Entraînement libre, ou la régate ouverte avec « Fermer la régate » (sur tous les onglets) */
+.regbar { display: flex; align-items: center; gap: 8px; flex-shrink: 0; min-height: 38px; box-sizing: border-box; padding: 4px 12px; background: #eef3f8; border-bottom: 1px solid var(--line); font-size: 13px; }
+.regbar:not([data-open=""]) { background: #fff8ef; }
+.regbar .regname { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; color: var(--bg); }
+.regbar .chip { margin: 0; flex-shrink: 0; }
+.regbar .btn { flex-shrink: 0; white-space: nowrap; }
 .rgerr { color: var(--bad); font-size: 12.5px; margin-top: 3px; }
 .rgraces h4, .rgrform h4 { margin: 12px 0 4px; font-size: 14px; }
 .rgrace { border-left: 4px solid #cfd8e2; padding: 6px 10px; margin: 6px 0; background: #f8fafc; border-radius: 0 10px 10px 0; }
@@ -231,7 +239,7 @@ table.t tr.sel td { background: #fff3e0; font-weight: 600; }
 #replayHud button { flex: none; } #replayHud select option { color: #000; }
 #replayHud button.on { background: var(--accent); }
 #replayHud input[type=range] { flex: 1 1 auto; width: auto; min-width: 60px; }
-@media (max-width: 820px) { #replayHud { bottom: calc(46vh + 8px); } body[data-sheet=min] #replayHud { bottom: calc(104px + var(--safeB)); } body[data-sheet=max] #replayHud { display: none; } }
+@media (max-width: 820px) { #replayHud { bottom: calc(46vh + 8px); } body[data-sheet=min] #replayHud { bottom: calc(144px + var(--safeB)); } body[data-sheet=max] #replayHud { display: none; } }
 
 /* aide et partage */
 .tip-i { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; border: 1.5px solid var(--mute); background: transparent; color: var(--mute); font: 700 12px/1 Georgia, serif; font-style: italic; padding: 0; margin-left: 6px; vertical-align: 2px; flex: none; }

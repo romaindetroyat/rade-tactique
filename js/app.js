@@ -7,10 +7,10 @@ import { MARKS, COURSES, LINE_PRESETS, FORBIDDEN_ZONE, DANGERS } from './courses
 import { pdfText, parseIC, cleanText } from './events.js';
 import { IA_IC, iaOffer, iaErrorMessage, reviewFromParse, reviewFromRegatta, reviewFromApi, setValue, setKeep, setKeepRace, setKeepMark, setKeepCourse, courseReady, canValidate, checksFor, applyReview, reviewHTML, chipOf, validatedHTML } from './icread.js';
 import { stampState, markDirty, canon, legacyStamp } from './archmerge.js';
-import { migrate, seedNorm, KEY as REG_KEY, saveRegattas, createRegatta, upsertRegatta, removeRegatta, setCurrent as setCurrentRegatta, currentRegatta, todayRegatta, icOf, groupBySeason, lockDates, daysOf, addRace, removeRace, raceSettings, membre, saveMembre, backfillAuthor } from './regates.js';
+import { migrate, seedNorm, KEY as REG_KEY, saveRegattas, createRegatta, upsertRegatta, removeRegatta, openRegatta, openAtBoot, openOnNewDay, regattaStatus, STATUS_LABEL, todayRegatta, icOf, groupByStatus, lockDates, daysOf, addRace, removeRace, raceSettings, membre, saveMembre, backfillAuthor } from './regates.js';
 import { THROTTLE_MS, slotKey, freezeAction, obsNeedsCopy, stratNeedsCopy, sliceDays, freezeSummary, strategySummary, compactStrategy, windSourceKind, frozenLabel } from './gel.js';
 import { putSlot, getSlot } from './regstore.js';
-import { listHTML, newRegattaFormHTML, sheetHTML } from './regview.js';
+import { listHTML, noRegattaHTML, newRegattaFormHTML, sheetHTML } from './regview.js';
 import { applyRegattaMarks, pendingMarks, confirmMark, moveMark, ignoreMark } from './regmarks.js';
 import { trackDay, matchRegattas, raceOfTrack, sameTrack, attachTrace, detachTrace, traceSummary, setTraceSummary, setTraceReport } from './attach.js';
 import { breaksOf } from './segments.js';
@@ -59,11 +59,15 @@ const DEF = {
   perf: 1, polar: null, obsOpen: true, startFlash: true,
 };
 const S = { ...DEF, ...store.get('rade.state', {}) };
-// Régates : l’index (petit) se lit de façon synchrone au chargement, comme l’ancienne fiche courante ; IC garde la forme d’avant (icOf)
+// Régates : l’index (petit) se lit de façon synchrone au chargement ; IC garde la forme d’avant (icOf)
 let REG = migrate({ storage: localStore(), now: Date.now(), by: who() });
 // la Coupe SNPM semée est la même fiche sur les trois téléphones (instant commun) : une graine d'avant ramenée à cet instant, index réécrit seulement si l'objet change
 { const seeded = seedNorm(REG); if (seeded !== REG) { REG = seeded; saveRegattas(localStore(), REG); } }
-let IC = icOf(currentRegatta(REG));
+// D-A3, D-A4 : régate du jour, sinon entraînement libre ; jamais lue dans l’index, jamais écrite, jamais partagée. `OPEN` ne change que dans setOpen.
+let OPEN = openAtBoot({ now: Date.now(), list: REG.list });
+let openDay = parisClock(Date.now()).date;          // jour de Paris pour lequel la règle d’ouverture a joué (passage de jour sans relance : dayOpenTick)
+const openReg = () => openRegatta(REG.list, OPEN);
+let IC = icOf(openReg());
 // Remplace l’état des régates, l’écrit et recalcule IC ; un stockage plein ou refusé laisse l’état en mémoire, avec un message
 // Archive partagée (ARCH-01) : `SYNC` (rade.sync.v1) ne porte que les compteurs « sale » par clé, rev, essais et plafonds du jour ; l’état marqué EST la file d’envoi.
 // `fromSync` : la réponse du serveur est appliquée telle quelle, sans marquage (ce n’est pas une saisie de l’équipier).
@@ -76,7 +80,7 @@ function saveReg(next, { fromSync = false } = {}) {
     next = r.st;
     if (r.changed.length) { markDirty(SYNC, r.changed); saveSync(); scheduleSync(20000); paintSync(); }
   }
-  REG = next; IC = icOf(currentRegatta(REG));
+  REG = next; IC = icOf(openReg());
   if (!saveRegattas(localStore(), REG)) { note('regates', 'index non écrit : stockage plein ou refusé'); toast('Mémoire pleine : la régate ne sera pas gardée après fermeture'); }
   return REG;
 }
@@ -110,7 +114,7 @@ const nextFrame = () => new Promise((ok) => {
 async function init() {
   // recalages de bouées de ce téléphone (D-04) : appliqués ici, une seule fois au démarrage, avant toute vue ; jamais dans les tests
   try { applyOverrides(MARKS, loadOverrides(marksStore())); } catch (e) { report('bouees', e); }
-  // bouées et parcours confirmés de la régate courante (autre club, D-04) : injectés ici, après les recalages et la lecture de l’index, avant toute vue
+  // bouées et parcours confirmés de la régate ouverte (autre club, D-04) : injectés ici, après les recalages et la lecture de l’index, avant toute vue
   syncRegMarks();
   // chrono repris après un rechargement ou une relance d’iOS : l’affichage repart tout de suite, le son revient au premier toucher
   const saved = store.get('rade.timer.v1', null);
@@ -119,6 +123,7 @@ async function init() {
   else if (saved?.end) store.set('rade.timer.v1', { end: null });
   // ── temps 1 : l’interface utile
   bindShell();
+  paintRegBar();
   renderStart();
   renderLive();
   status('Préparation de la carte…');
@@ -472,7 +477,7 @@ function drawCourse() {
     u.orders.push(l.order); used.set(l.mark, u);
   });
   const marks = Object.fromEntries(Object.entries(MARKS).map(([k, m]) => [k, { ...m, doubt: DOUBT(m) }]));        // « 3 ? » sur la carte (D-01)
-  Object.assign(marks, pendingMarks(currentRegatta(REG)));        // « X1 ? » : bouées d’un autre club à confirmer, pour la carte seulement (jamais dans MARKS)
+  Object.assign(marks, pendingMarks(openReg()));        // « X1 ? » : bouées d’un autre club à confirmer, pour la carte seulement (jamais dans MARKS)
   for (const k of ['A', 'B', 'C', 'D']) if (analysis.points[k]) { const ll = toLL(analysis.points[k].x, analysis.points[k].y); marks[k] = { name: analysis.points[k].name, ...ll, color: '#f5c400' }; }
   scene.setMarks(marks, used);
   scene.setLine(analysis.line, analysis.start.startPoint ? [{ ...analysis.start.startPoint, name: '◆ Départ conseillé' }] : []);
@@ -780,8 +785,8 @@ let rlSavedAt = 0, wasLocked = false;
 const saveRL = (now = Date.now()) => { rlSavedAt = now; store.set('rade.racelock', RL); };
 const raceActive = (now) => isActive({ now, timerEnd: timer.end, startModeOpen: startMode.isOpen(), recording: recorder.active, gpsOn: gps?.watch != null });
 function raceLock(now = Date.now()) {
-  // le verrou lit les dates de la régate d’aujourd’hui (la courante en priorité), sinon de la courante
-  const { raceFrom, raceTo } = lockDates({ now, list: REG.list, currentId: REG.current });
+  // le verrou lit les dates de la régate d’aujourd’hui dans la liste, ouverte ou non : il ne dépend jamais de la régate ouverte à l’écran
+  const { raceFrom, raceTo } = lockDates({ now, list: REG.list });
   return lockState({ now, active: raceActive(now), raceFrom, raceTo, lastActiveAt: RL.lastActiveAt ?? null, finishedAt: RL.finishedAt ?? null });
 }
 function saveRaceActivity() { const now = Date.now(); if (raceActive(now)) { RL.lastActiveAt = now; saveRL(now); } }
@@ -802,6 +807,7 @@ function raceTick() {
   if (wasLocked && !locked) { updates?.check(); scheduleSync(60000); reprise(); }    // le téléchargement était suspendu pendant le verrou ; l'archive (objets lourds compris) repart une minute plus tard
   wasLocked = locked;
   freezeTick('tic');                             // copie du vent du jour (gel) : jamais reportée, voir plus bas
+  dayOpenTick(now, active);
 }
 // Bandeau discret en haut ; texte posé par textContent, jamais en HTML (la note vient du worker)
 function showUpdateBar(build) {
@@ -1236,7 +1242,7 @@ let rest = null;
 function renderLive() {
   const el = $('section[data-tab=live]');
   // jour de régate (D-15) : « Course finie » lève le verrou de mise à jour ; il n’arrête ni chrono, ni trace, ni GPS
-  const { raceFrom, raceTo } = lockDates({ now: Date.now(), list: REG.list, currentId: REG.current });
+  const { raceFrom, raceTo } = lockDates({ now: Date.now(), list: REG.list });
   const raceCard = isRaceDay({ now: Date.now(), raceFrom, raceTo })
     ? `<div class="card"><button class="btn alt" id="raceDone">🏁 Course finie — retour au port</button><div class="small muted" style="margin-top:6px">Permet d’appliquer une mise à jour en attente. Le chrono, la trace et le GPS ne sont pas arrêtés.</div></div>` : '';
   el.innerHTML = `${raceCard}<div class="card" id="liveGps"></div>
@@ -1341,7 +1347,7 @@ const obsCopy = (o) => ({ day: o.day, h: o.h, t: o.t, dir: o.dir, spd: o.spd, la
 function freezeTick(why) {
   if (freezeBusy) { freezeAgain = true; return; }
   const now = Date.now(), day = parisClock(now).date;
-  const reg = todayRegatta({ now, list: REG.list, currentId: REG.current });
+  const reg = todayRegatta({ now, list: REG.list, currentId: OPEN });      // la régate ouverte ne sert qu’à départager deux régates du même jour : le gel ne dépend jamais d’une ouverture
   if (!reg || !data || now - freezeFailAt < THROTTLE_MS) return;       // pas de régate aujourd’hui, rien à copier, ou base refusée il y a moins de 10 min
   const slot = reg.frozen?.[day] || null, obs = (S.obs || []).filter((o) => o.day === day);
   const ana = analysis && analysis.day === day ? analysis : null;                // la dernière analyse déjà faite, si elle porte sur ce jour : aucun calcul n’est lancé pour geler
@@ -1839,9 +1845,9 @@ function syncDeps() {
   return {
     now: Date.now, fetchJson: syncFetch, getState: () => REG,
     setState: (st) => {
-      if (canon([st.list, st.tomb, st.current]) === canon([REG.list, REG.tomb, REG.current])) return;          // rien de nouveau : ni écriture ni redessin
+      if (canon([st.list, st.tomb]) === canon([REG.list, REG.tomb])) return;          // rien de nouveau : ni écriture ni redessin
       saveReg(st, { fromSync: true });
-      refreshRegMarks(); renderIC(); renderDaySeg(); renderBrief(); renderLive();
+      paintRegBar(); refreshRegMarks(); renderIC(); renderDaySeg(); renderBrief(); renderLive();
     },
     getMarks: () => sharedMarks(loadOverrides(marksStore()), SYNC.marksDel || {}), setMarks: applyRemoteMarks,        // recalages de bouées (D-05)
     meta: SYNC, saveMeta: saveSync, isActive: () => raceActive(Date.now()), isOnline: () => net.online,
@@ -1979,14 +1985,55 @@ let raceDraft = null, raceErr = {};          // formulaire « Nouvelle manche »
 let markFix = null;                          // correction de la position d’une bouée de régate en cours : { id, txt, err, ask }
 const icBusy = () => !!(rgDraft || icDraft || raceDraft || markFix);
 const courseList = () => COURSES.map(({ id, title }) => ({ id, title }));
-// Après un changement de régate courante ou de ses données : tout ce qui lit IC ou le verrou est redessiné
-function afterRegChange() { markFix = null; refreshRegMarks(); renderIC(); renderDaySeg(); renderBrief(); renderLive(); }
-// Bouées et parcours de la régate courante (D-04) : retire ceux de la précédente, ajoute les seules bouées CONFIRMÉES et les parcours dont toutes les bouées le sont.
+// ── Régate ouverte (D-A1 à D-A4) : un état de la page, en mémoire. setOpen est le SEUL endroit où OPEN change après le chargement ; il n’écrit rien
+// (ni index, ni file d’envoi, ni synchronisation) : ouvrir ou fermer une régate n’échange rien et ne change rien chez les autres (D-03 phase 4).
+function setOpen(id) {
+  OPEN = id ?? null; IC = icOf(openReg());
+  note('regate', OPEN ? 'ouverte' : 'entraînement libre');          // identifiant jamais noté : le journal ne porte aucun nom
+  paintRegBar();
+}
+// Gestes « Ouvrir » (id) et « Fermer la régate » (null) : une relecture des IC ou une saisie en cours est abandonnée, comme par « Annuler »
+function openGesture(id) {
+  iaCtl?.abort(); iaBusy = false; iaMsg = '';
+  icDraft = null; raceDraft = null; markFix = null;
+  setOpen(id); afterRegChange();
+  const r = openReg();
+  toast(r ? `Régate ouverte : ${r.name}` : 'Retour à l’entraînement libre');
+  if (r) $('#rgSheet')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+// Bandeau du panneau, sur tous les onglets : textContent seulement (un nom de régate peut venir d’un autre téléphone)
+function paintRegBar() {
+  const el = $('#regBar'); if (!el) return;
+  const r = openReg(), mk = (tag, cls, txt) => { const e = document.createElement(tag); if (cls) e.className = cls; e.textContent = txt; return e; };
+  if (r) {
+    const close = mk('button', 'btn small alt', 'Fermer la régate'); close.type = 'button'; close.id = 'regClose';
+    close.addEventListener('click', () => openGesture(null));
+    el.replaceChildren(mk('span', '', '🏁'), mk('span', 'regname', r.name), mk('span', 'chip pres', STATUS_LABEL[regattaStatus(r, Date.now())]), close);
+  } else {
+    const go = mk('button', 'btn small acc', 'Ouvrir une régate'); go.type = 'button'; go.id = 'regGo';
+    go.addEventListener('click', () => { openTab('ic'); $('#rgList')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); });
+    el.replaceChildren(mk('span', 'regname', 'Entraînement libre'), go);
+  }
+  el.dataset.open = r?.id ?? '';
+}
+// Passage de jour sans relance (P-02) : hors course et hors saisie seulement ; sinon le jour n’avance pas et l’essai revient au tic suivant
+function dayOpenTick(now, active) {
+  if (active || icBusy()) return;
+  const r = openOnNewDay({ now, list: REG.list, openId: OPEN, day: openDay });
+  openDay = r.day;
+  if (r.openId === OPEN) return;
+  setOpen(r.openId); afterRegChange();
+  toast(`Jour de régate : ${openReg()?.name || ''} ouverte`);
+}
+
+// Après un changement de régate ouverte ou de ses données : tout ce qui lit IC ou le verrou est redessiné
+function afterRegChange() { markFix = null; paintRegBar(); refreshRegMarks(); renderIC(); renderDaySeg(); renderBrief(); renderLive(); }
+// Bouées et parcours de la régate ouverte (D-04) : retire ceux de la précédente, ajoute les seules bouées CONFIRMÉES et les parcours dont toutes les bouées le sont.
 // Un parcours choisi qui disparaît (autre régate, bouée ignorée) ramène le parcours 3 AVANT tout calcul (Pitfall 7).
 function syncRegMarks() {
   const was = COURSES.find((c) => c.id === S.courseId)?.title;
   let res;
-  try { res = applyRegattaMarks(MARKS, COURSES, currentRegatta(REG)); } catch (e) { report('bouees-regate', e); return; }
+  try { res = applyRegattaMarks(MARKS, COURSES, openReg()); } catch (e) { report('bouees-regate', e); return; }
   if (res.gone.includes(S.courseId) || !COURSES.some((c) => c.id === S.courseId)) {
     S.courseId = 3; selLeg = null; S.lineOverride = null; persist();
     toast(`${was || 'Parcours choisi'} retiré (bouées d’une autre régate ou plus confirmées) : ${COURSES.find((c) => c.id === 3).title}`);
@@ -1995,7 +2042,7 @@ function syncRegMarks() {
 function refreshRegMarks() { syncRegMarks(); if (analysis) { drawCourse(); renderCourse(); } scheduleAnalysis(); }
 // « Choisir cette manche » (geste) : cale parcours, classe, tours, jour et heure de départ (avertissement + 5 min) comme « Caler le départ sur ces IC »
 function chooseRace(n) {
-  const reg = currentRegatta(REG), m = reg?.races.find((x) => x.n === n);
+  const reg = openReg(), m = reg?.races.find((x) => x.n === n);
   if (!m) return;
   const set = raceSettings(m);
   if (set.courseId != null && COURSES.some((c) => c.id === set.courseId) && S.courseId !== set.courseId) { S.courseId = set.courseId; selLeg = null; S.lineOverride = null; }
@@ -2010,32 +2057,32 @@ function chooseRace(n) {
 }
 function renderIC() {
   const el = $('section[data-tab=ic]');
-  const cur = currentRegatta(REG), now = Date.now();
+  const cur = openReg(), now = Date.now();
   IC = icOf(cur);
   const tel = /(0[1-9](?:[ .-]?\d{2}){4})/.exec(IC.committee || '')?.[1];
-  let html = `<div class="card"><h3><span>Régates ${tip('Chaque régate a sa fiche : jours, manches, Instructions de Course. La régate choisie fixe le jour 🏁, l’heure de départ par défaut et les points clés affichés. Classées par saison, puis Aujourd’hui, À venir, Passée.')}</span><button type="button" class="btn acc small" id="rgNew">＋ Nouvelle régate</button></h3>
-    ${listHTML(groupBySeason(REG.list, now), { currentId: cur?.id ?? null, now })}
+  let html = `<div class="card" id="rgList"><h3><span>Régates ${tip('Chaque régate a sa fiche : jours, manches, Instructions de Course. La régate choisie fixe le jour 🏁, l’heure de départ par défaut et les points clés affichés. Classées par saison, puis Aujourd’hui, À venir, Passée.')}</span><button type="button" class="btn acc small" id="rgNew">＋ Nouvelle régate</button></h3>
+    ${listHTML(groupByStatus(REG.list, now), { openId: cur?.id ?? null, now })}
     <div class="small muted" id="rgWho" style="margin-top:6px">${who() ? `Vous : ${esc(who())}` : 'Vous : — (prénom donné à la prochaine connexion)'}</div>
     <div class="small muted" id="rgSync" hidden></div>
     <div class="btns" style="margin:6px 0 0"><button type="button" class="btn small alt" id="rgSyncBtn"${SYNC.off ? ' disabled' : ''}>Synchroniser</button><button type="button" class="btn small alt" id="rgSyncOff">${SYNC.off ? 'Réactiver la synchronisation' : 'Désactiver la synchronisation'}</button>${tip(SYNC_TIP)}</div></div>`;
   if (rgDraft) html += newRegattaFormHTML(rgDraft, rgErr);
-  html += sheetHTML(cur, { now, courses: courseList(), raceDraft, raceErrors: raceErr, markFix, nmOf: fmtNm, local: LOCAL?.traces ?? null, daysLocal: LOCAL?.days ?? null, me: who(), tipHtml: tip(DL_TIP) });
+  html += cur ? sheetHTML(cur, { now, courses: courseList(), raceDraft, raceErrors: raceErr, markFix, nmOf: fmtNm, local: LOCAL?.traces ?? null, daysLocal: LOCAL?.days ?? null, me: who(), tipHtml: tip(DL_TIP) }) : noRegattaHTML();
   if (icDraft) html += reviewHTML(icDraft, icChecks(), { ia: iaState(), isLand: T ? (x, y) => T.isLand(x, y) : undefined });
-  html += `<div class="card"><h3>Instructions de course <small>${cur?.ic ? 'validées' : 'à importer'}</small></h3>
+  if (cur) html += `<div class="card"><h3>Instructions de course <small>${cur.ic ? 'validées' : 'à importer'}</small></h3>
     <div class="btns" style="margin:0 0 6px"><label class="btn acc small" for="icFile" style="cursor:pointer">＋ Importer des IC (PDF)</label><button class="btn alt small" id="evEdit">Modifier</button></div>
     <input type="file" id="icFile" accept="application/pdf,.pdf,.txt,text/plain" hidden>
     <div class="small muted" id="icMsg" style="margin-bottom:8px">L’app lit le PDF des IC et montre, pour chaque valeur (date, heures, VHF, Comité, zone), la phrase d’où elle vient : relisez, corrigez, puis « Valider les IC ».</div>
-    <div class="small" id="icVal" style="margin-bottom:8px">${validatedHTML(cur?.ic)}</div>
+    <div class="small" id="icVal" style="margin-bottom:8px">${validatedHTML(cur.ic)}</div>
     <div class="kpis"><div class="kpi"><b>${esc(IC.firstWarning || '—')}</b><span>1er avertissement</span></div><div class="kpi"><b>${esc(IC.lastFinishSignal || '—')}</b><span>limite arrivée du 1er</span></div><div class="kpi"><b>VHF ${esc(IC.vhf ?? '—')}</b><span>canal de course</span></div></div>
     <p class="small">${IC.committee ? `Comité : ${tel ? `<a href="tel:${tel.replace(/\D/g, '')}">${esc(IC.committee)}</a>` : esc(IC.committee)}<br>` : ''}${IC.zone ? `Zone : ${esc(IC.zone)}<br>` : ''}${IC.id === 'snpm-2026' ? 'Avis : <a href="https://chat.whatsapp.com/J2W7onZ86t9AnqJJliPUSU" target="_blank" rel="noopener">WhatsApp « CVAT Tableau Officiel »</a>' : ''}</p>
-    ${IC.firstWarning && IC.date ? `<button class="btn small alt" id="evUse">Caler le départ sur ces IC (${esc(dayName(IC.date))}, ${esc(IC.firstWarning)} + 5 min)</button>` : ''}</div>
-  <div class="card"><h3>Règles de course <small>RCV / RRS 2025-2028</small></h3><p class="small">Départs (P, I, U, Z, noir), priorités, bouées, arrivée et pénalités, en langage simple avec schémas et textes officiels FR / EN.</p>
+    ${IC.firstWarning && IC.date ? `<button class="btn small alt" id="evUse">Caler le départ sur ces IC (${esc(dayName(IC.date))}, ${esc(IC.firstWarning)} + 5 min)</button>` : ''}</div>`;
+  html += `<div class="card"><h3>Règles de course <small>RCV / RRS 2025-2028</small></h3><p class="small">Départs (P, I, U, Z, noir), priorités, bouées, arrivée et pénalités, en langage simple avec schémas et textes officiels FR / EN.</p>
     <div class="btns" style="margin:0"><a class="btn acc small" href="regles.html" target="_blank" rel="noopener">📘 Ouvrir les règles</a><a class="btn alt small" href="regles.html#depart" target="_blank" rel="noopener">Pavillons de départ</a><a class="btn alt small" href="regles.html#bouees" target="_blank" rel="noopener">Bouées</a><a class="btn alt small" href="regles.html#arbitre" target="_blank" rel="noopener">💬 Demander à l’arbitre</a></div></div>
-  <div class="card"><h3>Pavillons de classe <small>habituels CVAT</small></h3><table class="t">${IC.classes.map((c) => `<tr><td>${esc(c[0])}</td><td>${esc(c[1])}</td></tr>`).join('')}</table></div>
-  <div class="card"><h3>Points clés</h3><ul class="tips small">${(IC.keyRules || []).map((r) => `<li>${esc(r)}</li>`).join('') || '<li>Aucun point clé enregistré.</li>'}</ul>
+  <div class="card"><h3>Pavillons de classe <small>habituels CVAT</small></h3><table class="t">${IC.classes.map((c) => `<tr><td>${esc(c[0])}</td><td>${esc(c[1])}</td></tr>`).join('')}</table></div>`;
+  if (cur) html += `<div class="card"><h3>Points clés</h3><ul class="tips small">${(IC.keyRules || []).map((r) => `<li>${esc(r)}</li>`).join('') || '<li>Aucun point clé enregistré.</li>'}</ul>
     ${IC.text ? `<details><summary class="small">Texte complet des IC</summary><pre class="ictext">${esc(IC.text)}</pre></details>` : ''}
-    ${cur ? `<button class="btn small alt" id="evDel" style="margin-top:8px">Supprimer cette régate</button>` : ''}</div>
-  <div class="card"><h3>Marques <small>cahier de parcours CVAT</small></h3><table class="t"><tr><th>N°</th><th>Marque</th><th>Position</th></tr>${Object.entries(MARKS).filter(([k]) => cvatKey(k)).map(([k, m]) => marksRow(k, m)).join('')}</table>
+    <button class="btn small alt" id="evDel" style="margin-top:8px">Supprimer cette régate</button></div>`;
+  html += `<div class="card"><h3>Marques <small>cahier de parcours CVAT</small></h3><table class="t"><tr><th>N°</th><th>Marque</th><th>Position</th></tr>${Object.entries(MARKS).filter(([k]) => cvatKey(k)).map(([k, m]) => marksRow(k, m)).join('')}</table>
     <div class="small muted" style="margin-top:6px">« à confirmer » = position approximative (cartes du cahier ou OpenStreetMap) : à vérifier sur zone, le Comité fait foi. Un recalage est partagé avec l’équipage à la synchronisation suivante, hors course.</div></div>
   <div class="card"><h3>Dangers</h3><ul class="tips small"><li><b>Zone interdite</b> de la presqu’île de Saint-Mandrier (zone Marine nationale, rouge sur la carte).</li>${DANGERS.map((d) => `<li><b>${esc(d.name)}</b> (${fmtLat(d.lat)} ${fmtLon(d.lon)}) : ${esc(d.note)}</li>`).join('')}</ul></div>`;
   el.innerHTML = html;
@@ -2043,8 +2090,8 @@ function renderIC() {
   $('#rgSyncBtn').onclick = () => syncNow('manuel');
   $('#rgSyncOff').onclick = (e) => toggleSync(e.currentTarget);
   paintSync();
-  // liste : toucher une régate en fait la courante
-  $$('[data-rg]', el).forEach((b) => b.addEventListener('click', () => { saveReg(setCurrentRegatta(REG, b.dataset.rg)); icDraft = null; afterRegChange(); }));
+  // liste : « Ouvrir » ouvre la régate (état local de la page, rien n’est écrit ni échangé)
+  $$('[data-rg]', el).forEach((b) => b.addEventListener('click', () => openGesture(b.dataset.rg)));
   // « Nouvelle régate » : trois champs (le premier jour vaut aujourd’hui, jour de Paris, tant qu’on ne le change pas)
   $('#rgNew').onclick = () => { rgDraft = { name: '', dateStart: parisClock(Date.now()).date, dateEnd: '', club: '' }; rgErr = {}; renderIC(); $('#rgName')?.focus(); };
   if (rgDraft) {
@@ -2054,7 +2101,7 @@ function renderIC() {
       const r = createRegatta(rgDraft, { now: Date.now(), by: who() });
       if (!r.ok) { rgErr = r.errors; renderIC(); return; }
       rgDraft = null; rgErr = {}; icDraft = null;
-      saveReg(setCurrentRegatta(upsertRegatta(REG, r.regatta), r.regatta.id));
+      saveReg(upsertRegatta(REG, r.regatta)); setOpen(r.regatta.id);
       toast(`Régate créée : ${r.regatta.name}`); afterRegChange();                  // si le parcours choisi disparaît, son message (plus important) passe en dernier
     };
     for (const id of ['#rgName', '#rgStart', '#rgEnd', '#rgClub']) {
@@ -2096,8 +2143,8 @@ function renderIC() {
   }));
   $$('[data-rg-dl]', el).forEach((b) => b.addEventListener('click', () => telecharger(b.dataset.rgDl, b)));       // « Télécharger pour le hors réseau » (geste)
   bindRegMarks(el, cur);
-  $('#evEdit').onclick = () => { icDraft = reviewFromRegatta(cur); renderIC(); $('#icReview')?.scrollIntoView({ behavior: 'smooth' }); };
-  $('#evDel')?.addEventListener('click', (e) => { if (e.target.dataset.c !== '1') { e.target.dataset.c = '1'; e.target.textContent = 'Confirmer la suppression'; return; } icDraft = null; saveReg(removeRegatta(REG, cur.id)); afterRegChange(); });
+  $('#evEdit')?.addEventListener('click', () => { icDraft = reviewFromRegatta(cur); renderIC(); $('#icReview')?.scrollIntoView({ behavior: 'smooth' }); });
+  $('#evDel')?.addEventListener('click', (e) => { if (e.target.dataset.c !== '1') { e.target.dataset.c = '1'; e.target.textContent = 'Confirmer la suppression'; return; } icDraft = null; saveReg(removeRegatta(REG, cur.id)); setOpen(null); afterRegChange(); });
   $('#evUse')?.addEventListener('click', () => {
     const [h, m] = IC.firstWarning.split(':').map(Number);
     S.startTime = h + (m + 5) / 60; S.hour = Math.floor(S.startTime * 4) / 4;
@@ -2200,7 +2247,7 @@ async function readWithAI() {
     const body = await r.json().catch(() => { /* corps illisible : traité comme une erreur juste après */ return null; });
     if (icDraft?.imported !== token) return;                       // relecture fermée ou remplacée entre-temps
     if (!r.ok || !body || typeof body !== 'object') throw Object.assign(new Error('HTTP ' + r.status), { status: r.status, iaCode: typeof body?.error === 'string' ? body.error : '', iaMessage: typeof body?.message === 'string' ? body.message : '' });
-    icDraft = { ...reviewFromApi(body, { source: icDraft.source, text: icSrc.text, regatta: currentRegatta(REG) }), imported: token };
+    icDraft = { ...reviewFromApi(body, { source: icDraft.source, text: icSrc.text, regatta: openReg() }), imported: token };
     iaMsg = '';
   } catch (err) {
     if (icDraft?.imported !== token) return;
@@ -2228,11 +2275,11 @@ function paintReview() {
 }
 
 // « Valider les IC » (geste) : seul endroit où la relecture entre dans la régate, avec qui a validé et quand (D-02).
-// Sans régate courante, elle est d’abord créée depuis les champs relus.
+// Sans régate ouverte, elle est d’abord créée depuis les champs relus, puis ouverte.
 function validateIC() {
   if (!icDraft || !canValidate(icDraft, icChecks())) return;
   const at = Date.now(), by = who(), read = (k) => String(icDraft.fields.find((f) => f.key === k)?.value ?? '').trim();
-  let reg = currentRegatta(REG);
+  let reg = openReg();
   if (!reg) {
     const r = createRegatta({ name: read('event'), dateStart: read('dateStart'), dateEnd: read('dateEnd'), club: '' }, { now: at, by });
     if (!r.ok) { toast(r.errors.dateStart || r.errors.name || 'Régate incomplète'); return; }
@@ -2240,7 +2287,7 @@ function validateIC() {
   }
   const next = applyReview(reg, icDraft, { by, at });
   icDraft = null;
-  saveReg(setCurrentRegatta(upsertRegatta(REG, next), next.id));
+  saveReg(upsertRegatta(REG, next)); setOpen(next.id);
   const { firstWarning } = next.ic.fields, d = next.dateStart;
   if (firstWarning && d && d >= today() && d <= addDays(today(), 2)) { const [h, m] = firstWarning.split(':').map(Number); S.startTime = h + (m + 5) / 60; S.day = d; persist(); }
   afterRegChange(); toast(`IC validées : ${next.name}`); updateAll();

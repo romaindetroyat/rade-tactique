@@ -635,3 +635,16 @@ test('garde statique : aucun fichier de js/ ne contient d’adresse de magasin B
   const vue = readFileSync(ROOT + 'index.html', 'utf8');
   assert.doesNotMatch(vue, /blob\.vercel-storage\.com|BLOB_READ_WRITE_TOKEN/i);
 });
+
+test('compatibilité v36 : un PUT dont le document porte une régate ouverte au premier niveau est accepté, et le document rendu n’en porte aucune', async () => {
+  const { teiva, thibaud, blob } = installe();
+  const r = await teiva('PUT', PUT, { doc: { ...doc(regatta()), current: 'rgA', open: 'rgA' } });
+  assert.equal(r.status, 200);
+  assert.ok(!('current' in r.body.doc) && !('open' in r.body.doc), 'réponse sans état d’ouverture');
+  const lu = await thibaud('GET', GET);
+  assert.equal(lu.status, 200);
+  assert.ok(!/"current"|"open"/.test(JSON.stringify(lu.body.doc)), 'le GET suivant : aucun état d’ouverture');
+  assert.equal(lu.body.doc.regattas.rgA.id, 'rgA');
+  assert.ok(blob.store.size > 0);
+  for (const e of blob.store.values()) assert.ok(!/"current"|"open"/.test(e.text), 'ni dans le magasin');
+});
