@@ -2062,7 +2062,7 @@ function renderIC() {
   const cur = openReg(), now = Date.now();
   IC = icOf(cur);
   const tel = /(0[1-9](?:[ .-]?\d{2}){4})/.exec(IC.committee || '')?.[1];
-  let html = `<div class="card" id="rgList"><h3><span>Régates ${tip('Chaque régate a sa fiche : jours, manches, Instructions de Course. La régate choisie fixe le jour 🏁, l’heure de départ par défaut et les points clés affichés. Classées par saison, puis Aujourd’hui, À venir, Passée.')}</span><button type="button" class="btn acc small" id="rgNew">＋ Nouvelle régate</button></h3>
+  let html = `<div class="card" id="rgList"><h3><span>Régates ${tip('Chaque régate a sa fiche : jours, manches, Instructions de Course. À l’ouverture, l’app est en Entraînement libre : Ouvrir ouvre une régate (sa fiche, ses manches, ses IC, son vent figé et ses traces), Fermer la régate revient à l’entraînement. Le jour d’une régate, l’app l’ouvre seule. La régate ouverte fixe le jour 🏁, l’heure de départ par défaut et les points clés affichés. Classées En préparation, En cours, Terminées. Ouvrir ou fermer ne change rien chez les autres.')}</span><button type="button" class="btn acc small" id="rgNew">＋ Nouvelle régate</button></h3>
     ${listHTML(groupByStatus(REG.list, now), { openId: cur?.id ?? null, now })}
     <div class="small muted" id="rgWho" style="margin-top:6px">${who() ? `Vous : ${esc(who())}` : 'Vous : — (prénom donné à la prochaine connexion)'}</div>
     <div class="small muted" id="rgSync" hidden></div>
