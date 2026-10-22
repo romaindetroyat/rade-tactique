@@ -87,15 +87,31 @@ const ouvreApp = async (page, base) => {
 };
 const sansErreur = (erreurs, quand) => assert.deepEqual(erreurs, [], `erreur de page ${quand} : ${erreurs.join(' ; ')}`);
 
-// Liste des régates affichée : [{ status, rows: [{ id, name, cur }] }] avec les saisons
-const lireListe = (page) => page.evaluate(() => [...document.querySelectorAll('section[data-tab=ic] .rgseason')].map((s) => {
-  const out = { season: s.querySelector('h4')?.textContent.trim(), groups: [] };
-  for (const el of s.children) {
-    if (el.classList.contains('rgstatus')) out.groups.push({ status: el.textContent.trim(), rows: [] });
-    else if (el.classList.contains('rg')) out.groups.at(-1).rows.push({ id: el.dataset.rg, name: el.querySelector('.rgn').textContent, text: el.textContent, cur: el.classList.contains('on') });
-  }
-  return out;
-}));
+// Liste des régates affichée : [{ status: titre du groupe, rows: [{ id, name, text, open }] }] (En préparation, En cours, Terminées)
+const lireListe = (page) => page.evaluate(() => [...document.querySelectorAll('section[data-tab=ic] .rggroup')].map((g) => ({
+  status: g.querySelector('h4').textContent.trim(),
+  rows: [...g.querySelectorAll('.rg[data-rg-row]')].map((el) => ({ id: el.dataset.rgRow, name: el.querySelector('.rgn').textContent, text: el.textContent, open: el.classList.contains('on') })),
+})));
+// Régate ouverte à l’écran : l’identifiant est lu sur le bandeau du panneau (#regBar[data-open], état de la page), puis la régate dans l’index ; null en entraînement libre
+const regateOuverte = (page) => page.evaluate(() => {
+  const id = document.querySelector('#regBar')?.dataset.open;
+  if (!id) return null;
+  return JSON.parse(localStorage.getItem('rade.regates.v1')).list.find((r) => r.id === id) ?? null;
+});
+const idOuverte = (page) => page.evaluate(() => document.querySelector('#regBar')?.dataset.open ?? null);
+// « Ouvrir » sur une régate de la liste (onglet Régates), puis attente du bandeau
+async function ouvreRegate(page, id) {
+  await page.click('#tabs button[data-tab=ic]');
+  await page.click(`#rgList [data-rg="${id}"]`);
+  await page.waitForSelector(`#regBar[data-open="${id}"]`, { timeout: 10000 });
+}
+// Ouvre la régate d'une ligne de la liste (bouton « Ouvrir ») ; une ligne sans bouton est déjà la régate ouverte
+const ouvreLigne = async (ligne) => { const b = ligne.locator('[data-rg]'); if (await b.count()) await b.click(); };
+// « Fermer la régate » (bandeau) : retour à l’entraînement libre
+async function fermeRegate(page) {
+  await page.click('#regClose');
+  await page.waitForSelector('#regBar[data-open=""]', { timeout: 10000 });
+}
 
 // Crée une régate par l’interface : « ＋ Nouvelle régate », trois champs (et le dernier jour), « Créer la régate »
 async function creeRegate(page, { nom, debut, fin = '', club = '' }) {
@@ -133,12 +149,12 @@ async function creer({ browser, base }) {
 
   await creeRegate(page, { nom: NOM_PIEGE, debut: '2026-11-07', fin: '2026-11-09', club: 'CVAT' });
   let liste = await lireListe(page);
-  assert.equal(liste.length, 1, 'une seule saison');
-  assert.equal(liste[0].season, 'Saison 2026');
-  assert.deepEqual(liste[0].groups.map((g) => g.status), ['Aujourd’hui', 'Passée'], 'statuts : Aujourd’hui puis Passées');
-  assert.equal(liste[0].groups[0].rows[0].name, NOM_PIEGE, 'le nom s’affiche en texte');
-  assert.ok(liste[0].groups[0].rows[0].cur, 'la nouvelle régate est la courante');
-  assert.equal(liste[0].groups[1].rows[0].id, 'snpm-2026', 'la Coupe SNPM est passée');
+  assert.deepEqual(liste.map((g) => g.status), ['En cours', 'Terminées'], 'statuts : En cours puis Terminées');
+  assert.equal(liste[0].rows[0].name, NOM_PIEGE, 'le nom s’affiche en texte');
+  assert.match(liste[0].rows[0].text, /2026/, 'l’année reste lisible dans la ligne');
+  assert.ok(liste[0].rows[0].open, 'la nouvelle régate est la régate ouverte');
+  assert.equal(await idOuverte(page), liste[0].rows[0].id, 'le bandeau porte la régate créée');
+  assert.equal(liste[1].rows[0].id, 'snpm-2026', 'la Coupe SNPM est terminée'); assert.ok(!liste[1].rows[0].open);
   assert.equal(await page.locator('section[data-tab=ic] img').count(), 0, 'aucune balise img dans l’onglet');
   assert.equal(await page.evaluate(() => window.__xss), undefined, 'le nom piégé a exécuté du code');
   await page.click('#tabs button[data-tab=live]');
@@ -147,7 +163,8 @@ async function creer({ browser, base }) {
   // elle survit à un rechargement
   await ouvreApp(page, base);
   liste = await lireListe(page);
-  assert.equal(liste[0].groups[0].rows[0].name, NOM_PIEGE, 'la régate a disparu au rechargement');
+  assert.equal(liste[0].rows[0].name, NOM_PIEGE, 'la régate a disparu au rechargement');
+  assert.equal(await idOuverte(page), liste[0].rows[0].id, 'le jour de la régate, elle est ouverte au lancement sans aucun geste');
   assert.equal(await page.evaluate(() => localStorage.getItem('rade.events.v1')), ancien, 'rade.events.v1 modifiée au rechargement');
 
   // lundi 09/11 à 23 h 30 (Paris) : encore le dernier jour ; mardi 10/11 : passée, plus de carte « Course finie »
@@ -158,7 +175,8 @@ async function creer({ browser, base }) {
   await ctx.clock.setFixedTime(new Date('2026-11-10T08:30:00Z'));
   await ouvreApp(page, base);
   liste = await lireListe(page);
-  assert.deepEqual(liste[0].groups.map((g) => g.status), ['Passée'], 'le 10/11 la régate est passée');
+  assert.deepEqual(liste.map((g) => g.status), ['Terminées'], 'le 10/11 la régate est terminée, comme la Coupe SNPM');
+  assert.equal(liste[0].rows.length, 2); assert.equal(await idOuverte(page), '', 'le 10/11 : entraînement libre');
   await page.click('#tabs button[data-tab=live]');
   assert.equal(await page.locator('#raceDone').count(), 0, 'le 10/11 la carte « Course finie » doit disparaître');
   sansErreur(erreurs, 'pendant le scénario');
@@ -202,7 +220,7 @@ async function manche({ browser, base }) {
   assert.deepEqual(await reglages(page), { parcours: '3', cls: 'P', depart: '13:30' });
   const etat = await page.evaluate(() => ({ s: JSON.parse(localStorage.getItem('rade.state')), idx: JSON.parse(localStorage.getItem('rade.regates.v1')) }));
   assert.equal(etat.s.courseId, 3); assert.equal(etat.s.cls, 'P'); assert.equal(etat.s.startTime, 13.5); assert.equal(etat.s.day, '2026-11-07');
-  const reg = etat.idx.list.find((r) => r.id === etat.idx.current);
+  const reg = await regateOuverte(page);                      // la régate créée est la régate ouverte (bandeau)
   assert.equal(reg.sel, 2, 'la manche choisie est gardée avec la régate');
   assert.deepEqual(reg.races.map((m) => [m.n, m.time, m.courseId, m.cls, m.laps]), [[1, '10:55', 5, 'G', 2], [2, '13:25', 3, 'P', 1]]);
 
@@ -228,7 +246,6 @@ async function simuleMembre(ctx, nom) {
   return servi;
 }
 const membreGarde = (page, nom) => page.waitForFunction((n) => localStorage.getItem('rade.membre.v1') === n, nom, { timeout: 20000 });
-const regateCourante = (page) => page.evaluate(() => { const i = JSON.parse(localStorage.getItem('rade.regates.v1')); return i.list.find((r) => r.id === i.current); });
 
 // ARCH-02 (auteur, D-05) : le prénom donné par le middleware signe la régate et la manche ; gardé hors réseau ; complété au premier succès
 async function auteur({ browser, base }) {
@@ -245,7 +262,7 @@ async function auteur({ browser, base }) {
   assert.match(await page.locator('#rgSheet').textContent(), /Créée par Équipier test/);
   assert.match(await page.locator('#rgSheet .rgrace').textContent(), /par Équipier test/, 'la manche porte son auteur');
   assert.match(await page.locator('#rgWho').textContent(), /Vous : Équipier test/);
-  let reg = await regateCourante(page);
+  let reg = await regateOuverte(page);
   assert.equal(reg.by, NOM); assert.equal(reg.races[0].by, NOM);
   assert.ok(servi.appels >= 1, '/api/membre a été demandée');
   assert.ok(!JSON.stringify(await page.evaluate(() => ({ ...localStorage }))).match(/rt_acces|acces=/), 'aucun code d’accès côté page');
@@ -264,7 +281,7 @@ async function auteur({ browser, base }) {
   const ligne = await p2.locator('section[data-tab=ic] .rg.on').textContent();
   assert.ok(ligne.includes('—') && !/par /.test(ligne), `sans réponse : « — » attendu, vu « ${ligne} »`);
   assert.match(await p2.locator('#rgWho').textContent(), /Vous : —/);
-  reg = await regateCourante(p2);
+  reg = await regateOuverte(p2);
   assert.equal(reg.by, null); assert.equal(reg.races[0].by, null);
   assert.equal(await p2.evaluate(() => localStorage.getItem('rade.membre.v1')), null, 'rien de gardé sans réponse');
   servi2.ok = true;                                          // le réseau revient : au rechargement, la réponse arrive
@@ -274,7 +291,7 @@ async function auteur({ browser, base }) {
   await p2.click('#tabs button[data-tab=ic]');
   assert.match(await p2.locator('section[data-tab=ic] .rg.on').textContent(), /par Équipier test/, 'la régate créée hors réseau est complétée');
   assert.match(await p2.locator('#rgSheet .rgrace').textContent(), /par Équipier test/, 'la manche créée hors réseau est complétée');
-  reg = await regateCourante(p2);
+  reg = await regateOuverte(p2);
   assert.equal(reg.by, NOM); assert.equal(reg.races[0].by, NOM);
   sansErreur(e2, 'hors réseau puis en ligne');
   await ctx2.close();
@@ -297,7 +314,7 @@ async function ic({ browser, base }) {
   const { page, erreurs } = await ouvrePage(ctx);
   await ouvreApp(page, base);
   await creeRegate(page, { nom: 'Test IC', debut: '2026-10-19', club: 'CVAT' });
-  assert.equal((await regateCourante(page)).ic, null, 'une régate créée n’a pas d’IC');
+  assert.equal((await regateOuverte(page)).ic, null, 'une régate créée n’a pas d’IC');
   assert.match(await page.locator('#icVal').textContent(), /Pas encore d’IC validées/);
 
   await importeIC(page);
@@ -311,29 +328,29 @@ async function ic({ browser, base }) {
   assert.equal(rel.dateEnd.valeur, '');
   assert.equal(await page.locator('#icReview input[data-f]').evaluateAll((l) => l.every((i) => i.type === 'text')), true, 'saisie en texte');
   // l'import n'a rien retenu : ni dans l'index, ni dans la fiche
-  assert.equal((await regateCourante(page)).ic, null, 'rien n’entre avant « Valider les IC »');
+  assert.equal((await regateOuverte(page)).ic, null, 'rien n’entre avant « Valider les IC »');
   assert.match(await page.locator('#icVal').textContent(), /Pas encore d’IC validées/);
   // un changement d'onglet n'écrit rien non plus
   await page.click('#tabs button[data-tab=live]'); await page.click('#tabs button[data-tab=ic]');
-  assert.equal((await regateCourante(page)).ic, null, 'changement d’onglet : rien d’écrit');
+  assert.equal((await regateOuverte(page)).ic, null, 'changement d’onglet : rien d’écrit');
 
   // « Annuler » : la relecture disparaît, toujours rien
   await page.click('#icCancel');
   await page.waitForSelector('#icReview', { state: 'detached', timeout: 10000 });
-  assert.equal((await regateCourante(page)).ic, null, '« Annuler » : rien d’écrit');
+  assert.equal((await regateOuverte(page)).ic, null, '« Annuler » : rien d’écrit');
   // une relance abandonne aussi une relecture ouverte
   await importeIC(page);
   await ouvreApp(page, base);
   await page.click('#tabs button[data-tab=ic]');
   assert.equal(await page.locator('#icReview').count(), 0, 'relance : la relecture est abandonnée');
-  assert.equal((await regateCourante(page)).ic, null, 'relance : rien d’écrit');
+  assert.equal((await regateOuverte(page)).ic, null, 'relance : rien d’écrit');
 
   // nouvel import, correction d'un champ puis « Valider les IC »
   await importeIC(page);
   await page.fill('#icf-zone', 'Rade de Toulon corrigée');
   await page.click('#icValidate');
   await page.waitForSelector('#icReview', { state: 'detached', timeout: 10000 });
-  const reg = await regateCourante(page);
+  const reg = await regateOuverte(page);
   assert.equal(typeof reg.ic.validated.at, 'number', 'qui a validé et quand : l’heure est posée');
   assert.ok(reg.ic.validated.by === null || typeof reg.ic.validated.by === 'string');
   assert.equal(reg.ic.fields.vhf, 72); assert.equal(reg.ic.fields.firstWarning, '10:55'); assert.equal(reg.ic.fields.lastFinishSignal, '16:00');
@@ -345,11 +362,12 @@ async function ic({ browser, base }) {
   assert.ok(reg.ic.fields.keyRules.length > 0 && reg.ic.text.length > 10000 && reg.ic.text.length <= 20000);
   assert.match(await page.locator('#icVal').textContent(), /^IC validées.* le \d\d\/\d\d \(lecture par motifs\)$/);
   assert.match(await page.locator('section[data-tab=ic]').textContent(), /VHF 72/);
-  // elle survit à un rechargement
+  // elle survit à un rechargement : les IC ont ramené la régate au 18/10 (passée), l'app repart en entraînement libre ; on la rouvre explicitement
   await ouvreApp(page, base);
-  await page.click('#tabs button[data-tab=ic]');
+  assert.equal(await idOuverte(page), '', 'rechargement : entraînement libre, la régate est passée depuis les IC');
+  await ouvreRegate(page, reg.id);
   assert.match(await page.locator('#icVal').textContent(), /IC validées/);
-  assert.equal((await regateCourante(page)).ic.fields.vhf, 72);
+  assert.equal((await regateOuverte(page)).ic.fields.vhf, 72);
   sansErreur(erreurs, 'pendant le scénario');
   await ctx.close();
 }
@@ -402,12 +420,12 @@ async function vraisemblance({ browser, base }) {
   assert.match(e.puce, /\blow\b/); assert.equal(e.bouton, true);
   assert.equal(await page.locator('#icReview [data-mod=vhf]').isVisible(), true, 'valeur modifiée à la main : signalé');
   // rien n'a été écrit pendant la saisie ; la valeur impossible vidée, la validation passe et l'impossible n'entre pas
-  assert.equal((await regateCourante(page)).ic, null);
+  assert.equal((await regateOuverte(page)).ic, null);
   e = await saisit(page, 'vhf', '');
   assert.equal(e.bouton, false);
   await page.click('#icValidate');
   await page.waitForSelector('#icReview', { state: 'detached', timeout: 10000 });
-  const reg = await regateCourante(page);
+  const reg = await regateOuverte(page);
   assert.equal(reg.ic.fields.vhf, null, 'VHF vidée : rien d’écrit');
   assert.equal(reg.ic.fields.firstWarning, '10:55'); assert.equal(reg.ic.fields.lastFinishSignal, '09:00', 'une valeur inhabituelle est validée telle quelle');
   sansErreur(erreurs, 'pendant le scénario');
@@ -429,7 +447,7 @@ const lireSlot = (page, cle) => page.evaluate((k) => new Promise((ok) => {
   };
 }), cle);
 // Résumé du gel d'un jour dans l'index de la régate courante
-const gelDuJour = (page, jour) => regateCourante(page).then((r) => r?.frozen?.[jour] ?? null);
+const gelDuJour = (page, jour) => regateOuverte(page).then((r) => r?.frozen?.[jour] ?? null);
 // Attend (sans geste) que le gel du jour vérifie `cond`, puis le rend
 async function attendGel(page, jour, cond, quoi) {
   const t0 = Date.now();
@@ -452,7 +470,7 @@ async function gel({ browser, base }) {
   await ouvreApp(page, base);
   await creeRegate(page, { nom: 'Coupe du gel', debut: '2026-10-18', club: 'CVAT' });
   await ajouteManche(page, { heure: '10:55', parcours: '5', cls: 'G', tours: '2' });
-  const id = (await regateCourante(page)).id;
+  const id = (await regateOuverte(page)).id;
   const f = await attendGel(page, '2026-10-18', (x) => x.signal === 'manche', 'copie à jour avec le signal de la manche');   // une copie faite avant l'ajout de la manche (signal inconnu) est refaite sans attendre 10 min
   assert.equal(f.sealed, false, 'avant le signal : pas scellé'); assert.equal(f.late, false); assert.equal(f.auto, true);
   assert.equal(f.snapshot, true, 'hors réseau : les prévisions embarquées'); assert.equal(f.signal, 'manche');
@@ -498,8 +516,8 @@ async function gel({ browser, base }) {
   // La régate et sa manche de 10:55 sont posées dans le stockage AVANT l'ouverture de l'app : la première copie voit déjà le signal, donc sans signal ni copie antérieure elle est « tardive »
   // (créée par l'interface, un tic de gel pouvait tomber entre la création et l'ajout de la manche : copie « signal inconnu », puis « sceau » et non « tardive » — échec une fois sur six)
   const manche1 = { n: 1, date: '2026-10-18', time: '10:55', courseId: 5, cls: 'G', laps: 2, note: '', by: null, at: 0 };
-  await sème(p2, base, [{ ...regateSemee('tard', 'Ouverte trop tard', '2026-10-18'), races: [manche1] }], 'tard');
-  const id2 = (await regateCourante(p2)).id;
+  await sème(p2, base, [{ ...regateSemee('tard', 'Ouverte trop tard', '2026-10-18'), races: [manche1] }]);
+  const id2 = (await regateOuverte(p2)).id;
   const t = await attendGel(p2, '2026-10-18', (x) => x.signal === 'manche', 'copie tardive');
   assert.equal(t.late, true, 'copie marquée tardive'); assert.equal(t.sealed, true, 'et scellée d’emblée');
   assert.ok(await lireSlot(p2, `${id2}|2026-10-18|wx`), 'les prévisions sont tout de même copiées');
@@ -514,7 +532,7 @@ async function gel({ browser, base }) {
   const { page: p3, erreurs: e3 } = await ouvrePage(ctx3);
   await ouvreApp(p3, base);
   await creeRegate(p3, { nom: 'Sortie sans heure', debut: '2026-10-19', club: '' });
-  const id3 = (await regateCourante(p3)).id;
+  const id3 = (await regateOuverte(p3)).id;
   const u = await attendGel(p3, '2026-10-19', () => true, 'copie sans signal');
   assert.equal(u.signal, 'inconnu'); assert.ok(!u.sealed, 'pas scellé : la copie continue toute la journée'); assert.equal(u.late, false, 'jamais « tardive »');
   assert.equal(u.sealAt, Date.parse('2026-10-19T22:00:00Z'), 'fin du 19/10 à Paris (minuit, heure d’été)');
@@ -608,6 +626,8 @@ async function gpx({ browser, base }) {
   const { page, erreurs } = await ouvrePage(ctx);
   await ouvreApp(page, base);
   await membreGarde(page, NOM);
+  assert.equal(await idOuverte(page), '', 'au lancement le 19/10 : entraînement libre');
+  const snpm = () => indexRegates(page).then((i) => i.list.find((r) => r.id === 'snpm-2026'));          // la Coupe SNPM lue dans l'index, ouverte ou non
   await ongletTraces(page);
   await page.setInputFiles('#gpxIn', GPX_SNPM);
   await toastVu(page, 'Trace rangée dans Coupe de la SNPM — CVAT');
@@ -615,8 +635,9 @@ async function gpx({ browser, base }) {
   await page.waitForSelector('#dqEvent', { timeout: 60000 });
   assert.equal(await page.inputValue('#dqEvent'), 'Coupe de la SNPM — CVAT', 'nom de l’épreuve = la régate');
   assert.notEqual(await page.inputValue('#dqWind'), '', 'vent au départ pré-rempli');
-  const r1 = await regateCourante(page);
+  const r1 = await snpm();
   assert.equal(r1.traces.length, 1, 'une référence de trace dans la régate');
+  assert.equal(await idOuverte(page), '', 'la trace est rangée dans la Coupe SNPM sans l’ouvrir');
   assert.equal(r1.traces[0].by, NOM, 'la référence porte son auteur');
   assert.equal(r1.traces[0].n, 9538);
   const base1 = await lireTraces(page);
@@ -648,8 +669,11 @@ async function gpx({ browser, base }) {
   await page.waitForTimeout(1500);
   assert.equal(await page.locator('#dqWind').isVisible(), false, 'pas de second questionnaire pour une trace déjà rangée');
   assert.equal((await lireTraces(page)).length, 1, 'toujours une seule trace en base');
-  assert.equal((await regateCourante(page)).traces.length, 1, 'toujours une seule référence');
+  assert.equal((await snpm()).traces.length, 1, 'toujours une seule référence');
+  assert.equal(await idOuverte(page), '', 'toujours en entraînement libre');
 
+  // la Coupe SNPM est dans « Terminées » : « Ouvrir » la rouvre avec sa trace et son débrief
+  await ouvreRegate(page, 'snpm-2026');
   // la fiche de la régate réunit la trace, son analyse, son débrief et leurs auteurs
   await page.click('#tabs button[data-tab=ic]');
   await page.waitForSelector('#rgSheet .rgtr', { timeout: 20000 });
@@ -660,18 +684,22 @@ async function gpx({ browser, base }) {
   assert.equal((await page.locator('#rgSheet [data-trd]').first().textContent()).trim(), 'Voir le débrief');
   await page.click('#rgSheet [data-trd]');
   await page.waitForFunction(() => document.querySelector('#rpFrame')?.srcdoc?.length > 500 && !document.querySelector('#modal')?.hidden, null, { timeout: 20000 });
-  const idx = await regateCourante(page);
+  const idx = await snpm();
   assert.ok(idx.traces[0].sum && idx.traces[0].sum.dist > 25000 && idx.traces[0].sum.dur > 12000 && idx.traces[0].sum.dur < 13500, `résumé dans la référence : ${JSON.stringify(idx.traces[0].sum)}`);
   assert.ok(idx.traces[0].report?.t, 'rapport relié à la fiche');
+  await page.click('#rpClose');
+  await fermeRegate(page);                                         // « Fermer la régate » : entraînement libre, la trace reste dans l'archive
+  assert.equal(await page.locator('#rgNone').count(), 1);
+  assert.equal((await snpm()).traces.length, 1);
   sansErreur(erreurs, 'import GPX');
   await ctx.close();
 }
 
 // Index de régates posé avant le premier chargement de l'app (page de même origine sans l'app), puis app ouverte
 const regateSemee = (id, name, debut, fin = '') => ({ id, name, club: 'CVAT', dateStart: debut, dateEnd: fin, season: debut.slice(0, 4), races: [], ic: null, marks: [], courses: [], frozen: {}, traces: [], by: null, at: 0 });
-async function sème(page, base, regates, current) {
+async function sème(page, base, regates) {
   await page.goto(base + 'data/meta.json');
-  await page.evaluate((v) => localStorage.setItem('rade.regates.v1', v), JSON.stringify({ v: 1, current, list: regates }));
+  await page.evaluate((v) => localStorage.setItem('rade.regates.v1', v), JSON.stringify({ v: 1, list: regates }));
   await ouvreApp(page, base);
 }
 const indexRegates = (page) => page.evaluate(() => JSON.parse(localStorage.getItem('rade.regates.v1')));
@@ -681,7 +709,7 @@ async function gpxChoix({ browser, base }) {
   // 1) deux régates le 18/10, sans manche : l'invite liste les deux
   const ctx = await ouvreContexte(browser, { heure: '2026-10-19T09:00:00Z' });
   const { page, erreurs } = await ouvrePage(ctx);
-  await sème(page, base, [regateSemee('ra', 'Régate A', '2026-10-18'), regateSemee('rb', 'Régate B', '2026-10-18')], 'ra');
+  await sème(page, base, [regateSemee('ra', 'Régate A', '2026-10-18'), regateSemee('rb', 'Régate B', '2026-10-18')]);
   await ongletTraces(page);
   await page.setInputFiles('#gpxIn', GPX_SNPM);
   await page.waitForSelector('#modal [data-rp]', { timeout: 90000 });
@@ -725,7 +753,8 @@ async function gpxChoix({ browser, base }) {
   // 2) seule une régate du 7 au 9 novembre : l'invite propose d'en créer une à la date de la trace
   const ctx2 = await ouvreContexte(browser, { heure: '2026-10-19T09:00:00Z' });
   const { page: p2, erreurs: e2 } = await ouvrePage(ctx2);
-  await sème(p2, base, [regateSemee('nov', 'Régate de novembre', '2026-11-07', '2026-11-09')], 'nov');
+  await sème(p2, base, [regateSemee('nov', 'Régate de novembre', '2026-11-07', '2026-11-09')]);
+  await ouvreRegate(p2, 'nov');                                   // ouverture explicite : la régate de novembre est la régate ouverte pendant l'import
   await ongletTraces(p2);
   await p2.setInputFiles('#gpxIn', GPX_SNPM);
   await p2.waitForSelector('#modal [data-rc]', { timeout: 90000 });
@@ -737,7 +766,7 @@ async function gpxChoix({ browser, base }) {
   assert.equal(await p2.inputValue('#dqEvent'), 'Régate du 18/10');
   const i2 = await indexRegates(p2);
   assert.deepEqual(i2.list.map((r) => [r.name, r.dateStart, r.traces.length]), [['Régate de novembre', '2026-11-07', 0], ['Régate du 18/10', '2026-10-18', 1]]);
-  assert.equal(i2.current, 'nov', 'la régate courante ne change pas');
+  assert.equal(await idOuverte(p2), 'nov', 'la régate ouverte ne change pas');
   await p2.click('#dqCancel');
   sansErreur(e2, 'création depuis l’invite');
   await ctx2.close();
@@ -745,7 +774,7 @@ async function gpxChoix({ browser, base }) {
   // 3) « Laisser sans régate » : la trace s'ouvre, aucun questionnaire, aucune référence
   const ctx3 = await ouvreContexte(browser, { heure: '2026-10-19T09:00:00Z' });
   const { page: p3, erreurs: e3 } = await ouvrePage(ctx3);
-  await sème(p3, base, [regateSemee('nov', 'Régate de novembre', '2026-11-07', '2026-11-09')], 'nov');
+  await sème(p3, base, [regateSemee('nov', 'Régate de novembre', '2026-11-07', '2026-11-09')]);
   await ongletTraces(p3);
   await p3.setInputFiles('#gpxIn', GPX_SNPM);
   await p3.waitForSelector('#modal [data-rn]', { timeout: 90000 });
@@ -767,9 +796,9 @@ async function depuisIC({ browser, base }) {
   const sansAncien = async (quand) => {
     assert.equal(await page.locator('#evSave, #evSel, #evForm').count(), 0, `ancien formulaire ou sélecteur de fiches visible ${quand}`);
   };
-  await sème(page, base, [], null);                                  // index vide : { v: 1, current: null, list: [] }, aucune clé rade.events.v1
+  await sème(page, base, []);                                  // index vide : { v: 1, list: [] }, aucune clé rade.events.v1
   assert.equal(await page.evaluate(() => localStorage.getItem('rade.events.v1')), null, 'aucune clé rade.events.v1 au départ');
-  assert.deepEqual(await indexRegates(page), { v: 1, current: null, list: [] }, 'index vide conservé');
+  assert.deepEqual(await indexRegates(page), { v: 1, list: [] }, 'index vide conservé');
   await page.click('#tabs button[data-tab=ic]');
   assert.match(await page.locator('#tabs button[data-tab=ic]').textContent(), /^Régates$/, 'l’onglet s’appelle « Régates »');
   await sansAncien('à l’ouverture de l’onglet');
@@ -790,21 +819,22 @@ async function depuisIC({ browser, base }) {
   const idx = await indexRegates(page);
   assert.equal(idx.list.length, 1, 'une régate créée depuis les IC');
   const r = idx.list[0];
-  assert.equal(idx.current, r.id, 'elle devient la régate courante');
+  assert.equal(await idOuverte(page), r.id, 'elle devient la régate ouverte');
   assert.equal(r.name, nom, 'au nom lu dans les IC'); assert.equal(r.dateStart, '2026-10-18'); assert.equal(r.season, '2026');
   assert.ok(r.ic.validated && typeof r.ic.validated.at === 'number', 'IC validées');
   assert.equal(r.ic.fields.vhf, 72); assert.equal(r.ic.fields.firstWarning, '10:55');
   const liste = await lireListe(page);
-  assert.equal(liste.length, 1); assert.equal(liste[0].season, 'Saison 2026');
-  assert.deepEqual(liste[0].groups.map((g) => g.status), ['Passée'], 'le 18/10 est passé le 19/10');
-  assert.equal(liste[0].groups[0].rows[0].name, nom); assert.ok(liste[0].groups[0].rows[0].cur);
+  assert.equal(liste.length, 1); assert.match(liste[0].rows[0].text, /2026/, 'l’année reste lisible dans la ligne');
+  assert.deepEqual(liste.map((g) => g.status), ['Terminées'], 'le 18/10 est passé le 19/10');
+  assert.equal(liste[0].rows[0].name, nom); assert.ok(liste[0].rows[0].open);
 
   // après relance : cette seule régate, aucune ancienne fiche, rade.events.v1 toujours absente
   await ouvreApp(page, base);
   await page.click('#tabs button[data-tab=ic]');
   await sansAncien('après la relance');
   const apres = await lireListe(page);
-  assert.equal(apres.flatMap((s) => s.groups.flatMap((g) => g.rows)).length, 1, 'une seule régate après relance');
+  assert.equal(apres.flatMap((g) => g.rows).length, 1, 'une seule régate après relance');
+  assert.equal(await idOuverte(page), '', 'après relance : entraînement libre, la régate est terminée');
   assert.equal((await indexRegates(page)).list.length, 1);
   assert.equal(await page.evaluate(() => localStorage.getItem('rade.events.v1')), null, 'rade.events.v1 n’existe toujours pas');
   sansErreur(erreurs, 'pendant le scénario');
@@ -915,12 +945,12 @@ async function ia({ browser, base }) {
   assert.match(rel.firstWarning.puce, /\bgood\b/, 'mêmes puces de vraisemblance que la lecture CVAT');
   assert.equal(await page.locator('#icIa').count(), 0, 'plus de bouton une fois la lecture IA faite');
   // la lecture n'a rien retenu
-  assert.equal((await regateCourante(page)).ic, null, 'rien n’entre avant « Valider les IC »');
+  assert.equal((await regateOuverte(page)).ic, null, 'rien n’entre avant « Valider les IC »');
   assert.match(await page.locator('#icVal').textContent(), /Pas encore d’IC validées/);
 
   await page.click('#icValidate');
   await page.waitForSelector('#icReview', { state: 'detached', timeout: 10000 });
-  const reg = await regateCourante(page);
+  const reg = await regateOuverte(page);
   assert.equal(reg.ic.read, 'ia'); assert.equal(typeof reg.ic.validated.at, 'number');
   assert.equal(reg.ic.fields.vhf, 69); assert.equal(reg.ic.fields.firstWarning, '10:30'); assert.equal(reg.ic.fields.committee, '');
   assert.match(reg.ic.excerpts.firstWarning, /10:30/);
@@ -1000,7 +1030,7 @@ async function iaErreurs({ browser, base }) {
   assert.ok(!/DUPONT|PROGRAMME|Pointe Rouge|Marseille/.test(j), 'jamais le texte des IC dans le journal');
   await p2.click('#icValidate');
   await p2.waitForSelector('#icReview', { state: 'detached', timeout: 10000 });
-  const reg2 = await regateCourante(p2);
+  const reg2 = await regateOuverte(p2);
   assert.equal(reg2.ic.read, 'motifs'); assert.equal(reg2.ic.fields.zone, 'Rade corrigée à la main'); assert.equal(reg2.ic.fields.vhf, 69);
   sansErreur(e2, 'avec les erreurs');
   await ctx2.close();
@@ -1033,10 +1063,10 @@ async function iaErreurs({ browser, base }) {
   assert.equal(await p3.locator('.icrace.icoff input').isDisabled(), true);
   assert.equal(await p3.locator('input[data-kr]:checked').count(), 1, 'une seule règle particulière cochée');
   assert.equal(await p3.locator('.icrule.icoff input[data-kr]').isDisabled(), true);
-  assert.equal((await regateCourante(p3)).races.length, 0, 'rien n’entre avant « Valider les IC »');
+  assert.equal((await regateOuverte(p3)).races.length, 0, 'rien n’entre avant « Valider les IC »');
   await p3.click('#icValidate');
   await p3.waitForSelector('#icReview', { state: 'detached', timeout: 10000 });
-  const reg3 = await regateCourante(p3);
+  const reg3 = await regateOuverte(p3);
   assert.equal(reg3.ic.read, 'ia');
   assert.equal(reg3.races.length, 1, 'la manche vérifiée seulement');
   assert.deepEqual([reg3.races[0].date, reg3.races[0].time, reg3.races[0].courseId], ['2026-10-18', '10:30', null]);
@@ -1152,7 +1182,7 @@ async function bouees({ browser, base }) {
   await ouvreApp(page, base);
   await membreGarde(page, 'Équipier test');
   await creeRegate(page, { nom: 'Régate bouées', debut: '2026-10-19', club: 'SNM' });
-  const idPremiere = (await regateCourante(page)).id;
+  const idPremiere = (await regateOuverte(page)).id;
   await importeTexte(page, TEXTE_BOUEES);
   await page.click('#icIa');
   await page.waitForSelector('.icmark', { timeout: 30000 });
@@ -1172,12 +1202,12 @@ async function bouees({ browser, base }) {
   await page.check('input[data-mk="1"]');
   assert.equal(await page.locator('.iccourse input').isDisabled(), false); await page.check('.iccourse input');
   await page.check('input[data-mk="2"]');                                        // Charlie : retenue malgré tout, « position à saisir »
-  assert.deepEqual(((await regateCourante(page)).marks || []), [], 'rien n’entre avant « Valider les IC »');
+  assert.deepEqual(((await regateOuverte(page)).marks || []), [], 'rien n’entre avant « Valider les IC »');
   await page.click('#icValidate');
   await page.waitForSelector('#icReview', { state: 'detached', timeout: 10000 });
 
   // fiche : trois bouées à confirmer, un parcours en attente ; rien dans les tables ni dans l'onglet Parcours
-  const reg = await regateCourante(page);
+  const reg = await regateOuverte(page);
   assert.deepEqual(reg.marks.map((m) => [m.id, m.name, m.status]), [['X1', 'Alpha', 'a_confirmer'], ['X2', 'Bravo', 'a_confirmer'], ['X3', 'Charlie', 'a_confirmer']]);
   assert.equal(reg.marks[0].by, 'Équipier test'); assert.match(reg.marks[0].excerpt, /Bouée Alpha/); assert.equal(reg.marks[0].src, 'IC SNM');
   assert.deepEqual([reg.marks[0].lat, reg.marks[0].lon, reg.marks[1].lat, reg.marks[1].lon, reg.marks[2].lat], [43.097417, 5.93415, 43.0905, 5.9587, null]);
@@ -1224,7 +1254,7 @@ async function bouees({ browser, base }) {
   t = await tables();
   assert.deepEqual(t.marks, [...CVAT, 'X1'], 'seule Alpha est entrée');
   assert.ok(!(await parcours()).some((x) => /\(IC\)/.test(x)), 'toujours absent : Bravo reste à confirmer');
-  const apresAlpha = await regateCourante(page);
+  const apresAlpha = await regateOuverte(page);
   assert.equal(apresAlpha.marks[0].status, 'confirmee'); assert.equal(typeof apresAlpha.marks[0].confirmed.at, 'number'); assert.equal(apresAlpha.marks[0].confirmed.by, 'Équipier test');
 
   // Confirmer Bravo : le parcours est proposé
@@ -1244,11 +1274,20 @@ async function bouees({ browser, base }) {
   assert.equal((await etatApp()).courseId, 101);
   sansErreur(erreurs, 'avec le parcours lu');
 
-  // après relance : bouées confirmées et parcours choisi retrouvés dès le démarrage
+  // après relance : l'app repart en entraînement libre (la régate est du 18/10, passée) ; les bouées et le parcours de la régate ne sont pas injectés et le
+  // parcours choisi revient au 3 AVANT tout calcul ; en rouvrant la régate (« Ouvrir »), bouées confirmées et parcours sont retrouvés, et le parcours se rechoisit
   await ouvreApp(page, base);
-  assert.equal((await etatApp()).courseId, 101, 'le parcours choisi survit à la relance');
+  assert.equal(await idOuverte(page), '', 'après relance : entraînement libre');
+  assert.equal((await etatApp()).courseId, 3, 'le parcours de la régate n’est plus proposé sans la régate : retour au parcours 3');
   t = await tables();
-  assert.deepEqual(t.marks, [...CVAT, 'X1', 'X2']);
+  assert.deepEqual(t.marks, CVAT, 'sans régate ouverte, aucune bouée de régate');
+  assert.ok(!t.courses.some((c) => /^10\d:/.test(c)));
+  await ouvreRegate(page, idPremiere);
+  t = await tables();
+  assert.deepEqual(t.marks, [...CVAT, 'X1', 'X2'], 'régate rouverte : bouées confirmées retrouvées'); assert.ok(t.courses.includes('101:Parcours A (IC)'));
+  await page.click('#tabs button[data-tab=course]');
+  await page.selectOption('#cSel', '101');
+  assert.equal((await etatApp()).courseId, 101);
   await page.waitForFunction(() => [...document.querySelectorAll('section[data-tab=course] .leg .hd')].some((e) => /X2 Bravo/.test(e.textContent)), null, { timeout: 90000 });
   sansErreur(erreurs, 'après la relance');
 
@@ -1258,7 +1297,7 @@ async function bouees({ browser, base }) {
   assert.equal(await ligne('X3').locator('[data-mk-ign]').textContent(), 'Ignorer ?');
   await page.click('[data-mk-ign=X3]');
   assert.match(await ligne('X3').locator('.chip').textContent(), /ignorée/);
-  assert.equal((await regateCourante(page)).marks[2].status, 'ignoree');
+  assert.equal((await regateOuverte(page)).marks[2].status, 'ignoree');
   assert.equal(await ligne('X3').locator('button').count(), 0);
 
   // une autre régate : les bouées et le parcours de la précédente sont retirés, le parcours choisi redevient le 3
@@ -1305,6 +1344,7 @@ async function telephoneArchive(browser, base, m, nom, opts = {}) {
   await ctx.route('**/api/archive*', async (route) => {
     const req = route.request(), u = new URL(req.url());
     m.appels[nom]++;
+    if (req.method() === 'PUT') (m.puts ||= []).push(req.postData() || '');                // corps envoyés à l’archive, relus par les scénarios
     if (u.searchParams.get('k') !== 'light') m.lourds[nom].push(`${req.method()} ${u.searchParams.get('k')}`);
     const r = await m.invoke(m.handler, { method: req.method(), url: u.pathname + u.search, body: req.postData() ? JSON.parse(req.postData()) : undefined, headers: { 'x-rt-membre': encodeURIComponent(nom) } });
     await route.fulfill({ status: r.status, contentType: 'application/json', headers: { 'cache-control': 'no-store' }, body: JSON.stringify(r.body ?? null) });
@@ -1328,7 +1368,7 @@ async function synchronise(m, tel) {
   }
   throw new Error(`${tel.nom} : synchronisation non terminée (${await ligneSync(tel.page)}) ${JSON.stringify(await syncMeta(tel.page))} m.t=${m.t}`);
 }
-const noms = async (page) => (await lireListe(page)).flatMap((s) => s.groups.flatMap((g) => g.rows.map((r) => r.name)));
+const noms = async (page) => (await lireListe(page)).flatMap((g) => g.rows.map((r) => r.name));
 
 // ARCH-01 : la régate créée sur un téléphone apparaît sur l’autre, signée par le serveur
 async function archive({ browser, base }) {
@@ -1352,8 +1392,8 @@ async function archive({ browser, base }) {
   await A.page.waitForFunction(() => /^Hors réseau · 1 modification en attente( \(essai\))?$/.test(document.querySelector('#rgSync')?.textContent ?? ''), null, { timeout: 10000 })
     .catch(async () => { throw new Error(`indicateur de A hors réseau : « ${await ligneSync(A.page)} » (méta ${JSON.stringify(await syncMeta(A.page))})`); });
   const rangee = (page) => page.locator('section[data-tab=ic] .rg', { hasText: 'Régate partagée' });
-  await A.page.click('#tabs button[data-tab=ic]'); await rangee(A.page).click(); await ajouteManche(A.page, { heure: '10:55', parcours: '5', cls: 'G', tours: '2' });
-  await B.page.click('#tabs button[data-tab=ic]'); await rangee(B.page).click(); await ajouteManche(B.page, { heure: '13:25', parcours: '3', cls: 'P', tours: '1' });
+  await A.page.click('#tabs button[data-tab=ic]'); await ouvreLigne(rangee(A.page)); await ajouteManche(A.page, { heure: '10:55', parcours: '5', cls: 'G', tours: '2' });
+  await B.page.click('#tabs button[data-tab=ic]'); await ouvreLigne(rangee(B.page)); await ajouteManche(B.page, { heure: '13:25', parcours: '3', cls: 'P', tours: '1' });
   assert.match(await ligneSync(A.page), /^Hors réseau · 2 modifications en attente \(essai\)$/);
   assert.match(await ligneSync(B.page), /^Hors réseau · 1 modification en attente \(essai\)$/);
   await A.page.waitForTimeout(1500);
@@ -1455,7 +1495,7 @@ async function archiveBouees({ browser, base }) {
   await creeRegate(A.page, { nom: 'Régate historique', debut: '2026-11-14', club: 'CVAT' });
   await avanceHeure(m, 60e3); await synchronise(m, A); await avanceHeure(m, 60e3); await synchronise(m, B);
   const rangeeH = (page) => page.locator('section[data-tab=ic] .rg', { hasText: 'Régate historique' });
-  await B.page.click('#tabs button[data-tab=ic]'); await rangeeH(B.page).click();
+  await B.page.click('#tabs button[data-tab=ic]'); await ouvreLigne(rangeeH(B.page));
   await ajouteManche(A.page, { heure: '09:30', parcours: '5', cls: 'G', tours: '2' });
   await ajouteManche(B.page, { heure: '09:30', parcours: '3', cls: 'G', tours: '2' });
   await avanceHeure(m, 60e3); await synchronise(m, A); await avanceHeure(m, 60e3); await synchronise(m, B); await avanceHeure(m, 60e3); await synchronise(m, A);
@@ -1519,12 +1559,13 @@ async function archiveHors({ browser, base }) {
   await A.page.setInputFiles('#gpxIn', GPX_SNPM);
   await toastVu(A.page, 'Trace rangée dans Coupe de la SNPM — CVAT');
   await A.page.waitForSelector('#dqCancel', { timeout: 60000 }); await A.page.click('#dqCancel');
-  const id = (await regateCourante(A.page)).traces[0].id;
+  await ouvreRegate(A.page, 'snpm-2026');                                                    // la trace est rangée dans la Coupe SNPM sans l'ouvrir : ouverture explicite
+  const id = (await regateOuverte(A.page)).traces[0].id;
   assert.match(id, /^tr\d+/, 'trace rangée');
   await poseRapport(A.page, id, RAPPORT_TEST);
   await ongletTraces(A.page);
   await A.page.click('[data-tv]');                                                            // « Analyser » : le résumé et le rapport rejoignent la fiche
-  await A.page.waitForFunction(() => { const i = JSON.parse(localStorage.getItem('rade.regates.v1')); const t = i.list.find((r) => r.id === i.current)?.traces[0]; return t?.sum && t?.report?.t; }, null, { timeout: 60000 });
+  await A.page.waitForFunction(() => { const i = JSON.parse(localStorage.getItem('rade.regates.v1')); const t = i.list.find((r) => r.id === document.querySelector('#regBar').dataset.open)?.traces[0]; return t?.sum && t?.report?.t; }, null, { timeout: 60000 });
   // 2) A synchronise : la fiche part (légère), puis la trace et le rapport (lourds), une fois chacun
   await avanceHeure(m, 60e3);
   await synchronise(m, A);
@@ -1545,7 +1586,7 @@ async function archiveHors({ browser, base }) {
   // 4) B coupe le réseau : fiche, trace (carte et analyse) et débrief s'ouvrent, sans aucun appel à /api/archive
   await B.ctx.setOffline(true); await B.page.waitForFunction(() => !navigator.onLine);
   const avant = { requetes: B.requetes.length, serveur: m.appels.Thibaud };
-  await B.page.click('#tabs button[data-tab=ic]');
+  await ouvreRegate(B.page, 'snpm-2026');                                                     // ouverture explicite de la Coupe SNPM chez B, réseau coupé : un état de la page, rien à échanger
   await B.page.waitForSelector('#rgSheet .rgtr', { timeout: 20000 });
   const ligne = (await B.page.locator('#rgSheet .rgtr').first().textContent()).replace(/\s+/g, ' ');
   assert.match(ligne, /\d+,\d Nq · [^·]*actives/, `résumé de la trace chez B : ${ligne}`);
@@ -1576,7 +1617,7 @@ async function archiveHors({ browser, base }) {
   await B.page.setInputFiles('#gpxIn', GPX_SNPM);
   await toastVu(B.page, 'Déjà importée', 30000);
   await B.page.waitForTimeout(1000);
-  assert.equal((await lireTraces(B.page)).length, 1, 'toujours une seule trace en base chez B'); assert.equal((await regateCourante(B.page)).traces.length, 1, 'toujours une seule référence');
+  assert.equal((await lireTraces(B.page)).length, 1, 'toujours une seule trace en base chez B'); assert.equal((await regateOuverte(B.page)).traces.length, 1, 'toujours une seule référence');
   assert.equal(id, (await lireTraces(B.page))[0].id, 'même GPX, même identifiant sur les deux téléphones');
   sansErreur(A.erreurs, 'sur A'); sansErreur(B.erreurs, 'sur B');
   await A.ctx.close(); await B.ctx.close();
@@ -1587,7 +1628,7 @@ async function archiveHors({ browser, base }) {
   await synchronise(m, C);
   await C.page.waitForTimeout(2500);
   assert.deepEqual(m.lourds.Romain, [], 'hors horizon (184 jours) : rien de lourd tout seul');
-  await ongletIC(C.page);
+  await ouvreRegate(C.page, 'snpm-2026');
   await C.page.waitForSelector('#rgSheet .rgtr', { timeout: 20000 });
   await C.page.waitForSelector('#rgSheet [data-rg-dl]', { timeout: 20000 });
   assert.match(await C.page.locator('#rgSheet .rgtr').first().textContent(), /en ligne seulement/);
@@ -1606,7 +1647,7 @@ async function archiveHors({ browser, base }) {
   const A2 = await telephoneArchive(browser, base, m2, 'Teiva');
   await creeRegate(A2.page, { nom: 'Coupe du gel', debut: '2026-10-18', club: 'CVAT' });
   await ajouteManche(A2.page, { heure: '10:55', parcours: '5', cls: 'G', tours: '2' });
-  const rid = (await regateCourante(A2.page)).id, cleJour = `day:${rid}|2026-10-18`;
+  const rid = (await regateOuverte(A2.page)).id, cleJour = `day:${rid}|2026-10-18`;
   await attendGel(A2.page, '2026-10-18', (x) => x.signal === 'manche' && x.strategy, 'vent et route du jour figés');
   assert.ok((await syncMeta(A2.page)).hq?.[cleJour], 'le jour figé est en file d’envoi');
   await avanceHeure(m2, 60e3);
@@ -1633,7 +1674,7 @@ async function archiveHors({ browser, base }) {
   assert.ok(m2.lourds.Thibaud.length >= 1 && m2.lourds.Thibaud.every((x) => x === 'GET day'), `B n’a fait que recevoir : ${m2.lourds.Thibaud}`);
   await B2.ctx.setOffline(true); await B2.page.waitForFunction(() => !navigator.onLine);
   await ongletIC(B2.page);
-  await B2.page.locator('section[data-tab=ic] .rg', { hasText: 'Coupe du gel' }).click();
+  await ouvreLigne(B2.page.locator('section[data-tab=ic] .rg', { hasText: 'Coupe du gel' }));
   await B2.page.waitForFunction(() => /Figé automatiquement/.test(document.querySelector('#rgSheet .rgwind[data-day="2026-10-18"]')?.textContent || ''), null, { timeout: 20000 });
   assert.match(await texteVent(B2.page, '2026-10-18'), /Figé automatiquement à 10:00/, 'la fiche de B montre le vent du jour figé par A, réseau coupé');
   const wxB = await lireSlot(B2.page, `${rid}|2026-10-18|wx`);
@@ -1685,9 +1726,9 @@ async function equipage({ browser, base }) {
   await horsReseau(A, B);
 
   // 2) hors réseau, B ajoute 13:30 et A ajoute 15:00 à la même régate ; aucune requête
-  await B.page.click('#tabs button[data-tab=ic]'); await rangee(B.page).click();
+  await B.page.click('#tabs button[data-tab=ic]'); await ouvreLigne(rangee(B.page));
   await ajouteManche(B.page, { heure: '13:30', parcours: '3', cls: 'P', tours: '1' });
-  await A.page.click('#tabs button[data-tab=ic]'); await rangee(A.page).click();
+  await A.page.click('#tabs button[data-tab=ic]'); await ouvreLigne(rangee(A.page));
   await ajouteManche(A.page, { heure: '15:00', parcours: '5', cls: 'G', tours: '2' });
   const avantRetour = { A: A.requetes.length, B: B.requetes.length, serveur: { ...m.appels } };
   await A.page.waitForTimeout(1500);
@@ -1705,7 +1746,7 @@ async function equipage({ browser, base }) {
     assert.equal((await noms(t.page)).filter((x) => x === NOM_EQUIPAGE).length, 1, `${t.nom} : une seule ligne dans la liste`);
     assert.match(await ligneSync(t.page), /^À jour \(essai\)$/, `${t.nom} : ${JSON.stringify(await syncMeta(t.page))}`);
   }
-  await C.page.click('#tabs button[data-tab=ic]'); await rangee(C.page).click();
+  await C.page.click('#tabs button[data-tab=ic]'); await ouvreLigne(rangee(C.page));
   const lignesC = (await C.page.locator('#rgSheet .rgrace').allTextContents()).map((x) => x.replace(/\s+/g, ' '));
   assert.equal(lignesC.length, 3, `trois manches dans la fiche de C : ${lignesC}`);
   assert.ok(/par Thibaud/.test(lignesC[1]) && /par Teiva/.test(lignesC[0]) && /par Teiva/.test(lignesC[2]), `auteurs affichés chez C : ${lignesC}`);
@@ -1713,7 +1754,7 @@ async function equipage({ browser, base }) {
   // 3) D-03 : A lance le chrono, modifie la régate (quatrième manche) et touche « Synchroniser » : rien n'est échangé ; après « Stop », la modification part et arrive chez C
   const reqA = A.requetes.length, serveurA = m.appels.Teiva;
   await A.page.click('#tabs button[data-tab=start]'); await A.page.click('#t5');
-  await A.page.click('#tabs button[data-tab=ic]'); await rangee(A.page).click();
+  await A.page.click('#tabs button[data-tab=ic]'); await ouvreLigne(rangee(A.page));
   await ajouteManche(A.page, { heure: '16:20', parcours: '3', cls: 'P', tours: '1' });
   await A.page.click('#rgSyncBtn');
   await A.page.waitForFunction(() => /^En pause pendant la course/.test(document.querySelector('#rgSync')?.textContent ?? ''), null, { timeout: 10000 });
@@ -1756,7 +1797,7 @@ async function equipage({ browser, base }) {
   await horsReseau(C);
   const avant = { requetes: C.requetes.length, serveur: m.appels.Romain, puts: C.requetes.filter((x) => x === 'PUT').length, ecritures: m.blob.ops.log.filter((o) => o.op === 'put').length };
   await C.page.click('#tabs button[data-tab=ic]');
-  await C.page.locator('section[data-tab=ic] .rg', { hasText: 'Coupe de la SNPM' }).click();
+  await ouvreLigne(C.page.locator('section[data-tab=ic] .rg', { hasText: 'Coupe de la SNPM' }));
   await C.page.waitForSelector('#rgSheet .rgtr', { timeout: 20000 });
   const ligne = (await C.page.locator('#rgSheet .rgtr').first().textContent()).replace(/\s+/g, ' ');
   assert.match(ligne, /\d+,\d Nq · [^·]*actives/, `résumé de la trace chez C : ${ligne}`);
@@ -2098,7 +2139,233 @@ async function entetes({ browser, base }) {
   await ctx.close();
 }
 
-const SCENARIOS = { reprise, equipage, archive, 'archive-bouees': archiveBouees, archivehors: archiveHors, creer, manche, auteur, ic, 'depuis-ic': depuisIC, vraisemblance, gel, 'debrief-tardif': debriefTardif, gpx, 'gpx-choix': gpxChoix, ia, 'ia-erreurs': iaErreurs, arbitre, bouees, guide, entetes, 'retour-port': retourPort };
+
+// D-A1 à D-A5 : l’app s’ouvre en « Entraînement libre » un jour sans régate (jeudi 22/10/2026), même avec la Coupe SNPM dans l’archive ;
+// tout ce qui sert en mer marche sans régate ; une régate s’ouvre et se ferme d’un geste ; rien n’est gardé d’un lancement à l’autre ;
+// un index de la v36 qui marquait la Coupe SNPM courante est réécrit sans cette clé.
+const GEO_RADE = { latitude: 43.09, longitude: 5.93 };
+const bandeau = (page) => page.evaluate(() => ({ texte: document.querySelector('#regBar').textContent.replace(/\s+/g, ' ').trim(), ouverte: document.querySelector('#regBar').dataset.open }));
+async function accueil({ browser, base }) {
+  const ctx = await ouvreContexte(browser, { heure: '2026-10-22T08:30:00Z', geo: GEO_RADE });       // jeudi 22/10/2026, 10 h 30 à Paris
+  const { page, erreurs } = await ouvrePage(ctx);
+  await ouvreApp(page, base);
+
+  // (a) appareil neuf : entraînement libre, la Coupe SNPM est dans l’archive mais pas ouverte
+  let b = await bandeau(page);
+  assert.equal(b.ouverte, '', 'aucune régate ouverte au lancement'); assert.match(b.texte, /Entraînement libre/);
+  assert.equal(await page.locator('#regGo').textContent(), 'Ouvrir une régate');
+  let idx = await indexRegates(page);
+  assert.deepEqual(idx.list.map((r) => r.id), ['snpm-2026']); assert.ok(!('current' in idx), 'aucune clé current dans l’index');
+  await page.click('#tabs button[data-tab=ic]');
+  assert.match(await page.locator('#rgNone').textContent(), /Aucune régate ouverte/);
+  assert.equal(await page.locator('#rgSheet').count(), 0, 'pas de fiche sans régate ouverte');
+  assert.equal(await page.locator('#rgList [data-rg]').count(), 1);
+  let liste = await lireListe(page);
+  assert.deepEqual(liste.map((g) => g.status), ['Terminées']); assert.equal(liste[0].rows[0].id, 'snpm-2026'); assert.ok(!liste[0].rows[0].open);
+  assert.equal(await page.locator('#rgList [data-rg="snpm-2026"]').textContent(), 'Ouvrir');
+  assert.equal(await page.locator('#rgNone label[for=icFile]').textContent(), '＋ Importer des IC (PDF)');
+  for (const id of ['#evDel', '#evEdit', '#evUse']) assert.equal(await page.locator(id).count(), 0, `${id} n’a de sens que dans une régate`);
+  assert.doesNotMatch(await page.locator('#daySeg').textContent(), /🏁/, 'aucun jour de course marqué');
+  await page.click('#tabs button[data-tab=brief]');
+  assert.doesNotMatch(await page.locator('section[data-tab=brief]').textContent(), /Coupe de la SNPM|1er avertissement/, 'le briefing ne parle d’aucune épreuve');
+
+  // le chrono (séquence commune), le mode départ, le GPS et la trace marchent sans régate
+  await page.click('#tabs button[data-tab=start]');
+  assert.ok((await page.locator('.card.timer table.t tr').count()) >= 4, 'séquence de départ commune CVAT');
+  assert.equal(await page.locator('#tPhase').textContent(), 'Prêt');
+  await page.click('#t5');
+  await page.waitForFunction(() => document.querySelector('#tPhase').textContent !== 'Prêt', null, { timeout: 10000 });
+  await page.click('#tstop');
+  await page.waitForFunction(() => document.querySelector('#tPhase').textContent === 'Prêt', null, { timeout: 10000 });
+  await page.click('#smOpen');
+  await page.waitForSelector('#startMode', { state: 'visible', timeout: 10000 });
+  await page.click('#startMode [data-a=close]');
+  await page.waitForSelector('#startMode', { state: 'hidden', timeout: 10000 });
+  await page.click('#tabs button[data-tab=live]');
+  await page.click('#gOn');
+  await page.waitForFunction(() => /précision ±/.test(document.querySelector('#liveGps')?.textContent || ''), null, { timeout: 20000 });
+  await page.click('#recStart');
+  await page.waitForSelector('#recStop', { timeout: 10000 });
+  await page.click('#recStop');
+  await page.waitForSelector('#recStart', { timeout: 10000 });
+  await page.waitForSelector('#gOff', { timeout: 10000 });                       // GPS allumé à la main : la trace ne le coupe pas
+  await page.click('#gOff'); await page.waitForSelector('#gOn', { timeout: 10000 });
+  assert.equal(await idOuverte(page), '', 'rien de tout cela n’a ouvert de régate');
+
+  // « Ouvrir une régate » mène à la liste
+  await page.click('#tabs button[data-tab=brief]');
+  await page.click('#regGo');
+  await page.waitForSelector('section[data-tab=ic].on', { timeout: 10000 });
+  assert.ok(await page.locator('#rgList').isVisible());
+
+  // (b) « Ouvrir » sur la Coupe SNPM, puis « Fermer la régate »
+  await page.click('#rgList [data-rg="snpm-2026"]');
+  await page.waitForSelector('#regBar[data-open="snpm-2026"]', { timeout: 10000 });
+  b = await bandeau(page);
+  assert.match(b.texte, /🏁/); assert.match(b.texte, /Coupe de la SNPM/); assert.match(b.texte, /Terminée/); assert.match(b.texte, /Fermer la régate/);
+  assert.match(await page.locator('#rgSheet h3').textContent(), /Coupe de la SNPM/);
+  assert.match(await page.locator('section[data-tab=ic]').textContent(), /Instructions de course/);
+  assert.equal(await page.locator('#rgNone').count(), 0);
+  liste = await lireListe(page);
+  assert.ok(liste[0].rows[0].open, 'la liste marque la régate ouverte'); assert.equal(await page.locator('#rgList [data-rg="snpm-2026"]').count(), 0, 'plus de bouton « Ouvrir » sur la régate ouverte');
+  assert.doesNotMatch(await page.locator('#daySeg').textContent(), /🏁/, 'le 18/10 est passé : il n’est pas parmi les trois jours affichés');
+  idx = await indexRegates(page); assert.ok(!('current' in idx), 'ouvrir n’écrit rien dans l’index');
+  await fermeRegate(page);
+  b = await bandeau(page); assert.match(b.texte, /Entraînement libre/);
+  assert.equal(await page.locator('#rgNone').count(), 1); assert.equal(await page.locator('#rgSheet').count(), 0);
+
+  // (c) le bandeau reste visible, dans la fenêtre, dans les trois hauteurs du panneau (moitié → grand → réduit → moitié), régate ouverte ou non
+  const dansLaFenetre = async (quoi) => {
+    await page.waitForTimeout(450);                                              // transition de hauteur du panneau
+    const r = await page.evaluate(() => { const e = document.querySelector('#regBar').getBoundingClientRect(), p = document.querySelector('#panel').getBoundingClientRect(); return { top: e.top, bottom: e.bottom, h: e.height, w: e.width, pBottom: p.bottom, pTop: p.top, vh: innerHeight, vw: innerWidth }; });
+    assert.ok(r.h > 20 && r.w > 200, `${quoi} : bandeau visible (${JSON.stringify(r)})`);
+    assert.ok(r.top >= r.pTop && r.bottom <= Math.min(r.vh, r.pBottom) + 0.5, `${quoi} : bandeau dans le panneau et dans la fenêtre (${JSON.stringify(r)})`);
+  };
+  for (const [etat, ouvre] of [['sans régate', false], ['régate ouverte', true]]) {
+    if (ouvre) await ouvreRegate(page, 'snpm-2026');
+    await dansLaFenetre(`${etat}, moitié`);
+    await page.click('#grab'); await dansLaFenetre(`${etat}, grand`);
+    await page.click('#grab'); await dansLaFenetre(`${etat}, réduit`);
+    await page.click('#grab'); await dansLaFenetre(`${etat}, moitié`);
+  }
+  await fermeRegate(page);
+
+  // (d) rechargement : toujours en entraînement libre, même après avoir ouvert une régate (aucune mémoire d’un lancement à l’autre)
+  await ouvreRegate(page, 'snpm-2026');
+  await ouvreApp(page, base);
+  b = await bandeau(page); assert.equal(b.ouverte, ''); assert.match(b.texte, /Entraînement libre/);
+  assert.ok(!JSON.stringify(await page.evaluate(() => ({ ...localStorage }))).includes('"current"'), 'aucune trace de la régate ouverte dans le stockage');
+  sansErreur(erreurs, 'pendant le scénario');
+  const v36 = { ...(await indexRegates(page)), current: 'snpm-2026' };
+  await ctx.close();
+
+  // (e) téléphone resté en v36 : l’index porte « current: snpm-2026 » ; l’app s’ouvre en entraînement libre et réécrit l’index sans cette clé
+  const ctx2 = await ouvreContexte(browser, { heure: '2026-10-22T08:30:00Z' });
+  const { page: p2, erreurs: e2 } = await ouvrePage(ctx2);
+  await p2.goto(base + 'data/meta.json');
+  await p2.evaluate((v) => localStorage.setItem('rade.regates.v1', v), JSON.stringify(v36));
+  await ouvreApp(p2, base);
+  b = await bandeau(p2); assert.equal(b.ouverte, ''); assert.match(b.texte, /Entraînement libre/);
+  const apres = await indexRegates(p2);
+  assert.ok(!('current' in apres), 'l’index réécrit n’a plus de current');
+  assert.deepEqual(apres.list, v36.list, 'la Coupe SNPM est intacte : mêmes champs');
+  await p2.click('#tabs button[data-tab=ic]');
+  liste = await lireListe(p2);
+  assert.deepEqual(liste.map((g) => [g.status, g.rows.map((r) => r.id)]), [['Terminées', ['snpm-2026']]]);
+  sansErreur(e2, 'avec un index v36');
+  await ctx2.close();
+}
+
+// D-A3 : le jour d'une régate, l'app l'ouvre sans geste (au lancement, puis au passage de minuit sans relance, hors chrono) ; le verrou et le gel suivent
+// la régate du jour de la liste, ouverte ou non. Index posé avant le premier chargement : une seule régate « Régate du lundi » (19/10, manche à 14 h), sans la
+// Coupe SNPM ; les prévisions embarquées couvrent du 17 au 19/10, donc le gel se fait hors réseau comme dans le scénario gel.
+async function jourJ({ browser, base }) {
+  const manche14 = { n: 1, date: '2026-10-19', time: '14:00', courseId: 5, cls: 'G', laps: 2, note: '', by: null, at: 0 };
+  const lundi = { ...regateSemee('lundi', 'Régate du lundi', '2026-10-19'), races: [manche14] };
+  const JOUR = '2026-10-19';
+
+  // (1) lundi 19/10, 8 h 30 à Paris : la régate est ouverte sans geste, 🏁 sur « Auj. », fiche visible, vent figé dans la fiche
+  const ctx = await ouvreContexte(browser, { heure: '2026-10-19T06:30:00Z' });
+  const { page, erreurs } = await ouvrePage(ctx);
+  await sème(page, base, [lundi]);
+  assert.equal(await idOuverte(page), 'lundi', 'ouverte au lancement, sans geste');
+  assert.match((await bandeau(page)).texte, /Régate du lundi/);
+  assert.match(await page.locator('#daySeg button').first().textContent(), /Auj\. 🏁/);
+  await ongletIC(page);
+  assert.ok(await page.locator('#rgSheet').isVisible(), 'fiche de la régate visible');
+  await page.waitForFunction(() => document.querySelector('#rgSheet .rgwind[data-day="2026-10-19"]')?.textContent.includes('Figé automatiquement'), null, { timeout: 30000 });
+  assert.match(await texteVent(page, JOUR), /Figé automatiquement/);
+
+  // (2) « Fermer la régate » : le verrou, « Course finie » et le gel suivent la liste, pas l'écran
+  await fermeRegate(page);
+  assert.match((await bandeau(page)).texte, /Entraînement libre/);
+  await page.click('#tabs button[data-tab=live]');
+  assert.equal(await page.locator('#raceDone').count(), 1, '« Course finie » reste là : le verrou suit la régate du jour de la liste');
+  const nObs = async () => (await indexRegates(page)).list.find((r) => r.id === 'lundi').frozen?.[JOUR]?.nObs ?? 0;
+  const avant = await nObs();
+  await page.click('section[data-tab=live] #obsAdd');
+  const t0 = Date.now();
+  while ((await nObs()) <= avant) {
+    if (Date.now() - t0 > 15000) assert.fail(`le relevé n’a pas été copié dans le vent figé de la régate fermée (nObs ${await nObs()})`);
+    await page.waitForTimeout(250);
+  }
+  await page.waitForTimeout(6500);                                                                   // au moins un tic de plus
+  assert.equal(await idOuverte(page), '', 'fermée à la main le jour J : pas rouverte le même jour');
+  sansErreur(erreurs, 'jour J');
+  await ctx.close();
+
+  // (3) dimanche 18/10, 22 h 30 : entraînement libre ; l'horloge passe 0 h 00 min 30 s sans recharger : la régate s'ouvre toute seule
+  const ctx2 = await ouvreContexte(browser, { heure: '2026-10-18T20:30:00Z' });
+  const { page: p2, erreurs: e2 } = await ouvrePage(ctx2);
+  await sème(p2, base, [lundi]);
+  assert.equal(await idOuverte(p2), '', 'la veille : entraînement libre');
+  await ctx2.clock.setFixedTime(new Date('2026-10-18T22:00:30Z'));  // 00:00:30 le 19/10, heure de Paris
+  await p2.waitForSelector('#regBar[data-open="lundi"]', { timeout: 15000 });
+  await toastVu(p2, 'Jour de régate : Régate du lundi ouverte', 10000);
+  sansErreur(e2, 'passage de minuit');
+  await ctx2.close();
+
+  // (4) même passage de jour pendant un chrono : pas d'ouverture tant qu'il tourne ; après Stop, ouverture au tic suivant
+  const ctx3 = await ouvreContexte(browser, { heure: '2026-10-18T20:30:00Z' });
+  const { page: p3, erreurs: e3 } = await ouvrePage(ctx3);
+  await sème(p3, base, [lundi]);
+  await p3.click('#tabs button[data-tab=start]'); await p3.click('#t5');
+  await p3.waitForFunction(() => document.querySelector('#tPhase').textContent !== 'Prêt', null, { timeout: 10000 });
+  await ctx3.clock.setFixedTime(new Date('2026-10-18T22:00:30Z'));
+  await p3.waitForTimeout(8000);                                                                     // plus d'un tic de raceTick (5 s)
+  assert.equal(await idOuverte(p3), '', 'pendant le chrono : aucune ouverture');
+  await p3.click('#tstop');
+  await p3.waitForSelector('#regBar[data-open="lundi"]', { timeout: 15000 });
+  sansErreur(e3, 'passage de jour pendant un chrono');
+  await ctx3.close();
+}
+
+// D-A4 : la régate ouverte est un état local de chaque téléphone ; ouvrir ou fermer ne change rien chez l'autre et ne voyage jamais dans l'archive
+async function deuxTelephones({ browser, base }) {
+  const m = await mondeArchive('2026-10-22T08:30:00Z');                                  // jeudi 22/10/2026, 10 h 30 à Paris
+  const A = await telephoneArchive(browser, base, m, 'Teiva'), B = await telephoneArchive(browser, base, m, 'Thibaud');
+  await avanceHeure(m, 60e3); await synchronise(m, A);
+  await avanceHeure(m, 60e3); await synchronise(m, B);
+  assert.equal(await idOuverte(A.page), ''); assert.equal(await idOuverte(B.page), '');
+
+  // A ouvre la Coupe SNPM, puis crée « Régate du club » (21/11), qui devient la régate ouverte de A
+  await ouvreRegate(A.page, 'snpm-2026');
+  await creeRegate(A.page, { nom: 'Régate du club', debut: '2026-11-21', club: 'CVAT' });
+  const club = await idOuverte(A.page);
+  assert.ok(club && club !== 'snpm-2026', 'la régate créée est ouverte sur A');
+  await avanceHeure(m, 60e3); await synchronise(m, A);
+  await avanceHeure(m, 60e3); await synchronise(m, B);
+  assert.equal(await idOuverte(B.page), '', 'B est toujours en entraînement libre');
+  await B.page.click('#tabs button[data-tab=ic]');
+  const listeB = await lireListe(B.page);
+  const prep = listeB.find((g) => g.status === 'En préparation');
+  assert.ok(prep?.rows.some((r) => r.name === 'Régate du club'), 'B voit « Régate du club » dans « En préparation »');
+  assert.equal(await B.page.locator(`#rgList [data-rg="${club}"]`).textContent(), 'Ouvrir');
+  assert.ok((m.puts || []).length > 0, 'au moins un envoi à l’archive a été vu');
+  for (const corps of m.puts) assert.ok(!/"current"/.test(corps), 'aucun envoi ne porte d’état « régate ouverte »');
+  assert.ok(!('current' in (await indexRegates(A.page))), 'l’index de A n’a pas de current');
+  assert.ok(!('current' in (await indexRegates(B.page))), 'l’index de B non plus');
+
+  // B ouvre « Régate du club » et synchronise ; A synchronise : la régate ouverte sur A n'a pas changé
+  await ouvreRegate(B.page, club);
+  await avanceHeure(m, 60e3); await synchronise(m, B);
+  await avanceHeure(m, 60e3); await synchronise(m, A);
+  assert.equal(await idOuverte(A.page), club, 'A garde sa régate ouverte');
+  await fermeRegate(A.page);
+  await avanceHeure(m, 60e3); await synchronise(m, A);
+  await avanceHeure(m, 60e3); await synchronise(m, B);
+  assert.equal(await idOuverte(B.page), club, 'fermer sur A ne ferme rien sur B');
+  for (const corps of m.puts) assert.ok(!/"current"/.test(corps), 'toujours aucun état d’ouverture dans les envois');
+
+  // A recharge : entraînement libre (aucune mémoire d'un lancement à l'autre)
+  await ouvreRegate(A.page, club);
+  await ouvreApp(A.page, base);
+  assert.equal(await idOuverte(A.page), '', 'après rechargement : entraînement libre');
+  sansErreur(A.erreurs, 'téléphone A'); sansErreur(B.erreurs, 'téléphone B');
+  await A.ctx.close(); await B.ctx.close();
+}
+
+const SCENARIOS = { accueil, 'jour-j': jourJ, 'deux-telephones': deuxTelephones, reprise, equipage, archive, 'archive-bouees': archiveBouees, archivehors: archiveHors, creer, manche, auteur, ic, 'depuis-ic': depuisIC, vraisemblance, gel, 'debrief-tardif': debriefTardif, gpx, 'gpx-choix': gpxChoix, ia, 'ia-erreurs': iaErreurs, arbitre, bouees, guide, entetes, 'retour-port': retourPort };
 
 // ───────────────────────── lancement
 

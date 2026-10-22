@@ -1,5 +1,6 @@
 // Régates (REG-01, REG-02, ARCH-02) : statut au jour de Paris, saison, reprise des fiches IC, création, manches, verrou de régate,
-// auteur, vues sans injection (linkedom) et gardes statiques du câblage de js/app.js. Aucun code d’accès ni aucune empreinte ici.
+// règle d’ouverture (entraînement libre, jour J), auteur, vues sans injection (linkedom) et gardes statiques du câblage de js/app.js.
+// Aucun code d’accès ni aucune empreinte ici.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -7,11 +8,11 @@ import { parseHTML } from 'linkedom';
 import { ROOT } from './helpers/setup.mjs';
 import { bodyOf } from './helpers/scan.mjs';
 import {
-  KEY, VERSION, STATUS_LABEL, regattaStatus, seasonOf, todayRegatta, lockDates, fromEvent, migrate, saveRegattas, newId, createRegatta,
-  upsertRegatta, removeRegatta, setCurrent, currentRegatta, icOf, groupBySeason, SEED_AT, seedNorm, backfillAuthor,
+  KEY, VERSION, STATUS_LABEL, GROUP_LABEL, regattaStatus, seasonOf, todayRegatta, lockDates, openRegatta, openAtBoot, openOnNewDay, fromEvent, migrate, saveRegattas, newId, createRegatta,
+  upsertRegatta, removeRegatta, icOf, groupByStatus, SEED_AT, seedNorm, backfillAuthor,
 } from '../js/regates.js';
-import { parisClock } from '../js/racelock.js';
-import { escHTML, byLine, listHTML, newRegattaFormHTML, sheetHTML, historySectionHTML, tracesSectionHTML } from '../js/regview.js';
+import { parisClock, isRaceDay } from '../js/racelock.js';
+import { escHTML, byLine, listHTML, noRegattaHTML, newRegattaFormHTML, sheetHTML, historySectionHTML, tracesSectionHTML } from '../js/regview.js';
 import { IC as SNPM } from '../js/courses.js';
 import { verdict } from '../tools/regate-e2e.mjs';
 
@@ -39,24 +40,80 @@ test('statut : changement d’heure du 25/10/2026 et régate d’un seul jour', 
 test('statut : sans date, à venir ; libellés ; saison = année du premier jour', () => {
   assert.equal(regattaStatus(regate({ dateStart: '', dateEnd: '' }), t('2026-11-07T10:00:00Z')), 'avenir');
   assert.equal(regattaStatus(null, 0), 'avenir');
-  assert.deepEqual(STATUS_LABEL, { avenir: 'À venir', aujourdhui: 'Aujourd’hui', passee: 'Passée' });
+  assert.deepEqual(STATUS_LABEL, { avenir: 'En préparation', aujourdhui: 'En cours', passee: 'Terminée' });
+  assert.deepEqual(GROUP_LABEL, { avenir: 'En préparation', aujourdhui: 'En cours', passee: 'Terminées' });
   assert.equal(seasonOf('2026-11-07'), '2026');
   assert.equal(seasonOf('2027-01-02'), '2027');
   assert.equal(seasonOf(''), '—');
 });
 
-test('verrou : la régate d’aujourd’hui commande, même si la courante est la Coupe SNPM ; sinon la courante', () => {
+test('verrou : la régate d’aujourd’hui de la liste commande, ouverte ou non ; sinon aucun verrou', () => {
   const snpm = regate({ id: 'snpm-2026', dateStart: '2026-10-18', dateEnd: '' }), nov = regate({ id: 'nov' });
   const list = [snpm, nov];
-  assert.deepEqual(lockDates({ now: t('2026-11-07T10:00:00Z'), list, currentId: 'snpm-2026' }), { raceFrom: '2026-11-07', raceTo: '2026-11-09' });
-  assert.deepEqual(lockDates({ now: t('2026-10-20T10:00:00Z'), list, currentId: 'snpm-2026' }), { raceFrom: '2026-10-18', raceTo: '2026-10-18' });
-  assert.deepEqual(lockDates({ now: t('2026-10-20T10:00:00Z'), list, currentId: 'nov' }), { raceFrom: '2026-11-07', raceTo: '2026-11-09' });
-  assert.deepEqual(lockDates({ now: 0, list: [], currentId: null }), { raceFrom: null, raceTo: null });
-  // deux régates le même jour : la courante d’abord
+  assert.deepEqual(lockDates({ now: t('2026-11-07T10:00:00Z'), list }), { raceFrom: '2026-11-07', raceTo: '2026-11-09' });
+  assert.deepEqual(lockDates({ now: t('2026-10-18T10:00:00Z'), list }), { raceFrom: '2026-10-18', raceTo: '2026-10-18' });
+  assert.deepEqual(lockDates({ now: t('2026-10-20T10:00:00Z'), list }), { raceFrom: null, raceTo: null }, 'un jour sans régate : jamais de verrou, quelle que soit la régate ouverte');
+  assert.deepEqual(lockDates({ now: 0, list: [] }), { raceFrom: null, raceTo: null });
+  assert.deepEqual(lockDates({ now: 0 }), { raceFrom: null, raceTo: null });
+  // deux régates le même jour : la régate ouverte départage, sinon la première de la liste
   const b = regate({ id: 'b' });
   assert.equal(todayRegatta({ now: t('2026-11-08T10:00:00Z'), list: [nov, b], currentId: 'b' }).id, 'b');
   assert.equal(todayRegatta({ now: t('2026-11-08T10:00:00Z'), list: [nov, b], currentId: 'x' }).id, 'nov');
+  assert.equal(todayRegatta({ now: t('2026-11-08T10:00:00Z'), list: [nov, b] }).id, 'nov', 'sans régate ouverte : la première du jour');
   assert.equal(todayRegatta({ now: t('2026-12-08T10:00:00Z'), list: [nov, b], currentId: 'b' }), null);
+});
+
+test('verrou : équivalence avec la v36 (régate d’aujourd’hui en préférant la courante, sinon la courante) pour chaque jour du 15/10 au 12/11 et chaque courante d’alors', () => {
+  const list = [regate({ id: 'snpm-2026', dateStart: '2026-10-18', dateEnd: '' }), regate({ id: 'nov' }), regate({ id: 'dec', dateStart: '2026-12-05', dateEnd: '' })];
+  const ancien = ({ now, list: l, currentId }) => {                                   // la règle de la v36, réécrite ici comme référence
+    const r = todayRegatta({ now, list: l, currentId }) || l.find((x) => x.id === currentId) || null;
+    return { raceFrom: r?.dateStart || null, raceTo: r?.dateEnd || r?.dateStart || null };
+  };
+  let jours = 0;
+  for (let ms = t('2026-10-15T08:00:00Z'); ms <= t('2026-11-12T08:00:00Z'); ms += 864e5, jours++) {
+    for (const currentId of [null, ...list.map((r) => r.id)]) {
+      const nouveau = lockDates({ now: ms, list }), vieux = ancien({ now: ms, list, currentId });
+      assert.equal(isRaceDay({ now: ms, ...nouveau }), isRaceDay({ now: ms, ...vieux }), `${new Date(ms).toISOString()} courante ${currentId}`);
+    }
+  }
+  assert.equal(jours, 29);
+});
+
+test('ouverture au lancement : la régate d’aujourd’hui (jour de Paris), sinon entraînement libre ; jamais de mémoire', () => {
+  const snpm = regate({ id: 'snpm-2026', dateStart: '2026-10-18', dateEnd: '' }), nov = regate({ id: 'nov', dateStart: '2026-11-07', dateEnd: '2026-11-09' });
+  const list = deepFreeze([snpm, nov]);
+  assert.equal(openAtBoot({ now: t('2026-10-22T08:30:00Z'), list }), null, 'jeudi 22/10 : aucune régate');
+  assert.equal(openAtBoot({ now: t('2026-10-18T08:00:00Z'), list }), 'snpm-2026');
+  assert.equal(openAtBoot({ now: t('2026-11-08T10:00:00Z'), list }), 'nov');
+  const le25 = deepFreeze([regate({ id: 'oct25', dateStart: '2026-10-25', dateEnd: '' })]);
+  assert.equal(openAtBoot({ now: t('2026-10-24T22:30:00Z'), list: le25 }), 'oct25', '00:30 le 25 à Paris (heure d’été)');
+  assert.equal(openAtBoot({ now: t('2026-10-24T21:30:00Z'), list: le25 }), null, '23:30 le 24 à Paris');
+  assert.equal(openAtBoot({ now: t('2026-11-08T10:00:00Z'), list: [] }), null);
+  assert.equal(openAtBoot({ now: t('2026-11-08T10:00:00Z') }), null, 'liste absente');
+  assert.equal(openAtBoot({ now: t('2026-11-08T10:00:00Z'), list: [regate({ id: 'p' }), regate({ id: 'q' })] }), 'p', 'deux régates aujourd’hui : la première de la liste');
+});
+
+test('openRegatta : la régate ou null, jamais la première par défaut', () => {
+  const list = deepFreeze([regate({ id: 'a' }), regate({ id: 'b' })]);
+  assert.equal(openRegatta(list, 'b').id, 'b');
+  for (const id of [null, undefined, 'inconnue', '']) assert.equal(openRegatta(list, id), null, String(id));
+  assert.equal(openRegatta([], 'a'), null); assert.equal(openRegatta(undefined, 'a'), null);
+});
+
+test('passage de jour : openOnNewDay n’ouvre rien le même jour, ouvre la régate du nouveau jour, garde l’écran un jour sans régate', () => {
+  const nov = regate({ id: 'nov' }), snpm = regate({ id: 'snpm-2026', dateStart: '2026-10-18', dateEnd: '' });
+  const list = deepFreeze([snpm, nov]);
+  assert.deepEqual(openOnNewDay({ now: t('2026-10-18T10:00:00Z'), list, openId: null, day: '2026-10-18' }), { day: '2026-10-18', openId: null }, 'même jour : rien ne change');
+  assert.deepEqual(openOnNewDay({ now: t('2026-10-18T10:00:00Z'), list, openId: 'nov', day: '2026-10-18' }), { day: '2026-10-18', openId: 'nov' }, 'même jour : l’ouverte reste');
+  assert.deepEqual(openOnNewDay({ now: t('2026-10-17T22:30:00Z'), list, openId: null, day: '2026-10-17' }), { day: '2026-10-18', openId: 'snpm-2026' }, '00:30 le 18 (heure d’été) : la régate du jour');
+  assert.deepEqual(openOnNewDay({ now: t('2026-10-17T21:30:00Z'), list, openId: null, day: '2026-10-17' }), { day: '2026-10-17', openId: null }, '23:30 le 17 : toujours le 17');
+  assert.deepEqual(openOnNewDay({ now: t('2026-11-06T23:00:30Z'), list, openId: null, day: '2026-11-06' }), { day: '2026-11-07', openId: 'nov' }, 'minuit de Paris en heure d’hiver');
+  assert.deepEqual(openOnNewDay({ now: t('2026-11-06T22:59:30Z'), list, openId: null, day: '2026-11-06' }), { day: '2026-11-06', openId: null });
+  assert.equal(openOnNewDay({ now: t('2026-11-08T10:00:00Z'), list, openId: 'snpm-2026', day: '2026-11-07' }).openId, 'nov', 'ouverte hors du jour : la régate du jour passe devant');
+  const b = regate({ id: 'b' });
+  assert.equal(openOnNewDay({ now: t('2026-11-08T10:00:00Z'), list: [nov, b], openId: 'b', day: '2026-11-07' }).openId, 'b', 'l’ouverte est de ce jour : elle reste');
+  assert.deepEqual(openOnNewDay({ now: t('2026-10-20T10:00:00Z'), list, openId: 'snpm-2026', day: '2026-10-19' }), { day: '2026-10-20', openId: 'snpm-2026' }, 'nouveau jour sans régate : l’état ouvert est gardé');
+  assert.deepEqual(openOnNewDay({ now: t('2026-10-20T10:00:00Z'), list, openId: null, day: '2026-10-19' }), { day: '2026-10-20', openId: null });
 });
 
 test('reprise : une fiche rade.events.v1 devient une régate (CVAT, VHF 72), sans toucher la clé d’origine, deuxième appel identique', () => {
@@ -66,7 +123,7 @@ test('reprise : une fiche rade.events.v1 devient une régate (CVAT, VHF 72), san
   ] });
   const storage = mem({ 'rade.events.v1': ancien });
   const a = migrate({ storage, now: 1000, by: 'Teiva' });
-  assert.equal(a.v, VERSION); assert.equal(a.current, 'snpm-2026'); assert.equal(a.list.length, 2);
+  assert.equal(a.v, VERSION); assert.ok(!('current' in a), 'aucune régate ouverte dans l’index'); assert.equal(a.list.length, 2);
   const [snpm, tl] = a.list;
   assert.equal(snpm.club, 'CVAT'); assert.equal(snpm.ic.fields.vhf, 72); assert.equal(snpm.ic.read, 'reprise');
   assert.deepEqual(snpm.ic.validated, { by: null, at: SEED_AT }, 'la graine commune a le même instant sur tous les téléphones, sans auteur');
@@ -83,7 +140,7 @@ test('reprise : une fiche rade.events.v1 devient une régate (CVAT, VHF 72), san
 
 test('semis : sur un appareil neuf, la Coupe SNPM est semée comme le faisait l’ancien js/events.js (club CVAT, passée depuis le 19/10)', () => {
   const st = migrate({ storage: mem(), now: t('2026-10-19T10:00:00Z') });
-  assert.equal(st.list.length, 1); assert.equal(st.current, 'snpm-2026');
+  assert.equal(st.list.length, 1); assert.ok(!('current' in st), 'sans régate ouverte');
   const r = st.list[0];
   assert.equal(r.club, 'CVAT'); assert.equal(r.ic.source, 'IC fournies (PDF)');
   assert.equal(regattaStatus(r, t('2026-10-19T10:00:00Z')), 'passee');
@@ -129,20 +186,19 @@ test('création : champs manquants, date impossible, dernier jour antérieur ign
   assert.match(newId(now, () => 0.123456789), /^rg[0-9a-z]+$/);
 });
 
-test('mises à jour : un nouvel état, jamais une mutation (état gelé)', () => {
+test('mises à jour : un nouvel état, jamais une mutation (état gelé), et jamais de régate ouverte', () => {
   const a = regate({ id: 'a' }), b = regate({ id: 'b', name: 'B' });
-  const st = deepFreeze({ v: 1, current: 'a', list: [a] });
+  const st = deepFreeze({ v: 1, list: [a] });
   const st2 = upsertRegatta(st, b);
   assert.equal(st2.list.length, 2); assert.equal(st.list.length, 1);
   assert.equal(upsertRegatta(st2, { ...b, name: 'B2' }).list[1].name, 'B2');
   assert.equal(upsertRegatta(st2, { ...b, name: 'B2' }).list.length, 2);
-  assert.equal(setCurrent(st2, 'b').current, 'b'); assert.equal(setCurrent(st2, 'inconnue'), st2, 'identifiant inconnu : inchangé');
-  assert.equal(currentRegatta(setCurrent(st2, 'b')).id, 'b');
-  assert.equal(currentRegatta(st2).id, 'a');
-  assert.equal(removeRegatta(setCurrent(st2, 'b'), 'b').current, 'a', 'supprimer la courante : la première reste');
-  assert.equal(removeRegatta(st2, 'b').current, 'a');
-  assert.equal(removeRegatta(st, 'a').current, null); assert.equal(currentRegatta(removeRegatta(st, 'a')), null);
-  assert.equal(currentRegatta({ v: 1, current: 'zzz', list: [a] }).id, 'a', 'courante inconnue : la première');
+  assert.ok(!('current' in st2), 'ajouter une régate n’en ouvre aucune');
+  assert.ok(!('current' in upsertRegatta({ v: 1, list: [] }, a)), 'la première régate non plus');
+  assert.deepEqual(removeRegatta(st2, 'b').list.map((r) => r.id), ['a']);
+  assert.ok(!('current' in removeRegatta(st2, 'a')), 'supprimer ne rouvre pas la première');
+  assert.deepEqual(removeRegatta(st, 'a').list, []);
+  assert.equal(st.list.length, 1, 'état d’origine intact');
 });
 
 test('icOf : forme de l’ancien IC (communs CVAT compris) ; icOf(null) et régate sans IC sans exception', () => {
@@ -158,48 +214,88 @@ test('icOf : forme de l’ancien IC (communs CVAT compris) ; icOf(null) et réga
   assert.equal(sans.event, 'Régate'); assert.equal(sans.vhf, null); assert.deepEqual(sans.keyRules, []); assert.ok(sans.sequence.length);
 });
 
-test('groupBySeason : saisons décroissantes ; Aujourd’hui, À venir (croissant), Passées (décroissant)', () => {
+test('groupByStatus : En préparation (croissant, sans date en dernier), En cours, Terminées (décroissant) ; groupes vides absents', () => {
   const now = t('2026-11-08T10:00:00Z');
   const list = [
     regate({ id: 'p1', name: 'P1', dateStart: '2026-10-18', dateEnd: '', season: '2026' }), regate({ id: 'p2', name: 'P2', dateStart: '2026-09-05', dateEnd: '', season: '2026' }),
     regate({ id: 'au', name: 'Auj' }), regate({ id: 'v2', name: 'V2', dateStart: '2026-12-20', dateEnd: '', season: '2026' }), regate({ id: 'v1', name: 'V1', dateStart: '2026-11-21', dateEnd: '', season: '2026' }),
     regate({ id: 's27', name: 'S27', dateStart: '2027-03-01', dateEnd: '', season: '2027' }), regate({ id: 'sd', name: 'SD', dateStart: '', dateEnd: '', season: '—' }),
+    regate({ id: 'p3', name: 'A-même-date', dateStart: '2026-10-18', dateEnd: '', season: '2026' }),
   ];
-  const g = groupBySeason(list, now);
-  assert.deepEqual(g.map((x) => x.season), ['2027', '2026', '—']);
-  assert.deepEqual(g[1].groups.map((x) => [x.status, x.label, x.items.map((r) => r.id)]), [
-    ['aujourdhui', 'Aujourd’hui', ['au']], ['avenir', 'À venir', ['v1', 'v2']], ['passee', 'Passée', ['p1', 'p2']],
+  const g = groupByStatus(list, now);
+  assert.deepEqual(g.map((x) => [x.status, x.label, x.items.map((r) => r.id)]), [
+    ['avenir', 'En préparation', ['v1', 'v2', 's27', 'sd']], ['aujourdhui', 'En cours', ['au']], ['passee', 'Terminées', ['p3', 'p1', 'p2']],
   ]);
-  assert.deepEqual(groupBySeason([], now), []);
+  assert.deepEqual(groupByStatus(list.filter((r) => r.id === 'au'), now).map((x) => x.status), ['aujourdhui'], 'groupes vides absents');
+  assert.deepEqual(groupByStatus([], now), []); assert.deepEqual(groupByStatus(undefined, now), []);
 });
 
 test('vues : un nom ou un club piégé ne produit ni img ni script (liste, fiche, formulaire) ; l’apostrophe est échappée', () => {
   const piege = regate({ name: '<img src=x onerror=alert(1)>', club: '"><script>x</script>', by: '<b>Pirate</b>', at: t('2026-11-01T10:00:00Z') });
   const now = t('2026-11-08T10:00:00Z');
-  const html = listHTML(groupBySeason([piege], now), { currentId: piege.id, now }) + sheetHTML(piege, { now }) + newRegattaFormHTML({ name: '"><img src=x>', dateStart: '2026-11-07', dateEnd: '', club: '\'x\'' }, { name: '<script>e</script>' });
+  const html = listHTML(groupByStatus([piege], now), { openId: piege.id, now }) + listHTML(groupByStatus([piege], now), { now }) + sheetHTML(piege, { now }) + newRegattaFormHTML({ name: '"><img src=x>', dateStart: '2026-11-07', dateEnd: '', club: '\'x\'' }, { name: '<script>e</script>' });
   const { document } = parseHTML(`<html><body>${html}</body></html>`);
   assert.equal(document.querySelectorAll('img, script, b').length, 0, 'balise injectée');
   for (const el of document.querySelectorAll('*')) for (const a of el.getAttributeNames()) assert.ok(!/^on/i.test(a), `attribut ${a} sur ${el.tagName}`);
   assert.ok(document.body.textContent.includes('<img src=x onerror=alert(1)>'), 'le nom s’affiche en texte');
   assert.equal(escHTML('l\'été "oui" <&>'), 'l&#39;été &quot;oui&quot; &lt;&amp;&gt;');
-  assert.ok(!listHTML(groupBySeason([regate({ name: 'L\'Aber' })], now), { now }).includes('\'Aber'), 'apostrophe échappée');
+  assert.ok(!listHTML(groupByStatus([regate({ name: 'L\'Aber' })], now), { now }).includes('\'Aber'), 'apostrophe échappée');
+  assert.ok(!noRegattaHTML().includes('<script'), 'carte sans donnée de régate');
 });
 
-test('vues : liste par saison, ligne courante marquée, attribut data-rg entre guillemets, auteur « — » sans auteur', () => {
+test('vues : liste par statut, bouton « Ouvrir » par régate, régate ouverte marquée « Ouverte » sans bouton, attribut data-rg entre guillemets, auteur « — » sans auteur', () => {
   const now = t('2026-11-08T10:00:00Z');
-  const a = regate({ id: 'a', name: 'Aujourd’hui CVAT', by: 'Teiva', at: t('2026-11-01T10:00:00Z') }), b = regate({ id: 'b', name: 'Sans auteur', dateStart: '2026-12-01', dateEnd: '', by: null });
-  const html = listHTML(groupBySeason([a, b], now), { currentId: 'a', now });
+  const a = regate({ id: 'a', name: 'Aujourd’hui CVAT', by: 'Teiva', at: t('2026-11-01T10:00:00Z') }), b = regate({ id: 'b', name: 'L’Aber "x"', dateStart: '2026-12-01', dateEnd: '', by: null });
+  const html = listHTML(groupByStatus([a, b], now), { openId: 'a', now });
   const { document } = parseHTML(`<html><body>${html}</body></html>`);
-  assert.equal(document.querySelector('.rgseason h4').textContent, 'Saison 2026');
-  assert.deepEqual([...document.querySelectorAll('.rgstatus')].map((x) => x.textContent), ['Aujourd’hui', 'À venir']);
-  const [ra, rb] = [...document.querySelectorAll('button.rg')];
-  assert.equal(ra.getAttribute('data-rg'), 'a'); assert.ok(ra.classList.contains('on')); assert.ok(!rb.classList.contains('on'));
+  assert.deepEqual([...document.querySelectorAll('.rggroup h4')].map((x) => x.textContent), ['En préparation', 'En cours']);
+  const [rb, ra] = [...document.querySelectorAll('.rg[data-rg-row]')];
+  assert.equal(ra.getAttribute('data-rg-row'), 'a'); assert.equal(rb.getAttribute('data-rg-row'), 'b');
+  assert.ok(ra.classList.contains('on')); assert.ok(!rb.classList.contains('on'));
+  assert.equal(ra.querySelector('[data-rg]'), null, 'la régate ouverte n’a pas de bouton « Ouvrir »');
+  assert.match(ra.textContent, /Ouverte/); assert.doesNotMatch(rb.textContent, /Ouverte/);
+  const bouton = rb.querySelector('button[data-rg]');
+  assert.equal(bouton.getAttribute('data-rg'), 'b'); assert.equal(bouton.textContent, 'Ouvrir'); assert.equal(bouton.getAttribute('aria-label'), 'Ouvrir L’Aber "x"');
   assert.match(ra.textContent, /par Teiva le 01\/11/); assert.match(rb.textContent, /—/); assert.ok(!/par /.test(rb.textContent));
-  assert.match(html, /data-rg="a"/);
+  assert.match(html, /data-rg="b"/);
   assert.equal(byLine(null, 1), '—'); assert.equal(byLine('Teiva', t('2026-11-01T23:30:00Z')), 'par Teiva le 02/11', 'jour de Paris');
   assert.equal(byLine('Teiva'), 'par Teiva');
-  assert.match(listHTML([], {}), /Aucune régate/);
-  assert.match(sheetHTML(null), /Aucune régate courante/);
+  assert.match(listHTML([], {}), /Aucune régate pour l’instant/);
+  assert.equal(sheetHTML(null), '', 'sans régate ouverte, pas de fiche');
+  assert.match(rb.textContent, /En préparation/);
+});
+
+test('noRegattaHTML : carte « Aucune régate ouverte » avec l’entraînement libre, l’import des IC relié à #icFile et #icMsg', () => {
+  const { document } = parseHTML(`<html><body>${noRegattaHTML()}</body></html>`);
+  const carte = document.querySelector('#rgNone');
+  assert.ok(carte); assert.equal(carte.querySelector('h3').textContent, 'Aucune régate ouverte');
+  for (const m of ['Entraînement libre', '« Ouvrir »', 'Le jour d’une régate, l’app l’ouvre toute seule', 'créent une nouvelle régate', 'ouvrez-la d’abord']) assert.ok(carte.textContent.includes(m), m);
+  const label = carte.querySelector('label[for=icFile]');
+  assert.equal(label.textContent, '＋ Importer des IC (PDF)');
+  assert.ok(carte.querySelector('input#icFile[type=file]') && carte.querySelector('#icMsg'));
+  assert.equal(document.querySelector('#rgSheet'), null, 'aucune fiche');
+});
+
+test('migrate : appareil neuf, index v36 avec régate courante, reprise : jamais de clé current, une seule réécriture ; saveRegattas ne l’écrit jamais', () => {
+  const neuf = mem(), st = migrate({ storage: neuf, now: t('2026-10-22T08:30:00Z') });
+  assert.ok(!('current' in st)); assert.ok(!('current' in JSON.parse(neuf.getItem(KEY))), 'index écrit sans current');
+  // index v36 : la Coupe SNPM est la courante
+  const v36 = { v: 1, current: 'snpm-2026', list: st.list };
+  const stockage = mem({ [KEY]: JSON.stringify(v36) });
+  let ecritures = 0; const setItem = stockage.setItem; stockage.setItem = (k, v) => { ecritures++; setItem(k, v); };
+  const a = migrate({ storage: stockage, now: 1 });
+  assert.ok(!('current' in a)); assert.equal(ecritures, 1, 'réécrit une seule fois'); assert.deepEqual(a.list, st.list, 'les régates ne bougent pas');
+  assert.ok(!('current' in JSON.parse(stockage.getItem(KEY))));
+  const b = migrate({ storage: stockage, now: 2 });
+  assert.deepEqual(b, a); assert.equal(ecritures, 1, 'plus aucune écriture au second appel');
+  // reprise de rade.events.v1 qui portait current
+  const ancien = mem({ 'rade.events.v1': JSON.stringify({ current: 'ev1', list: [{ id: 'ev1', event: 'X', date: '2026-11-07' }] }) });
+  assert.ok(!('current' in migrate({ storage: ancien, now: 1 })));
+  assert.ok(!('current' in JSON.parse(ancien.getItem(KEY))));
+  // saveRegattas écrit sans current même si l’état en porte un
+  const s3 = mem(); assert.equal(saveRegattas(s3, { v: 1, current: 'a', list: [] }), true);
+  assert.deepEqual(JSON.parse(s3.getItem(KEY)), { v: 1, list: [] });
+  assert.ok(!/"current"/.test(s3.getItem(KEY)));
 });
 
 // ───────────────────────── manches (REG-02)
@@ -350,9 +446,46 @@ test('garde : aucune chaîne hexadécimale de 64 caractères (empreinte) dans le
 
 const app = readFileSync(ROOT + 'js/app.js', 'utf8');
 
-test('garde : le verrou lit les dates de la régate (raceLock et renderLive appellent lockDates), plus la seule fiche courante', () => {
-  for (const f of ['raceLock', 'renderLive']) assert.match(bodyOf(app, f), /lockDates\(/, `${f} doit appeler lockDates(`);
+test('garde : le verrou lit les dates de la régate d’aujourd’hui de la liste (raceLock et renderLive appellent lockDates avec la seule liste), jamais la régate ouverte', () => {
+  for (const f of ['raceLock', 'renderLive']) {
+    const corps = bodyOf(app, f);
+    assert.match(corps, /lockDates\(\{ now(: Date\.now\(\))?, list: REG\.list \}\)/, `${f} doit appeler lockDates avec la seule liste`);
+    assert.ok(!/\bcurrentId\b|\bOPEN\b|openReg\(/.test(corps), `${f} : le verrou ne dépend pas de la régate ouverte`);
+  }
   assert.ok(!/raceFrom:\s*IC\?\./.test(app), 'plus de raceFrom lu dans IC');
+  assert.match(bodyOf(app, 'freezeTick'), /todayRegatta\(\{ now, list: REG\.list, currentId: OPEN \}\)/, 'le gel suit la régate du jour de la liste ; l’ouverte ne départage que deux régates du même jour');
+});
+
+test('garde : la régate ouverte est un état de la page (OPEN), posé au chargement par la règle d’ouverture et changé par setOpen seulement, sans écriture ni échange', () => {
+  assert.match(app, /^let OPEN = openAtBoot\(\{ now: Date\.now\(\), list: REG\.list \}\);$/m);
+  const lignes = app.split('\n');
+  const iMigrate = lignes.findIndex((l) => /^let REG = migrate\(/.test(l)), iSeed = lignes.findIndex((l) => /seedNorm\(REG\)/.test(l)), iOpen = lignes.findIndex((l) => /^let OPEN = /.test(l)), iIC = lignes.findIndex((l) => /^let IC = /.test(l));
+  assert.ok(iMigrate >= 0 && iSeed > iMigrate && iOpen > iSeed && iIC > iOpen, 'ordre : migrate, seedNorm, OPEN, puis IC');
+  // OPEN n’est affecté que par sa déclaration et dans le corps de setOpen
+  const hors = app.replace(bodyOf(app, 'setOpen'), '').replace(/^let OPEN = .*$/m, '');
+  assert.ok(!/(?<![.\w])OPEN\s*=(?!=)/.test(hors.replace(/\/\/[^\n]*/g, '')), 'OPEN affecté hors de setOpen');
+  const set = bodyOf(app, 'setOpen');
+  for (const interdit of ['saveReg(', 'scheduleSync(', 'markDirty(', 'saveSync(', 'syncNow(', 'saveRegattas(']) assert.ok(!set.includes(interdit), `setOpen appelle ${interdit}`);
+  const sync = bodyOf(app, 'syncDeps');
+  assert.ok(!/\bOPEN\b|setOpen/.test(sync), 'syncDeps ne touche jamais la régate ouverte');
+  assert.match(sync, /canon\(\[st\.list, st\.tomb\]\) === canon\(\[REG\.list, REG\.tomb\]\)/, 'seuls list et tomb sont comparés');
+  for (const f of ['rangeTrace', 'attachTo', 'createFor', 'syncRef', 'freezeWrite', 'reprise']) { const c = bodyOf(app, f); if (c) assert.ok(!/setOpen\(|\bOPEN\b/.test(c), `${f} ne touche pas la régate ouverte`); }
+  assert.ok(!/\bcurrentRegatta\b|\bsetCurrentRegatta\b/.test(app), 'plus de lecture d’une régate courante dans l’index');
+  assert.ok(!/REG\.current|st\.current/.test(app));
+  const barre = bodyOf(app, 'paintRegBar');
+  assert.ok(!/innerHTML/.test(barre), 'le bandeau est construit en textContent seulement (un nom peut venir d’un autre téléphone)');
+  const init = bodyOf(app, 'init');
+  assert.ok(init.indexOf('paintRegBar()') > 0 && init.indexOf('paintRegBar()') < init.indexOf("performance.mark('rt:ui')"), 'bandeau peint avant la marque rt:ui');
+  for (const f of ['attach', 'reprise']) assert.ok(!/\bOPEN\b|setOpen|openRegatta/.test(readFileSync(ROOT + `js/${f}.js`, 'utf8')), `js/${f}.js ne cite aucun état d’ouverture`);
+});
+
+test('garde : le passage de jour (dayOpenTick) n’ouvre qu’hors course et hors saisie, sur une ligne séparée de raceTick', () => {
+  const tic = bodyOf(app, 'raceTick');
+  assert.match(tic, /\n\s*dayOpenTick\(now, active\);/, 'appel sur une ligne séparée');
+  const jour = bodyOf(app, 'dayOpenTick');
+  assert.ok(jour.indexOf('active') >= 0 && jour.indexOf('icBusy()') >= 0);
+  assert.ok(jour.indexOf('setOpen(') > jour.indexOf('icBusy()') && jour.indexOf('setOpen(') > jour.indexOf('active'), 'setOpen seulement après les gardes');
+  assert.match(jour, /if \(active \|\| icBusy\(\)\) return;/);
 });
 
 test('garde : js/app.js n’importe plus les fonctions de fiches de ./events.js ; l’index est lu au chargement du module (hors init)', () => {
@@ -361,7 +494,7 @@ test('garde : js/app.js n’importe plus les fonctions de fiches de ./events.js 
   for (const nom of ['eventsState', 'currentEvent', 'upsertEvent', 'removeEvent', 'setCurrent']) assert.ok(!new RegExp(`\\b${nom}\\b`).test(imp), `${nom} importé de ./events.js`);
   assert.match(app, /migrate\(\{/, 'migrate({ … }) présent');
   assert.ok(!/migrate\(/.test(bodyOf(app, 'init')), 'la lecture de l’index se fait au chargement du module, pas dans init()');
-  assert.match(app, /^let IC = icOf\(currentRegatta\(REG\)\);/m);
+  assert.match(app, /^let IC = icOf\(openReg\(\)\);/m);
 });
 
 test('garde : js/events.js ne garde que la lecture du PDF et des IC (plus de fiches ni d’ancien formulaire, plan 03-05)', async () => {

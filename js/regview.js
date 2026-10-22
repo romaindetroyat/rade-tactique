@@ -1,4 +1,4 @@
-// Régates : vues HTML (chaînes) de la liste par saison, du formulaire de création et de la fiche. Modules purs, sans DOM ni stockage :
+// Régates : vues HTML (chaînes) de la liste par statut, de la carte « Aucune régate ouverte », du formulaire de création et de la fiche. Modules purs, sans DOM ni stockage :
 // tout texte venu d’une régate (nom, club, note, auteur) passe par escHTML ; les attributs sont toujours entre guillemets doubles.
 
 import { parisClock } from './racelock.js';
@@ -29,16 +29,29 @@ export function datesLabel(r) {
 const CHIP = { avenir: 'chip pres', aujourdhui: 'chip good', passee: 'chip' };
 const statusChip = (r, now) => { const st = regattaStatus(r, now); return `<span class="${CHIP[st]}">${escHTML(STATUS_LABEL[st])}</span>`; };
 
-// groups : sortie de groupBySeason ; une ligne par régate (touchable), la courante est marquée
-export function listHTML(groups, { currentId = null, now = Date.now() } = {}) {
+// groups : sortie de groupByStatus (En préparation, En cours, Terminées) ; une ligne par régate avec son bouton « Ouvrir » ; la régate ouverte est marquée
+// et n’a plus de bouton (la fermer se fait par le bandeau du panneau)
+export function listHTML(groups, { openId = null, now = Date.now() } = {}) {
   if (!groups.length) return '<p class="small muted">Aucune régate pour l’instant : touchez « ＋ Nouvelle régate ».</p>';
-  return groups.map(({ season, groups: gs }) => `<div class="rgseason"><h4>Saison ${escHTML(season)}</h4>${gs.map((g) => `<div class="rgstatus">${escHTML(g.label)}</div>${g.items.map((r) => {
-    const cur = r.id === currentId;
-    return `<button type="button" class="rg${cur ? ' on' : ''}" data-rg="${escHTML(r.id)}" aria-pressed="${cur ? 'true' : 'false'}">`
+  return groups.map((g) => `<div class="rggroup" data-status="${escHTML(g.status)}"><h4>${escHTML(g.label)}</h4>${g.items.map((r) => {
+    const open = r.id === openId;
+    return `<div class="rg${open ? ' on' : ''}" data-rg-row="${escHTML(r.id)}"><div class="rgt">`
       + `<span class="rgn">${escHTML(r.name)}</span>`
       + `<span class="rgm">${escHTML(datesLabel(r))}${r.club ? ` · ${escHTML(r.club)}` : ''}</span>`
-      + `<span class="rgb">${statusChip(r, now)}<span class="small muted">${byLine(r.by, r.at)}</span></span></button>`;
-  }).join('')}`).join('')}</div>`).join('');
+      + `<span class="rgb">${statusChip(r, now)}<span class="small muted">${byLine(r.by, r.at)}</span></span></div>`
+      + `${open ? '<span class="chip good rgopen">Ouverte</span>' : `<button type="button" class="btn small acc" data-rg="${escHTML(r.id)}" aria-label="Ouvrir ${escHTML(r.name)}">Ouvrir</button>`}</div>`;
+  }).join('')}</div>`).join('');
+}
+
+// Carte affichée à la place de la fiche quand aucune régate n’est ouverte (entraînement libre) ; pure, sans donnée de régate
+export function noRegattaHTML() {
+  return `<div class="card" id="rgNone"><h3>Aucune régate ouverte</h3>
+    <p class="small">Entraînement libre : vent, parcours du cahier, chrono, mode départ, GPS, trace et débrief marchent sans régate.</p>
+    <p class="small">Ouvrez une régate de la liste (« Ouvrir ») ou créez-en une. Le jour d’une régate, l’app l’ouvre toute seule.</p>
+    <p class="small muted">Importées ici, les IC créent une nouvelle régate : pour celles d’une régate de la liste, ouvrez-la d’abord.</p>
+    <div class="btns" style="margin:0 0 6px"><label class="btn acc small" for="icFile" style="cursor:pointer">＋ Importer des IC (PDF)</label></div>
+    <input type="file" id="icFile" accept="application/pdf,.pdf,.txt,text/plain" hidden>
+    <div class="small muted" id="icMsg">L’app lit le PDF des IC et montre, pour chaque valeur (date, heures, VHF, Comité, zone), la phrase d’où elle vient : relisez, corrigez, puis « Valider les IC ».</div></div>`;
 }
 
 // Formulaire de création : nom, premier jour, club ; dernier jour facultatif. draft garde la saisie quand l’écran est redessiné.
@@ -248,9 +261,9 @@ export function historySectionHTML(r) {
     + `<p class="small muted">Valeurs remplacées par une modification plus récente : quoi, de qui, quand, et ce qu’elle contenait avant.</p>${lignes.join('')}</details>`;
 }
 
-// Fiche de la régate courante : nom, club, dates, statut, auteur, puis les manches (courses = parcours connus [{ id, title }]) et le vent du jour
+// Fiche de la régate ouverte : nom, club, dates, statut, auteur, puis les manches (courses = parcours connus [{ id, title }]) et le vent du jour
 export function sheetHTML(r, { now = Date.now(), courses = [], raceDraft = null, raceErrors = {}, markFix = null, nmOf, local = null, daysLocal = null, me = null, tipHtml = '' } = {}) {
-  if (!r) return '<div class="card" id="rgSheet"><p class="small muted">Aucune régate courante : créez-en une ou choisissez-en une dans la liste.</p></div>';
+  if (!r) return '';
   const races = r.races || [];
   return `<div class="card" id="rgSheet"><h3><span>${escHTML(r.name)}</span><small>${escHTML(r.club || 'club à préciser')}</small></h3>
     <div class="small">${escHTML(datesLabel(r))} ${statusChip(r, now)}</div>

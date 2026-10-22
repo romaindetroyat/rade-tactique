@@ -235,6 +235,16 @@ test('archive : raceTick abandonne l’échange en cours et programme la synchro
   assert.match(bodyOf(app, 'syncDeps'), /canApply: \(\) => !icBusy\(\) && !markEdit/, 'réponse jetée pendant une saisie');
 });
 
+test('régate ouverte : le passage de jour est une ligne séparée de raceTick, sans toucher aux lignes gardées, et n’ouvre rien pendant une course ni une saisie', () => {
+  const body = bodyOf(app, 'raceTick');
+  for (const garde of [/syncCtl\?\.abort\(\)/, /scheduleSync\(60000\)/, /reprise\(\)/, /freezeTick\('tic'\)/]) assert.match(body, garde);
+  assert.match(body, /\n\s*dayOpenTick\(now, active\);/, 'dayOpenTick sur une ligne séparée');
+  assert.ok(body.indexOf("freezeTick('tic')") < body.indexOf('dayOpenTick('), 'le gel passe avant l’ouverture du jour');
+  const jour = bodyOf(app, 'dayOpenTick');
+  assert.match(jour, /if \(active \|\| icBusy\(\)\) return;/);
+  assert.ok(jour.indexOf('setOpen(') > jour.indexOf('icBusy()'), 'setOpen seulement après avoir vérifié la course et la saisie');
+});
+
 test('verrou et voyant suivent chaque geste de course tout de suite (pas d’attente du tic de 5 s)', () => {
   assert.match(bodyOf(app, 'startGps'), /raceTick\(\);/, 'GPS allumé');
   assert.match(bodyOf(app, 'stopGps'), /raceTick\(\);/, 'GPS éteint');

@@ -1,6 +1,7 @@
 // Régates : modèle pur (stockage injecté, sans DOM) — création, statut au jour de Paris, saison, reprise des fiches IC existantes,
-// manches, dates du verrou « journée de régate » et auteur. Les fonctions de mise à jour rendent un nouvel état, jamais une mutation.
+// manches, dates du verrou « journée de régate », règle d’ouverture et auteur. Les fonctions de mise à jour rendent un nouvel état, jamais une mutation.
 // L’index (petit, lu de façon synchrone au chargement) est dans localStorage `rade.regates.v1` ; les données lourdes viendront plus tard.
+// La régate OUVERTE à l’écran n’est pas dans l’index : c’est un état de la page (js/app.js), oublié à chaque lancement et jamais partagé (D-A4).
 
 import { parisClock } from './racelock.js';
 import { IC as SNPM } from './courses.js';
@@ -9,7 +10,8 @@ export const KEY = 'rade.regates.v1';
 export const VERSION = 1;
 export const MEMBRE_KEY = 'rade.membre.v1';
 const EVENTS_KEY = 'rade.events.v1';            // ancienne clé des fiches IC : lue pour la reprise, jamais écrite ni effacée
-export const STATUS_LABEL = { avenir: 'À venir', aujourdhui: 'Aujourd’hui', passee: 'Passée' };
+export const STATUS_LABEL = { avenir: 'En préparation', aujourdhui: 'En cours', passee: 'Terminée' };
+export const GROUP_LABEL = { avenir: 'En préparation', aujourdhui: 'En cours', passee: 'Terminées' };
 export const MAX_NAME = 80, MAX_CLUB = 40, MAX_NOTE = 200, MAX_IC_TEXT = 20000;
 // Valeurs communes aux régates CVAT (signaux de départ règle 26, pavillons de classe habituels), comme js/events.js
 const COMMON = { sequence: SNPM.sequence, classes: SNPM.classes, groups: SNPM.groups };
@@ -35,15 +37,36 @@ export function regattaStatus(r, now) {
 // Saison = année civile du premier jour
 export const seasonOf = (dateStart) => (dateStart ? String(dateStart).slice(0, 4) : '—');
 
-// La régate d’aujourd’hui : la courante si elle l’est, sinon la première d’aujourd’hui, sinon null
+// La régate d’aujourd’hui : l’ouverte si elle l’est, sinon la première d’aujourd’hui, sinon null. `currentId` (la régate ouverte) ne sert
+// qu’à départager deux régates du même jour : sans régate ouverte, la première du jour est retenue.
 export function todayRegatta({ now, list, currentId }) {
   const today = (list || []).filter((r) => regattaStatus(r, now) === 'aujourdhui');
   return today.find((r) => r.id === currentId) || today[0] || null;
 }
-// Dates du verrou « journée de régate » : la régate d’aujourd’hui, sinon la courante
-export function lockDates({ now, list, currentId }) {
-  const r = todayRegatta({ now, list, currentId }) || (list || []).find((x) => x.id === currentId) || null;
+// Dates du verrou « journée de régate » : la régate d’aujourd’hui dans la liste, ouverte ou non. Le verrou ne dépend pas de la régate ouverte
+// à l’écran (CONTEXT, contraintes) ; l’ancien repli sur la courante ne verrouillait jamais (le verrou ne lit que isRaceDay).
+export function lockDates({ now, list }) {
+  const r = todayRegatta({ now, list });
   return { raceFrom: r?.dateStart || null, raceTo: r?.dateEnd || r?.dateStart || null };
+}
+// Régate d’id donné, sinon null : jamais de repli sur la première
+export function openRegatta(list, id) {
+  if (id == null) return null;
+  return (list || []).find((r) => r.id === id) || null;
+}
+// D-A3, D-A4 : au lancement, la régate d’aujourd’hui (jour de Paris), sinon aucune (entraînement libre). Aucune mémoire d’un lancement à l’autre.
+export function openAtBoot({ now, list }) {
+  return todayRegatta({ now, list })?.id ?? null;
+}
+// Passage de jour sans relance (iOS reprend l’app installée sans la relancer) : au premier jour de Paris nouveau qui porte une régate, elle est ouverte
+// (celle déjà ouverte si elle en fait partie) ; un nouveau jour sans régate garde l’état ouvert, l’écran n’est jamais retiré sous les doigts.
+// Rend { day, openId } : `day` est le jour de Paris de `now`, à mémoriser par l’appelant quand la fonction a pu s’appliquer.
+export function openOnNewDay({ now, list, openId = null, day }) {
+  const d = parisClock(now).date;
+  if (d === day) return { day, openId };
+  const today = (list || []).filter((r) => regattaStatus(r, now) === 'aujourdhui');
+  if (!today.length) return { day: d, openId };
+  return { day: d, openId: today.find((r) => r.id === openId)?.id ?? today[0].id };
 }
 
 // ───────────────────────── reprise des fiches de rade.events.v1
@@ -82,18 +105,25 @@ export function seedNorm(st) {
 function readJSON(storage, key) {
   try { const v = storage.getItem(key); return v ? JSON.parse(v) : null; } catch { return null; /* absent ou illisible : on repart d’ailleurs */ }
 }
-// Écrit l’index ; faux (sans exception) si le stockage est plein ou refusé
+// Écrit l’index (sans régate ouverte : D-A4) ; faux (sans exception) si le stockage est plein ou refusé
 export function saveRegattas(storage, st) {
-  try { storage.setItem(KEY, JSON.stringify(st)); return true; } catch { return false; /* quota ou stockage refusé : l’état reste en mémoire */ }
+  try { const { current, ...index } = st; storage.setItem(KEY, JSON.stringify(index)); return true; } catch { return false; /* quota ou stockage refusé : l’état reste en mémoire */ }
 }
-// Lit l’index ; sinon le crée une seule fois depuis rade.events.v1 (jamais modifiée), sinon sème la Coupe SNPM comme le faisait js/events.js
+// Lit l’index ; sinon le crée une seule fois depuis rade.events.v1 (jamais modifiée), sinon sème la Coupe SNPM comme le faisait js/events.js.
+// L’état rendu n’a jamais de clé `current` : un index d’avant (v36) qui en portait une est réécrit une seule fois sans elle, donc plus aucune
+// régate n’est ouverte d’office (D-A4, D-A5). Les régates, elles, ne bougent pas.
 export function migrate({ storage, now = Date.now(), by = null }) {
   const cur = readJSON(storage, KEY);
-  if (cur && cur.v === VERSION && Array.isArray(cur.list)) return cur;
+  if (cur && cur.v === VERSION && Array.isArray(cur.list)) {
+    if (!('current' in cur)) return cur;
+    const { current, ...index } = cur;
+    saveRegattas(storage, index);
+    return index;
+  }
   const ev = readJSON(storage, EVENTS_KEY);
   const fiches = Array.isArray(ev?.list) && ev.list.length ? ev.list : [{ id: 'snpm-2026', ...SNPM, source: 'IC fournies (PDF)' }];
   const list = fiches.map((e) => fromEvent(e, now, by));
-  const st = { v: VERSION, current: list.find((r) => r.id === ev?.current)?.id || list[0].id, list };
+  const st = { v: VERSION, list };
   saveRegattas(storage, st);
   return st;
 }
@@ -122,14 +152,11 @@ export function createRegatta({ name, dateStart, dateEnd, club } = {}, { now = D
 }
 export function upsertRegatta(st, r) {
   const list = st.list.some((x) => x.id === r.id) ? st.list.map((x) => (x.id === r.id ? r : x)) : [...st.list, r];
-  return { ...st, list, current: st.current || r.id };
+  return { ...st, list };
 }
 export function removeRegatta(st, id) {
-  const list = st.list.filter((x) => x.id !== id);
-  return { ...st, list, current: st.current === id || !list.some((x) => x.id === st.current) ? list[0]?.id ?? null : st.current };
+  return { ...st, list: st.list.filter((x) => x.id !== id) };
 }
-export const setCurrent = (st, id) => (st.list.some((x) => x.id === id) ? { ...st, current: id } : st);
-export const currentRegatta = (st) => st?.list?.find((x) => x.id === st.current) || st?.list?.[0] || null;
 
 // Forme de l’ancien `IC` de js/courses.js (lue par le briefing, le chrono, le débrief) : les consommateurs existants ne changent pas
 export function icOf(r) {
@@ -141,19 +168,21 @@ export function icOf(r) {
   };
 }
 
-// Liste par saison (la plus récente d’abord), puis Aujourd’hui, À venir (date croissante), Passées (date décroissante)
-export function groupBySeason(list, now) {
-  const order = ['aujourdhui', 'avenir', 'passee'], seasons = new Map();
+// Liste classée En préparation, En cours, Terminées (D-A2) : seuls les groupes non vides ; En préparation en dates croissantes (sans date en dernier),
+// Terminées en dates décroissantes, à date égale par nom. L’année reste lisible dans chaque ligne.
+export function groupByStatus(list, now) {
+  const order = ['avenir', 'aujourdhui', 'passee'], groups = new Map();
   for (const r of list || []) {
-    const s = r.season || seasonOf(r.dateStart);
-    if (!seasons.has(s)) seasons.set(s, { season: s, groups: new Map() });
-    const g = seasons.get(s).groups, st = regattaStatus(r, now);
-    if (!g.has(st)) g.set(st, []);
-    g.get(st).push(r);
+    const st = regattaStatus(r, now);
+    if (!groups.has(st)) groups.set(st, []);
+    groups.get(st).push(r);
   }
-  const cmp = (st) => (a, b) => (st === 'passee' ? -1 : 1) * String(a.dateStart || '').localeCompare(String(b.dateStart || '')) || a.name.localeCompare(b.name);
-  return [...seasons.values()].sort((a, b) => b.season.localeCompare(a.season))
-    .map(({ season, groups }) => ({ season, groups: order.filter((st) => groups.has(st)).map((st) => ({ status: st, label: STATUS_LABEL[st], items: groups.get(st).slice().sort(cmp(st)) })) }));
+  const date = (r) => String(r.dateStart || '');
+  const cmp = (st) => (a, b) => {
+    if (st === 'avenir' && !date(a) !== !date(b)) return date(a) ? -1 : 1;
+    return (st === 'passee' ? -1 : 1) * date(a).localeCompare(date(b)) || String(a.name).localeCompare(String(b.name));
+  };
+  return order.filter((st) => groups.has(st)).map((st) => ({ status: st, label: GROUP_LABEL[st], items: groups.get(st).slice().sort(cmp(st)) }));
 }
 
 // ───────────────────────── manches

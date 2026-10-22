@@ -3,10 +3,10 @@ gsd_state_version: "1.0"
 current_phase: 05
 status: completed
 stopped_at: Phase 05 complete — all phases complete
-last_updated: "2026-10-20T12:18:02.725Z"
+last_updated: "2026-10-22T08:36:12.833Z"
 last_activity: 2026-10-20
 last_activity_desc: Phase 05 complete
-state_head: fe1abb55c2ec4254f79648835940340894ba69e0
+state_head: b072a509ec976b356a6015169a01c94047c823ed
 progress:
   total_phases: 5
   completed_phases: 5
@@ -167,6 +167,7 @@ Décisions récentes qui orientent le travail en cours :
 | 261020-eaq | Guide de prise en main refait, très clair et exhaustif (v33) | 2026-10-20 | 77b1902 | [261020-eaq-guide-prise-en-main](./quick/261020-eaq-guide-prise-en-main/) |
 | 261020-aid | Aide intégrée mise à jour (v34) | 2026-10-20 | fe1abb5 | [261020-aid-aide-integree](./quick/261020-aid-aide-integree/) |
 | 261020-sec | Durcissement : fichiers internes fermés (liste blanche), en-têtes de sécurité et CSP, GPS arrêté après la course (v35, aperçu) | 2026-10-20 | c40d262 | [261020-sec-durcissement](./quick/261020-sec-durcissement/) |
+| 261022-acc | Accueil en entraînement libre, régates ouvertes depuis l’onglet (v37) | 2026-10-22 | b072a50 | [261022-acc-accueil-hors-regate](./quick/261022-acc-accueil-hors-regate/) |
 
 ### Roadmap Evolution
 

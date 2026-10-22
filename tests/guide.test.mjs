@@ -60,6 +60,7 @@ const EXIGEES = [
   'Archive partagée', 'Historique', 'Désactiver la synchronisation', 'OpenAI ne garde pas les réponses', 'Limite d’IA du jour atteinte — reprise demain',
   'En 1 minute', 'Open GPX Tracker', 'Course finie',
   // repères de la rédaction : limites, verrous, IA, iPhone
+  'Entraînement libre', 'Aucune régate ouverte', 'En préparation', 'Terminées', 'Fermer la régate', 'ne change rien chez les autres',
   '25 nœuds', 'Ce qui ne s’échange pas pendant une course', 'Budget d’IA du mois atteint — l’IA reprend le mois prochain', '30 appels par équipier et par jour',
   'iOS 18.4', 'Verrouillage automatique', 'GR1 (3)', 'Carqueiranne (11)', 'Le Comité fait foi', 'Les voyants', 'Dépannage',
 ];
@@ -71,6 +72,8 @@ const INTERDITES = [
   [/[0-9a-f]{64}/i, 'aucune empreinte de 64 caractères hexadécimaux'],
   [/naos-[\p{L}]+-[0-9a-z]{4}/iu, 'ni la forme du code personnel'],
   [/gpt|claude|opus|sonnet|haiku/i, 'aucun nom de modèle d’IA'],
+  [/régate courante/i, 'libellé retiré en v37 : régate ouverte'],
+  [/Aujourd’hui, À venir, Passée/, 'ancien classement de la liste'],
 ];
 
 test('phrases : repères exigés présents, formules interdites absentes', () => {
@@ -111,6 +114,7 @@ const MESSAGES_DE_L_APP = [
   'Ligne non pinguée', 'Vent à relever (⚙)', 'Comité pingué ✓', 'Comité : position théorique', 'Une précision', 'figé après le départ', 'position à saisir', 'Votre code personnel',
   'Écran non maintenu : réglez Verrouillage automatique sur « Jamais » pendant la course', 'Son coupé — touchez pour réactiver', 'Bips non entendus au test — le flash visuel reste actif', 'Son non testé',
   'Hors ligne — prévisions du', 'Laisser sans régate', 'Confirmer la suppression', 'Copié ✓', 'Confirmer ?',
+  'Aucune régate ouverte', 'Entraînement libre', 'Retour à l’entraînement libre',
 ];
 
 test('messages : chaque message cité par le guide est celui de l’app', () => {
@@ -132,7 +136,7 @@ const BOUTONS = [
   '📍 Ping Bouée (GPS)', '📍 Ping Comité (GPS)', '🔊 Tester le son', '🔓',
   // boutons dont le libellé est construit dans le code
   'Débrief de course', 'Refaire le débrief de course', 'Débrief', 'Corriger la position', 'Saisir la position', 'Lire avec l’IA (le texte part chez OpenAI)', 'Désactiver la synchronisation',
-  'Réactiver la synchronisation', '＋ Importer des IC (PDF)', 'Caler le départ sur ces IC', 'Mettre à jour', 'Journal de diagnostic', 'Oui, entendus', 'Non', 'Près tribord', 'Près bâbord', 'Compas',
+  'Réactiver la synchronisation', 'Ouvrir', 'Ouvrir une régate', 'Fermer la régate', '＋ Importer des IC (PDF)', 'Caler le départ sur ces IC', 'Mettre à jour', 'Journal de diagnostic', 'Oui, entendus', 'Non', 'Près tribord', 'Près bâbord', 'Compas',
   'GPS → étrave', 'Aide', 'Relancer', 'Réessayer', 'Réactiver', 'Vérifier', '🔒', 'BOUÉE', 'COMITÉ', 'DÉPART 5’', 'SYNCHRO', '⟳', '⤴', '?', '2D', '3D', '⌖', '◎', '☰', '⏸', '×½', '×1', '×2', '×4',
 ];
 
@@ -156,17 +160,19 @@ const aideTexte = espaces(`${guideAide} ${syncTip} ${bullesFixes} ${BULLE_REGATE
 test('aide intégrée : plus de formule périmée, repères de la v32 présents', () => {
   assert.ok(guideAide.length > 1000 && syncTip && bullesFixes, 'GUIDE, SYNC_TIP et STATIC_TIPS lus');
   assert.ok(!APP.includes('Elles restent sur cet appareil'), 'bulle « Mes traces » : plus de « Elles restent sur cet appareil »');
-  assert.doesNotMatch(BULLE_REGATES, /Passées/, 'bulle Régates : le libellé affiché est « Passée »');
-  assert.match(BULLE_REGATES, /Passée\./);
+  assert.doesNotMatch(BULLE_REGATES, /Passées/, 'bulle Régates : plus l’ancien libellé « Passées »');
+  assert.doesNotMatch(BULLE_REGATES, /Passée/, 'bulle Régates : plus l’ancien libellé « Passée »');
+  assert.match(BULLE_REGATES, /En préparation, En cours, Terminées/);
   assert.match(BULLE_TRACES, /partagées avec l’équipage/);
   assert.doesNotMatch(guideAide, /résumés du vent du jour/, 'le partage ne se résume plus au vent du jour');
   assert.match(guideAide, /vent du jour figé, traces, débriefs et rapports sont partagés/);
   for (const p of ['Tester le son', 'Course finie', 'Mettre à jour', 'reprise demain', 'Mode départ plein écran', 'Top 5’', 'Top 4’', 'Top 1’', 'GPS, ÉCRAN, SON et RÉSEAU',
     '30 appels', 'Open GPX Tracker', '25 nœuds', 'Arrêter le GPS', 'Pas encore synchronisé', 'Synchronisation à relancer', 'Plafond du jour atteint · reprise demain',
-    'Code d’accès à renouveler', 'Mettez l’app à jour pour synchroniser', 'premier jour de la régate courante']) assert.ok(aideTexte.includes(p), `l’aide ne cite pas « ${p} »`);
+    'Code d’accès à renouveler', 'Mettez l’app à jour pour synchroniser', 'premier jour de la régate ouverte', 'Entraînement libre', 'Fermer la régate']) assert.ok(aideTexte.includes(p), `l’aide ne cite pas « ${p} »`);
   assert.ok(AIDE.includes('href="guide.html#minute"'), 'le lien du guide complet ouvre « En 1 minute »');
   assert.ok(document.getElementById('minute'), 'l’ancre #minute existe dans guide.html');
   assert.doesNotMatch(aideTexte, /blob\.vercel|vercel-storage|\?acces=|rt_acces|BLOB_READ_WRITE_TOKEN|gpt|claude|opus|sonnet|haiku/i, 'ni code, ni cookie, ni adresse, ni nom de modèle');
+  assert.doesNotMatch(aideTexte, /régate courante/i, 'libellé retiré en v37 : régate ouverte');
 });
 
 // Entre guillemets français : un libellé ou un message de l’app (à retrouver dans le code) ou un exemple/menu système (listé ici avec sa raison)
