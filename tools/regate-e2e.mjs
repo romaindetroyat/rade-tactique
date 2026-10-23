@@ -2365,7 +2365,104 @@ async function deuxTelephones({ browser, base }) {
   await A.ctx.close(); await B.ctx.close();
 }
 
-const SCENARIOS = { accueil, 'jour-j': jourJ, 'deux-telephones': deuxTelephones, reprise, equipage, archive, 'archive-bouees': archiveBouees, archivehors: archiveHors, creer, manche, auteur, ic, 'depuis-ic': depuisIC, vraisemblance, gel, 'debrief-tardif': debriefTardif, gpx, 'gpx-choix': gpxChoix, ia, 'ia-erreurs': iaErreurs, arbitre, bouees, guide, entetes, 'retour-port': retourPort };
+// ───────────────────────── parcours banane construit (phase 6 : D-01, D-04, D-05, D-06, D-11)
+
+const bordsParcours = (page) => page.locator('section[data-tab=course] .leg .hd').allTextContents();
+// Attend que les bords affichés vérifient `ok` (l’analyse redessine la liste quand elle se termine)
+async function attendBords(page, ok, quoi, delai = 90000) {
+  const fin = Date.now() + delai;
+  let b = [];
+  while (Date.now() < fin) {
+    b = await bordsParcours(page);
+    if (ok(b)) return b;
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  throw new Error(`bords attendus (${quoi}) non vus : ${b.join(' | ')}`);
+}
+// Les bords dans l’ordre attendu : une expression par bord
+const suite = (attendus) => (b) => b.length === attendus.length && attendus.every((re, i) => re.test(b[i]));
+const BAN_B = /B \(au vent\)/, BAN_C = /C \(dégagement\)/, BAN_PORTE = /Porte (gauche|droite)/;
+// Relevé des étiquettes dessinées sur la carte (texte de chaque sprite), remis à zéro avant chaque étape
+const releveEtiquettes = (ctx) => ctx.addInitScript(() => {
+  window.__labels = [];
+  const f = CanvasRenderingContext2D.prototype.fillText;
+  CanvasRenderingContext2D.prototype.fillText = function (t) { window.__labels.push(String(t)); return f.apply(this, arguments); };
+});
+const etiquettes = (page) => page.evaluate(() => window.__labels);
+const videEtiquettes = (page) => page.evaluate(() => { window.__labels = []; });
+// Vent manuel posé dans rade.state (relu au lancement suivant) : 315° 14 nd, rafales 18 nd
+const ventManuel = (page) => page.evaluate(() => {
+  const s = JSON.parse(localStorage.getItem('rade.state') || '{}');
+  localStorage.setItem('rade.state', JSON.stringify({ ...s, src: 'manual', manual: { dir: 315, spd: 14, gust: 18 } }));
+});
+const etatPage = (page) => page.evaluate(() => JSON.parse(localStorage.getItem('rade.state')));
+const reglagesBanane = (page) => page.evaluate(() => Object.fromEntries(['#cBanNm', '#cBanOff', '#cBanSide', '#cBanGate', '#cBanFin'].map((id) => [id, document.querySelector(id)?.value ?? null])));
+
+// D-11 : choisir la banane, changer la porte et l’arrivée, voir le conseil de porte (liste des bords, briefing, carte)
+async function banane({ browser, base }) {
+  const ctx = await ouvreContexte(browser, { heure: '2026-10-24T08:30:00Z' });        // samedi 24/10/2026, 10 h 30 à Paris
+  await releveEtiquettes(ctx);
+  const { page, erreurs } = await ouvrePage(ctx);
+  await ouvreApp(page, base);
+  await ventManuel(page);
+  await ouvreApp(page, base);
+  await page.click('#tabs button[data-tab=course]');
+  await attendBords(page, (b) => b.length === 13, 'parcours 3 au départ');
+  assert.equal(await page.locator('#cBanNm').count(), 0, 'parcours 3 : aucun réglage de banane');
+  const options = await page.locator('#cSel option').allTextContents();
+  assert.ok(options.includes('Banane (construite)'), `la banane est dans la liste : ${options.join(' | ')}`);
+
+  // banane par défaut : B, C, porte, B, C, arrivée sur la ligne de départ
+  await videEtiquettes(page);
+  await page.selectOption('#cSel', '90');
+  await attendBords(page, suite([BAN_B, BAN_C, BAN_PORTE, BAN_B, BAN_C, /^Arrivée \(ligne de départ\)/]), 'banane par défaut');
+  assert.deepEqual(await reglagesBanane(page), { '#cBanNm': '0.8', '#cBanOff': '1', '#cBanSide': 'b', '#cBanGate': '1', '#cBanFin': 'depart' }, 'les cinq réglages, aux défauts');
+  const porte = await page.locator('section[data-tab=course] .leg').nth(2).textContent();
+  const conseil = /Porte : (bouée (gauche|droite) conseillée — \d+ s de mieux|bouées équivalentes)/.exec(porte);
+  assert.ok(conseil, `conseil de porte dans le bord : ${porte.slice(0, 300)}`);
+  assert.match(await page.locator('section[data-tab=brief]').textContent(), /Tour 1 · Porte :/, 'le briefing dit le conseil de porte');
+  await page.waitForFunction(() => window.__labels.some((t) => t.startsWith('Porte gauche · bâbord')) && window.__labels.some((t) => t.startsWith('Porte droite · tribord')), null, { timeout: 30000 });
+  const vus = await etiquettes(page);
+  if (!/équivalentes/.test(conseil[0])) assert.ok(vus.some((t) => /· conseillée/.test(t)), `bouée conseillée nommée sur la carte : ${vus.filter((t) => /^Porte/.test(t)).join(' | ')}`);
+  else assert.ok(!vus.some((t) => /conseillée/.test(t)), 'bouées équivalentes : aucune bouée présentée comme conseillée');
+  const exemple = conseil[0];
+
+  // une seule bouée sous le vent
+  await videEtiquettes(page);
+  await page.selectOption('#cBanGate', '0');
+  await attendBords(page, suite([BAN_B, BAN_C, /Bouée sous le vent/, BAN_B, BAN_C, /^Arrivée \(ligne de départ\)/]), 'une bouée sous le vent');
+  await page.waitForFunction(() => window.__labels.some((t) => t.startsWith('Bouée sous le vent · bâbord')), null, { timeout: 30000 });
+
+  // arrivée sous le vent, décalée : ligne bleue « Arrivée »
+  await videEtiquettes(page);
+  await page.selectOption('#cBanFin', 'sousvent');
+  await attendBords(page, (b) => b.length === 6 && /^Arrivée sous le vent \(décalée\)/.test(b.at(-1)), 'arrivée sous le vent');
+  await page.waitForFunction(() => window.__labels.includes('Arrivée'), null, { timeout: 30000 });
+
+  // porte de nouveau, arrivée au vent : tous les tours finissent par la porte, puis un dernier près
+  await page.selectOption('#cBanGate', '1');
+  await page.selectOption('#cBanFin', 'auvent');
+  await attendBords(page, suite([BAN_B, BAN_C, BAN_PORTE, BAN_B, BAN_C, BAN_PORTE, /^Arrivée au vent \(décalée\)/]), 'arrivée au vent');
+  const st = await etatPage(page);
+  assert.deepEqual([st.courseId, st.banGate, st.banFin], [90, true, 'auvent'], 'réglages gardés dans rade.state');
+
+  // relance : les mêmes réglages
+  await ouvreApp(page, base);
+  await page.click('#tabs button[data-tab=course]');
+  await page.waitForSelector('#cBanFin', { timeout: 30000 });
+  assert.deepEqual(await reglagesBanane(page), { '#cBanNm': '0.8', '#cBanOff': '1', '#cBanSide': 'b', '#cBanGate': '1', '#cBanFin': 'auvent' }, 'après relance');
+  await attendBords(page, suite([BAN_B, BAN_C, BAN_PORTE, BAN_B, BAN_C, BAN_PORTE, /^Arrivée au vent \(décalée\)/]), 'après relance');
+
+  // parcours 3 rechoisi : plus de réglages, ses 13 bords
+  await page.selectOption('#cSel', '3');
+  await attendBords(page, (b) => b.length === 13 && !b.some((x) => BAN_B.test(x) || /Porte (gauche|droite)/.test(x)), 'parcours 3');
+  assert.equal(await page.locator('#cBan').count(), 0, 'parcours 3 : réglages de banane cachés');
+  sansErreur(erreurs, 'pendant le scénario');
+  console.log(`  conseil affiché : ${exemple}`);
+  await ctx.close();
+}
+
+const SCENARIOS = { accueil, 'jour-j': jourJ, 'deux-telephones': deuxTelephones, reprise, equipage, archive, 'archive-bouees': archiveBouees, archivehors: archiveHors, creer, manche, auteur, ic, 'depuis-ic': depuisIC, vraisemblance, gel, 'debrief-tardif': debriefTardif, gpx, 'gpx-choix': gpxChoix, ia, 'ia-erreurs': iaErreurs, arbitre, bouees, guide, entetes, 'retour-port': retourPort, banane };
 
 // ───────────────────────── lancement
 

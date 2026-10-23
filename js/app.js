@@ -15,7 +15,8 @@ import { applyRegattaMarks, pendingMarks, confirmMark, moveMark, ignoreMark } fr
 import { trackDay, matchRegattas, raceOfTrack, sameTrack, attachTrace, detachTrace, traceSummary, setTraceSummary, setTraceReport } from './attach.js';
 import { breaksOf } from './segments.js';
 import { fetchAll, cached, snapshot, consensus, gridPoints, marineAt, fetchLive, MODELS, WMO, CENTER } from './weather.js';
-import { buildLegs, analyzeLeg, markAdvice, analyzeStart, trendOf, rankCourses, regimeOf, sideName, summarizeTime } from './tactics.js';
+import { buildLegs, analyzeLeg, markAdvice, analyzeStart, trendOf, rankCourses, regimeOf, sideName, summarizeTime, prepareLeg, gateText } from './tactics.js';
+import { BANANE_ID, addBanane, banOf, courseMarkUse } from './banane.js';
 import { optimalAngles, boatSpeed, trimAdvice, spiMinTwa, getPolar, setPolar, resetPolar, parsePolar } from './polar.js';
 import { renderJ80 } from './j80.js';
 import { modelPoints, modelAt, idwAt, scoreModels, renderObsCard } from './obs.js';
@@ -53,10 +54,15 @@ const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(
 const addDays = (s, n) => { const d = new Date(s + 'T12:00:00'); d.setDate(d.getDate() + n); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 const dayName = (s) => new Date(s + 'T12:00:00').toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
 
+// Banane construite (D-01) : ajoutée à la liste des parcours hors du cahier js/courses.js, AVANT toute lecture de S.courseId et avant
+// syncRegMarks (sinon un parcours choisi à 90 serait ramené au parcours 3) ; applyRegattaMarks ne retire que les parcours d’une régate
+addBanane(COURSES);
+
 const DEF = {
   day: today(), hour: 11, src: 'forecast', manual: { dir: 315, spd: 15, gust: 20 }, calib: null, localFx: 1, obs: [], modelSel: 'auto', nowcast: true,
   courseId: 3, cls: 'G', laps: 2, wlNm: 0.8, startTime: 11, linePreset: 'vignettes', lineLen: 0.12, lineMode: 'wind', lineBrg: 0, lineOverride: null,
   perf: 1, polar: null, obsOpen: true, startFlash: true,
+  banNm: 0.8, banOff: true, banSide: 'b', banGate: true, banFin: 'depart',          // réglages de la banane (D-04), lus par banOf(S) qui les borne
 };
 const S = { ...DEF, ...store.get('rade.state', {}) };
 // Régates : l’index (petit) se lit de façon synchrone au chargement ; IC garde la forme d’avant (icOf)
@@ -426,7 +432,7 @@ async function runAnalysis() {
   const ctr = toXY(preset.lat, preset.lon);
   const wLine = F.sample(ctr.x, ctr.y);
   const ov = S.lineOverride ? { cb: toXY(S.lineOverride.cb.lat, S.lineOverride.cb.lon), pin: toXY(S.lineOverride.pin.lat, S.lineOverride.pin.lon) } : null;
-  const B = buildLegs(course, cls, { laps: S.laps, windDir: wLine.dir, wlLengthNm: S.wlNm, line: { center: preset, lengthNm: S.lineLen, mode: S.lineMode, bearing: S.lineBrg, override: ov } });
+  const B = buildLegs(course, cls, { laps: S.laps, windDir: wLine.dir, wlLengthNm: S.wlNm, ban: banOf(S), line: { center: preset, lengthNm: S.lineLen, mode: S.lineMode, bearing: S.lineBrg, override: ov } });
   const trend = S.src === 'forecast' && data ? trendOf(series, Math.max(0, seriesIndex(S.day, S.startTime)), Math.max(0, seriesIndex(S.day, S.startTime + 4))) : 0;
   const ctx = { terrain: T, forbidden, perf: S.perf, trend };
   const start = analyzeStart(B.line, F, { ...B.legs[0] }, ctx);
@@ -447,9 +453,11 @@ async function runAnalysis() {
     start.advice.unshift(`Routage : départ le plus rapide ${where}${gain >= 3 ? ` (≈ ${Math.round(gain)} s gagnées sur un départ au milieu)` : ' (écart faible le long de la ligne)'}. La route optimale part de ce point (◆ orange).`);
   }
   const legs = []; let t = S.startTime, lastH = S.startTime;
-  for (const leg of B.legs) {
+  for (const [k, leg] of B.legs.entries()) {
     if (token !== anaToken) return;
     if (S.src === 'forecast' && Math.abs(t - lastH) >= 0.25) { computeField(S.day, t); lastH = t; }
+    // porte conseillée avec le vent de l’heure du bord (D-05) ; après une porte, le bord part de la bouée retenue
+    prepareLeg(leg, legs[legs.length - 1], B.legs[k + 1], F, ctx);
     const a = analyzeLeg(leg, F, ctx);
     a.eta0 = t; t += a.time / 3600; a.eta1 = t;
     legs.push(a);
@@ -458,7 +466,7 @@ async function runAnalysis() {
   if (token !== anaToken) return;
   let ord = 0;
   legs.forEach((l) => { if (l.mark !== 'GATE' && l.mark !== 'FINISH') l.order = ++ord; });
-  analysis = { course, cls, legs, line: B.line, points: B.points, start, total: t - S.startTime, dist: legs.reduce((s, l) => s + l.dist, 0), trend, day: S.day, cfg: stratSettings(cls) };
+  analysis = { course, cls, legs, line: B.line, points: B.points, start, total: t - S.startTime, dist: legs.reduce((s, l) => s + l.dist, 0), trend, day: S.day, cfg: stratSettings(cls), finishLine: B.finishLine ?? null };
   freezeTick('analyse');
   applyPendingEnds();
   updateDisplayField();
@@ -469,18 +477,13 @@ async function runAnalysis() {
 
 function drawCourse() {
   if (!analysis) return;
-  // marques du parcours, avec leurs numéros d'ordre de passage
-  const used = new Map();
-  analysis.legs.forEach((l) => {
-    if (!l.order) return;
-    const u = used.get(l.mark) || { side: l.side, orders: [] };
-    u.orders.push(l.order); used.set(l.mark, u);
-  });
+  // marques du parcours, avec leurs numéros d'ordre de passage ; les deux bouées d’une porte portent son numéro, la conseillée est marquée
+  const used = courseMarkUse(analysis.legs);
   const marks = Object.fromEntries(Object.entries(MARKS).map(([k, m]) => [k, { ...m, doubt: DOUBT(m) }]));        // « 3 ? » sur la carte (D-01)
   Object.assign(marks, pendingMarks(openReg()));        // « X1 ? » : bouées d’un autre club à confirmer, pour la carte seulement (jamais dans MARKS)
-  for (const k of ['A', 'B', 'C', 'D']) if (analysis.points[k]) { const ll = toLL(analysis.points[k].x, analysis.points[k].y); marks[k] = { name: analysis.points[k].name, ...ll, color: '#f5c400' }; }
+  for (const k of ['A', 'B', 'C', 'D', 'PG', 'PD', 'S']) if (analysis.points[k]) { const ll = toLL(analysis.points[k].x, analysis.points[k].y); marks[k] = { name: analysis.points[k].name, ...ll, color: '#f5c400' }; }
   scene.setMarks(marks, used);
-  scene.setLine(analysis.line, analysis.start.startPoint ? [{ ...analysis.start.startPoint, name: '◆ Départ conseillé' }] : []);
+  scene.setLine(analysis.line, analysis.start.startPoint ? [{ ...analysis.start.startPoint, name: '◆ Départ conseillé' }] : [], analysis.finishLine);
   scene.setCourse(analysis, selLeg);
 }
 
@@ -673,6 +676,7 @@ function renderBrief() {
         : 'Faites un relevé dès l’arrivée sur zone (onglet Parcours) : l’app retiendra le modèle qui colle.'));
     }
     tips.push(`Parcours ${analysis.course.id} estimé à <b>${summarizeTime(analysis.total * 3600)}</b> pour un J80 (${(analysis.dist / NM).toFixed(1)} Nq route directe).`);
+    for (const l of analysis.legs) if (l.gate) tips.push(`Tour ${esc(l.lap ?? 1)} · ${esc(gateText(l.gate))}`);         // porte conseillée à chaque passage (D-06)
     html += `<div class="card"><h3>Stratégie du jour ${tip('Synthèse automatique : rotation du vent attendue pendant la course, zones les plus ventées, désaccord entre modèles et temps estimé du parcours.')}</h3><ul class="tips">${tips.map((t) => `<li>${t}</li>`).join('')}</ul></div>`;
   }
   if (analysis) {
@@ -731,6 +735,17 @@ function chartSVG(rows, isRace) {
 }
 
 // ───────────────────────── PARCOURS
+// Réglages de la banane construite (D-04), montrés seulement quand elle est choisie ; valeurs bornées par banOf
+function banPanel() {
+  const b = banOf(S), opt = (v, txt, cur) => `<option value="${esc(v)}" ${v === cur ? 'selected' : ''}>${esc(txt)}</option>`;
+  return `<div class="row3" id="cBan" style="margin-top:8px">
+    <div><label class="f">Dist. B (Nq)</label><input id="cBanNm" type="number" min="0.3" max="2" step="0.1" value="${esc(b.nm)}"></div>
+    <div><label class="f">Dégagement (C)</label><select id="cBanOff">${opt('1', 'Oui', b.off ? '1' : '0')}${opt('0', 'Non', b.off ? '1' : '0')}</select></div>
+    <div><label class="f">B laissée à</label><select id="cBanSide">${opt('b', 'bâbord', b.side)}${opt('t', 'tribord', b.side)}</select></div>
+    <div><label class="f">Porte sous le vent</label><select id="cBanGate">${opt('1', 'Deux bouées (porte)', b.gate ? '1' : '0')}${opt('0', 'Une bouée', b.gate ? '1' : '0')}</select></div>
+    <div><label class="f">Arrivée</label><select id="cBanFin">${opt('depart', 'Ligne de départ', b.fin)}${opt('sousvent', 'Sous le vent, décalée', b.fin)}${opt('auvent', 'Au vent, décalée', b.fin)}</select></div>
+  </div>`;
+}
 function renderCourse() {
   const el = $('section[data-tab=course]');
   const c = COURSES.find((x) => x.id === S.courseId);
@@ -740,6 +755,7 @@ function renderCourse() {
     <div><label class="f">Classes</label><select id="cCls"><option value="G" ${S.cls === 'G' ? 'selected' : ''}>C–D–L–R1-R3 (grand)</option><option value="P" ${S.cls === 'P' ? 'selected' : ''}>P1–P2 (petit)</option></select></div></div>
     <div class="row3">${c.laps ? `<div><label class="f">Tours</label><input id="cLaps" type="number" min="1" max="5" value="${S.laps}"></div>` : ''}${c.built === 'WL' ? `<div><label class="f">Dist. B (Nq)</label><input id="cWl" type="number" min="0.3" max="2" step="0.1" value="${S.wlNm}"></div>` : ''}
     <div><label class="f">Heure de départ</label><input id="cStart" type="text" inputmode="numeric" value="${hhmm(S.startTime)}"></div></div>
+    ${c.built === 'BAN' ? banPanel() : ''}
     <p class="small muted" style="margin:8px 0 0">${esc(c.text)}</p></div>`;
   if (!analysis) html += '<div class="card">Calcul en cours…</div>';
   else {
@@ -768,6 +784,9 @@ function renderCourse() {
   $('#playCourse')?.addEventListener('click', () => startReplay());
   if ($('#cLaps')) $('#cLaps').onchange = (e) => { S.laps = Math.max(1, Math.min(5, +e.target.value || 1)); persist(); scheduleAnalysis(); };
   if ($('#cWl')) $('#cWl').onchange = (e) => { S.wlNm = +e.target.value || 0.8; persist(); scheduleAnalysis(); };
+  // réglages de la banane (D-04) : gardés dans rade.state, bornés par cleanBan au calcul (banOf)
+  const banSet = { '#cBanNm': (v) => { S.banNm = banOf({ ...S, banNm: Number.parseFloat(String(v).replace(',', '.')) }).nm; }, '#cBanOff': (v) => { S.banOff = v === '1'; }, '#cBanSide': (v) => { S.banSide = v; }, '#cBanGate': (v) => { S.banGate = v === '1'; }, '#cBanFin': (v) => { S.banFin = v; } };
+  for (const [id, set] of Object.entries(banSet)) if ($(id)) $(id).onchange = (e) => { set(e.target.value); persist(); scheduleAnalysis(); };
   $('#cStart').onchange = (e) => { const m = /^(\d{1,2})[:h ]?(\d{2})?$/.exec(e.target.value.trim()); if (m) { S.startTime = +m[1] + (+m[2] || 0) / 60; S.hour = Math.floor(S.startTime * 4) / 4; persist(); updateAll(); } };
   $$('.leg', el).forEach((d) => d.addEventListener('click', () => {
     const i = +d.dataset.i; selLeg = selLeg === i ? null : i;
