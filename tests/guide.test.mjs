@@ -65,7 +65,7 @@ const EXIGEES = [
   'iOS 18.4', 'Verrouillage automatique', 'GR1 (3)', 'Carqueiranne (11)', 'Le Comité fait foi', 'Les voyants', 'Dépannage',
   // repères de la phase 6 (D-11) : banane, porte conseillée, arrivées décalées, porte et arrivée d’un autre club
   'Banane (construite)', 'Porte sous le vent', 'bouées équivalentes', 'Au vent, décalée', 'Sous le vent, décalée', 'porte : bouée prise', 'Arrivée : entre le Comité et',
-  'celles de la porte et de l’arrivée comprises', 'Passez les trois téléphones en v38 avant la régate CVAT',
+  'celles de la porte et de l’arrivée comprises', 'Passez les trois téléphones en v39 avant la régate CVAT',
   // pas-à-pas de la banane, de la porte et de la mise à jour avant la CVAT (apercu-v39)
   'Préparer une banane, pas à pas', 'Lire le conseil de porte', 'Courir la porte, pas à pas', 'Arrivée décalée', 'Porte et arrivée d’un autre club, pas à pas',
   'Avant la CVAT : les trois iPhone à jour', 'Une bouée de la banane est à terre',
