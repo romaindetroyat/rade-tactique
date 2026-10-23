@@ -68,7 +68,9 @@ const EXIGEES = [
   'celles de la porte et de l’arrivée comprises', 'Passez les trois téléphones en v38 avant la régate CVAT',
   // pas-à-pas de la banane, de la porte et de la mise à jour avant la CVAT (apercu-v39)
   'Préparer une banane, pas à pas', 'Lire le conseil de porte', 'Courir la porte, pas à pas', 'Arrivée décalée', 'Porte et arrivée d’un autre club, pas à pas',
-  'Avant la CVAT : les trois iPhone à jour', 'Une bouée de la banane est à terre', 'ne se débriefe pas encore',
+  'Avant la CVAT : les trois iPhone à jour', 'Une bouée de la banane est à terre',
+  // débrief de la banane (v39)
+  'Débriefer une banane, pas à pas', 'Banane reconstruite', 'ajusté sur la trace', 'réglages de la manche',
 ];
 // Formules qui ne doivent jamais apparaître : [motif, raison]
 const INTERDITES = [
@@ -79,6 +81,7 @@ const INTERDITES = [
   [/naos-[\p{L}]+-[0-9a-z]{4}/iu, 'ni la forme du code personnel'],
   [/gpt|claude|opus|sonnet|haiku/i, 'aucun nom de modèle d’IA'],
   [/régate courante/i, 'libellé retiré en v37 : régate ouverte'],
+  [/ne se débriefe pas encore|ne la connaît pas encore|ne connaît pas encore la banane/, 'la banane se débriefe depuis la v39'],
   [/Aujourd’hui, À venir, Passée/, 'ancien classement de la liste'],
 ];
 
