@@ -4,7 +4,7 @@ import { MARKS, COURSES, LINE_PRESETS, PLACES } from './courses.js';
 import { toXY, toLL, NM, bearingXY, distXY, fromBearing, norm180, norm360, fmtBrg, fmtNm, cardinal } from './geo.js';
 import { boatSpeed, optimalAngles, spiMinTwa } from './polar.js';
 import { route, tackName } from './router.js';
-import { bananeCourse } from './banane.js';
+import { bananeCourse, orientGate } from './banane.js';
 
 export const sideName = (s) => (s === 'b' ? 'bâbord' : s === 't' ? 'tribord' : '');
 
@@ -106,7 +106,7 @@ export function buildLegs(course, cls, opts) {
     let prev = start;
     items.forEach((p, i) => {
       if (p.gate) {
-        const { g, d } = p.gate;
+        const { g, d } = p.gate.pair ? orientGate(prev, p.gate.pair[0], p.gate.pair[1]) : p.gate;
         legs.push({ i, from: prev, to: g, brg: bearingXY(prev, g), dist: distXY(prev, g), side: g.side, mark: 'PORTE', lap: p.lap, gate: { g, d, pick: 'g', gain: null, times: null, equal: null, why: null } });
         prev = g;
         return;
@@ -126,15 +126,28 @@ export function buildLegs(course, cls, opts) {
   let finish = { x: L.c.x, y: L.c.y, name: 'Arrivée' };
   if (course.finishNear1) finish = { ...toXY(43.0955, 5.9325), name: 'Arrivée (près de 1)' };
   if (course.built) finish = { x: (L.cb.x + pts.A.x) / 2, y: (L.cb.y + pts.A.y) / 2, name: 'Arrivée Comité–A' };
+  // arrivée propre d’un parcours de régate (ligne Comité – bouée, ou près d’une bouée nommée) ; bouée inconnue → arrivée habituelle
+  const fm = course.finish?.mark;
+  if (!course.built && fm && Object.hasOwn(pts, fm) && (course.finish.kind === 'comite' || course.finish.kind === 'pres')) {
+    finish = { x: pts[fm].x, y: pts[fm].y, name: course.finish.kind === 'comite' ? `Arrivée (Comité – ${pts[fm].name})` : `Arrivée (près de ${pts[fm].name})` };
+  }
+  // porte d’un parcours de régate : élément [bouée, côté, autre bouée] ; orientée au moment de chaîner (la bouée précédente est connue)
+  const item = (m, sd, g2, lap) => {
+    if (g2 != null && Object.hasOwn(pts, g2) && Object.hasOwn(pts, m)) {
+      const a = pts[m], b = pts[g2];
+      return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, name: `Porte ${m} / ${g2}`, mark: 'PORTE', side: null, ...(lap ? { lap } : {}), gate: { pair: [{ ...a, mark: m }, { ...b, mark: g2 }] } };
+    }
+    return lap ? { ...pts[m], mark: m, side: sd, lap } : { ...pts[m], mark: m, side: sd };
+  };
 
   const seq = [];
   if (course.laps) {
     for (let k = 0; k < laps; k++) {
-      seqDef.forEach(([m, sd]) => seq.push({ ...pts[m], mark: m, side: sd, lap: k + 1 }));
+      seqDef.forEach(([m, sd, g2]) => seq.push(item(m, sd, g2, k + 1)));
       if (k < laps - 1 && !course.built) seq.push({ ...gate, mark: 'GATE', side: null, lap: k + 1 });
     }
   } else {
-    seqDef.forEach(([m, sd]) => seq.push(m === 'GATE' ? { ...gate, mark: 'GATE', side: null } : { ...pts[m], mark: m, side: sd }));
+    seqDef.forEach(([m, sd, g2]) => seq.push(m === 'GATE' ? { ...gate, mark: 'GATE', side: null } : item(m, sd, g2)));
   }
   seq.push({ ...finish, mark: 'FINISH', side: null });
   const legs = chain({ x: L.c.x, y: L.c.y, name: 'Départ' }, seq);

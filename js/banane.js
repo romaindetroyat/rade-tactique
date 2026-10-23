@@ -2,7 +2,7 @@
 // Module pur (aucun DOM, aucun stockage) : js/app.js l’ajoute à COURSES au chargement (addBanane) ; buildLegs (js/tactics.js) en tire les bords.
 // Toutes les distances partent du centre de la ligne de départ réellement utilisée (pinguée comprise), axe = vent de la ligne.
 
-import { NM, fromBearing } from './geo.js';
+import { NM, fromBearing, bearingXY, norm180 } from './geo.js';
 
 export const BANANE_ID = 90;                     // hors des parcours SNPM (1-13) et des parcours de régate (101+) ; numérique (comparaisons strictes)
 export const BAN_DEF = Object.freeze({ nm: 0.8, off: true, side: 'b', gate: true, fin: 'depart' });
@@ -10,6 +10,9 @@ export const FINS = ['depart', 'sousvent', 'auvent'];
 
 const OFF_NM = 0.07;                             // dégagement C : 0,07 Nq de B, perpendiculaire au vent
 const GATE_UP_NM = 0.05, GATE_W_NM = 0.05;       // porte : centrée 0,05 Nq au vent du centre de la ligne, 0,05 Nq de large
+const FIN_LEN_NM = 0.06;                         // lignes d’arrivée décalées : 0,06 Nq, perpendiculaires au vent
+const FIN_DOWN_NM = 0.1;                         // « Sous le vent, décalée » : 0,1 Nq sous le vent du centre de la porte
+const FIN_UNDER_B_NM = 0.05, FIN_SHIFT_NM = 0.1; // « Au vent, décalée » : 0,05 Nq sous le vent de B, 0,1 Nq à l’opposé du dégagement
 
 // Réglages bornés : objet neuf aux cinq seules clés, lues sur l’objet lui-même (rien du prototype) ; toute valeur inconnue → défaut
 export function cleanBan(x) {
@@ -38,7 +41,9 @@ export function addBanane(courses) {
   return courses;
 }
 
-// Bouées et séquence d’une banane depuis la ligne L ({ c, cb, pin, face }) : { points, seq, finish, finishLine }
+// Bouées et séquence d’une banane depuis la ligne L ({ c, cb, pin, face }) : { points, seq, finish, finishLine }.
+// Un tour = B, C (si dégagement), puis la porte (ou la bouée sous le vent) sauf au dernier tour — sauf arrivée au vent, où tous les tours
+// finissent par la porte avant un dernier près vers la ligne d’arrivée décalée.
 export function bananeCourse(L, windDir, { laps = 1, ban } = {}) {
   const W = windDir, c = L.c, b = cleanBan(ban);
   const B = { ...fromBearing(c, W, b.nm * NM), name: 'B (au vent)' };
@@ -48,19 +53,40 @@ export function bananeCourse(L, windDir, { laps = 1, ban } = {}) {
   // gauche et droite en regardant sous le vent (comme les bateaux qui arrivent) : la gauche se laisse à bâbord
   const PG = { ...fromBearing(G0, W + 90, (GATE_W_NM / 2) * NM), name: 'Porte gauche', mark: 'PG', side: 'b' };
   const PD = { ...fromBearing(G0, W - 90, (GATE_W_NM / 2) * NM), name: 'Porte droite', mark: 'PD', side: 't' };
+  const S = { x: G0.x, y: G0.y, name: 'Bouée sous le vent' };
   const points = { B };
   if (C) points.C = C;
   const seq = [];
-  let gates = 0;
+  let bas = 0;
   for (let k = 1; k <= laps; k++) {
     seq.push({ ...B, mark: 'B', side: b.side, lap: k });
     if (C) seq.push({ ...C, mark: 'C', side: b.side, lap: k });
-    if (k < laps) {
-      seq.push({ x: G0.x, y: G0.y, name: 'Porte', mark: 'PORTE', side: null, lap: k, gate: { g: { ...PG }, d: { ...PD } } });
-      gates++;
+    if (k < laps || b.fin === 'auvent') {
+      seq.push(b.gate
+        ? { x: G0.x, y: G0.y, name: 'Porte', mark: 'PORTE', side: null, lap: k, gate: { g: { ...PG }, d: { ...PD } } }
+        : { ...S, mark: 'S', side: b.side, lap: k });
+      bas++;
     }
   }
-  if (gates) { points.PG = { ...PG }; points.PD = { ...PD }; }
-  const finish = { x: c.x, y: c.y, name: 'Arrivée (ligne de départ)' };
-  return { points, seq, finish, finishLine: null };
+  if (bas && b.gate) { points.PG = { ...PG }; points.PD = { ...PD }; }
+  if (bas && !b.gate) points.S = { ...S };
+  let finish = { x: c.x, y: c.y, name: 'Arrivée (ligne de départ)' }, finishLine = null;
+  if (b.fin === 'sousvent' || b.fin === 'auvent') {
+    const F = b.fin === 'sousvent'
+      ? fromBearing(G0, W + 180, FIN_DOWN_NM * NM)
+      : fromBearing(fromBearing(B, W + 180, FIN_UNDER_B_NM * NM), b.side === 'b' ? W + 90 : W - 90, FIN_SHIFT_NM * NM);
+    finish = { x: F.x, y: F.y, name: b.fin === 'sousvent' ? 'Arrivée sous le vent (décalée)' : 'Arrivée au vent (décalée)' };
+    finishLine = { a: fromBearing(F, W + 90, (FIN_LEN_NM / 2) * NM), b: fromBearing(F, W - 90, (FIN_LEN_NM / 2) * NM) };
+  }
+  return { points, seq, finish, finishLine };
+}
+
+// Oriente une porte de deux bouées depuis la bouée précédente : gauche et droite vues par les bateaux qui arrivent,
+// la gauche se laisse à bâbord ('b'), la droite à tribord ('t'). Rend des copies (entrées non modifiées).
+export function orientGate(prev, a, b) {
+  const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+  const beta = bearingXY(prev, mid);
+  const aLeft = norm180(bearingXY(mid, a) - beta) < 0;
+  const [l, r] = aLeft ? [a, b] : [b, a];
+  return { g: { ...l, side: 'b' }, d: { ...r, side: 't' } };
 }
