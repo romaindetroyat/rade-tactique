@@ -1,18 +1,19 @@
 ---
 gsd_state_version: "1.0"
-current_phase: 05
-status: completed
-stopped_at: Phase 05 complete — all phases complete
-last_updated: "2026-10-22T08:36:12.833Z"
-last_activity: 2026-10-20
-last_activity_desc: Phase 05 complete
-state_head: b072a509ec976b356a6015169a01c94047c823ed
+current_phase: 06
+current_phase_name: "Parcours banane : dégagement, porte sous le vent, arrivée décalée"
+status: executing
+stopped_at: Completed 06-01-PLAN.md
+last_updated: "2026-10-23T18:03:31.460Z"
+last_activity: 2026-10-23
+last_activity_desc: Plan 06-01 terminé (moteur de la banane)
+state_head: 82a02d000ac597bba6b79ea44725752544788905
 progress:
-  total_phases: 5
+  total_phases: 6
   completed_phases: 5
-  total_plans: 24
-  completed_plans: 24
-  percent: 100
+  total_plans: 28
+  completed_plans: 25
+  percent: 83
 ---
 
 # Project State
@@ -22,16 +23,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-10-19)
 
 **Core value:** Le jour de la régate, l'équipage peut ouvrir l'épreuve, s'en servir en mer sans que rien ne lâche, et retrouver ensuite le débrief : des conseils et des chiffres justes, fiables sur l'eau, et partagés par tout l'équipage.
-**Current focus:** Phase 05 — Avant la régate : archive amorcée et IA bornée
+**Current focus:** Phase 06 — Parcours banane : dégagement, porte sous le vent, arrivée décalée
 
 ## Current Position
 
-Phase: 05
-Plan: Not started
-Status: All phases complete
-Last activity: 2026-10-20 — Phase 05 complete
+Phase: 06 (Parcours banane : dégagement, porte sous le vent, arrivée décalée) — EXECUTING
+Plan: 2 of 4
+Status: Ready to execute
+Last activity: 2026-10-23 — Plan 06-01 terminé (moteur : banane, porte, arrivées, conseil de porte)
 
-Progress: [██████████] 100%
+Progress: [████████░░] 83%
 
 ## Performance Metrics
 
@@ -81,6 +82,7 @@ Progress: [██████████] 100%
 | Phase 05 P01 | 20 min | 3 tasks | 7 files |
 | Phase 05 P02 | 15 min | 3 tasks | 15 files |
 | Phase 05 P03 | 15 min | 3 tasks | 5 files |
+| Phase 06 P01 | 7 min | 3 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -146,6 +148,9 @@ Décisions récentes qui orientent le travail en cours :
 - [Phase 05]: 05-02 : le quota d’IA est compté avant l’appel à OpenAI (un appel raté coûte une unité sur 30) et le compteur reste ouvert en panne
 - [Phase 05]: 05-02 : toute fonction d’IA passe par createIA (api/_ia.js) ; une garde statique interdit l’appel direct du client OpenAI ailleurs
 - [Phase 05]: 05-03 : Romain a publié la v32 le 2026-10-20 (« publie » écrit par lui-même) ; PR #6 fusionnée en 3a4fa38 sur main, sw.js de production à n = 32 (855e0d07cb) ; plafond OpenAI de 10 $ à poser par Romain (docs/ia-budget.md, 05-USER-SETUP.md)
+- [Phase 06]: 06-01 : la fixture des bords v37 (127 cas, capturée sur 6e7af98 avant toute modification de js/) est comparée à 1e-9 près à chaque npm test ; côté et tour absents sérialisés en null
+- [Phase 06]: 06-01 : une porte (banane ou régate) est un seul bord PORTE vers la bouée retenue ; conseil seulement si l’écart routé atteint 10 s ou si une bascule de 2°/h est annoncée, sinon bouée gauche « retenue pour le calcul »
+- [Phase 06]: 06-01 : la banane (id 90, js/banane.js) est posée depuis le centre de la ligne réellement utilisée, pinguée comprise ; js/courses.js intact
 
 ### Pending Todos
 
@@ -183,6 +188,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-10-20T09:50:46.657Z
-Stopped at: Phase 05 complete — all phases complete
+Last session: 2026-10-23T18:03:31.302Z
+Stopped at: Completed 06-01-PLAN.md
 Resume file: None
