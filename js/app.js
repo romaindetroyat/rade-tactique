@@ -15,12 +15,11 @@ import { applyRegattaMarks, pendingMarks, confirmMark, moveMark, ignoreMark } fr
 import { trackDay, matchRegattas, raceOfTrack, sameTrack, attachTrace, detachTrace, traceSummary, setTraceSummary, setTraceReport } from './attach.js';
 import { breaksOf } from './segments.js';
 import { fetchAll, cached, snapshot, consensus, gridPoints, marineAt, fetchLive, MODELS, WMO, CENTER } from './weather.js';
-import { buildLegs, analyzeLeg, markAdvice, analyzeStart, trendOf, rankCourses, regimeOf, sideName, summarizeTime, prepareLeg, gateText } from './tactics.js';
+import { buildLegs, analyzeLeg, markAdvice, analyzeStart, trendOf, rankCourses, regimeOf, sideName, summarizeTime, prepareLeg, gateText, routeOf } from './tactics.js';
 import { BANANE_ID, addBanane, banOf, banToState, courseMarkUse, legReached, banHorsEau } from './banane.js';
 import { optimalAngles, boatSpeed, trimAdvice, spiMinTwa, getPolar, setPolar, resetPolar, parsePolar } from './polar.js';
 import { renderJ80 } from './j80.js';
 import { modelPoints, modelAt, idwAt, scoreModels, renderObsCard } from './obs.js';
-import { route } from './router.js';
 import { initTips, maybeWelcome, openGuide, openShare, tip, SYNC_TIP, DL_TIP } from './help.js';
 import { parseWind, listen, say } from './voice.js';
 import { Recorder, listTracks, getTrack, deleteTrack, saveTrack, analyzeTrack, exportGPX, fromGPX } from './track.js';
@@ -436,13 +435,13 @@ async function runAnalysis() {
   // banane : bouées construites à terre ou dans la zone interdite avec ce vent (routage impossible, temps absurdes) → avertissement
   const horsEau = course.built === 'BAN' ? banHorsEau(B, (p) => !T.inside(p.x, p.y) || T.isLand(p.x, p.y) || forbidden.some((poly) => pointInPolygon(p, poly))) : [];
   const trend = S.src === 'forecast' && data ? trendOf(series, Math.max(0, seriesIndex(S.day, S.startTime)), Math.max(0, seriesIndex(S.day, S.startTime + 4))) : 0;
-  const ctx = { terrain: T, forbidden, perf: S.perf, trend };
+  const ctx = { terrain: T, forbidden, perf: S.perf, trend, memo: new Map() };          // memo : routes de cette analyse (routeOf), jamais recalculées
   const start = analyzeStart(B.line, F, { ...B.legs[0] }, ctx);
   // le premier bord part du point de la ligne qui mène le plus vite à la 1re marque
   const L0 = B.line, first = B.legs[0], cands = [];
   for (const f of [0, 0.25, 0.5, 0.75, 1]) {
     const p = { x: L0.pin.x + (L0.cb.x - L0.pin.x) * f, y: L0.pin.y + (L0.cb.y - L0.pin.y) * f };
-    const r = route(p, first.to, F, { terrain: T, forbidden, perf: S.perf });
+    const r = routeOf(p, first.to, F, { terrain: T, forbidden, perf: ctx.perf ?? 1 }, ctx);          // la route du point retenu resservira au 1er bord
     if (r) cands.push({ f, p, time: r.time });
   }
   if (cands.length) {
@@ -1337,7 +1336,7 @@ async function planRest() {
   const pos = gps?.pos || (obsPos && toXY(obsPos.lat, obsPos.lon));
   if (!pos) { toast('Activez le GPS (ou touchez la carte → « Relevé de vent ici ») pour situer le bateau.'); return; }
   const t0 = S.day === today() ? nowHour() : analysis.legs[nextIdx].eta0;
-  const ctx = { terrain: T, forbidden, perf: S.perf, trend: analysis.trend };
+  const ctx = { terrain: T, forbidden, perf: S.perf, trend: analysis.trend, memo: new Map() };
   const legs = []; let t = t0, lastH = -1;
   for (let i = nextIdx; i < analysis.legs.length; i++) {
     const src = analysis.legs[i];

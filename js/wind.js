@@ -34,6 +34,7 @@ export class WindField {
     }
     this.distLand = this.#distanceToLand();
     this.kits = new Map();
+    this.gen = 0;                                   // état du champ : +1 à chaque compute() (clé des routes mémorisées, js/tactics.js routeOf)
     this.u = new Float32Array(n); this.v = new Float32Array(n);
     this.spd = new Float32Array(n); this.dir = new Float32Array(n); this.gust = new Float32Array(n);
     this.shelter = new Float32Array(n); this.block = new Float32Array(n);
@@ -225,6 +226,7 @@ export class WindField {
       this.bu[id] = -bs * Math.sin(rad(bd)); this.bv[id] = -bs * Math.cos(rad(bd));
     }
     this.base = base;
+    this.gen++;
     return this;
   }
 
