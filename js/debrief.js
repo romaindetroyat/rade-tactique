@@ -21,9 +21,10 @@ function points(tr) {
   const res = analyzeTrack(tr, { windAt: () => ({ dir: 0, spd: 10 }), boatSpeed, legs: null });
   return res ? res.P : [];
 }
-function passages(P) {
+// Passages à moins de 200 m de chaque bouée (une entrée par bouée et par passage). marks : table des bouées (MARKS par défaut ; une copie dans les tests).
+export function passages(P, marks = MARKS) {
   const out = [];
-  for (const [k, m] of Object.entries(MARKS)) {
+  for (const [k, m] of Object.entries(marks)) {
     const M = toXY(m.lat, m.lon); let cur = null;
     P.forEach((p, i) => {
       const d = distXY(p, M);
@@ -34,17 +35,31 @@ function passages(P) {
   }
   return out.sort((a, b) => a.t - b.t);
 }
-function expectedSeq(c, cls, laps) {
-  const seq = (c.seq[cls] || c.seq.G).filter(([m]) => MARKS[m]).map(([m, s]) => ({ k: m, side: s }));
+// Suite attendue : { k, side } comme en v37 ; un élément porte [bouée, côté, autre bouée] → { k, side, gate } (D-07)
+export function expectedSeq(c, cls, laps, marks = MARKS) {
+  const seq = (c.seq[cls] || c.seq.G).filter(([m]) => marks[m]).map(([m, s, g]) => (g != null && marks[g] ? { k: m, side: s, gate: g } : { k: m, side: s }));
   if (!c.laps) return seq;
   const out = []; for (let i = 0; i < laps; i++) out.push(...seq); return out;
 }
-function matchCourse(pass) {
+// Les bouées d’une porte sont à ~90 m : la trace « passe » souvent les deux. Le passage retenu est la bouée approchée de plus près dans les
+// 180 s qui suivent le premier passage de l’une ou l’autre, marqué `gate: [bouée, autre bouée]` ; l’autre n’est pas comptée.
+const GATE_WINDOW_MS = 180000;
+export function matchCourse(pass, courses = COURSES, marks = MARKS) {
   let best = null;
-  for (const c of COURSES) for (const cls of Object.keys(c.seq)) for (const laps of c.laps ? [1, 2, 3] : [1]) {
-    const exp = expectedSeq(c, cls, laps); if (!exp.length) continue;
-    let j = 0; const hit = [];
-    for (const p of pass) if (j < exp.length && p.k === exp[j].k) { hit.push({ ...p, side: exp[j].side }); j++; }
+  for (const c of courses) for (const cls of Object.keys(c.seq)) for (const laps of c.laps ? [1, 2, 3] : [1]) {
+    const exp = expectedSeq(c, cls, laps, marks); if (!exp.length) continue;
+    let j = 0; const hit = [], used = new Set();
+    for (const p of pass) {
+      if (j >= exp.length || used.has(p)) continue;
+      const e = exp[j];
+      if (e.gate) {
+        if (p.k !== e.k && p.k !== e.gate) continue;
+        const win = pass.filter((q) => (q.k === e.k || q.k === e.gate) && q.t >= p.t && q.t - p.t <= GATE_WINDOW_MS);
+        const b = win.reduce((a, q) => (q.d < a.d ? q : a), p);
+        for (const q of win) used.add(q);
+        hit.push({ ...b, side: e.side, gate: [e.k, e.gate] }); j++;
+      } else if (p.k === e.k) { hit.push({ ...p, side: e.side }); j++; }
+    }
     if (!j) continue;
     const score = j * 10 - (exp.length - j) * 0.5 - laps * 0.1;
     if (!best || score > best.score) best = { c, cls, laps, exp, hit, score, reduced: j < exp.length };
@@ -182,7 +197,7 @@ export function analyze(det, ans, api) {
     api.F.compute({ points: [{ x: 0, y: 0, dir, spd, gust: spd * 1.35 }] }, { localEffects: api.localFx });
     const leg = { from: A, to: B, brg, dist: distXY(A, B), side: m.side, mark: m.k };
     const plan = analyzeLeg(leg, api.F, api.ctx);
-    legs.push({ i, name: `${i ? A.name.split(' ')[0] : 'Départ'} → ${m.k} ${mk.name}${i === marks.length - 1 ? ' (arrivée)' : ''}`, mk: m.k, mkName: mk.name, side: m.side, ta, tb, wind: { dir, spd: Math.round(spd * 2) / 2, src }, st, plan,
+    legs.push({ i, name: `${i ? A.name.split(' ')[0] : 'Départ'} → ${m.k} ${mk.name}${m.gate ? ' (porte : bouée prise)' : ''}${i === marks.length - 1 ? ' (arrivée)' : ''}`, mk: m.k, mkName: mk.name, side: m.side, ta, tb, wind: { dir, spd: Math.round(spd * 2) / 2, src }, st, plan,
       path: plan.route ? plan.route.path.map((p) => { const ll = toLL(p.x, p.y); return [ll.lat, ll.lon]; }) : [] });
     A = B; A.name = m.k; ta = tb;
   });
@@ -255,7 +270,9 @@ export function ask(det, tr, api) {
     // la trace ne révèle aucun parcours : celui de la manche de la régate (api.courseHint) est pré-sélectionné, l'équipier le confirme ou le change
     const isCourse = (c) => (mc ? mc.c.id === c.id : api.courseHint != null && String(c.id) === String(api.courseHint));
     const courseOpts = COURSES.filter((c) => !c.built).map((c) => `<option value="${c.id}" ${isCourse(c) ? 'selected' : ''}>${esc(c.title)}</option>`).join('');
-    const passOpts = det.pass.map((p, i) => `<label class="dq-pass"><input type="checkbox" data-p="${i}" ${mc?.hit.some((h) => h.t === p.t) ? 'checked' : ''}> ${hms(p.t)} · marque ${esc(p.k)} ${esc(MARKS[p.k].name)} <span class="muted">(${Math.round(p.d)} m)</span></label>`).join('');
+    // une bouée de porte du parcours détecté se lit « marque X3 4p (porte X2/X3) » : l’équipier voit laquelle a été prise
+    const gateOf = (k) => mc?.exp.find((e) => e.gate && (e.k === k || e.gate === k));
+    const passOpts = det.pass.map((p, i) => { const g = gateOf(p.k); return `<label class="dq-pass"><input type="checkbox" data-p="${i}" ${mc?.hit.some((h) => h.t === p.t) ? 'checked' : ''}> ${hms(p.t)} · marque ${esc(p.k)} ${esc(MARKS[p.k].name)}${g ? ` (porte ${esc(g.k)}/${esc(g.gate)})` : ''} <span class="muted">(${Math.round(p.d)} m)</span></label>`; }).join('');
     const m = overlay(`
       <h2>Débrief de course</h2>
       <p class="small muted">L’app a lu la trace. Vérifiez et complétez, puis lancez l’analyse.</p>
@@ -281,7 +298,7 @@ export function ask(det, tr, api) {
       const wv = m.querySelector('#dqWind').value; if (wv === '') { api.toast('Indiquez le vent au départ'); return; }
       const c = COURSES.find((x) => x.id === +m.querySelector('#dqCourse').value);
       const seq = (c.seq[mc?.cls || 'G'] || c.seq.G);
-      const marks = picked.map((p) => ({ k: p.k, t: p.t, side: seq.find(([k]) => k === p.k)?.[1] ?? null }));
+      const marks = picked.map((p) => { const el = seq.find(([k, , g]) => k === p.k || g === p.k); return { k: p.k, t: p.t, side: el?.[1] ?? null, ...(el?.[2] != null ? { gate: true } : {}) }; });
       resolve({
         course: c, cls: mc?.cls || 'G', marks, startWind: norm360(+wv), tStart: fromLocalInput(det.tStart, m.querySelector('#dqStart').value || toLocalInput(det.tStart)),
         falseStarts: +m.querySelector('#dqFalse').value, reduced: m.querySelector('#dqFinish').value === 'reduced',
