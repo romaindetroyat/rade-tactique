@@ -28,7 +28,8 @@ Règles de remplissage :
 - event : nom de l’épreuve ; club : club organisateur ; dateStart / dateEnd : premier et dernier jour de la régate (dateEnd null si un seul jour) ; firstWarning : heure du premier signal d’avertissement ; lastFinish : heure limite d’arrivée du premier ; vhf : canal de course ; committee : comité de course (nom, téléphone) ; zone : zone de course ; startLine / finishLine : description des lignes de départ et d’arrivée ; penalty : pénalité pour infraction aux règles.
 - races : une entrée par manche annoncée (date AAAA-MM-JJ, heure du signal d’avertissement HH:MM, libellé), avec l’extrait qui contient CETTE date et CETTE heure. Rien si le texte ne donne pas de manche précise.
 - marks : les marques (bouées) nommées, avec leur position recopiée TELLE QU’ÉCRITE dans le texte (coordonnées ou description) : ne calcule ni ne convertis aucune coordonnée. L’extrait contient le nom et la position.
-- courses : les parcours décrits, par leur nom et la suite de marques ; "side" vaut "b" (à laisser à bâbord), "t" (à laisser à tribord) ou null si le texte ne le dit pas.
+- courses : les parcours décrits, par leur nom et la suite de marques ; "side" vaut "b" (à laisser à bâbord), "t" (à laisser à tribord) ou null si le texte ne le dit pas. Une porte (deux bouées au choix, par exemple « porte 4s/4p ») est UNE seule entrée de la suite : "mark" = la première bouée nommée, "gate" = l’autre, "side" = null ; pour toute autre marque, "gate" = null.
+- "finish" (dans chaque parcours) décrit l’arrivée quand le texte la place ailleurs que sur la ligne de départ : "kind" = "comite" pour une ligne entre le bateau comité et une bouée, "pres" pour une arrivée près d’une bouée ; "mark" = le nom de cette bouée ; "excerpt" = la phrase copiée mot pour mot. Sinon "kind", "mark" et "excerpt" valent null.
 - specialRules : les règles particulières utiles à l’équipage (sécurité, abandon, pénalités, VHF, zones interdites), 10 au plus ; "value" est la règle en une phrase courte, "excerpt" la phrase d’origine copiée mot pour mot.
 - Réponds uniquement avec le schéma demandé, en français pour les libellés.`;
 
@@ -44,8 +45,10 @@ export const SCHEMA = {
     marks: list({ name: S, position: S, excerpt: S }),                       // position : TEXTE recopié, converti ensuite par la page (le modèle ne calcule rien)
     courses: list({
       name: S,
-      sequence: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['mark', 'side'], properties: { mark: { type: 'string' }, side: { type: ['string', 'null'], enum: ['b', 't', null] } } } },
+      sequence: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['mark', 'side', 'gate'], properties: { mark: { type: 'string' }, side: { type: ['string', 'null'], enum: ['b', 't', null] }, gate: S } } },
       excerpt: S,
+      // arrivée distincte du départ (ligne Comité – bouée, ou près d’une bouée) ; tout à null si le texte n’en décrit pas
+      finish: { type: 'object', additionalProperties: false, required: ['kind', 'mark', 'excerpt'], properties: { kind: { type: ['string', 'null'], enum: ['comite', 'pres', null] }, mark: S, excerpt: S } },
     }),
     specialRules: list({ value: S, excerpt: S }),
   },
@@ -106,13 +109,40 @@ const keep = (arr, C, proofs = () => []) => (Array.isArray(arr) ? arr : []).map(
   return ok ? { ...it, verified: true } : { ...it, excerpt: null, verified: false };
 });
 
+// Parcours vérifié par `keep` → suite normalisée { mark, side, gate } et arrivée prouvée. Jamais d’exception (champs absents ou inattendus tolérés).
+// Porte : ses deux noms doivent figurer dans l’extrait du parcours (déjà retrouvé dans le texte), sinon `gate` est vidée et signalée (`gateFlag`).
+// Arrivée : son propre extrait, retrouvé mot pour mot dans le texte, et le nom de sa bouée dedans ; sinon vidée et signalée. Rend [parcours, signalements].
+const txt = (v) => (v == null || typeof v === 'object' ? null : String(v).trim() || null);
+function checkCourse(c, C) {
+  let flags = 0;
+  const sequence = (Array.isArray(c?.sequence) ? c.sequence : []).map((x) => {
+    const mark = txt(x?.mark) ?? '', side = x?.side === 'b' || x?.side === 't' ? x.side : null, gate = txt(x?.gate);
+    if (!gate || !c.verified) return { mark, side, gate: null };          // parcours non vérifié : déjà signalé, jamais retenu
+    if (mark && valueInExcerpt('text', mark, c.excerpt) && valueInExcerpt('text', gate, c.excerpt)) return { mark, side: null, gate };
+    flags++;
+    return { mark, side, gate: null, gateFlag: 'porte non prouvée par l’extrait du parcours' };
+  });
+  const f = c?.finish && typeof c.finish === 'object' ? c.finish : null;
+  let finish = null;
+  const kind = txt(f?.kind), mark = txt(f?.mark), excerpt = txt(f?.excerpt);
+  if (kind && mark) {
+    if ((kind === 'comite' || kind === 'pres') && excerpt && inText(excerpt, C) && valueInExcerpt('text', mark, excerpt)) finish = { kind, mark, excerpt, verified: true };
+    else {
+      flags++;
+      const flag = kind !== 'comite' && kind !== 'pres' ? 'type d’arrivée inconnu' : !excerpt || !inText(excerpt, C) ? 'extrait introuvable dans le texte' : 'la bouée ne figure pas dans l’extrait';
+      finish = { kind: null, mark: null, excerpt: null, verified: false, flag };
+    }
+  }
+  return [{ ...c, sequence, finish }, flags];
+}
+
 // `out` : la sortie du modèle (schéma SCHEMA) ; `text` : le texte ENVOYÉ. Rend les champs vérifiés, les listes avec `verified`, et `flags` (nombre de signalements).
 export function verify(out, text) {
   const C = squash(text), res = { flags: 0 };
   for (const k of SCALARS) { res[k] = checkField(out?.[k], KIND[k] || 'text', C); if (res[k].flag) res.flags++; }
   res.races = keep(out?.races, C, (r) => [['date', r.date], ['time', r.warning]]);
   res.marks = keep(out?.marks, C, (m) => [['text', m.position]]);
-  res.courses = keep(out?.courses, C);
+  res.courses = keep(out?.courses, C).map((c) => { const [x, n] = checkCourse(c, C); res.flags += n; return x; });
   res.specialRules = keep(out?.specialRules, C);
   res.flags += [...res.races, ...res.marks, ...res.courses, ...res.specialRules].filter((x) => !x.verified).length;
   return res;

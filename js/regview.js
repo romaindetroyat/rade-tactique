@@ -212,12 +212,15 @@ function markRowHTML(m, markFix, { nmOf }) {
 }
 function courseRowHTML(r, c) {
   const name = new Map((r.marks || []).map((m) => [m.id, m]));
-  const seq = (c.seq || []).map((l) => `${escHTML(name.get(l.mark)?.name || l.mark)}${sideTxt(l.side)}`).join(' → ') || 'séquence non lue';
+  const nm = (id) => escHTML(name.get(id)?.name || id);
+  // une porte s’écrit « porte 4s / 4p » ; l’arrivée distincte du départ, sous la suite (noms des bouées de la régate, sinon l’identifiant)
+  const seq = (c.seq || []).map((l) => (l.gate ? `porte ${nm(l.mark)} / ${nm(l.gate)}` : `${nm(l.mark)}${sideTxt(l.side)}`)).join(' → ') || 'séquence non lue';
+  const fin = c.finish?.mark ? `<div class="small">Arrivée : ${c.finish.kind === 'pres' ? 'près de' : 'entre le Comité et'} ${nm(c.finish.mark)}</div>` : '';
   const wait = waitingFor(r, c);
   const etat = c.incomplete ? `<span class="chip low">incomplet : ${c.missing?.length ? `bouée inconnue (${escHTML(c.missing.join(', '))})` : 'aucune bouée lue'}</span>`
     : wait.length ? `<span class="chip mid">en attente de : ${wait.map((id) => escHTML(`${id} ${name.get(id)?.name || ''}`.trim())).join(', ')}</span>`
       : '<span class="chip good">proposé dans l’onglet Parcours</span>';
-  return `<div class="rgmk" data-co-row="${escHTML(c.id)}"><div class="rgh"><span class="rgdn">${escHTML(c.name)} (IC)</span> ${etat}</div><div class="small">${seq}</div>`
+  return `<div class="rgmk" data-co-row="${escHTML(c.id)}"><div class="rgh"><span class="rgdn">${escHTML(c.name)} (IC)</span> ${etat}</div><div class="small">${seq}</div>${fin}`
     + `${c.excerpt ? `<div class="small muted">Extrait : « ${escHTML(c.excerpt)} »</div>` : ''}<div class="small muted">Lu ${byLine(c.by, c.at)}</div></div>`;
 }
 // Section « Bouées » de la fiche : rien tant que la régate n’a ni bouée ni parcours lus dans ses IC

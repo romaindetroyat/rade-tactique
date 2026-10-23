@@ -9,7 +9,8 @@
 //   flag = (lecture par l’IA) pourquoi la valeur est vide : « extrait introuvable dans le texte » ou « la valeur ne figure pas dans l’extrait »
 //   keyRules[].verified === false = règle lue par l’IA dont l’extrait n’est pas dans le texte : grisée, jamais cochée
 //   races = manches lues par l’IA [{ date, time, label, excerpt, verified, keep }]
-//   marks = bouées lues [{ name, position (texte du PDF), lat, lon (nuls si illisible), excerpt, verified, keep }] ; courses = parcours lus [{ name, sequence, excerpt, verified, keep }]
+//   marks = bouées lues [{ name, position (texte du PDF), lat, lon (nuls si illisible), excerpt, verified, keep }] ; courses = parcours lus
+//   [{ name, sequence: [{ mark, side, gate }], finish: { kind, mark, excerpt } | null, finishFlag, excerpt, verified, keep }] (gate : l’autre bouée d’une porte)
 //   (plan 03-07 : cochés ici, rangés « à confirmer » par applyReview ; un parcours n’est retenu que si toutes ses bouées le sont)
 
 import { escHTML } from './regview.js';
@@ -90,10 +91,16 @@ export function reviewFromApi(a, { source = '', text, regatta = null } = {}) {
     const p = parseLatLon(str(m?.position)), lat = p.error ? null : p.lat, lon = p.error ? null : p.lon, verified = !!m?.verified;
     return { name: str(m?.name), position: str(m?.position), lat, lon, excerpt: verified ? str(m?.excerpt) : null, verified, keep: verified && lat != null && str(m?.name) !== '' && checkPos(lat, lon).level !== 'bad' };
   });
-  const courses = list(a?.courses).map((c) => ({
-    name: str(c?.name), excerpt: c?.verified ? str(c.excerpt) : null, verified: !!c?.verified, keep: false,
-    sequence: list(c?.sequence).map((x) => ({ mark: str(x?.mark), side: x?.side === 'b' || x?.side === 't' ? x.side : null })),
-  }));
+  // Porte (gate) et arrivée (finish) : seulement prouvées par api/ic.js ; une arrivée non prouvée n’est jamais gardée, sa raison est montrée (finishFlag)
+  const courses = list(a?.courses).map((c) => {
+    const f = c?.finish, kind = f?.kind === 'comite' || f?.kind === 'pres' ? f.kind : null;
+    return {
+      name: str(c?.name), excerpt: c?.verified ? str(c.excerpt) : null, verified: !!c?.verified, keep: false,
+      sequence: list(c?.sequence).map((x) => ({ mark: str(x?.mark), side: x?.side === 'b' || x?.side === 't' ? x.side : null, gate: str(x?.gate) || null })),
+      finish: f?.verified === true && kind && str(f.mark) ? { kind, mark: str(f.mark), excerpt: str(f.excerpt) } : null,
+      finishFlag: f?.flag ? String(f.flag) : null,
+    };
+  });
   for (const c of courses) c.keep = c.verified && c.name !== '' && courseReady({ marks }, c);
   return build(values, excerpts, { source, read: 'ia', text, keyRules, flags, extra: { races, marks, courses, truncated: !!a?.truncated } });
 }
@@ -106,10 +113,10 @@ export function setValue(review, key, value) {
 export function setKeepRace(review, i, keep) {
   return { ...review, races: (review.races || []).map((m, j) => (j === i && m.verified ? { ...m, keep: !!keep } : m)) };   // une manche non vérifiée ne se coche pas
 }
-// Un parcours lu n’est retenable que si chacune de ses bouées (hors départ et arrivée) est retenue dans la relecture
+// Un parcours lu n’est retenable que si chacune de ses bouées (hors départ et arrivée), celles de ses portes et de son arrivée comprises, est retenue dans la relecture
 export function courseReady(review, c) {
   const kept = new Set((review?.marks || []).filter((m) => m.keep && m.verified).map((m) => normName(m.name)));
-  const names = (c?.sequence || []).map((x) => x.mark).filter((n) => n && !isLineName(n));
+  const names = [...(c?.sequence || []).flatMap((x) => [x.mark, x.gate]), c?.finish?.mark].filter((n) => n && !isLineName(n));
   return names.length > 0 && names.every((n) => kept.has(normName(n)));
 }
 export function setKeepMark(review, i, keep) {
@@ -276,9 +283,12 @@ export function reviewHTML(review, checks = {}, opts = {}) {
   const courses = (review.courses || []).length
     ? `<div class="icblock iccourses"><h4>Parcours lus <small>proposés dans l’onglet Parcours une fois toutes leurs bouées confirmées</small></h4>${review.courses.map((c, i) => {
       const ready = courseReady(review, c);
-      const seq = c.sequence.map((x) => `${escHTML(x.mark)}${sideTxt(x.side)}`).join(' → ') || 'séquence non lue';
+      const seq = c.sequence.map((x) => (x.gate ? `porte ${escHTML(x.mark)} / ${escHTML(x.gate)}` : `${escHTML(x.mark)}${sideTxt(x.side)}`)).join(' → ') || 'séquence non lue';
+      const fin = c.finish
+        ? `<span class="icex icfin" style="display:block">Arrivée : ${c.finish.kind === 'pres' ? 'près de' : 'entre le Comité et'} ${escHTML(c.finish.mark)}${c.finish.excerpt ? ` · Extrait : « ${escHTML(c.finish.excerpt.replace(/\s+/g, ' '))} »` : ''}</span>`
+        : c.finishFlag ? `<em class="icfin" style="display:block">(arrivée non prouvée : ${escHTML(c.finishFlag)} ; arrivée sur la ligne de départ)</em>` : '';
       return `<label class="small icrule iccourse${c.verified ? '' : ' icoff'}"><input type="checkbox" data-co="${i}"${c.keep ? ' checked' : ''}${c.verified && ready ? '' : ' disabled'}> <span class="icmn">${escHTML(c.name || 'sans nom')}</span> : ${seq}`
-        + `${c.verified ? `<em data-co-nr="${i}"${ready ? ' hidden' : ''}> (une bouée n’est pas retenue ci-dessus : parcours non retenu)</em><span class="icex" style="display:block">Extrait : « ${escHTML(String(c.excerpt || '').replace(/\s+/g, ' '))} »</span>` : '<em> (extrait introuvable dans le texte : non retenu)</em>'}</label>`;
+        + `${c.verified ? `<em data-co-nr="${i}"${ready ? ' hidden' : ''}> (une bouée n’est pas retenue ci-dessus : parcours non retenu)</em>${fin}<span class="icex" style="display:block">Extrait : « ${escHTML(String(c.excerpt || '').replace(/\s+/g, ' '))} »</span>` : '<em> (extrait introuvable dans le texte : non retenu)</em>'}</label>`;
     }).join('')}</div>`
     : '';
   const tronque = review.truncated ? '<div class="small muted icex">Texte long : seuls les 50 000 premiers caractères ont été lus par l’IA.</div>' : '';

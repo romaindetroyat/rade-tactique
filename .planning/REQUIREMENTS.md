@@ -47,6 +47,13 @@ Version visée : prête pour la régate CVAT des 7-9 novembre 2026 (gel du code 
 - [x] **ARCH-03**: Les régates récentes restent lisibles hors réseau
 - [x] **ARCH-04**: Un GPX importé (Open GPX Tracker, pauses comprises) se rattache tout seul à la régate du jour et lance le débrief
 
+### Parcours (PARC)
+
+- [x] **PARC-01**: Parcours banane construit au vent (bouée au vent, dégagement facultatif, nombre de tours) depuis la ligne choisie
+- [x] **PARC-02**: Porte sous le vent à deux bouées, avec la bouée conseillée à chaque passage d'après le routage
+- [x] **PARC-03**: Arrivée décalée (au vent ou sous le vent), distincte de la ligne de départ
+- [x] **PARC-04**: Porte et arrivée décalée dans les parcours d'un autre club (IC lues par l'IA ou saisies)
+
 ## v2 Requirements
 
 Reportés après cette version. Suivis mais hors de la feuille de route actuelle.
@@ -119,6 +126,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | ARCH-04 | Phase 3 | Complete |
 | ARCH2-01 | Phase 5 | Complete |
 | SECU2-01 | Phase 5 | Complete |
+| PARC-01 | Phase 6 | Complete |
+| PARC-02 | Phase 6 | Complete |
+| PARC-03 | Phase 6 | Complete |
+| PARC-04 | Phase 6 | Complete |
 
 **Coverage:**
 - v1 requirements: 22 total
@@ -129,3 +140,4 @@ Which phases cover which requirements. Updated during roadmap creation.
 *Requirements defined: 2026-10-19*
 *Last updated: 2026-10-19 after roadmap creation (traceabilité remplie ; total corrigé de 23 à 22 besoins v1)*
 *Mise à jour 2026-10-20 : ARCH2-01 et SECU2-01 (reportés en v2, repris en phase 5) cochés après le plan 05-03 ; le plafond OpenAI reste à poser par Romain (05-USER-SETUP.md)*
+*Mise à jour 2026-10-23 : PARC-01 à PARC-04 ajoutés (phase 6, parcours banane, avant le gel à la demande de Romain)*

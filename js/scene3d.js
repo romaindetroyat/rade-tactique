@@ -319,7 +319,8 @@ export class Scene3D {
     for (const [id, m] of Object.entries(marks)) {
       const p = toXY(m.lat, m.lon);
       const a = active.get(String(id));
-      const ring = a ? (a.side === 'b' ? '#ff4d4d' : a.side === 't' ? '#2ecc71' : '#ffffff') : null;
+      // bouée conseillée d’une porte (D-06) : anneau orange au lieu de la couleur du côté
+      const ring = a ? (a.advised ? '#ff9f1c' : a.side === 'b' ? '#ff4d4d' : a.side === 't' ? '#2ecc71' : '#ffffff') : null;
       const bg = m.color === '#1f9d55' ? '#1f9d55' : m.color === '#e03131' ? '#d63031' : '#f5c400', fg = m.color === '#f5c400' ? '#222' : '#fff';
       // dans le parcours : numéro d'ordre de passage (1, 2, 3…) ; hors parcours : numéro CVAT en grisé
       const txt0 = a?.orders?.length ? a.orders.join('·') : String(id), txt = m.doubt ? txt0 + ' ?' : txt0;      // « 3 ? » : position à confirmer (D-01)
@@ -328,7 +329,7 @@ export class Scene3D {
       s.position.copy(W(p.x, p.y, 70));
       s.userData.mark = id;
       g.add(s);
-      const nm0 = a ? `${/^\d+$/.test(id) ? 'n°' + id + ' ' : ''}${m.name}${a.side ? (a.side === 'b' ? ' · bâbord' : ' · tribord') : ''}` : m.name, nm = m.doubt ? nm0 + ' · à confirmer' : nm0;
+      const nm0 = a ? `${/^\d+$/.test(id) ? 'n°' + id + ' ' : ''}${m.name}${a.side ? (a.side === 'b' ? ' · bâbord' : ' · tribord') : ''}${a.advised && a.note ? ' ' + a.note : ''}` : m.name, nm = m.doubt ? nm0 + ' · à confirmer' : nm0;
       const name = makeLabel(nm, { bg: a ? 'rgba(12,24,38,.78)' : 'rgba(12,24,38,.45)', size: 22 }, a ? 15 : 11);
       name.position.copy(W(p.x, p.y, 70)); name.center.set(-0.12, 1.25);
       g.add(name);
@@ -454,10 +455,15 @@ export class Scene3D {
     }
   }
 
-  setLine(L, extra = []) {
+  // finish : ligne d’arrivée décalée { a, b } (banane), tracée en bleu et nommée « Arrivée » ; sans elle, l’arrivée est la ligne de départ
+  setLine(L, extra = [], finish = null) {
     const g = this.groups.line; this.#clearRibbons(g);
     if (!L) return;
     g.add(this.#ribbon([L.pin, L.cb], '#ff8c00', 3, { y: 15, dash: 4 }));
+    if (finish?.a && finish?.b) {
+      g.add(this.#ribbon([finish.a, finish.b], '#1c7ed6', 3, { y: 15, dash: 4 }));
+      const f = makeLabel('Arrivée', { bg: 'rgba(28,126,214,.92)' }, 13); f.position.copy(W((finish.a.x + finish.b.x) / 2, (finish.a.y + finish.b.y) / 2, 50)); g.add(f);
+    }
     const cb = makeLabel('Comité ⚑', { bg: 'rgba(230,110,0,.92)' }, 15); cb.position.copy(W(L.cb.x, L.cb.y, 50)); g.add(cb);
     const pin = makeLabel('Bouée', { bg: 'rgba(255,255,255,.92)', fg: '#222' }, 13); pin.position.copy(W(L.pin.x, L.pin.y, 50)); g.add(pin);
     for (const e of extra) { const s = makeLabel(e.name, { bg: 'rgba(230,110,0,.85)' }, 13); s.position.copy(W(e.x, e.y, 50)); g.add(s); }

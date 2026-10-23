@@ -584,3 +584,74 @@ test('narrative : 429 de /api/debrief → rédaction automatique avec iaNote (me
     if (en0) Object.defineProperty(globalThis.navigator, 'onLine', en0); else delete globalThis.navigator.onLine;
   }
 });
+
+// ── porte et arrivée d’un parcours lu par l’IA (phase 6, D-08) : seulement prouvées, relues, retenues avec toutes leurs bouées
+import { setKeepMark, courseReady } from '../js/icread.js';
+const bouee = (name, lat) => ({ name, position: `${lat} N 5.97 E`, excerpt: `${name} : ${lat} N 5.97 E`, verified: true });
+const REPONSE_PORTE = () => ({
+  ...REPONSE(), races: [], specialRules: [],
+  marks: [bouee('Alpha', 43.095), bouee('4s', 43.085), bouee('4p', 43.0851), bouee('F', 43.09)],
+  courses: [
+    {
+      name: 'Parcours B', excerpt: 'Parcours B : départ, Alpha bâbord, porte 4s/4p, arrivée entre le bateau comité et la bouée F', verified: true,
+      sequence: [{ mark: 'Départ', side: null, gate: null }, { mark: 'Alpha', side: 'b', gate: null }, { mark: '4s', side: null, gate: '4p' }, { mark: 'Arrivée', side: null, gate: null }],
+      finish: { kind: 'comite', mark: 'F', excerpt: 'arrivée entre le bateau comité et la bouée F', verified: true },
+    },
+    {
+      name: 'Parcours C', excerpt: 'Parcours C : départ, Alpha bâbord, arrivée', verified: true,
+      sequence: [{ mark: 'Alpha', side: 'b', gate: null }],
+      finish: { kind: null, mark: null, excerpt: null, verified: false, flag: 'extrait introuvable dans le texte' },
+    },
+    {
+      name: 'Parcours D', excerpt: 'Parcours D : départ, Alpha, arrivée', verified: true, sequence: [{ mark: 'Alpha', side: 'b' }],
+      finish: { kind: 'pres', mark: 'F', excerpt: 'arrivée près de F', verified: false },                         // non vérifiée : jamais gardée
+    },
+  ],
+});
+
+test('reviewFromApi : porte (gate) et arrivée vérifiée gardées ; une arrivée non vérifiée n’est jamais gardée (finishFlag à la place)', () => {
+  const rv = reviewFromApi(REPONSE_PORTE(), { text: AUTRE_CLUB });
+  assert.deepEqual(rv.courses[0].sequence.map((x) => [x.mark, x.side, x.gate]), [['Départ', null, null], ['Alpha', 'b', null], ['4s', null, '4p'], ['Arrivée', null, null]]);
+  assert.deepEqual(rv.courses[0].finish, { kind: 'comite', mark: 'F', excerpt: 'arrivée entre le bateau comité et la bouée F' });
+  assert.equal(rv.courses[0].finishFlag, null);
+  assert.equal(rv.courses[1].finish, null); assert.equal(rv.courses[1].finishFlag, 'extrait introuvable dans le texte');
+  assert.equal(rv.courses[2].finish, null, 'verified absent : arrivée ignorée');
+  assert.equal(rv.courses[0].keep, true, 'ses quatre bouées sont retenues');
+});
+
+test('courseReady / setKeepMark : la bouée de porte et celle de l’arrivée comptent ; les décocher décoche le parcours', () => {
+  let rv = reviewFromApi(REPONSE_PORTE(), { text: AUTRE_CLUB });
+  assert.equal(courseReady(rv, rv.courses[0]), true);
+  rv = setKeepMark(rv, 2, false);                                                   // 4p, l’autre bouée de la porte
+  assert.equal(courseReady(rv, rv.courses[0]), false); assert.equal(rv.courses[0].keep, false);
+  assert.equal(rv.courses[1].keep, true, 'le parcours C ne dépend pas de 4p');
+  rv = setKeepMark(setKeepMark(rv, 2, true), 3, false);                             // F, la bouée de l’arrivée
+  assert.equal(courseReady(rv, rv.courses[0]), false);
+  assert.equal(courseReady({ marks: rv.marks.filter((m) => m.name !== 'F') }, rv.courses[0]), false);
+});
+
+test('reviewHTML : « porte 4s / 4p » et « Arrivée : entre le Comité et F » avec son extrait, raison d’une arrivée non prouvée ; noms et extraits piégés échappés', () => {
+  const rep = REPONSE_PORTE();
+  rep.courses[0].sequence[2].gate = '4p<img src=x onerror=alert(1)>';
+  rep.courses[0].finish.excerpt = 'arrivée <script>window.__xss=1</script> F';
+  rep.courses[0].finish.mark = 'F<img src=x onerror=alert(2)>';
+  const rv = reviewFromApi(rep, { text: AUTRE_CLUB });
+  const { document } = parseHTML(`<div>${reviewHTML(rv, {})}</div>`);
+  assert.equal(document.querySelectorAll('img, script').length, 0, 'aucune balise venue du modèle');
+  const co = [...document.querySelectorAll('.iccourse')].map((e) => e.textContent);
+  assert.match(co[0], /Alpha bâbord → porte 4s \/ 4p<img src=x onerror=alert\(1\)> → Arrivée/);
+  assert.match(co[0], /Arrivée : entre le Comité et F<img[^·]*· Extrait : « arrivée <script>window.__xss=1<\/script> F »/);
+  assert.match(co[1], /\(arrivée non prouvée : extrait introuvable dans le texte ; arrivée sur la ligne de départ\)/);
+  const propre = parseHTML(`<div>${reviewHTML(reviewFromApi(REPONSE_PORTE(), { text: AUTRE_CLUB }), {})}</div>`).document;
+  assert.match(propre.querySelector('.iccourse').textContent, /Départ → Alpha bâbord → porte 4s \/ 4p → Arrivée/);
+  assert.match(propre.querySelector('.iccourse').textContent, /Arrivée : entre le Comité et F · Extrait : « arrivée entre le bateau comité et la bouée F »/);
+});
+
+test('applyReview : le parcours retenu porte la porte et l’arrivée aux identifiants X… ; sans arrivée prouvée, pas de clé finish', () => {
+  const r = applyReview(regate(), reviewFromApi(REPONSE_PORTE(), { text: AUTRE_CLUB }), { by: 'Teiva', at: 5 });
+  assert.deepEqual(r.marks.map((m) => [m.id, m.name]), [['X1', 'Alpha'], ['X2', '4s'], ['X3', '4p'], ['X4', 'F']]);
+  assert.deepEqual(r.courses[0].seq, [{ mark: 'X1', side: 'b' }, { mark: 'X2', side: null, gate: 'X3' }]);
+  assert.deepEqual(r.courses[0].finish, { kind: 'comite', mark: 'X4', excerpt: 'arrivée entre le bateau comité et la bouée F' });
+  assert.equal(r.courses[0].incomplete, false);
+  assert.ok(!('finish' in r.courses[1]));
+});

@@ -189,3 +189,30 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 - [x] 05-03-PLAN.md — Geste guidé du plafond OpenAI (`docs/ia-budget.md`), guide, v32 sur l'aperçu `apercu-phase-05` avec PR brouillon, porte en `VERCEL_ENV=production`, production seulement sur « publie » de Romain (vague 3, non autonome)
+
+### Phase 6: Parcours banane : dégagement, porte sous le vent, arrivée décalée
+
+**Goal:** Avant le gel du 2 novembre, l'équipage peut préparer et courir un parcours banane (aller-retour au vent / sous le vent) avec bouée de dégagement, porte sous le vent à deux bouées dont l'app conseille la meilleure, et arrivée décalée, aussi bien construit au vent que lu dans les IC d'un autre club.
+**Requirements**: PARC-01, PARC-02, PARC-03, PARC-04
+**Depends on:** Phase 5
+**Success Criteria** (what must be TRUE):
+  1. Un parcours « Banane » se construit au vent depuis la ligne choisie : bouée au vent à la distance réglée, dégagement facultatif, porte sous le vent à deux bouées, nombre de tours, arrivée sur la ligne de départ, au vent ou sous le vent décalée ; il s'affiche sur la carte 2D/3D, au briefing, au mode départ et en course
+  2. À chaque passage de porte, l'app nomme la bouée conseillée (gauche ou droite, en regardant sous le vent) d'après le routage vers la bouée suivante, avec l'écart en secondes, et le compte de bords, la distance et les passages du débrief tiennent compte des deux bouées
+  3. Un parcours d'un autre club peut contenir une porte (deux bouées au choix) et une arrivée distincte du départ, lues par l'IA ou corrigées à la main, confirmées comme les autres bouées
+  4. La référence SNPM (`js/courses.js`, `tests/reference/`) ne bouge pas ; les parcours SNPM, le parcours 13 et les régates déjà archivées donnent exactement les mêmes bords qu'en v37
+  5. v38 sur l'aperçu `apercu-phase-06`, vérifiée, puis en production sur décision de Romain avant le 2 novembre
+
+**Plans:** 4/4 plans executed (06-04 : décision de production en attente)
+
+Plans:
+**Wave 1**
+- [x] 06-01-PLAN.md — Moteur : bords v37 figés (fixture capturée sur 6e7af98 avant toute modification), `js/banane.js` (banane construite : B, dégagement, porte à deux bouées, arrivées décalées), porte et arrivée de régate dans `buildLegs`, conseil de porte par routage (`adviseGate`, `prepareLeg`, `gateText`) (vague 1)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+- [x] 06-02-PLAN.md — Interface : banane dans l'onglet Parcours avec ses réglages (clés de `DEF`), analyse chaînée par `prepareLeg`, conseil au briefing, dans les bords, sur la carte 2D/3D et en course ; réglages gardés avec la manche et la route figée ; scénarios `banane`, `banane-manche` (vague 2)
+
+**Wave 3** *(blocked on Wave 2 completion : mêmes fichiers `tools/regate-e2e.mjs`, `sw.js`, `js/version.js`)*
+- [x] 06-03-PLAN.md — Autre club : porte et arrivée dans le schéma strict d'`api/ic.js` (extraits vérifiés), relecture, fiche et injection ; passages de porte au débrief et dans l'analyse d'une trace ; `tools/compat-v37.mjs` (fiches v37 ↔ v38) ; scénario `porte-ic` (vague 3)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+- [ ] 06-04-PLAN.md — Guide et aide intégrée, v38 (`npm run release`), porte en `VERCEL_ENV=production`, poussée de `apercu-phase-06` et PR brouillon par l'orchestrateur, production seulement sur « publie » de Romain (vague 4, non autonome) — partie autonome faite le 2026-10-23 (guide, aide, v38 locale `db7df7f`, toutes vérifications vertes) ; en attente : poussée, PR brouillon, « publie » de Romain

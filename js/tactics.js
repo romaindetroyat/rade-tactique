@@ -4,6 +4,7 @@ import { MARKS, COURSES, LINE_PRESETS, PLACES } from './courses.js';
 import { toXY, toLL, NM, bearingXY, distXY, fromBearing, norm180, norm360, fmtBrg, fmtNm, cardinal } from './geo.js';
 import { boatSpeed, optimalAngles, spiMinTwa } from './polar.js';
 import { route, tackName } from './router.js';
+import { bananeCourse, orientGate } from './banane.js';
 
 export const sideName = (s) => (s === 'b' ? 'bâbord' : s === 't' ? 'tribord' : '');
 
@@ -72,7 +73,7 @@ export function lineGeometry({ center, lengthNm = 0.12, windDir, mode = 'wind', 
 }
 
 export function buildLegs(course, cls, opts) {
-  const { laps = 2, windDir, line, wlLengthNm = 0.8 } = opts;
+  const { laps = 2, windDir, line, wlLengthNm = 0.8, ban } = opts;
   const seqDef = course.seq[cls] || course.seq.G;
   const pts = {};
   for (const [k, m] of Object.entries(MARKS)) pts[k] = { ...toXY(m.lat, m.lon), name: `${k} ${m.name}` };
@@ -91,32 +92,65 @@ export function buildLegs(course, cls, opts) {
     pts.B = { ...B, name: 'B (au vent)' };
     pts.C = { ...fromBearing(B, windDir - 90, 0.08 * NM), name: 'C (dog-leg)' };
     pts.A = { ...fromBearing(L.cb, windDir + 180, 0.05 * NM), name: 'A (arrivée)' };
+  } else if (course.built === 'BAN') {
+    L = lineGeometry({ center, lengthNm: line.lengthNm, windDir });
   } else {
     const first = seqDef[0][0];
     L = lineGeometry({ center, lengthNm: line.lengthNm, windDir, mode: line.mode, firstMark: pts[first], bearing: line.bearing });
   }
   if (line.override?.cb && line.override?.pin) { L = { ...L, cb: line.override.cb, pin: line.override.pin, c: { x: (line.override.cb.x + line.override.pin.x) / 2, y: (line.override.cb.y + line.override.pin.y) / 2 } }; }
+  // Chaîne des bords : un élément ordinaire comme en v37 ; une porte ({ g, d } orientés) est UN bord vers la bouée gauche par défaut,
+  // le conseil de porte (adviseGate) choisit ensuite la bouée et prepareLeg fait partir le bord suivant d’elle.
+  const chain = (start, items) => {
+    const legs = [];
+    let prev = start;
+    items.forEach((p, i) => {
+      if (p.gate) {
+        const { g, d } = p.gate.pair ? orientGate(prev, p.gate.pair[0], p.gate.pair[1]) : p.gate;
+        legs.push({ i, from: prev, to: g, brg: bearingXY(prev, g), dist: distXY(prev, g), side: g.side, mark: 'PORTE', lap: p.lap, gate: { g, d, pick: 'g', gain: null, times: null, equal: null, why: null } });
+        prev = g;
+        return;
+      }
+      legs.push({ i, from: prev, to: p, brg: bearingXY(prev, p), dist: distXY(prev, p), side: p.side, mark: p.mark, lap: p.lap });
+      prev = p;
+    });
+    return legs;
+  };
+  if (course.built === 'BAN') {
+    const bc = bananeCourse(L, windDir, { laps, ban });
+    Object.assign(pts, bc.points);
+    const legs = chain({ x: L.c.x, y: L.c.y, name: 'Départ' }, [...bc.seq, { ...bc.finish, mark: 'FINISH', side: null }]);
+    return { legs, line: L, points: pts, finishLine: bc.finishLine };
+  }
   const gate = { x: L.c.x, y: L.c.y, name: 'Porte Départ/Arrivée' };
   let finish = { x: L.c.x, y: L.c.y, name: 'Arrivée' };
   if (course.finishNear1) finish = { ...toXY(43.0955, 5.9325), name: 'Arrivée (près de 1)' };
   if (course.built) finish = { x: (L.cb.x + pts.A.x) / 2, y: (L.cb.y + pts.A.y) / 2, name: 'Arrivée Comité–A' };
+  // arrivée propre d’un parcours de régate (ligne Comité – bouée, ou près d’une bouée nommée) ; bouée inconnue → arrivée habituelle
+  const fm = course.finish?.mark;
+  if (!course.built && fm && Object.hasOwn(pts, fm) && (course.finish.kind === 'comite' || course.finish.kind === 'pres')) {
+    finish = { x: pts[fm].x, y: pts[fm].y, name: course.finish.kind === 'comite' ? `Arrivée (Comité – ${pts[fm].name})` : `Arrivée (près de ${pts[fm].name})` };
+  }
+  // porte d’un parcours de régate : élément [bouée, côté, autre bouée] ; orientée au moment de chaîner (la bouée précédente est connue)
+  const item = (m, sd, g2, lap) => {
+    if (g2 != null && Object.hasOwn(pts, g2) && Object.hasOwn(pts, m)) {
+      const a = pts[m], b = pts[g2];
+      return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, name: `Porte ${m} / ${g2}`, mark: 'PORTE', side: null, ...(lap ? { lap } : {}), gate: { pair: [{ ...a, mark: m }, { ...b, mark: g2 }] } };
+    }
+    return lap ? { ...pts[m], mark: m, side: sd, lap } : { ...pts[m], mark: m, side: sd };
+  };
 
   const seq = [];
   if (course.laps) {
     for (let k = 0; k < laps; k++) {
-      seqDef.forEach(([m, sd]) => seq.push({ ...pts[m], mark: m, side: sd, lap: k + 1 }));
+      seqDef.forEach(([m, sd, g2]) => seq.push(item(m, sd, g2, k + 1)));
       if (k < laps - 1 && !course.built) seq.push({ ...gate, mark: 'GATE', side: null, lap: k + 1 });
     }
   } else {
-    seqDef.forEach(([m, sd]) => seq.push(m === 'GATE' ? { ...gate, mark: 'GATE', side: null } : { ...pts[m], mark: m, side: sd }));
+    seqDef.forEach(([m, sd, g2]) => seq.push(m === 'GATE' ? { ...gate, mark: 'GATE', side: null } : item(m, sd, g2)));
   }
   seq.push({ ...finish, mark: 'FINISH', side: null });
-  const legs = [];
-  let prev = { x: L.c.x, y: L.c.y, name: 'Départ' };
-  seq.forEach((p, i) => {
-    legs.push({ i, from: prev, to: p, brg: bearingXY(prev, p), dist: distXY(prev, p), side: p.side, mark: p.mark, lap: p.lap });
-    prev = p;
-  });
+  const legs = chain({ x: L.c.x, y: L.c.y, name: 'Départ' }, seq);
   return { legs, line: L, points: pts };
 }
 
@@ -274,10 +308,66 @@ export function analyzeLeg(leg, field, ctx) {
   return { ...leg, wind: { dir, spd, gust, shelter }, twa, type, route: r, time, sides: { dP, dS }, shiftAmp, advice, site };
 }
 
+// ───────────────────────── Porte sous le vent à deux bouées (D-05)
+export const GATE_EQUAL_S = 10;     // écart de moins de 10 s : bouées équivalentes
+const SHIFT_DEG_H = 2;              // bascule annoncée : |tendance| ≥ 2°/h, le seuil de « Rotation attendue » du briefing
+const FALLBACK_KN = 4;              // repli quand le routage n’aboutit pas : distance à 4 nd
+
+// Conseil de porte : pour chaque bouée, temps routé du bord qui y mène plus celui du bord suivant (vers nextTo) ; la plus courte est retenue
+// et devient la destination du bord. Mêmes options de routage que analyzeLeg. ctx.routeFn sert aux seuls tests (l’app ne la passe jamais).
+// Gauche et droite sont vues par les bateaux qui arrivent ; tendance > 0 (rotation à droite) → au près suivant le côté droit du plan d’eau,
+// c’est la bouée gauche en regardant sous le vent.
+export function adviseGate(leg, nextTo, field, ctx = {}) {
+  const opts = { terrain: ctx.terrain, forbidden: ctx.forbidden, perf: ctx.perf ?? 1 };
+  const rf = ctx.routeFn ?? route;
+  const trip = (a, b) => {
+    const d = distXY(a, b);
+    if (d < 20) return 0;
+    const t = rf(a, b, field, opts)?.time;
+    return Number.isFinite(t) ? t : d / (FALLBACK_KN * 0.5144);
+  };
+  const { g, d } = leg.gate;
+  const tg = trip(leg.from, g) + (nextTo ? trip(g, nextTo) : 0);
+  const td = trip(leg.from, d) + (nextTo ? trip(d, nextTo) : 0);
+  const gain = Math.abs(tg - td), equal = gain < GATE_EQUAL_S, trend = ctx.trend || 0;
+  let pick, why;
+  if (!equal) { pick = tg <= td ? 'g' : 'd'; why = 'routage'; }
+  else if (trend >= SHIFT_DEG_H) { pick = 'g'; why = 'bascule'; }
+  else if (trend <= -SHIFT_DEG_H) { pick = 'd'; why = 'bascule'; }
+  else { pick = 'g'; why = 'defaut'; }
+  const to = pick === 'g' ? g : d;
+  leg.to = to; leg.side = to.side; leg.brg = bearingXY(leg.from, to); leg.dist = distXY(leg.from, to);
+  leg.gate = { g, d, pick, gain, times: { g: tg, d: td }, equal, why, ...(why === 'bascule' ? { shift: trend > 0 ? 'droite' : 'gauche' } : {}) };
+  return leg.gate;
+}
+
+// Prépare un bord avant son analyse : après une porte, il part de la bouée retenue ; une porte reçoit son conseil
+// (cible = destination du bord suivant, ou milieu de la porte suivante). Un bord ordinaire après un bord ordinaire ne change pas.
+export function prepareLeg(leg, prev, next, field, ctx) {
+  if (prev?.gate) { leg.from = prev.to; leg.brg = bearingXY(leg.from, leg.to); leg.dist = distXY(leg.from, leg.to); }
+  if (leg.gate) {
+    const target = !next ? null : next.gate ? { x: (next.gate.g.x + next.gate.d.x) / 2, y: (next.gate.g.y + next.gate.d.y) / 2 } : next.to;
+    adviseGate(leg, target, field, ctx);
+  }
+  return leg;
+}
+
+// Conseil de porte en français (briefing, navigation en course)
+export function gateText(gate) {
+  if (!gate) return '';
+  const nom = gate.pick === 'd' ? 'droite' : 'gauche';
+  if (!Number.isFinite(gate.gain)) return `Porte : bouée ${nom} retenue pour le calcul`;
+  const s = Math.round(gate.gain);
+  if (!gate.equal) return `Porte : bouée ${nom} conseillée — ${s} s de mieux`;
+  if (gate.why === 'bascule') return `Porte : bouées équivalentes (${s} s d’écart) — bouée ${nom}, du côté de la bascule à ${gate.shift} annoncée`;
+  return `Porte : bouées équivalentes (${s} s d’écart) — bouée ${nom} retenue pour le calcul`;
+}
+
 // Conseils de passage de marque (entre le bord i et le bord i+1)
 export function markAdvice(a, b) {
   if (!a || a.mark === 'FINISH') return [];
   const out = [];
+  if (a.gate) out.push(gateText(a.gate));
   if (a.mark === 'GATE') { out.push('Porte « ligne de Départ/Arrivée » : point de réduction privilégié — surveiller le Comité (2e substitut + pavillon de classe).'); }
   if (a.side) out.push(`Laisser ${a.to.name} à ${sideName(a.side).toUpperCase()}.`);
   if (a.side === 'b' && a.type.id === 'pres') out.push('Approche conseillée tribord amures (priorité, pas de lay-line bâbord dans la flotte).');

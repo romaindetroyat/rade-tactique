@@ -357,3 +357,96 @@ test('fiche : « X1 Alpha ? » à confirmer avec ses gestes, « en attente de »
   doc = parseHTML(`<div>${sheetHTML(r, { now: T0, markFix: { id: 'X2', txt: '43,09', err: 'Position hors de la rade', ask: null } })}</div>`).document;
   assert.ok(doc.querySelector('#mkxTxt')); assert.match(doc.querySelector('#mkxErr').textContent, /hors de la rade/);
 });
+
+// ── porte et arrivée d’un parcours de régate (phase 6, D-08, D-09)
+import { REGATE_V37 } from './helpers/legs.mjs';
+const luesPorte = [
+  { name: 'Alpha', position: '43.0950 N ; 5.9600 E', excerpt: 'Alpha : 43.0950 N ; 5.9600 E' },
+  { name: '4s', position: '43.0850 N ; 5.9700 E', excerpt: '4s : 43.0850 N ; 5.9700 E' },
+  { name: '4p', position: '43.0850 N ; 5.9711 E', excerpt: '4p : 43.0850 N ; 5.9711 E' },
+  { name: 'F', position: '43.0900 N ; 5.9750 E', excerpt: 'F : 43.0900 N ; 5.9750 E' },
+];
+const PARCOURS_B = { name: 'Parcours B', excerpt: 'Parcours B : départ, Alpha bâbord, porte 4s/4p, Alpha bâbord, arrivée entre le bateau comité et la bouée F',
+  sequence: [{ mark: 'Départ', side: null }, { mark: 'Alpha', side: 'b' }, { mark: '4s', side: null, gate: '4p' }, { mark: 'Alpha', side: 'b' }, { mark: 'Arrivée', side: null }],
+  finish: { kind: 'comite', mark: 'F', excerpt: 'arrivée entre le bateau comité et la bouée F' } };
+const regPorte = (confirmees = []) => {
+  const marks = marksFromReview(luesPorte, { by: 'Teiva', at: T0, club: 'SNM' })
+    .map((m) => (confirmees.includes(m.id) ? { ...m, status: STATUS.CONFIRMEE, confirmed: { by: 'Thibaud', at: T0 } } : m));
+  return reg({ marks, courses: coursesFromReview([PARCOURS_B], marks, { by: 'Teiva', at: T0 }) });
+};
+
+test('coursesFromReview : porte → un élément { mark, side: null, gate } ; arrivée → finish aux identifiants X… ; sans porte, l’élément de la v37 (deux clés)', () => {
+  const r = regPorte();
+  const c = r.courses[0];
+  assert.deepEqual(c.seq, [{ mark: 'X1', side: 'b' }, { mark: 'X2', side: null, gate: 'X3' }, { mark: 'X1', side: 'b' }]);
+  assert.deepEqual(Object.keys(c.seq[0]), ['mark', 'side'], 'élément sans porte : exactement deux clés');
+  assert.deepEqual(c.finish, { kind: 'comite', mark: 'X4', excerpt: 'arrivée entre le bateau comité et la bouée F' });
+  assert.equal(c.incomplete, false); assert.deepEqual(c.missing, []);
+  const sansFin = coursesFromReview([{ ...PARCOURS_B, finish: null }], r.marks)[0];
+  assert.ok(!('finish' in sansFin), 'clé finish absente sans arrivée');
+});
+
+test('coursesFromReview : bouée de porte ou d’arrivée inconnue → nom dans missing, parcours incomplet', () => {
+  const marks = marksFromReview(luesPorte.slice(0, 2), { by: 'Teiva', at: T0 });                // Alpha, 4s seulement
+  const [c] = coursesFromReview([PARCOURS_B], marks);
+  assert.equal(c.incomplete, true);
+  assert.deepEqual(c.missing, ['4p', 'F']);
+  const marks3 = marksFromReview(luesPorte.slice(0, 3), { by: 'Teiva', at: T0 });
+  const [c3] = coursesFromReview([PARCOURS_B], marks3);
+  assert.equal(c3.incomplete, true); assert.deepEqual(c3.missing, ['F'], 'arrivée vers une bouée inconnue');
+  assert.ok(!('finish' in c3));
+});
+
+test('waitingFor : cite la bouée de porte (X3) et celle de l’arrivée (X4) tant qu’elles ne sont pas confirmées', () => {
+  assert.deepEqual(waitingFor(regPorte(['X1', 'X2']), regPorte().courses[0]), ['X3', 'X4']);
+  assert.deepEqual(waitingFor(regPorte(['X1', 'X2', 'X3']), regPorte().courses[0]), ['X4']);
+  assert.deepEqual(waitingFor(regPorte(['X1', 'X2', 'X3', 'X4']), regPorte().courses[0]), []);
+});
+
+test('applyRegattaMarks : rien tant qu’une bouée de porte ou d’arrivée n’est pas confirmée ; puis porte à trois valeurs et arrivée { kind, mark }', () => {
+  for (const conf of [['X1', 'X2', 'X4'], ['X1', 'X2', 'X3']]) {
+    const t = tables();
+    assert.deepEqual(applyRegattaMarks(t.marks, t.courses, regPorte(conf)).addedCourses, [], `confirmées : ${conf.join(', ')}`);
+  }
+  const t = tables();
+  assert.deepEqual(applyRegattaMarks(t.marks, t.courses, regPorte(['X1', 'X2', 'X3', 'X4'])).addedCourses, [101]);
+  const c = t.courses.find((x) => x.id === 101);
+  assert.deepEqual(c.seq.G, [['X1', 'b'], ['X2', null, 'X3'], ['X1', 'b']]);
+  assert.deepEqual(c.seq.P, c.seq.G);
+  assert.deepEqual(c.finish, { kind: 'comite', mark: 'X4' });
+  assert.match(c.text, /^Ligne de départ, Alpha bâbord, porte 4s \/ 4p, Alpha bâbord, arrivée entre le Comité et F\./);
+  const pres = regPorte(['X1', 'X2', 'X3', 'X4']); pres.courses = [{ ...pres.courses[0], finish: { ...pres.courses[0].finish, kind: 'pres' } }];
+  const t2 = tables(); applyRegattaMarks(t2.marks, t2.courses, pres);
+  assert.match(t2.courses.find((x) => x.id === 101).text, /arrivée près de F\./);
+  const bizarre = regPorte(['X1', 'X2', 'X3', 'X4']); bizarre.courses = [{ ...bizarre.courses[0], finish: { kind: 'ailleurs', mark: 'X4' } }];
+  const t3 = tables();
+  assert.deepEqual(applyRegattaMarks(t3.marks, t3.courses, bizarre).addedCourses, [], 'arrivée illisible : parcours non proposé, jamais d’arrivée devinée');
+});
+
+test('applyRegattaMarks : la régate archivée v37 s’injecte en éléments à deux valeurs, sans finish, comme en v37', () => {
+  const t = tables();
+  assert.deepEqual(applyRegattaMarks(t.marks, t.courses, structuredClone(REGATE_V37)).addedCourses, [101]);
+  const c = t.courses.find((x) => x.id === 101);
+  assert.deepEqual(c.seq.G, [['X1', 'b'], ['X2', 't'], ['X3', null], ['X4', 'b']]);
+  assert.ok(c.seq.G.every((x) => x.length === 2));
+  assert.ok(!('finish' in c));
+  assert.match(c.text, /^Ligne de départ, Alpha bâbord, Bravo tribord, Charlie, Delta bâbord, ligne d’arrivée\./);
+});
+
+test('fiche : « porte 4s / 4p », « Arrivée : entre le Comité et F », « en attente de » cite les bouées de porte et d’arrivée ; noms piégés échappés', () => {
+  let r = regPorte(['X1', 'X2']);
+  let doc = parseHTML(`<div>${marksSectionHTML(r)}</div>`).document;
+  const row = () => doc.querySelector('[data-co-row="101"]').textContent;
+  assert.match(row(), /Alpha bâbord → porte 4s \/ 4p → Alpha bâbord/);
+  assert.match(row(), /Arrivée : entre le Comité et F/);
+  assert.match(row(), /en attente de : X3 4p, X4 F/);
+  r = { ...r, courses: [{ ...r.courses[0], finish: { ...r.courses[0].finish, kind: 'pres' } }] };
+  doc = parseHTML(`<div>${marksSectionHTML(r)}</div>`).document;
+  assert.match(row(), /Arrivée : près de F/);
+  r = { ...r, marks: r.marks.map((m) => (m.id === 'X3' ? { ...m, name: '4p<img src=x onerror=alert(1)>' } : m.id === 'X4' ? { ...m, name: 'F<script>window.__xss=1</script>' } : m)) };
+  doc = parseHTML(`<div>${marksSectionHTML(r)}</div>`).document;
+  assert.equal(doc.querySelectorAll('img, script').length, 0, 'noms de bouées échappés');
+  assert.match(row(), /porte 4s \/ 4p<img/);
+  const v37 = parseHTML(`<div>${marksSectionHTML(structuredClone(REGATE_V37))}</div>`).document;
+  assert.doesNotMatch(v37.querySelector('[data-co-row="101"]').textContent, /Arrivée|porte/, 'régate archivée : fiche inchangée');
+});

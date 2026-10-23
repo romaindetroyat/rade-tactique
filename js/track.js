@@ -113,12 +113,19 @@ export function analyzeTrack(tr, { windAt, boatSpeed, legs }) {
   if (legs?.length) {
     let i0 = 0, tPrev = P[0].t;
     for (const l of legs) {
+      // bord vers une porte (gate : { g, d }) : distance à la plus proche des deux bouées, et `took` dit laquelle a été prise (D-07)
+      const gt = l.gate?.g && l.gate?.d ? l.gate : null;
       let best = null;
-      for (let i = i0; i < P.length; i++) { const d = distXY(P[i], l.to); if (!best || d < best.d) best = { d, i }; if (best && d > best.d + 400 && best.d < 150) break; }
+      for (let i = i0; i < P.length; i++) {
+        let d, k = null;
+        if (gt) { const dg = distXY(P[i], gt.g), dd = distXY(P[i], gt.d); if (dg <= dd) { d = dg; k = 'g'; } else { d = dd; k = 'd'; } } else d = distXY(P[i], l.to);
+        if (!best || d < best.d) best = { d, i, k };
+        if (best && d > best.d + 400 && best.d < 150) break;
+      }
       if (!best || best.d > 250) { split.push({ leg: l, missed: true }); continue; }
       const p = P[best.i], seg = P.slice(i0, best.i + 1);
       const avgPct = seg.filter((q) => q.pct && q.v > 1.5).reduce((a, q, _, arr) => a + Math.min(1.5, q.pct) / arr.length, 0);
-      split.push({ leg: l, t: (p.t - tPrev) / 1000, at: p.t, dMark: best.d, plan: l.time, pct: avgPct, vmean: seg.reduce((a, q) => a + q.v, 0) / Math.max(1, seg.length) });
+      split.push({ leg: l, t: (p.t - tPrev) / 1000, at: p.t, dMark: best.d, plan: l.time, pct: avgPct, vmean: seg.reduce((a, q) => a + q.v, 0) / Math.max(1, seg.length), ...(gt ? { took: best.k } : {}) });
       i0 = best.i; tPrev = p.t;
     }
   }

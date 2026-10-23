@@ -2365,7 +2365,291 @@ async function deuxTelephones({ browser, base }) {
   await A.ctx.close(); await B.ctx.close();
 }
 
-const SCENARIOS = { accueil, 'jour-j': jourJ, 'deux-telephones': deuxTelephones, reprise, equipage, archive, 'archive-bouees': archiveBouees, archivehors: archiveHors, creer, manche, auteur, ic, 'depuis-ic': depuisIC, vraisemblance, gel, 'debrief-tardif': debriefTardif, gpx, 'gpx-choix': gpxChoix, ia, 'ia-erreurs': iaErreurs, arbitre, bouees, guide, entetes, 'retour-port': retourPort };
+// ───────────────────────── parcours banane construit (phase 6 : D-01, D-04, D-05, D-06, D-11)
+
+const bordsParcours = (page) => page.locator('section[data-tab=course] .leg .hd').allTextContents();
+// Attend que les bords affichés vérifient `ok` (l’analyse redessine la liste quand elle se termine)
+async function attendBords(page, ok, quoi, delai = 90000) {
+  const fin = Date.now() + delai;
+  let b = [];
+  while (Date.now() < fin) {
+    b = await bordsParcours(page);
+    if (ok(b)) return b;
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  throw new Error(`bords attendus (${quoi}) non vus : ${b.join(' | ')}`);
+}
+// Les bords dans l’ordre attendu : une expression par bord
+const suite = (attendus) => (b) => b.length === attendus.length && attendus.every((re, i) => re.test(b[i]));
+const BAN_B = /B \(au vent\)/, BAN_C = /C \(dégagement\)/, BAN_PORTE = /Porte (gauche|droite)/;
+// Relevé des étiquettes dessinées sur la carte (texte de chaque sprite), remis à zéro avant chaque étape
+const releveEtiquettes = (ctx) => ctx.addInitScript(() => {
+  window.__labels = [];
+  const f = CanvasRenderingContext2D.prototype.fillText;
+  CanvasRenderingContext2D.prototype.fillText = function (t) { window.__labels.push(String(t)); return f.apply(this, arguments); };
+});
+const etiquettes = (page) => page.evaluate(() => window.__labels);
+const videEtiquettes = (page) => page.evaluate(() => { window.__labels = []; });
+// Vent manuel posé dans rade.state (relu au lancement suivant) : 315° 14 nd, rafales 18 nd
+const ventManuel = (page) => page.evaluate(() => {
+  const s = JSON.parse(localStorage.getItem('rade.state') || '{}');
+  localStorage.setItem('rade.state', JSON.stringify({ ...s, src: 'manual', manual: { dir: 315, spd: 14, gust: 18 } }));
+});
+const etatPage = (page) => page.evaluate(() => JSON.parse(localStorage.getItem('rade.state')));
+const reglagesBanane = (page) => page.evaluate(() => Object.fromEntries(['#cBanNm', '#cBanOff', '#cBanSide', '#cBanGate', '#cBanFin'].map((id) => [id, document.querySelector(id)?.value ?? null])));
+
+// D-11 : choisir la banane, changer la porte et l’arrivée, voir le conseil de porte (liste des bords, briefing, carte)
+async function banane({ browser, base }) {
+  const ctx = await ouvreContexte(browser, { heure: '2026-10-24T08:30:00Z' });        // samedi 24/10/2026, 10 h 30 à Paris
+  await releveEtiquettes(ctx);
+  const { page, erreurs } = await ouvrePage(ctx);
+  await ouvreApp(page, base);
+  await ventManuel(page);
+  await ouvreApp(page, base);
+  await page.click('#tabs button[data-tab=course]');
+  await attendBords(page, (b) => b.length === 13, 'parcours 3 au départ');
+  assert.equal(await page.locator('#cBanNm').count(), 0, 'parcours 3 : aucun réglage de banane');
+  const options = await page.locator('#cSel option').allTextContents();
+  assert.ok(options.includes('Banane (construite)'), `la banane est dans la liste : ${options.join(' | ')}`);
+
+  // banane par défaut : B, C, porte, B, C, arrivée sur la ligne de départ
+  await videEtiquettes(page);
+  await page.selectOption('#cSel', '90');
+  await attendBords(page, suite([BAN_B, BAN_C, BAN_PORTE, BAN_B, BAN_C, /^Arrivée \(ligne de départ\)/]), 'banane par défaut');
+  assert.deepEqual(await reglagesBanane(page), { '#cBanNm': '0.8', '#cBanOff': '1', '#cBanSide': 'b', '#cBanGate': '1', '#cBanFin': 'depart' }, 'les cinq réglages, aux défauts');
+  const porte = await page.locator('section[data-tab=course] .leg').nth(2).textContent();
+  const conseil = /Porte : (bouée (gauche|droite) conseillée — \d+ s de mieux|bouées équivalentes)/.exec(porte);
+  assert.ok(conseil, `conseil de porte dans le bord : ${porte.slice(0, 300)}`);
+  assert.match(await page.locator('section[data-tab=brief]').textContent(), /Tour 1 · Porte :/, 'le briefing dit le conseil de porte');
+  await page.waitForFunction(() => window.__labels.some((t) => t.startsWith('Porte gauche · bâbord')) && window.__labels.some((t) => t.startsWith('Porte droite · tribord')), null, { timeout: 30000 });
+  const vus = await etiquettes(page);
+  if (!/équivalentes/.test(conseil[0])) assert.ok(vus.some((t) => /· conseillée/.test(t)), `bouée conseillée nommée sur la carte : ${vus.filter((t) => /^Porte/.test(t)).join(' | ')}`);
+  else assert.ok(!vus.some((t) => /conseillée/.test(t)), 'bouées équivalentes : aucune bouée présentée comme conseillée');
+  const exemple = conseil[0];
+
+  // une seule bouée sous le vent
+  await videEtiquettes(page);
+  await page.selectOption('#cBanGate', '0');
+  await attendBords(page, suite([BAN_B, BAN_C, /Bouée sous le vent/, BAN_B, BAN_C, /^Arrivée \(ligne de départ\)/]), 'une bouée sous le vent');
+  await page.waitForFunction(() => window.__labels.some((t) => t.startsWith('Bouée sous le vent · bâbord')), null, { timeout: 30000 });
+
+  // arrivée sous le vent, décalée : ligne bleue « Arrivée »
+  await videEtiquettes(page);
+  await page.selectOption('#cBanFin', 'sousvent');
+  await attendBords(page, (b) => b.length === 6 && /^Arrivée sous le vent \(décalée\)/.test(b.at(-1)), 'arrivée sous le vent');
+  await page.waitForFunction(() => window.__labels.includes('Arrivée'), null, { timeout: 30000 });
+
+  // porte de nouveau, arrivée au vent : tous les tours finissent par la porte, puis un dernier près
+  await page.selectOption('#cBanGate', '1');
+  await page.selectOption('#cBanFin', 'auvent');
+  await attendBords(page, suite([BAN_B, BAN_C, BAN_PORTE, BAN_B, BAN_C, BAN_PORTE, /^Arrivée au vent \(décalée\)/]), 'arrivée au vent');
+  const st = await etatPage(page);
+  assert.deepEqual([st.courseId, st.banGate, st.banFin], [90, true, 'auvent'], 'réglages gardés dans rade.state');
+
+  // relance : les mêmes réglages
+  await ouvreApp(page, base);
+  await page.click('#tabs button[data-tab=course]');
+  await page.waitForSelector('#cBanFin', { timeout: 30000 });
+  assert.deepEqual(await reglagesBanane(page), { '#cBanNm': '0.8', '#cBanOff': '1', '#cBanSide': 'b', '#cBanGate': '1', '#cBanFin': 'auvent' }, 'après relance');
+  await attendBords(page, suite([BAN_B, BAN_C, BAN_PORTE, BAN_B, BAN_C, BAN_PORTE, /^Arrivée au vent \(décalée\)/]), 'après relance');
+
+  // parcours 3 rechoisi : plus de réglages, ses 13 bords
+  await page.selectOption('#cSel', '3');
+  await attendBords(page, (b) => b.length === 13 && !b.some((x) => BAN_B.test(x) || /Porte (gauche|droite)/.test(x)), 'parcours 3');
+  assert.equal(await page.locator('#cBan').count(), 0, 'parcours 3 : réglages de banane cachés');
+  sansErreur(erreurs, 'pendant le scénario');
+  console.log(`  conseil affiché : ${exemple}`);
+  await ctx.close();
+
+  // En course (D-06) : GPS simulé au centre de la ligne de la Grande Rade, banane par défaut ; le bord visé est la première porte
+  const ctx2 = await ouvreContexte(browser, { heure: '2026-10-24T08:30:00Z', geo: { latitude: 43.0905, longitude: 5.97 } });
+  const { page: p2, erreurs: e2 } = await ouvrePage(ctx2);
+  await ouvreApp(p2, base);
+  await ventManuel(p2);
+  await p2.evaluate(() => { const s = JSON.parse(localStorage.getItem('rade.state')); localStorage.setItem('rade.state', JSON.stringify({ ...s, courseId: 90 })); });
+  await ouvreApp(p2, base);
+  await p2.click('#tabs button[data-tab=live]');
+  await p2.waitForFunction(() => document.querySelectorAll('#nSel option').length === 6, null, { timeout: 90000 });
+  const options2 = await p2.locator('#nSel option').allTextContents();
+  assert.match(options2[2], /^Marque 3 — Porte (gauche|droite) \(porte\)$/, `bouée de la porte dans la liste : ${options2.join(' | ')}`);
+  await p2.selectOption('#nSel', '2');
+  assert.match(await p2.locator('#liveNav').textContent(), /Porte : /, 'conseil de porte sans GPS');
+  await p2.click('#gOn');
+  await p2.waitForFunction(() => /Porte : /.test(document.querySelector('#liveNav')?.textContent) && /autre bouée : \d{3}° · \d+\.\d{2} Nq/i.test(document.querySelector('#liveNav')?.textContent), null, { timeout: 30000 });
+  await p2.click('#planGo');
+  await p2.waitForFunction(() => /Recalculé à/.test(document.querySelector('#livePlan')?.textContent), null, { timeout: 90000 });
+  const plan = await p2.locator('#livePlan').textContent();
+  assert.match(plan, /Porte (gauche|droite)/, `la suite recalculée passe par la porte : ${plan.slice(0, 300)}`);
+  assert.match(plan, /Porte : (bouée (gauche|droite) conseillée|bouées équivalentes)/, 'porte reconseillée depuis le bateau');
+  sansErreur(e2, 'en course');
+  await ctx2.close();
+}
+
+// D-04 : une manche courue en banane garde ses réglages ; « Choisir cette manche » rend la même banane sur un autre téléphone
+async function bananeManche({ browser, base }) {
+  const m = await mondeArchive('2026-10-24T08:30:00Z');                                  // samedi 24/10/2026, 10 h 30 à Paris
+  const A = await telephoneArchive(browser, base, m, 'Teiva'), B = await telephoneArchive(browser, base, m, 'Thibaud');
+  const BAN_A = [BAN_B, BAN_C, /Bouée sous le vent/, BAN_B, BAN_C, /Bouée sous le vent/, /^Arrivée au vent \(décalée\)/];
+
+  // A : banane à 1,2 Nq, une seule bouée sous le vent, arrivée au vent
+  await A.page.click('#tabs button[data-tab=course]');
+  await attendBords(A.page, (b) => b.length > 0, 'premier calcul');
+  await A.page.selectOption('#cSel', '90');
+  await A.page.waitForSelector('#cBanNm', { timeout: 10000 });
+  await A.page.fill('#cBanNm', '1.2'); await A.page.locator('#cBanNm').dispatchEvent('change');
+  await A.page.selectOption('#cBanGate', '0');
+  await A.page.selectOption('#cBanFin', 'auvent');
+  const bordsA = await attendBords(A.page, suite(BAN_A), 'banane de A');
+  assert.deepEqual(await reglagesBanane(A.page), { '#cBanNm': '1.2', '#cBanOff': '1', '#cBanSide': 'b', '#cBanGate': '0', '#cBanFin': 'auvent' });
+
+  // A : régate du jour, une manche en banane ; la manche garde les réglages
+  await creeRegate(A.page, { nom: 'Régate banane', debut: new Date(m.t).toISOString().slice(0, 10), club: 'CVAT' });
+  const id = await idOuverte(A.page);
+  await ajouteManche(A.page, { heure: '10:55', parcours: '90', cls: 'G', tours: '2' });
+  const manche = (await regateOuverte(A.page)).races[0];
+  assert.equal(manche.courseId, 90);
+  assert.deepEqual(manche.ban, { nm: 1.2, off: true, side: 'b', gate: false, fin: 'auvent' }, 'réglages de la banane gardés avec la manche');
+  await avanceHeure(m, 60e3); await synchronise(m, A);
+  await avanceHeure(m, 60e3); await synchronise(m, B);
+
+  // B : parcours 3 et réglages par défaut ; « Choisir cette manche » rend la même banane
+  if (await idOuverte(B.page) !== id) await ouvreRegate(B.page, id);
+  assert.deepEqual((await regateOuverte(B.page)).races[0].ban, manche.ban, 'la manche reçue porte la banane');
+  await B.page.click('#tabs button[data-tab=ic]');
+  await B.page.click('[data-race="1"]');
+  await B.page.click('#tabs button[data-tab=course]');
+  await B.page.waitForSelector('#cBanNm', { timeout: 30000 });
+  assert.equal(await B.page.locator('#cSel').inputValue(), '90');
+  assert.deepEqual(await reglagesBanane(B.page), { '#cBanNm': '1.2', '#cBanOff': '1', '#cBanSide': 'b', '#cBanGate': '0', '#cBanFin': 'auvent' }, 'réglages rendus sur B');
+  const bordsB = await attendBords(B.page, suite(BAN_A), 'banane de B');
+  assert.deepEqual(bordsB, bordsA, 'mêmes bords sur les deux téléphones');
+  const stB = await etatPage(B.page);
+  assert.deepEqual([stB.courseId, stB.banNm, stB.banGate, stB.banFin], [90, 1.2, false, 'auvent'], 'gardés dans rade.state de B');
+  sansErreur(A.erreurs, 'téléphone A'); sansErreur(B.erreurs, 'téléphone B');
+  await A.ctx.close(); await B.ctx.close();
+}
+
+// ───────────────────────── porte et arrivée d’un parcours d’un autre club (phase 6 : D-08)
+
+// Texte fabriqué (D-06) : quatre bouées en eau libre dans la Grande Rade (4s et 4p à environ 90 m l’une de l’autre), un parcours B avec une porte et une
+// arrivée entre le bateau comité et la bouée F, un parcours C dont l’arrivée sera « inventée » par le modèle simulé
+const TEXTE_PORTE = `${TEXTE_AUTRE_CLUB}
+ANNEXE : MARQUES ET PARCOURS
+
+Bouée Alpha : 43°05,845' N – 005°56,049' E
+
+Bouée 4s : 43°05,300' N – 005°57,500' E
+
+Bouée 4p : 43°05,300' N – 005°57,567' E
+
+Bouée F : 43°05,500' N – 005°58,000' E
+
+Parcours B : départ, Alpha bâbord, porte 4s/4p, Alpha bâbord, arrivée entre le bateau comité et la bouée F
+
+Parcours C : départ, Alpha bâbord, 4s bâbord, arrivée
+`;
+
+// D-08 : la porte et l’arrivée lues par l’IA (prouvées par le texte), relues, corrigées et confirmées comme les autres bouées, puis courues avec le conseil de porte
+async function porteIC({ browser, base }) {
+  const ctx = await ouvreContexte(browser, { heure: '2026-10-19T08:30:00Z' });        // lundi 19/10/2026 10 h 30 à Paris
+  await releveEtiquettes(ctx);
+  await simuleMembre(ctx, 'Équipier test');
+  const etat = await serviaIA(ctx, (input) => sortieIA({
+    marks: [
+      { name: 'Alpha', position: copie(input, /43°05,845. N . 005°56,049. E/), excerpt: copie(input, /Bouée Alpha : 43°05,845. N . 005°56,049. E/) },
+      { name: '4s', position: copie(input, /43°05,300. N . 005°57,500. E/), excerpt: copie(input, /Bouée 4s : 43°05,300. N . 005°57,500. E/) },
+      { name: '4p', position: copie(input, /43°05,300. N . 005°57,567. E/), excerpt: copie(input, /Bouée 4p : 43°05,300. N . 005°57,567. E/) },
+      { name: 'F', position: copie(input, /43°05,500. N . 005°58,000. E/), excerpt: copie(input, /Bouée F : 43°05,500. N . 005°58,000. E/) },
+    ],
+    courses: [
+      {
+        name: 'Parcours B', excerpt: copie(input, /Parcours B : départ, Alpha bâbord, porte 4s\/4p, Alpha bâbord, arrivée entre le bateau comité et la bouée F/),
+        sequence: [{ mark: 'Départ', side: null, gate: null }, { mark: 'Alpha', side: 'b', gate: null }, { mark: '4s', side: null, gate: '4p' }, { mark: 'Alpha', side: 'b', gate: null }, { mark: 'Arrivée', side: null, gate: null }],
+        finish: { kind: 'comite', mark: 'F', excerpt: copie(input, /arrivée entre le bateau comité et la bouée F/) },
+      },
+      {
+        name: 'Parcours C', excerpt: copie(input, /Parcours C : départ, Alpha bâbord, 4s bâbord, arrivée/),
+        sequence: [{ mark: 'Départ', side: null, gate: null }, { mark: 'Alpha', side: 'b', gate: null }, { mark: '4s', side: 'b', gate: null }, { mark: 'Arrivée', side: null, gate: null }],
+        finish: { kind: 'pres', mark: 'F', excerpt: 'arrivée près de la bouée F au large de la digue' },          // extrait inventé
+      },
+    ],
+  }));
+  const { page, erreurs } = await ouvrePage(ctx);
+  const tables = () => page.evaluate(async () => { const m = await import('/js/courses.js'); return { marks: Object.keys(m.MARKS), courses: m.COURSES.map((c) => `${c.id}:${c.title}`) }; });
+  const ligne = (id) => page.locator(`#rgSheet [data-mk-row=${id}]`);
+  const fiche101 = () => page.locator('#rgSheet [data-co-row="101"]').textContent();
+
+  await ouvreApp(page, base);
+  await ventManuel(page);
+  await ouvreApp(page, base);
+  await membreGarde(page, 'Équipier test');
+  await creeRegate(page, { nom: 'Régate porte', debut: '2026-10-19', club: 'SNM' });
+  await importeTexte(page, TEXTE_PORTE);
+  await page.click('#icIa');
+  await page.waitForSelector('.iccourse', { timeout: 30000 });
+  assert.equal(etat.demandes.length, 1, 'un seul appel');
+  assert.equal(etat.client[0].text.format.schema.properties.courses.items.properties.finish.additionalProperties, false, 'schéma strict envoyé');
+
+  // relecture : la porte et l’arrivée du parcours B, avec son extrait ; l’arrivée inventée du parcours C n’est pas gardée
+  const co = await page.locator('.iccourse').allTextContents();
+  assert.equal(co.length, 2);
+  assert.match(co[0], /Parcours B : Départ → Alpha bâbord → porte 4s \/ 4p → Alpha bâbord → Arrivée/);
+  assert.match(co[0], /Arrivée : entre le Comité et F · Extrait : « arrivée entre le bateau comité et la bouée F »/);
+  assert.match(co[1], /arrivée non prouvée : extrait introuvable dans le texte ; arrivée sur la ligne de départ/);
+  assert.doesNotMatch(co[1], /Arrivée : près de/);
+  assert.equal(await page.locator('input[data-co="0"]').isChecked(), true, 'parcours B coché : ses quatre bouées sont retenues');
+  // décocher 4p (bouée de la porte) décoche le parcours B ; décocher F (arrivée) aussi
+  await page.uncheck('input[data-mk="2"]');
+  assert.equal(await page.locator('input[data-co="0"]').isChecked(), false, 'sans 4p, le parcours B est décoché');
+  assert.equal(await page.locator('input[data-co="0"]').isDisabled(), true);
+  assert.equal(await page.locator('input[data-co="1"]').isChecked(), true, 'le parcours C ne dépend pas de 4p');
+  await page.check('input[data-mk="2"]'); await page.check('input[data-co="0"]');
+  await page.uncheck('input[data-mk="3"]');
+  assert.equal(await page.locator('input[data-co="0"]').isChecked(), false, 'sans F, le parcours B est décoché');
+  await page.check('input[data-mk="3"]'); await page.check('input[data-co="0"]');
+  await page.click('#icValidate');
+  await page.waitForSelector('#icReview', { state: 'detached', timeout: 10000 });
+
+  // la régate porte le parcours 101 avec sa porte et son arrivée, aux identifiants X…
+  const reg = await regateOuverte(page);
+  assert.deepEqual(reg.marks.map((m) => [m.id, m.name, m.status]), [['X1', 'Alpha', 'a_confirmer'], ['X2', '4s', 'a_confirmer'], ['X3', '4p', 'a_confirmer'], ['X4', 'F', 'a_confirmer']]);
+  const b = reg.courses.find((c) => c.id === 101);
+  assert.deepEqual(b.seq, [{ mark: 'X1', side: 'b' }, { mark: 'X2', side: null, gate: 'X3' }, { mark: 'X1', side: 'b' }]);
+  assert.deepEqual([b.finish.kind, b.finish.mark], ['comite', 'X4']);
+  assert.match(b.finish.excerpt, /arrivée entre le bateau comité et la bouée F/);
+  assert.ok(!('finish' in reg.courses.find((c) => c.id === 102)), 'parcours C : arrivée non prouvée, aucune arrivée retenue');
+  assert.match(await fiche101(), /en attente de : X1 Alpha, X2 4s, X3 4p, X4 F/);
+
+  // « Corriger la position » de F (moins de 2 Nq) : elle reste à confirmer
+  await page.click('[data-mk-fix=X4]');
+  await page.fill('#mkxTxt', '43°05.520N 005°58.050E'); await page.click('#mkxOk');
+  await page.waitForSelector('#mkxTxt', { state: 'detached', timeout: 10000 });
+  assert.match(await ligne('X4').textContent(), /43°05\.520N 005°58\.050E[\s\S]*position corrigée/);
+  // confirmer Alpha, 4s, 4p : le parcours attend encore F (arrivée)
+  for (const id of ['X1', 'X2', 'X3']) await page.click(`[data-mk-ok=${id}]`);
+  assert.match(await fiche101(), /en attente de : X4 F/);
+  let t = await tables();
+  assert.ok(!t.courses.includes('101:Parcours B (IC)'), 'pas de parcours tant que la bouée d’arrivée n’est pas confirmée');
+  await page.click('[data-mk-ok=X4]');
+  t = await tables();
+  assert.deepEqual(t.marks.slice(-4), ['X1', 'X2', 'X3', 'X4']);
+  assert.ok(t.courses.includes('101:Parcours B (IC)'), 'parcours proposé une fois toutes ses bouées confirmées');
+  assert.match(await fiche101(), /proposé dans l’onglet Parcours/);
+
+  // l’onglet Parcours : X1 Alpha, la porte (4s ou 4p, conseil de porte), X1 Alpha, arrivée entre le Comité et F
+  await page.click('#tabs button[data-tab=course]');
+  await videEtiquettes(page);
+  await page.selectOption('#cSel', '101');
+  await attendBords(page, suite([/X1 Alpha/, /X[23] 4[sp]/, /X1 Alpha/, /^Arrivée \(Comité – X4 F\)/]), 'parcours B avec porte et arrivée');
+  const porte = await page.locator('section[data-tab=course] .leg').nth(1).textContent();
+  assert.match(porte, /Porte : /, `conseil de porte dans le bord : ${porte.slice(0, 300)}`);
+  await page.waitForFunction(() => window.__labels.some((x) => x.startsWith('4s · ')) && window.__labels.some((x) => x.startsWith('4p · ')), null, { timeout: 30000 });
+  assert.equal((await etatPage(page)).courseId, 101);
+  sansErreur(erreurs, 'pendant le scénario');
+  await ctx.close();
+}
+
+const SCENARIOS = { accueil, 'jour-j': jourJ, 'deux-telephones': deuxTelephones, reprise, equipage, archive, 'archive-bouees': archiveBouees, archivehors: archiveHors, creer, manche, auteur, ic, 'depuis-ic': depuisIC, vraisemblance, gel, 'debrief-tardif': debriefTardif, gpx, 'gpx-choix': gpxChoix, ia, 'ia-erreurs': iaErreurs, arbitre, bouees, guide, entetes, 'retour-port': retourPort, banane, 'banane-manche': bananeManche, 'porte-ic': porteIC };
 
 // ───────────────────────── lancement
 

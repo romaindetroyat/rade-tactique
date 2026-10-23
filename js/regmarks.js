@@ -6,7 +6,9 @@
 //
 // Forme d’une bouée de régate (r.marks[]) : { id: 'X1', name, text (position telle qu’écrite), lat, lon (nuls : « position à saisir »), excerpt,
 //   status: 'a_confirmer' | 'confirmee' | 'ignoree', src, by, at, confirmed?: { by, at }, moved?: { by, at, from } }
-// Forme d’un parcours de régate (r.courses[]) : { id: 101…, name, seq: [{ mark: 'X1', side: 'b' | 't' | null }], excerpt, incomplete, missing, by, at }
+// Forme d’un parcours de régate (r.courses[]) : { id: 101…, name, seq: [{ mark: 'X1', side: 'b' | 't' | null, gate?: 'X3' }], finish?: { kind: 'comite' | 'pres', mark: 'X4', excerpt },
+//   excerpt, incomplete, missing, by, at }. Une porte est UN élément de la suite (`gate` = l’autre bouée, clé absente sinon) ; `finish` = arrivée distincte
+//   du départ (clé absente sinon). Un téléphone en v37 ne lit que `mark` et `side` : il voit la porte comme sa première bouée et l’arrivée sur la ligne de départ.
 // Les bouées injectées dans MARKS portent `fromRegatta` (identifiant de la régate) : c’est ce qui permet de les retirer sans état caché.
 
 import { parseLatLon, MAX_MOVE_M } from './marks.js';
@@ -64,12 +66,14 @@ export function marksFromReview(items, { by = null, at = Date.now(), club = '', 
   return out;
 }
 
-// Parcours cochés → parcours de régate. items : [{ name, sequence: [{ mark, side }], excerpt }] ; marks : bouées de la régate (les nouvelles comprises).
-// Le départ et l’arrivée ne sont pas des bouées. Une bouée citée mais inconnue (nom absent de la régate) rend le parcours incomplet : jamais injecté.
+// Parcours cochés → parcours de régate. items : [{ name, sequence: [{ mark, side, gate? }], finish?: { kind, mark, excerpt }, excerpt }] ;
+// marks : bouées de la régate (les nouvelles comprises). Le départ et l’arrivée ne sont pas des bouées. Une bouée citée mais inconnue (nom absent
+// de la régate), celle d’une porte ou de l’arrivée comprise, rend le parcours incomplet : jamais injecté.
 export function coursesFromReview(items, marks, { by = null, at = Date.now(), existing = [] } = {}) {
   const out = [], byName = new Map();
   for (const m of marks || []) byName.set(normName(m.name), m.id);
   const ids = new Set((marks || []).map((m) => m.id));
+  const idOf = (label) => (ids.has(label) ? label : byName.get(normName(label)));
   const taken = new Set((existing || []).map((c) => normName(c.name)));
   let id = nextCourseId(existing);
   for (const it of Array.isArray(items) ? items : []) {
@@ -80,11 +84,23 @@ export function coursesFromReview(items, marks, { by = null, at = Date.now(), ex
     for (const leg of Array.isArray(it?.sequence) ? it.sequence.slice(0, MAX_LEGS) : []) {
       const label = clean(leg?.mark, MAX_NAME);
       if (!label || isLineName(label)) continue;
-      const mid = ids.has(label) ? label : byName.get(normName(label));
-      if (mid) seq.push({ mark: mid, side: leg?.side === 'b' || leg?.side === 't' ? leg.side : null }); else missing.push(label);
+      const mid = idOf(label), glabel = clean(leg?.gate, MAX_NAME), gid = glabel ? idOf(glabel) : null;
+      if (!mid) missing.push(label);
+      if (glabel && !gid) missing.push(glabel);
+      if (!mid || (glabel && !gid)) continue;
+      // une porte (deux bouées différentes) : ses côtés se lisent depuis la marque précédente (orientGate) ; sans porte, l’élément de la v37
+      if (gid && gid !== mid) seq.push({ mark: mid, side: null, gate: gid });
+      else seq.push({ mark: mid, side: leg?.side === 'b' || leg?.side === 't' ? leg.side : null });
+    }
+    const fin = it?.finish && (it.finish.kind === 'comite' || it.finish.kind === 'pres') ? it.finish : null;
+    let finish = null;
+    if (fin) {
+      const flabel = clean(fin.mark, MAX_NAME), fid = flabel ? idOf(flabel) : null;
+      if (fid) finish = { kind: fin.kind, mark: fid, excerpt: clean(fin.excerpt, MAX_EXCERPT) };
+      else if (flabel) missing.push(flabel);
     }
     taken.add(normName(name));
-    out.push({ id: id++, name, seq, excerpt: clean(it?.excerpt, MAX_EXCERPT), incomplete: !seq.length || missing.length > 0, missing, by, at });
+    out.push({ id: id++, name, seq, ...(finish ? { finish } : {}), excerpt: clean(it?.excerpt, MAX_EXCERPT), incomplete: !seq.length || missing.length > 0, missing, by, at });
   }
   return out;
 }
@@ -134,11 +150,16 @@ export function pendingMarks(r) {
   return out;
 }
 
-// Parcours en attente : bouées qui manquent encore (à confirmer, à saisir, ignorée ou inconnue)
+// Toutes les bouées d’un parcours de régate : suite, autres bouées des portes, bouée de l’arrivée
+export const courseMarkIds = (course) => [...new Set([...(course?.seq || []).flatMap((l) => (l?.gate ? [l.mark, l.gate] : [l?.mark])), ...(course?.finish?.mark ? [course.finish.mark] : [])])].filter(Boolean);
+// Parcours en attente : bouées qui manquent encore (à confirmer, à saisir, ignorée ou inconnue), celles des portes et de l’arrivée comprises
 export function waitingFor(r, course) {
   const conf = new Set((r?.marks || []).filter((m) => m.status === STATUS.CONFIRMEE && hasPos(m)).map((m) => m.id));
-  return [...new Set((course?.seq || []).map((l) => l.mark))].filter((id) => !conf.has(id));
+  return courseMarkIds(course).filter((id) => !conf.has(id));
 }
+// Texte d’un élément de la suite (« Alpha bâbord », « porte 4s / 4p ») et de l’arrivée (« arrivée entre le Comité et F ») ; nameOf : identifiant → nom
+export const legTxt = (l, nameOf) => (l?.gate ? `porte ${nameOf(l.mark)} / ${nameOf(l.gate)}` : `${nameOf(l?.mark)}${sideTxt(l?.side)}`);
+export const finishTxt = (f, nameOf) => (f?.kind === 'pres' ? `arrivée près de ${nameOf(f.mark)}` : `arrivée entre le Comité et ${nameOf(f?.mark)}`);
 
 // ───────────────────────── injection dans les tables de marques et de parcours
 
@@ -165,13 +186,17 @@ export function applyRegattaMarks(marks, courses, r) {
     }
     for (const c of r.courses || []) {
       if (c.incomplete || !Number.isInteger(c.id) || c.id <= COURSE_BASE || !(c.seq || []).length) continue;
-      if (!c.seq.every((l) => Object.hasOwn(marks, l.mark) && marks[l.mark].fromRegatta === r.id)) continue;
+      const fin = c.finish && (c.finish.kind === 'comite' || c.finish.kind === 'pres') ? c.finish : null;
+      if (c.finish && !fin) continue;                                                // arrivée illisible : jamais d’arrivée devinée
+      if (!courseMarkIds({ seq: c.seq, finish: fin }).every((k) => Object.hasOwn(marks, k) && marks[k].fromRegatta === r.id)) continue;
       if (courses.some((x) => x.id === c.id)) continue;
-      const seq = c.seq.map((l) => [l.mark, l.side || null]);
-      const names = c.seq.map((l) => `${marks[l.mark].name}${SIDE_TXT[l.side] || ''}`);
+      const seq = c.seq.map((l) => (l.gate ? [l.mark, l.side || null, l.gate] : [l.mark, l.side || null]));
+      const nameOf = (k) => marks[k].name;
+      const names = c.seq.map((l) => legTxt(l, nameOf));
       courses.push({
         id: c.id, title: `${c.name} (IC)`, custom: true, fromRegatta: r.id, seq: { G: seq, P: seq.map((x) => [...x]) },
-        text: `Ligne de départ, ${names.join(', ')}, ligne d’arrivée. Parcours lu dans les IC d’un autre club, bouées confirmées sur la carte : le Comité fait foi.`,
+        ...(fin ? { finish: { kind: fin.kind, mark: fin.mark } } : {}),
+        text: `Ligne de départ, ${names.join(', ')}, ${fin ? finishTxt(fin, nameOf) : 'ligne d’arrivée'}. Parcours lu dans les IC d’un autre club, bouées confirmées sur la carte : le Comité fait foi.`,
       });
       addedCourses.push(c.id);
     }

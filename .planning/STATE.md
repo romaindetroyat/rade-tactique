@@ -1,18 +1,19 @@
 ---
 gsd_state_version: "1.0"
-current_phase: 05
-status: completed
-stopped_at: Phase 05 complete — all phases complete
-last_updated: "2026-10-22T08:36:12.833Z"
-last_activity: 2026-10-20
-last_activity_desc: Phase 05 complete
-state_head: b072a509ec976b356a6015169a01c94047c823ed
+current_phase: 06
+current_phase_name: "Parcours banane : dégagement, porte sous le vent, arrivée décalée"
+status: executing
+stopped_at: "06-04 tâche 1 faite (v38 locale db7df7f) — point de décision tâche 2 : poussée, PR brouillon, « publie » de Romain"
+last_updated: "2026-10-23T18:58:01.400Z"
+last_activity: 2026-10-23
+last_activity_desc: Plan 06-04 partie autonome (guide, aide, v38 locale vérifiée) — point de décision production
+state_head: db7df7ff99dd765448df8f40106d60864b6c928c
 progress:
-  total_phases: 5
+  total_phases: 6
   completed_phases: 5
-  total_plans: 24
-  completed_plans: 24
-  percent: 100
+  total_plans: 28
+  completed_plans: 28
+  percent: 83
 ---
 
 # Project State
@@ -22,16 +23,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-10-19)
 
 **Core value:** Le jour de la régate, l'équipage peut ouvrir l'épreuve, s'en servir en mer sans que rien ne lâche, et retrouver ensuite le débrief : des conseils et des chiffres justes, fiables sur l'eau, et partagés par tout l'équipage.
-**Current focus:** Phase 05 — Avant la régate : archive amorcée et IA bornée
+**Current focus:** Phase 06 — Parcours banane : dégagement, porte sous le vent, arrivée décalée
 
 ## Current Position
 
-Phase: 05
-Plan: Not started
-Status: All phases complete
-Last activity: 2026-10-20 — Phase 05 complete
+Phase: 06 (Parcours banane : dégagement, porte sous le vent, arrivée décalée) — EXECUTING
+Plan: 4 of 4
+Status: Checkpoint — décision de production (06-04 tâche 2)
+Last activity: 2026-10-23 — Plan 06-04, partie autonome : guide et aide de la banane, v38 locale (`db7df7f`, hash bc914d22fb) vérifiée (638 tests, 28 scénarios, compat v37, porte en production) ; non poussée, `main` distante = v37 (6e7af98)
 
-Progress: [██████████] 100%
+Progress: [████████░░] 83%
 
 ## Performance Metrics
 
@@ -81,6 +82,10 @@ Progress: [██████████] 100%
 | Phase 05 P01 | 20 min | 3 tasks | 7 files |
 | Phase 05 P02 | 15 min | 3 tasks | 15 files |
 | Phase 05 P03 | 15 min | 3 tasks | 5 files |
+| Phase 06 P01 | 7 min | 3 tasks | 7 files |
+| Phase 06 P02 | 13 min | 3 tasks | 8 files |
+| Phase 06 P03 | 15 min | 3 tasks | 15 files |
+| Phase 06 P04 | 19 min | 1 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -146,6 +151,16 @@ Décisions récentes qui orientent le travail en cours :
 - [Phase 05]: 05-02 : le quota d’IA est compté avant l’appel à OpenAI (un appel raté coûte une unité sur 30) et le compteur reste ouvert en panne
 - [Phase 05]: 05-02 : toute fonction d’IA passe par createIA (api/_ia.js) ; une garde statique interdit l’appel direct du client OpenAI ailleurs
 - [Phase 05]: 05-03 : Romain a publié la v32 le 2026-10-20 (« publie » écrit par lui-même) ; PR #6 fusionnée en 3a4fa38 sur main, sw.js de production à n = 32 (855e0d07cb) ; plafond OpenAI de 10 $ à poser par Romain (docs/ia-budget.md, 05-USER-SETUP.md)
+- [Phase 06]: 06-01 : la fixture des bords v37 (127 cas, capturée sur 6e7af98 avant toute modification de js/) est comparée à 1e-9 près à chaque npm test ; côté et tour absents sérialisés en null
+- [Phase 06]: 06-01 : une porte (banane ou régate) est un seul bord PORTE vers la bouée retenue ; conseil seulement si l’écart routé atteint 10 s ou si une bascule de 2°/h est annoncée, sinon bouée gauche « retenue pour le calcul »
+- [Phase 06]: 06-01 : la banane (id 90, js/banane.js) est posée depuis le centre de la ligne réellement utilisée, pinguée comprise ; js/courses.js intact
+- [Phase 06]: 06-02 : la banane entre dans COURSES par addBanane(COURSES) avant la lecture de l’état ; ses cinq réglages vivent dans DEF (banNm, banOff, banSide, banGate, banFin) et sont bornés dès la saisie
+- [Phase 06]: 06-02 : prepareLeg est appelé avant analyzeLeg dans runAnalysis et planRest ; une porte est passée en course à moins de 40 m de l’une ou l’autre bouée (legReached)
+- [Phase 06]: 06-02 : une manche en banane porte ban (cleanBan), facultatif ; raceSettings le rend, chooseRace l’applique ; stratSettings le fige avec la route conseillée
+- [Phase 06]: 06-03 : une porte de régate n’est gardée que si ses deux noms figurent dans l’extrait vérifié du parcours ; l’arrivée a son propre extrait vérifié mot pour mot et le nom de sa bouée dedans, sinon vidée et signalée
+- [Phase 06]: 06-03 : un parcours de régate n’est injecté que lorsque toutes ses bouées (porte et arrivée comprises) sont confirmées ; une arrivée de type illisible empêche l’injection (jamais devinée)
+- [Phase 06]: 06-03 : au débrief, une porte compte un seul passage, la bouée approchée de plus près dans les 180 s ; un téléphone v37 voit la porte comme sa première bouée et l’arrivée sur la ligne de départ, ses fusions gardent porte, arrivée et ban (tools/compat-v37.mjs)
+- [Phase 06]: 06-04 : aide intégrée — textes construits par le code (conseil de porte, « Arrivée : entre le Comité et F ») en gras, jamais entre « » ; le guide nomme la v38 pour la mise à jour des trois téléphones avant la CVAT
 
 ### Pending Todos
 
@@ -183,6 +198,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-10-20T09:50:46.657Z
-Stopped at: Phase 05 complete — all phases complete
-Resume file: None
+Last session: 2026-10-23T18:58:01.214Z
+Stopped at: 06-04 tâche 1 faite (v38 locale db7df7f) — point de décision tâche 2 : poussée, PR brouillon, « publie » de Romain
+Resume file: .planning/phases/06-parcours-banane/06-04-SUMMARY.md

@@ -63,6 +63,9 @@ const EXIGEES = [
   'Entraînement libre', 'Aucune régate ouverte', 'En préparation', 'Terminées', 'Fermer la régate', 'ne change rien chez les autres',
   '25 nœuds', 'Ce qui ne s’échange pas pendant une course', 'Budget d’IA du mois atteint — l’IA reprend le mois prochain', '30 appels par équipier et par jour',
   'iOS 18.4', 'Verrouillage automatique', 'GR1 (3)', 'Carqueiranne (11)', 'Le Comité fait foi', 'Les voyants', 'Dépannage',
+  // repères de la phase 6 (D-11) : banane, porte conseillée, arrivées décalées, porte et arrivée d’un autre club
+  'Banane (construite)', 'Porte sous le vent', 'bouées équivalentes', 'Au vent, décalée', 'Sous le vent, décalée', 'porte : bouée prise', 'Arrivée : entre le Comité et',
+  'celles de la porte et de l’arrivée comprises', 'Passez les trois téléphones en v38 avant la régate CVAT',
 ];
 // Formules qui ne doivent jamais apparaître : [motif, raison]
 const INTERDITES = [
@@ -168,7 +171,8 @@ test('aide intégrée : plus de formule périmée, repères de la v32 présents'
   assert.match(guideAide, /vent du jour figé, traces, débriefs et rapports sont partagés/);
   for (const p of ['Tester le son', 'Course finie', 'Mettre à jour', 'reprise demain', 'Mode départ plein écran', 'Top 5’', 'Top 4’', 'Top 1’', 'GPS, ÉCRAN, SON et RÉSEAU',
     '30 appels', 'Open GPX Tracker', '25 nœuds', 'Arrêter le GPS', 'Pas encore synchronisé', 'Synchronisation à relancer', 'Plafond du jour atteint · reprise demain',
-    'Code d’accès à renouveler', 'Mettez l’app à jour pour synchroniser', 'premier jour de la régate ouverte', 'Entraînement libre', 'Fermer la régate']) assert.ok(aideTexte.includes(p), `l’aide ne cite pas « ${p} »`);
+    'Code d’accès à renouveler', 'Mettez l’app à jour pour synchroniser', 'premier jour de la régate ouverte', 'Entraînement libre', 'Fermer la régate',
+    'Banane (construite)', 'Porte sous le vent', 'bouées équivalentes', 'porte : bouée prise']) assert.ok(aideTexte.includes(p), `l’aide ne cite pas « ${p} »`);
   assert.ok(AIDE.includes('href="guide.html#minute"'), 'le lien du guide complet ouvre « En 1 minute »');
   assert.ok(document.getElementById('minute'), 'l’ancre #minute existe dans guide.html');
   assert.doesNotMatch(aideTexte, /blob\.vercel|vercel-storage|\?acces=|rt_acces|BLOB_READ_WRITE_TOKEN|gpt|claude|opus|sonnet|haiku/i, 'ni code, ni cookie, ni adresse, ni nom de modèle');

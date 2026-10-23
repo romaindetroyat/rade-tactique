@@ -15,7 +15,8 @@ import { applyRegattaMarks, pendingMarks, confirmMark, moveMark, ignoreMark } fr
 import { trackDay, matchRegattas, raceOfTrack, sameTrack, attachTrace, detachTrace, traceSummary, setTraceSummary, setTraceReport } from './attach.js';
 import { breaksOf } from './segments.js';
 import { fetchAll, cached, snapshot, consensus, gridPoints, marineAt, fetchLive, MODELS, WMO, CENTER } from './weather.js';
-import { buildLegs, analyzeLeg, markAdvice, analyzeStart, trendOf, rankCourses, regimeOf, sideName, summarizeTime } from './tactics.js';
+import { buildLegs, analyzeLeg, markAdvice, analyzeStart, trendOf, rankCourses, regimeOf, sideName, summarizeTime, prepareLeg, gateText } from './tactics.js';
+import { BANANE_ID, addBanane, banOf, banToState, courseMarkUse, legReached } from './banane.js';
 import { optimalAngles, boatSpeed, trimAdvice, spiMinTwa, getPolar, setPolar, resetPolar, parsePolar } from './polar.js';
 import { renderJ80 } from './j80.js';
 import { modelPoints, modelAt, idwAt, scoreModels, renderObsCard } from './obs.js';
@@ -53,10 +54,15 @@ const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(
 const addDays = (s, n) => { const d = new Date(s + 'T12:00:00'); d.setDate(d.getDate() + n); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 const dayName = (s) => new Date(s + 'T12:00:00').toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
 
+// Banane construite (D-01) : ajoutée à la liste des parcours hors du cahier js/courses.js, AVANT toute lecture de S.courseId et avant
+// syncRegMarks (sinon un parcours choisi à 90 serait ramené au parcours 3) ; applyRegattaMarks ne retire que les parcours d’une régate
+addBanane(COURSES);
+
 const DEF = {
   day: today(), hour: 11, src: 'forecast', manual: { dir: 315, spd: 15, gust: 20 }, calib: null, localFx: 1, obs: [], modelSel: 'auto', nowcast: true,
   courseId: 3, cls: 'G', laps: 2, wlNm: 0.8, startTime: 11, linePreset: 'vignettes', lineLen: 0.12, lineMode: 'wind', lineBrg: 0, lineOverride: null,
   perf: 1, polar: null, obsOpen: true, startFlash: true,
+  banNm: 0.8, banOff: true, banSide: 'b', banGate: true, banFin: 'depart',          // réglages de la banane (D-04), lus par banOf(S) qui les borne
 };
 const S = { ...DEF, ...store.get('rade.state', {}) };
 // Régates : l’index (petit) se lit de façon synchrone au chargement ; IC garde la forme d’avant (icOf)
@@ -426,7 +432,7 @@ async function runAnalysis() {
   const ctr = toXY(preset.lat, preset.lon);
   const wLine = F.sample(ctr.x, ctr.y);
   const ov = S.lineOverride ? { cb: toXY(S.lineOverride.cb.lat, S.lineOverride.cb.lon), pin: toXY(S.lineOverride.pin.lat, S.lineOverride.pin.lon) } : null;
-  const B = buildLegs(course, cls, { laps: S.laps, windDir: wLine.dir, wlLengthNm: S.wlNm, line: { center: preset, lengthNm: S.lineLen, mode: S.lineMode, bearing: S.lineBrg, override: ov } });
+  const B = buildLegs(course, cls, { laps: S.laps, windDir: wLine.dir, wlLengthNm: S.wlNm, ban: banOf(S), line: { center: preset, lengthNm: S.lineLen, mode: S.lineMode, bearing: S.lineBrg, override: ov } });
   const trend = S.src === 'forecast' && data ? trendOf(series, Math.max(0, seriesIndex(S.day, S.startTime)), Math.max(0, seriesIndex(S.day, S.startTime + 4))) : 0;
   const ctx = { terrain: T, forbidden, perf: S.perf, trend };
   const start = analyzeStart(B.line, F, { ...B.legs[0] }, ctx);
@@ -447,9 +453,11 @@ async function runAnalysis() {
     start.advice.unshift(`Routage : départ le plus rapide ${where}${gain >= 3 ? ` (≈ ${Math.round(gain)} s gagnées sur un départ au milieu)` : ' (écart faible le long de la ligne)'}. La route optimale part de ce point (◆ orange).`);
   }
   const legs = []; let t = S.startTime, lastH = S.startTime;
-  for (const leg of B.legs) {
+  for (const [k, leg] of B.legs.entries()) {
     if (token !== anaToken) return;
     if (S.src === 'forecast' && Math.abs(t - lastH) >= 0.25) { computeField(S.day, t); lastH = t; }
+    // porte conseillée avec le vent de l’heure du bord (D-05) ; après une porte, le bord part de la bouée retenue
+    prepareLeg(leg, legs[legs.length - 1], B.legs[k + 1], F, ctx);
     const a = analyzeLeg(leg, F, ctx);
     a.eta0 = t; t += a.time / 3600; a.eta1 = t;
     legs.push(a);
@@ -458,7 +466,7 @@ async function runAnalysis() {
   if (token !== anaToken) return;
   let ord = 0;
   legs.forEach((l) => { if (l.mark !== 'GATE' && l.mark !== 'FINISH') l.order = ++ord; });
-  analysis = { course, cls, legs, line: B.line, points: B.points, start, total: t - S.startTime, dist: legs.reduce((s, l) => s + l.dist, 0), trend, day: S.day, cfg: stratSettings(cls) };
+  analysis = { course, cls, legs, line: B.line, points: B.points, start, total: t - S.startTime, dist: legs.reduce((s, l) => s + l.dist, 0), trend, day: S.day, cfg: stratSettings(cls), finishLine: B.finishLine ?? null };
   freezeTick('analyse');
   applyPendingEnds();
   updateDisplayField();
@@ -469,18 +477,13 @@ async function runAnalysis() {
 
 function drawCourse() {
   if (!analysis) return;
-  // marques du parcours, avec leurs numéros d'ordre de passage
-  const used = new Map();
-  analysis.legs.forEach((l) => {
-    if (!l.order) return;
-    const u = used.get(l.mark) || { side: l.side, orders: [] };
-    u.orders.push(l.order); used.set(l.mark, u);
-  });
+  // marques du parcours, avec leurs numéros d'ordre de passage ; les deux bouées d’une porte portent son numéro, la conseillée est marquée
+  const used = courseMarkUse(analysis.legs);
   const marks = Object.fromEntries(Object.entries(MARKS).map(([k, m]) => [k, { ...m, doubt: DOUBT(m) }]));        // « 3 ? » sur la carte (D-01)
   Object.assign(marks, pendingMarks(openReg()));        // « X1 ? » : bouées d’un autre club à confirmer, pour la carte seulement (jamais dans MARKS)
-  for (const k of ['A', 'B', 'C', 'D']) if (analysis.points[k]) { const ll = toLL(analysis.points[k].x, analysis.points[k].y); marks[k] = { name: analysis.points[k].name, ...ll, color: '#f5c400' }; }
+  for (const k of ['A', 'B', 'C', 'D', 'PG', 'PD', 'S']) if (analysis.points[k]) { const ll = toLL(analysis.points[k].x, analysis.points[k].y); marks[k] = { name: analysis.points[k].name, ...ll, color: '#f5c400' }; }
   scene.setMarks(marks, used);
-  scene.setLine(analysis.line, analysis.start.startPoint ? [{ ...analysis.start.startPoint, name: '◆ Départ conseillé' }] : []);
+  scene.setLine(analysis.line, analysis.start.startPoint ? [{ ...analysis.start.startPoint, name: '◆ Départ conseillé' }] : [], analysis.finishLine);
   scene.setCourse(analysis, selLeg);
 }
 
@@ -673,6 +676,7 @@ function renderBrief() {
         : 'Faites un relevé dès l’arrivée sur zone (onglet Parcours) : l’app retiendra le modèle qui colle.'));
     }
     tips.push(`Parcours ${analysis.course.id} estimé à <b>${summarizeTime(analysis.total * 3600)}</b> pour un J80 (${(analysis.dist / NM).toFixed(1)} Nq route directe).`);
+    for (const l of analysis.legs) if (l.gate) tips.push(`Tour ${esc(l.lap ?? 1)} · ${esc(gateText(l.gate))}`);         // porte conseillée à chaque passage (D-06)
     html += `<div class="card"><h3>Stratégie du jour ${tip('Synthèse automatique : rotation du vent attendue pendant la course, zones les plus ventées, désaccord entre modèles et temps estimé du parcours.')}</h3><ul class="tips">${tips.map((t) => `<li>${t}</li>`).join('')}</ul></div>`;
   }
   if (analysis) {
@@ -731,6 +735,17 @@ function chartSVG(rows, isRace) {
 }
 
 // ───────────────────────── PARCOURS
+// Réglages de la banane construite (D-04), montrés seulement quand elle est choisie ; valeurs bornées par banOf
+function banPanel() {
+  const b = banOf(S), opt = (v, txt, cur) => `<option value="${esc(v)}" ${v === cur ? 'selected' : ''}>${esc(txt)}</option>`;
+  return `<div class="row3" id="cBan" style="margin-top:8px">
+    <div><label class="f">Dist. B (Nq)</label><input id="cBanNm" type="number" min="0.3" max="2" step="0.1" value="${esc(b.nm)}"></div>
+    <div><label class="f">Dégagement (C)</label><select id="cBanOff">${opt('1', 'Oui', b.off ? '1' : '0')}${opt('0', 'Non', b.off ? '1' : '0')}</select></div>
+    <div><label class="f">B laissée à</label><select id="cBanSide">${opt('b', 'bâbord', b.side)}${opt('t', 'tribord', b.side)}</select></div>
+    <div><label class="f">Porte sous le vent</label><select id="cBanGate">${opt('1', 'Deux bouées (porte)', b.gate ? '1' : '0')}${opt('0', 'Une bouée', b.gate ? '1' : '0')}</select></div>
+    <div><label class="f">Arrivée</label><select id="cBanFin">${opt('depart', 'Ligne de départ', b.fin)}${opt('sousvent', 'Sous le vent, décalée', b.fin)}${opt('auvent', 'Au vent, décalée', b.fin)}</select></div>
+  </div>`;
+}
 function renderCourse() {
   const el = $('section[data-tab=course]');
   const c = COURSES.find((x) => x.id === S.courseId);
@@ -740,6 +755,7 @@ function renderCourse() {
     <div><label class="f">Classes</label><select id="cCls"><option value="G" ${S.cls === 'G' ? 'selected' : ''}>C–D–L–R1-R3 (grand)</option><option value="P" ${S.cls === 'P' ? 'selected' : ''}>P1–P2 (petit)</option></select></div></div>
     <div class="row3">${c.laps ? `<div><label class="f">Tours</label><input id="cLaps" type="number" min="1" max="5" value="${S.laps}"></div>` : ''}${c.built === 'WL' ? `<div><label class="f">Dist. B (Nq)</label><input id="cWl" type="number" min="0.3" max="2" step="0.1" value="${S.wlNm}"></div>` : ''}
     <div><label class="f">Heure de départ</label><input id="cStart" type="text" inputmode="numeric" value="${hhmm(S.startTime)}"></div></div>
+    ${c.built === 'BAN' ? banPanel() : ''}
     <p class="small muted" style="margin:8px 0 0">${esc(c.text)}</p></div>`;
   if (!analysis) html += '<div class="card">Calcul en cours…</div>';
   else {
@@ -768,6 +784,9 @@ function renderCourse() {
   $('#playCourse')?.addEventListener('click', () => startReplay());
   if ($('#cLaps')) $('#cLaps').onchange = (e) => { S.laps = Math.max(1, Math.min(5, +e.target.value || 1)); persist(); scheduleAnalysis(); };
   if ($('#cWl')) $('#cWl').onchange = (e) => { S.wlNm = +e.target.value || 0.8; persist(); scheduleAnalysis(); };
+  // réglages de la banane (D-04) : gardés dans rade.state, bornés par cleanBan au calcul (banOf)
+  const banSet = { '#cBanNm': (v) => { S.banNm = banOf({ ...S, banNm: Number.parseFloat(String(v).replace(',', '.')) }).nm; }, '#cBanOff': (v) => { S.banOff = v === '1'; }, '#cBanSide': (v) => { S.banSide = v; }, '#cBanGate': (v) => { S.banGate = v === '1'; }, '#cBanFin': (v) => { S.banFin = v; } };
+  for (const [id, set] of Object.entries(banSet)) if ($(id)) $(id).onchange = (e) => { set(e.target.value); persist(); scheduleAnalysis(); };
   $('#cStart').onchange = (e) => { const m = /^(\d{1,2})[:h ]?(\d{2})?$/.exec(e.target.value.trim()); if (m) { S.startTime = +m[1] + (+m[2] || 0) / 60; S.hour = Math.floor(S.startTime * 4) / 4; persist(); updateAll(); } };
   $$('.leg', el).forEach((d) => d.addEventListener('click', () => {
     const i = +d.dataset.i; selLeg = selLeg === i ? null : i;
@@ -1234,7 +1253,7 @@ async function stopGps() {
 function autoAdvance() {
   if (!analysis || !gps?.pos) return;
   const l = analysis.legs[nextIdx]; if (!l) return;
-  if (distXY(gps.pos, l.to) < 40 && nextIdx < analysis.legs.length - 1) nextIdx++;
+  if (legReached(gps.pos, l, 40) && nextIdx < analysis.legs.length - 1) nextIdx++;        // porte : près de l’une ou l’autre bouée (D-06)
 }
 // Onglet « En course » : cadre fixe + zones mises à jour à chaque position GPS
 const recorder = new Recorder({ wake, report: (w, e) => report(w, e) });
@@ -1278,7 +1297,10 @@ function renderLiveNav() {
   if (!A) { n.innerHTML = '<p class="small muted">Analyse du parcours en cours de calcul…</p>'; return; }
   nextIdx = Math.min(nextIdx, A.legs.length - 1);
   const l = A.legs[nextIdx];
-  let html = `<h3>Prochaine marque</h3><select id="nSel">${A.legs.map((x, i) => `<option value="${i}" ${i === nextIdx ? 'selected' : ''}>${x.order ? 'Marque ' + x.order + ' — ' : ''}${esc((/^\d/.test(x.to.name) ? 'n°' : '') + x.to.name)}${x.side ? ' (' + sideName(x.side) + ')' : ''}${DOUBT(MARKS[x.mark]) ? ' (à confirmer)' : ''}</option>`).join('')}</select>`;
+  let html = `<h3>Prochaine marque</h3><select id="nSel">${A.legs.map((x, i) => `<option value="${i}" ${i === nextIdx ? 'selected' : ''}>${x.order ? 'Marque ' + x.order + ' — ' : ''}${esc((/^\d/.test(x.to.name) ? 'n°' : '') + x.to.name)}${x.gate ? ' (porte)' : x.side ? ' (' + sideName(x.side) + ')' : ''}${DOUBT(MARKS[x.mark]) ? ' (à confirmer)' : ''}</option>`).join('')}</select>`;
+  // porte : le conseil (venu de l’analyse ou du recalcul), avec ou sans GPS ; avec GPS, l’autre bouée (D-06)
+  const other = l.gate ? (l.gate.pick === 'd' ? l.gate.g : l.gate.d) : null;
+  if (l.gate) html += `<p class="small" style="margin:6px 0 0"><b>${esc(gateText(l.gate))}</b></p>`;
   if (p) {
     const brg = bearingXY(p, l.to), d = distXY(p, l.to), w = fieldOn ? F.sample(p.x, p.y) : { dir: l.wind.dir, spd: l.wind.spd };
     const twaM = norm180(brg - w.dir), { up, down } = optimalAngles(Math.max(1, w.spd));
@@ -1294,6 +1316,7 @@ function renderLiveNav() {
     html += `<div class="kpis" style="margin-top:8px"><div class="kpi live"><b class="big">${fmtBrg(brg)}</b><span>relèvement</span></div><div class="kpi"><b class="big" style="font-size:28px">${(d / NM).toFixed(2)}</b><span>Nq</span></div><div class="kpi"><b>${eta ? summarizeTime(eta) : '—'}</b><span>ETA (VMC ${vmc != null ? vmc.toFixed(1) : '—'} nd)</span></div></div>
       <div class="kpis" style="margin-top:8px"><div class="kpi"><b>${p.sog != null ? p.sog.toFixed(1) : '—'}</b><span>SOG nd</span></div><div class="kpi"><b>${p.cog != null ? fmtBrg(p.cog) : '—'}</b><span>COG</span></div><div class="kpi"><b>${fmtBrg(w.dir)}</b><span>vent modèle ${w.spd.toFixed(0)} nd</span></div></div>
       <p class="small">${rec}</p>`;
+    if (other) html += `<p class="small">Autre bouée : ${esc(fmtBrg(bearingXY(p, other)))} · ${esc((distXY(p, other) / NM).toFixed(2))} Nq</p>`;
   } else html += `<p class="small muted">Activez le GPS pour le relèvement, la distance et l’ETA vers la marque.</p>`;
   html += `<div class="btns"><button class="btn alt small" id="nPrev">◀ Marque précédente</button><button class="btn small" id="nNext">Marque passée ▶</button></div>`;
   n.innerHTML = html;
@@ -1312,9 +1335,11 @@ async function planRest() {
   const legs = []; let t = t0, lastH = -1;
   for (let i = nextIdx; i < analysis.legs.length; i++) {
     const src = analysis.legs[i];
-    const leg = { from: i === nextIdx ? { x: pos.x, y: pos.y, name: 'Bateau' } : legs[legs.length - 1].to, to: src.to, side: src.side, mark: src.mark, lap: src.lap };
+    const leg = { from: i === nextIdx ? { x: pos.x, y: pos.y, name: 'Bateau' } : legs[legs.length - 1].to, to: src.to, side: src.side, mark: src.mark, lap: src.lap, gate: src.gate ? { g: src.gate.g, d: src.gate.d } : undefined };
     leg.brg = bearingXY(leg.from, leg.to); leg.dist = distXY(leg.from, leg.to);
     if (S.src === 'forecast' && Math.abs(t - lastH) >= 0.25) { computeField(S.day, t); lastH = t; }
+    // porte reconseillée depuis la position du bateau et le vent de l’heure ; le bord suivant part de la bouée retenue
+    prepareLeg(leg, legs[legs.length - 1], analysis.legs[i + 1], F, ctx);
     const a = analyzeLeg(leg, F, ctx); a.order = src.order; a.eta0 = t; t += a.time / 3600; a.eta1 = t;
     legs.push(a);
     await new Promise((r) => setTimeout(r, 0));
@@ -1328,7 +1353,7 @@ function renderPlan() {
   const el = $('#livePlan'); if (!el) return;
   if (!rest) { el.innerHTML = `<p class="small muted">Plan initial (calculé depuis la ligne de départ à ${hhmm(S.startTime)}).</p><button class="btn acc" id="planGo" style="width:100%">↻ Recalculer la suite depuis ma position</button>`; $('#planGo').onclick = planRest; return; }
   el.innerHTML = `<p class="small">Recalculé à ${hhmm(rest.t0)} · modèle ${esc(rest.model)}${rest.obs ? ` + ${rest.obs} relevé(s)` : ''} · arrivée estimée <b>${hhmm(rest.t1)}</b></p>
-    ${rest.legs.map((l) => `<div class="small" style="border-top:1px solid var(--line);padding:6px 0">${l.order ? `<span class="ord">${l.order}</span>` : ''}<b>${esc((/^\d/.test(l.to.name) ? 'n°' : '') + l.to.name)}</b> · ${hhmm(l.eta0)}→${hhmm(l.eta1)} · ${esc(l.type.label)} · vent ${fmtBrg(l.wind.dir)} ${l.wind.spd.toFixed(0)} nd<br>${esc(l.advice[1] || l.advice[0] || '')}</div>`).join('')}
+    ${rest.legs.map((l) => `<div class="small" style="border-top:1px solid var(--line);padding:6px 0">${l.order ? `<span class="ord">${l.order}</span>` : ''}<b>${esc((/^\d/.test(l.to.name) ? 'n°' : '') + l.to.name)}</b> · ${hhmm(l.eta0)}→${hhmm(l.eta1)} · ${esc(l.type.label)} · vent ${fmtBrg(l.wind.dir)} ${l.wind.spd.toFixed(0)} nd<br>${esc(l.gate ? gateText(l.gate) : l.advice[1] || l.advice[0] || '')}</div>`).join('')}
     <div class="btns"><button class="btn acc small" id="planGo">↻ Recalculer</button><button class="btn alt small" id="planReset">Revenir au plan initial</button></div>`;
   $('#planGo').onclick = planRest;
   $('#planReset').onclick = () => { rest = null; drawCourse(); renderPlan(); };
@@ -1394,6 +1419,7 @@ function stratSettings(cls) {
   return {
     courseId: S.courseId, cls, laps: S.laps, wlNm: S.wlNm, startTime: S.startTime, day: S.day, linePreset: S.linePreset, lineLen: S.lineLen, lineMode: S.lineMode,
     lineBrg: S.lineBrg, lineOverride: S.lineOverride, perf: S.perf, polar: getPolar().source, model: selectedModel(), src: S.src, ...(S.src === 'manual' ? { manual: S.manual } : {}),
+    ...(S.courseId === BANANE_ID ? { ban: banOf(S) } : {}),          // réglages de la banane (D-04), comme wlNm ; absents pour les autres parcours (forme v37)
   };
 }
 
@@ -1651,7 +1677,7 @@ function renderTraceDetail() {
     <p class="small" id="trReg" style="margin:4px 0 0">${regOfTrace(tr.id) ? `Rangée dans <b>${esc(regOfTrace(tr.id).name)}</b> · <button type="button" class="btn small alt" id="trDetach">Détacher</button>` : 'Sans régate · <button type="button" class="btn small alt" id="trPlace">Ranger…</button>'}</p>
     <button class="btn acc" id="trDebrief" style="width:100%;margin-top:8px">📝 ${tr.report ? 'Refaire le débrief de course' : 'Débrief de course'}</button>${tr.report ? '<button class="btn" id="trReport" style="width:100%;margin-top:6px">📄 Voir le débrief</button>' : ''}
     <div class="btns"><button class="btn alt" id="trPlay">▶ Rejouer la trace</button><button class="btn alt" id="trGpx">Exporter GPX</button><button class="btn alt" id="trHide">Masquer</button></div>
-    ${sameCourse ? (sp.length ? `<h3 style="margin-top:12px">Bord par bord ${tip('Temps réel entre deux marques comparé au temps du routage optimal (même vent modèle). Un écart positif = temps perdu.')}</h3><table class="t"><tr><th>Marque</th><th>Réel</th><th>Optimal</th><th>Écart</th><th>Polaire</th></tr>${res.split.map((s) => s.missed ? `<tr><td>${s.leg.order} · ${esc(s.leg.to.name)}</td><td colspan="4" class="muted">non détectée</td></tr>` : `<tr><td>${s.leg.order} · ${esc(s.leg.to.name)}</td><td>${summarizeTime(s.t)}</td><td>${summarizeTime(s.plan)}</td><td style="color:${s.t > s.plan ? 'var(--bad)' : 'var(--ok)'}">${s.t > s.plan ? '+' : '−'}${summarizeTime(Math.abs(s.t - s.plan))}</td><td>${s.pct ? Math.round(s.pct * 100) + ' %' : '—'}</td></tr>`).join('')}</table>${worst ? `<p class="small">Bord le plus coûteux : vers <b>${esc(worst.leg.to.name)}</b> (${summarizeTime(worst.t - worst.plan)} de plus que l’optimal). Rejouez-le en comparant à la route bleue.</p>` : ''}` : '<p class="small muted">Aucune marque du parcours détectée sur cette trace (passage à plus de 250 m).</p>')
+    ${sameCourse ? (sp.length ? `<h3 style="margin-top:12px">Bord par bord ${tip('Temps réel entre deux marques comparé au temps du routage optimal (même vent modèle). Un écart positif = temps perdu.')}</h3><table class="t"><tr><th>Marque</th><th>Réel</th><th>Optimal</th><th>Écart</th><th>Polaire</th></tr>${res.split.map((s) => s.missed ? `<tr><td>${s.leg.order} · ${esc(s.leg.to.name)}</td><td colspan="4" class="muted">non détectée</td></tr>` : `<tr><td>${s.leg.order} · ${esc(s.took ? `${s.leg.gate[s.took].name} (porte : bouée prise)` : s.leg.to.name)}</td><td>${summarizeTime(s.t)}</td><td>${summarizeTime(s.plan)}</td><td style="color:${s.t > s.plan ? 'var(--bad)' : 'var(--ok)'}">${s.t > s.plan ? '+' : '−'}${summarizeTime(Math.abs(s.t - s.plan))}</td><td>${s.pct ? Math.round(s.pct * 100) + ' %' : '—'}</td></tr>`).join('')}</table>${worst ? `<p class="small">Bord le plus coûteux : vers <b>${esc(worst.leg.to.name)}</b> (${summarizeTime(worst.t - worst.plan)} de plus que l’optimal). Rejouez-le en comparant à la route bleue.</p>` : ''}` : '<p class="small muted">Aucune marque du parcours détectée sur cette trace (passage à plus de 250 m).</p>')
       : '<p class="small muted">Pour le découpage bord par bord, sélectionnez dans l’onglet Parcours le parcours couru (même numéro et même classe).</p>'}
     <p class="small muted">Couleur de la trace : du bleu (lent) au rouge (rapide). V = virement, E = empannage.</p></div>${fitCard}`;
   $$('[data-mkfit]', el).forEach((b) => b.addEventListener('click', () => {
@@ -2052,6 +2078,7 @@ function chooseRace(n) {
   if (set.laps) S.laps = set.laps;
   if (set.startTime != null) { S.startTime = set.startTime; S.hour = Math.floor(S.startTime * 4) / 4; }
   if (set.day && set.day >= today()) S.day = set.day;
+  if (set.ban) Object.assign(S, banToState(set.ban));         // banane de la manche (bornée par raceSettings)
   saveReg(upsertRegatta(REG, { ...reg, sel: n }));         // la manche choisie est gardée avec la régate
   persist(); renderCourse(); updateAll(); renderIC();
   const c = COURSES.find((x) => x.id === S.courseId);
@@ -2124,7 +2151,8 @@ function renderIC() {
     for (const id of ['#rcDate', '#rcTime', '#rcCourse', '#rcCls', '#rcLaps', '#rcNote']) { $(id).addEventListener('input', sync); $(id).addEventListener('change', sync); }
     $('#rcAdd').onclick = () => {
       sync();
-      const r = addRace(cur, raceDraft, { now: Date.now(), by: who(), courses: COURSES });
+      // une manche en banane garde les réglages de la banane de ce téléphone (D-04) : « Choisir cette manche » les rend sur les autres
+      const r = addRace(cur, { ...raceDraft, ...(Number(raceDraft.courseId) === BANANE_ID ? { ban: banOf(S) } : {}) }, { now: Date.now(), by: who(), courses: COURSES });
       if (!r.ok) { raceErr = r.errors; renderIC(); return; }
       raceDraft = null; raceErr = {};
       saveReg(upsertRegatta(REG, r.regatta)); renderIC(); toast(`Manche ajoutée (${r.regatta.races.length} dans la régate)`);

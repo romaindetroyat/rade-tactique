@@ -1,2 +1,2 @@
 // Généré par tools/stamp.mjs — ne pas modifier à la main.
-export const BUILD = {"n":37,"date":"2026-10-22","label":"v37 · 22/10","note":"accueil en entraînement libre, régates ouvertes depuis l’onglet","critical":false,"id":"488f1a8a0b"};
+export const BUILD = {"n":38,"date":"2026-10-23","label":"v38 · 23/10","note":"parcours banane : dégagement, porte conseillée, arrivée décalée","critical":false,"id":"bc914d22fb"};
