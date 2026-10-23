@@ -8,7 +8,7 @@ import { pdfText, parseIC, cleanText } from './events.js';
 import { IA_IC, iaOffer, iaErrorMessage, reviewFromParse, reviewFromRegatta, reviewFromApi, setValue, setKeep, setKeepRace, setKeepMark, setKeepCourse, courseReady, canValidate, checksFor, applyReview, reviewHTML, chipOf, validatedHTML } from './icread.js';
 import { stampState, markDirty, canon, legacyStamp } from './archmerge.js';
 import { migrate, seedNorm, KEY as REG_KEY, saveRegattas, createRegatta, upsertRegatta, removeRegatta, openRegatta, openAtBoot, openOnNewDay, regattaStatus, STATUS_LABEL, todayRegatta, icOf, groupByStatus, lockDates, daysOf, addRace, removeRace, raceSettings, membre, saveMembre, backfillAuthor } from './regates.js';
-import { THROTTLE_MS, slotKey, freezeAction, obsNeedsCopy, stratNeedsCopy, sliceDays, freezeSummary, strategySummary, compactStrategy, windSourceKind, frozenLabel } from './gel.js';
+import { THROTTLE_MS, slotKey, freezeAction, obsNeedsCopy, stratNeedsCopy, sliceDays, freezeSummary, strategySummary, compactStrategy, windSourceKind, frozenLabel, parisInstant } from './gel.js';
 import { putSlot, getSlot } from './regstore.js';
 import { listHTML, noRegattaHTML, newRegattaFormHTML, sheetHTML } from './regview.js';
 import { applyRegattaMarks, pendingMarks, confirmMark, moveMark, ignoreMark } from './regmarks.js';
@@ -16,7 +16,7 @@ import { trackDay, matchRegattas, raceOfTrack, sameTrack, attachTrace, detachTra
 import { breaksOf } from './segments.js';
 import { fetchAll, cached, snapshot, consensus, gridPoints, marineAt, fetchLive, MODELS, WMO, CENTER } from './weather.js';
 import { buildLegs, analyzeLeg, markAdvice, analyzeStart, trendOf, rankCourses, regimeOf, sideName, summarizeTime, prepareLeg, gateText, routeOf } from './tactics.js';
-import { BANANE_ID, addBanane, banOf, banToState, courseMarkUse, legReached, banHorsEau } from './banane.js';
+import { BANANE_ID, BANANE, addBanane, banOf, banToState, cleanBan, courseMarkUse, legReached, banHorsEau } from './banane.js';
 import { optimalAngles, boatSpeed, trimAdvice, spiMinTwa, getPolar, setPolar, resetPolar, parsePolar } from './polar.js';
 import { renderJ80 } from './j80.js';
 import { modelPoints, modelAt, idwAt, scoreModels, renderObsCard } from './obs.js';
@@ -32,7 +32,7 @@ import { MAX_MOVE_M, DOUBT, parseLatLon, loadOverrides, saveOverride, clearOverr
 import { createWakeLock } from './wakelock.js';
 import { computeStatus, lampLabel, actionLabel, GPS_STALE_S } from './status.js';
 import { isActive, isRaceDay, lockState, heavyPaused, parisClock, gpsLeftAlone, HEAVY_AFTER_MS } from './racelock.js';
-import { detect as dbDetect, ask as dbAsk, askModes as dbAskModes, analyze as dbAnalyze, narrative as dbNarrative, buildReport as dbBuild, shareReport as dbShare } from './debrief.js';
+import { detect as dbDetect, ask as dbAsk, askModes as dbAskModes, analyze as dbAnalyze, narrative as dbNarrative, buildReport as dbBuild, shareReport as dbShare, traceBanane, planBanane } from './debrief.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 function toast(msg) {
@@ -1290,7 +1290,9 @@ function renderLiveNav() {
   $('#recStart')?.addEventListener('click', () => {
     if (!gps) startGps('auto');
     const c = COURSES.find((x) => x.id === S.courseId);
-    recorder.start({ name: `${dayName(today())} — ${c.title}`, course: { id: S.courseId, cls: S.cls, laps: S.laps, day: S.day, startTime: S.startTime } });
+    // banane : ses réglages, et la ligne et l’axe du vent de l’analyse en cours, pour la reconstruire telle quelle au débrief
+    const banGeo = S.courseId === BANANE_ID && analysis?.course.id === BANANE_ID ? { axe: +norm360(analysis.line.face).toFixed(2), ligne: (({ lat, lon }) => ({ lat: +lat.toFixed(6), lon: +lon.toFixed(6) }))(toLL(analysis.line.c.x, analysis.line.c.y)) } : {};
+    recorder.start({ name: `${dayName(today())} — ${c.title}`, course: { id: S.courseId, cls: S.cls, laps: S.laps, day: S.day, startTime: S.startTime, ...(S.courseId === BANANE_ID ? { ban: banOf(S), ...banGeo } : {}) } });
     toast('Enregistrement lancé : gardez l’app ouverte, écran allumé.'); renderLiveNav(); raceTick();
   });
   $('#recStop')?.addEventListener('click', async () => {
@@ -1477,6 +1479,31 @@ function busy(msg) {
   let m = document.getElementById('modal'); if (!m) { m = document.createElement('div'); m.id = 'modal'; document.body.appendChild(m); }
   m.className = 'debrief'; m.hidden = false; m.innerHTML = `<div class="modal-card"><h2>Débrief de course</h2><p>${esc(msg)}</p></div>`;
 }
+// Banane d’une trace (débrief et bord par bord) : réglages de la manche de la régate, sinon ceux enregistrés avec la trace, sinon ceux de
+// l’app ; ligne et axe du vent enregistrés avec la trace (tels quels), sinon la ligne choisie dans l’app et le vent du moment de la course,
+// axe alors ajusté sur la trace. null quand la manche ou la trace désigne un autre parcours : le débrief reste celui du cahier.
+// La trace peut venir d’un autre téléphone (archive partagée) : chaque champ est vérifié, les réglages bornés par cleanBan.
+function bananeOfTrace(tr, src) {
+  const reg = regOfTrace(tr.id), w = trackDay(tr.pts, breaksOf(tr));
+  const manche = reg ? (raceOfTrack(reg, w) || reg.races?.find((m) => m.n === reg.sel) || null) : null;
+  const set = manche ? raceSettings(manche) : {}, rec = tr.course && typeof tr.course === 'object' ? tr.course : {};
+  const designe = set.courseId ?? rec.id ?? null;
+  if (designe != null && Number(designe) !== BANANE_ID) return null;
+  const recBan = rec.ban && typeof rec.ban === 'object' ? cleanBan(rec.ban) : null;
+  const from = set.ban ? 'de la manche' : recBan ? 'enregistrés avec la trace' : 'de l’app';
+  const ban = set.ban || recBan || banOf(S);
+  const cls = [set.cls, rec.cls, S.cls].find((x) => x === 'G' || x === 'P') || 'G';
+  const lig = rec.ligne, okLL = lig && Number.isFinite(lig.lat) && Number.isFinite(lig.lon) && lig.lat > 43 && lig.lat < 43.18 && lig.lon > 5.8 && lig.lon < 6.1;
+  // trace enregistrée avec cette même banane : sa ligne et son axe tels quels
+  if (Number(rec.id) === BANANE_ID && okLL && Number.isFinite(rec.axe) && recBan && JSON.stringify(recBan) === JSON.stringify(ban)) return { ban, cls, c: { lat: lig.lat, lon: lig.lon }, dir: norm360(rec.axe), fit: false, prefer: true, from };
+  // ligne de l’app, comme runAnalysis pour la banane (ligne pinguée comprise)
+  const preset = LINE_PRESETS[BANANE.line && S.linePreset === 'vignettes' ? BANANE.line : S.linePreset] || LINE_PRESETS.vignettes;
+  const ov = S.lineOverride, c = ov ? toLL(...(({ cb, pin }) => [(cb.x + pin.x) / 2, (cb.y + pin.y) / 2])({ cb: toXY(ov.cb.lat, ov.cb.lon), pin: toXY(ov.pin.lat, ov.pin.lon) })) : { lat: preset.lat, lon: preset.lon };
+  // vent du moment : au signal de la manche s’il tombe ce jour-là, sinon au début de la trace
+  const t0 = set.day === w.day && Number.isFinite(set.startTime) ? parisInstant(w.day, Math.floor(set.startTime), Math.round((set.startTime % 1) * 60)) : w.from;
+  const cxy = toXY(c.lat, c.lon), vent = trackWindAt(w.day, src)(cxy.x, cxy.y, t0);
+  return { ban, cls, c, dir: norm360(vent.dir), fit: true, prefer: designe != null, from };
+}
 async function runDebrief(tr) {
   fieldKey = null;                           // le débrief écrit dans F (une base par bord) : le champ affiché sera recalculé
   // même vent que l'analyse de la trace : prévisions vivantes, ou vent du jour figé quand elles ne couvrent plus ce jour (jamais le vent manuel sans le dire)
@@ -1496,7 +1523,7 @@ async function runDebrief(tr) {
     restoreField: () => { fieldKey = null; updateDisplayField(); }, obs: src.obs,
   };
   let det;
-  try { det = dbDetect(tr); } catch (e) { report('debrief', e); toast('Débrief impossible : ' + e.message); return; }
+  try { const bo = bananeOfTrace(tr, src); det = dbDetect(tr, bo ? { banane: bo } : {}); } catch (e) { report('debrief', e); toast('Débrief impossible : ' + e.message); return; }
   const ans = await dbAsk(det, tr, api); if (!ans) return;
   busy('Analyse de la trace et calcul des routes conseillées…');
   await new Promise((r) => setTimeout(r, 30));
@@ -1654,18 +1681,34 @@ async function showTrace(id) {
   const tr = await getTrack(id); if (!tr) { toast('Trace introuvable sur cet appareil'); return; }
   const day = parisClock(tr.start).date;
   const src = await windSource(day);                     // vent des prévisions, ou vent du jour figé si elles ne couvrent plus ce jour
-  const sameCourse = analysis && tr.course && tr.course.id === analysis.course.id && tr.course.cls === analysis.cls;
-  const res = analyzeTrack(tr, { windAt: trackWindAt(day, src), boatSpeed, legs: sameCourse ? analysis.legs.filter((l) => l.order) : null });
+  // banane : reconstruite pour cette trace (réglages de la manche, ligne et vent du moment), jamais lue dans l’analyse en cours
+  const bo = bananeOfTrace(tr, src), ban = bo ? traceBanane(tr, bo) : null;
+  let legs = null;
+  if (ban) legs = planBananeTrace(ban, bo, day, src);
+  const sameCourse = !ban && analysis && tr.course && tr.course.id === analysis.course.id && tr.course.cls === analysis.cls;
+  if (sameCourse) legs = analysis.legs.filter((l) => l.order);
+  const res = analyzeTrack(tr, { windAt: trackWindAt(day, src), boatSpeed, legs });
   if (!res) { toast('Trace vide'); return; }
   syncRef(tr, res);
-  traceView = { id, tr, res, sameCourse, src };
+  const wasBan = !!traceView?.ban;
+  traceView = { id, tr, res, sameCourse: sameCourse || !!ban, src, ban };
   scene.setTrace(res.P, res.man);
+  if (ban) scene.setCourse({ legs }, null); else if (wasBan) drawCourse();          // routes de la banane reconstruite, puis retour au parcours de l’onglet
   scene.focus(res.P.filter((_, i) => i % 10 === 0));
   renderTraceDetail();
 }
+// Temps optimal de chaque bord d’une banane retrouvée sur une trace : vent uniforme de l’axe de la banane (force de la prévision à la ligne,
+// au passage de B), relief compris, comme le débrief. Le champ F est rétabli tel quel ensuite (calcul synchrone : l’analyse en cours ne voit rien).
+function planBananeTrace(ban, bo, day, src) {
+  const cxy = toXY(bo.c.lat, bo.c.lon), spd = Math.max(3, trackWindAt(day, src)(cxy.x, cxy.y, ban.mc.hit[0].t).spd);
+  const prev = F.base ? { base: F.base, fx: F.fx } : null;
+  F.compute({ points: [{ x: 0, y: 0, dir: ban.dir, spd, gust: spd * 1.35 }] }, { localEffects: S.localFx ?? 1 });
+  try { return planBanane(ban.B, F, { terrain: T, forbidden, perf: S.perf ?? 1, trend: 0 }); }
+  finally { if (prev) F.compute(prev.base, { localEffects: prev.fx }); else fieldKey = null; }
+}
 function renderTraceDetail() {
   const el = $('#traceDetail'); if (!el || !traceView) return;
-  const { tr, res, sameCourse, src } = traceView;
+  const { tr, res, sameCourse, src, ban } = traceView;
   const nT = res.man.filter((m) => m.kind === 'virement').length, nE = res.man.length - nT;
   const sp = res.split.filter((s) => !s.missed);
   const worst = sp.filter((s) => s.plan && s.t - s.plan > 30).sort((a, b) => (b.t - b.plan) - (a.t - a.plan))[0];
@@ -1682,7 +1725,8 @@ function renderTraceDetail() {
     <p class="small" id="trReg" style="margin:4px 0 0">${regOfTrace(tr.id) ? `Rangée dans <b>${esc(regOfTrace(tr.id).name)}</b> · <button type="button" class="btn small alt" id="trDetach">Détacher</button>` : 'Sans régate · <button type="button" class="btn small alt" id="trPlace">Ranger…</button>'}</p>
     <button class="btn acc" id="trDebrief" style="width:100%;margin-top:8px">📝 ${tr.report ? 'Refaire le débrief de course' : 'Débrief de course'}</button>${tr.report ? '<button class="btn" id="trReport" style="width:100%;margin-top:6px">📄 Voir le débrief</button>' : ''}
     <div class="btns"><button class="btn alt" id="trPlay">▶ Rejouer la trace</button><button class="btn alt" id="trGpx">Exporter GPX</button><button class="btn alt" id="trHide">Masquer</button></div>
-    ${sameCourse ? (sp.length ? `<h3 style="margin-top:12px">Bord par bord ${tip('Temps réel entre deux marques comparé au temps du routage optimal (même vent modèle). Un écart positif = temps perdu.')}</h3><table class="t"><tr><th>Marque</th><th>Réel</th><th>Optimal</th><th>Écart</th><th>Polaire</th></tr>${res.split.map((s) => s.missed ? `<tr><td>${s.leg.order} · ${esc(s.leg.to.name)}</td><td colspan="4" class="muted">non détectée</td></tr>` : `<tr><td>${s.leg.order} · ${esc(s.took ? `${s.leg.gate[s.took].name} (porte : bouée prise)` : s.leg.to.name)}</td><td>${summarizeTime(s.t)}</td><td>${summarizeTime(s.plan)}</td><td style="color:${s.t > s.plan ? 'var(--bad)' : 'var(--ok)'}">${s.t > s.plan ? '+' : '−'}${summarizeTime(Math.abs(s.t - s.plan))}</td><td>${s.pct ? Math.round(s.pct * 100) + ' %' : '—'}</td></tr>`).join('')}</table>${worst ? `<p class="small">Bord le plus coûteux : vers <b>${esc(worst.leg.to.name)}</b> (${summarizeTime(worst.t - worst.plan)} de plus que l’optimal). Rejouez-le en comparant à la route bleue.</p>` : ''}` : '<p class="small muted">Aucune marque du parcours détectée sur cette trace (passage à plus de 250 m).</p>')
+    ${ban ? `<p class="small" id="trBan" style="margin:8px 0 0">Banane reconstruite : B à ${esc(String(ban.ban.nm).replace('.', ','))} Nq, axe ${esc(fmtBrg(ban.dir))} ${ban.fitted ? '(ajusté sur la trace)' : '(enregistré avec la trace)'}, ${esc(String(ban.laps))} ${ban.laps > 1 ? 'tours' : 'tour'}, réglages ${esc(ban.from || 'de l’app')}.</p>` : ''}
+    ${sameCourse ? (sp.length ? `<h3 style="margin-top:12px">Bord par bord ${tip(ban ? 'Temps réel entre deux bouées de la banane comparé au temps du routage optimal, avec le vent de l’axe de la banane et la force prévue. Porte : la bouée réellement prise est nommée. Un écart positif = temps perdu.' : 'Temps réel entre deux marques comparé au temps du routage optimal (même vent modèle). Un écart positif = temps perdu.')}</h3><table class="t"><tr><th>Marque</th><th>Réel</th><th>Optimal</th><th>Écart</th><th>Polaire</th></tr>${res.split.map((s) => s.missed ? `<tr><td>${s.leg.order} · ${esc(s.leg.to.name)}</td><td colspan="4" class="muted">non détectée</td></tr>` : `<tr><td>${s.leg.order} · ${esc(s.took ? `${s.leg.gate[s.took].name} (porte : bouée prise)` : s.leg.to.name)}</td><td>${summarizeTime(s.t)}</td><td>${summarizeTime(s.plan)}</td><td style="color:${s.t > s.plan ? 'var(--bad)' : 'var(--ok)'}">${s.t > s.plan ? '+' : '−'}${summarizeTime(Math.abs(s.t - s.plan))}</td><td>${s.pct ? Math.round(s.pct * 100) + ' %' : '—'}</td></tr>`).join('')}</table>${worst ? `<p class="small">Bord le plus coûteux : vers <b>${esc(worst.leg.to.name)}</b> (${summarizeTime(worst.t - worst.plan)} de plus que l’optimal). Rejouez-le en comparant à la route bleue.</p>` : ''}` : '<p class="small muted">Aucune marque du parcours détectée sur cette trace (passage à plus de 250 m).</p>')
       : '<p class="small muted">Pour le découpage bord par bord, sélectionnez dans l’onglet Parcours le parcours couru (même numéro et même classe).</p>'}
     <p class="small muted">Couleur de la trace : du bleu (lent) au rouge (rapide). V = virement, E = empannage.</p></div>${fitCard}`;
   $$('[data-mkfit]', el).forEach((b) => b.addEventListener('click', () => {
@@ -1710,7 +1754,7 @@ function renderTraceDetail() {
     } catch (err) { report('import', err); toast('Rangement impossible : ' + (err?.message || err)); }
   });
   $('#trReport')?.addEventListener('click', () => showReport(tr));
-  $('#trHide').onclick = () => { traceView = null; scene.setTrace(null); el.innerHTML = ''; };
+  $('#trHide').onclick = () => { const b = !!traceView?.ban; traceView = null; scene.setTrace(null); if (b) drawCourse(); el.innerHTML = ''; };
 }
 
 // ───────────────────────── VENT
