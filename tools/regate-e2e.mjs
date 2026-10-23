@@ -2529,7 +2529,127 @@ async function bananeManche({ browser, base }) {
   await A.ctx.close(); await B.ctx.close();
 }
 
-const SCENARIOS = { accueil, 'jour-j': jourJ, 'deux-telephones': deuxTelephones, reprise, equipage, archive, 'archive-bouees': archiveBouees, archivehors: archiveHors, creer, manche, auteur, ic, 'depuis-ic': depuisIC, vraisemblance, gel, 'debrief-tardif': debriefTardif, gpx, 'gpx-choix': gpxChoix, ia, 'ia-erreurs': iaErreurs, arbitre, bouees, guide, entetes, 'retour-port': retourPort, banane, 'banane-manche': bananeManche };
+// ───────────────────────── porte et arrivée d’un parcours d’un autre club (phase 6 : D-08)
+
+// Texte fabriqué (D-06) : quatre bouées en eau libre dans la Grande Rade (4s et 4p à environ 90 m l’une de l’autre), un parcours B avec une porte et une
+// arrivée entre le bateau comité et la bouée F, un parcours C dont l’arrivée sera « inventée » par le modèle simulé
+const TEXTE_PORTE = `${TEXTE_AUTRE_CLUB}
+ANNEXE : MARQUES ET PARCOURS
+
+Bouée Alpha : 43°05,845' N – 005°56,049' E
+
+Bouée 4s : 43°05,300' N – 005°57,500' E
+
+Bouée 4p : 43°05,300' N – 005°57,567' E
+
+Bouée F : 43°05,500' N – 005°58,000' E
+
+Parcours B : départ, Alpha bâbord, porte 4s/4p, Alpha bâbord, arrivée entre le bateau comité et la bouée F
+
+Parcours C : départ, Alpha bâbord, 4s bâbord, arrivée
+`;
+
+// D-08 : la porte et l’arrivée lues par l’IA (prouvées par le texte), relues, corrigées et confirmées comme les autres bouées, puis courues avec le conseil de porte
+async function porteIC({ browser, base }) {
+  const ctx = await ouvreContexte(browser, { heure: '2026-10-19T08:30:00Z' });        // lundi 19/10/2026 10 h 30 à Paris
+  await releveEtiquettes(ctx);
+  await simuleMembre(ctx, 'Équipier test');
+  const etat = await serviaIA(ctx, (input) => sortieIA({
+    marks: [
+      { name: 'Alpha', position: copie(input, /43°05,845. N . 005°56,049. E/), excerpt: copie(input, /Bouée Alpha : 43°05,845. N . 005°56,049. E/) },
+      { name: '4s', position: copie(input, /43°05,300. N . 005°57,500. E/), excerpt: copie(input, /Bouée 4s : 43°05,300. N . 005°57,500. E/) },
+      { name: '4p', position: copie(input, /43°05,300. N . 005°57,567. E/), excerpt: copie(input, /Bouée 4p : 43°05,300. N . 005°57,567. E/) },
+      { name: 'F', position: copie(input, /43°05,500. N . 005°58,000. E/), excerpt: copie(input, /Bouée F : 43°05,500. N . 005°58,000. E/) },
+    ],
+    courses: [
+      {
+        name: 'Parcours B', excerpt: copie(input, /Parcours B : départ, Alpha bâbord, porte 4s\/4p, Alpha bâbord, arrivée entre le bateau comité et la bouée F/),
+        sequence: [{ mark: 'Départ', side: null, gate: null }, { mark: 'Alpha', side: 'b', gate: null }, { mark: '4s', side: null, gate: '4p' }, { mark: 'Alpha', side: 'b', gate: null }, { mark: 'Arrivée', side: null, gate: null }],
+        finish: { kind: 'comite', mark: 'F', excerpt: copie(input, /arrivée entre le bateau comité et la bouée F/) },
+      },
+      {
+        name: 'Parcours C', excerpt: copie(input, /Parcours C : départ, Alpha bâbord, 4s bâbord, arrivée/),
+        sequence: [{ mark: 'Départ', side: null, gate: null }, { mark: 'Alpha', side: 'b', gate: null }, { mark: '4s', side: 'b', gate: null }, { mark: 'Arrivée', side: null, gate: null }],
+        finish: { kind: 'pres', mark: 'F', excerpt: 'arrivée près de la bouée F au large de la digue' },          // extrait inventé
+      },
+    ],
+  }));
+  const { page, erreurs } = await ouvrePage(ctx);
+  const tables = () => page.evaluate(async () => { const m = await import('/js/courses.js'); return { marks: Object.keys(m.MARKS), courses: m.COURSES.map((c) => `${c.id}:${c.title}`) }; });
+  const ligne = (id) => page.locator(`#rgSheet [data-mk-row=${id}]`);
+  const fiche101 = () => page.locator('#rgSheet [data-co-row="101"]').textContent();
+
+  await ouvreApp(page, base);
+  await ventManuel(page);
+  await ouvreApp(page, base);
+  await membreGarde(page, 'Équipier test');
+  await creeRegate(page, { nom: 'Régate porte', debut: '2026-10-19', club: 'SNM' });
+  await importeTexte(page, TEXTE_PORTE);
+  await page.click('#icIa');
+  await page.waitForSelector('.iccourse', { timeout: 30000 });
+  assert.equal(etat.demandes.length, 1, 'un seul appel');
+  assert.equal(etat.client[0].text.format.schema.properties.courses.items.properties.finish.additionalProperties, false, 'schéma strict envoyé');
+
+  // relecture : la porte et l’arrivée du parcours B, avec son extrait ; l’arrivée inventée du parcours C n’est pas gardée
+  const co = await page.locator('.iccourse').allTextContents();
+  assert.equal(co.length, 2);
+  assert.match(co[0], /Parcours B : Départ → Alpha bâbord → porte 4s \/ 4p → Alpha bâbord → Arrivée/);
+  assert.match(co[0], /Arrivée : entre le Comité et F · Extrait : « arrivée entre le bateau comité et la bouée F »/);
+  assert.match(co[1], /arrivée non prouvée : extrait introuvable dans le texte ; arrivée sur la ligne de départ/);
+  assert.doesNotMatch(co[1], /Arrivée : près de/);
+  assert.equal(await page.locator('input[data-co="0"]').isChecked(), true, 'parcours B coché : ses quatre bouées sont retenues');
+  // décocher 4p (bouée de la porte) décoche le parcours B ; décocher F (arrivée) aussi
+  await page.uncheck('input[data-mk="2"]');
+  assert.equal(await page.locator('input[data-co="0"]').isChecked(), false, 'sans 4p, le parcours B est décoché');
+  assert.equal(await page.locator('input[data-co="0"]').isDisabled(), true);
+  assert.equal(await page.locator('input[data-co="1"]').isChecked(), true, 'le parcours C ne dépend pas de 4p');
+  await page.check('input[data-mk="2"]'); await page.check('input[data-co="0"]');
+  await page.uncheck('input[data-mk="3"]');
+  assert.equal(await page.locator('input[data-co="0"]').isChecked(), false, 'sans F, le parcours B est décoché');
+  await page.check('input[data-mk="3"]'); await page.check('input[data-co="0"]');
+  await page.click('#icValidate');
+  await page.waitForSelector('#icReview', { state: 'detached', timeout: 10000 });
+
+  // la régate porte le parcours 101 avec sa porte et son arrivée, aux identifiants X…
+  const reg = await regateOuverte(page);
+  assert.deepEqual(reg.marks.map((m) => [m.id, m.name, m.status]), [['X1', 'Alpha', 'a_confirmer'], ['X2', '4s', 'a_confirmer'], ['X3', '4p', 'a_confirmer'], ['X4', 'F', 'a_confirmer']]);
+  const b = reg.courses.find((c) => c.id === 101);
+  assert.deepEqual(b.seq, [{ mark: 'X1', side: 'b' }, { mark: 'X2', side: null, gate: 'X3' }, { mark: 'X1', side: 'b' }]);
+  assert.deepEqual([b.finish.kind, b.finish.mark], ['comite', 'X4']);
+  assert.match(b.finish.excerpt, /arrivée entre le bateau comité et la bouée F/);
+  assert.ok(!('finish' in reg.courses.find((c) => c.id === 102)), 'parcours C : arrivée non prouvée, aucune arrivée retenue');
+  assert.match(await fiche101(), /en attente de : X1 Alpha, X2 4s, X3 4p, X4 F/);
+
+  // « Corriger la position » de F (moins de 2 Nq) : elle reste à confirmer
+  await page.click('[data-mk-fix=X4]');
+  await page.fill('#mkxTxt', '43°05.520N 005°58.050E'); await page.click('#mkxOk');
+  await page.waitForSelector('#mkxTxt', { state: 'detached', timeout: 10000 });
+  assert.match(await ligne('X4').textContent(), /43°05\.520N 005°58\.050E[\s\S]*position corrigée/);
+  // confirmer Alpha, 4s, 4p : le parcours attend encore F (arrivée)
+  for (const id of ['X1', 'X2', 'X3']) await page.click(`[data-mk-ok=${id}]`);
+  assert.match(await fiche101(), /en attente de : X4 F/);
+  let t = await tables();
+  assert.ok(!t.courses.includes('101:Parcours B (IC)'), 'pas de parcours tant que la bouée d’arrivée n’est pas confirmée');
+  await page.click('[data-mk-ok=X4]');
+  t = await tables();
+  assert.deepEqual(t.marks.slice(-4), ['X1', 'X2', 'X3', 'X4']);
+  assert.ok(t.courses.includes('101:Parcours B (IC)'), 'parcours proposé une fois toutes ses bouées confirmées');
+  assert.match(await fiche101(), /proposé dans l’onglet Parcours/);
+
+  // l’onglet Parcours : X1 Alpha, la porte (4s ou 4p, conseil de porte), X1 Alpha, arrivée entre le Comité et F
+  await page.click('#tabs button[data-tab=course]');
+  await videEtiquettes(page);
+  await page.selectOption('#cSel', '101');
+  await attendBords(page, suite([/X1 Alpha/, /X[23] 4[sp]/, /X1 Alpha/, /^Arrivée \(Comité – X4 F\)/]), 'parcours B avec porte et arrivée');
+  const porte = await page.locator('section[data-tab=course] .leg').nth(1).textContent();
+  assert.match(porte, /Porte : /, `conseil de porte dans le bord : ${porte.slice(0, 300)}`);
+  await page.waitForFunction(() => window.__labels.some((x) => x.startsWith('4s · ')) && window.__labels.some((x) => x.startsWith('4p · ')), null, { timeout: 30000 });
+  assert.equal((await etatPage(page)).courseId, 101);
+  sansErreur(erreurs, 'pendant le scénario');
+  await ctx.close();
+}
+
+const SCENARIOS = { accueil, 'jour-j': jourJ, 'deux-telephones': deuxTelephones, reprise, equipage, archive, 'archive-bouees': archiveBouees, archivehors: archiveHors, creer, manche, auteur, ic, 'depuis-ic': depuisIC, vraisemblance, gel, 'debrief-tardif': debriefTardif, gpx, 'gpx-choix': gpxChoix, ia, 'ia-erreurs': iaErreurs, arbitre, bouees, guide, entetes, 'retour-port': retourPort, banane, 'banane-manche': bananeManche, 'porte-ic': porteIC };
 
 // ───────────────────────── lancement
 
