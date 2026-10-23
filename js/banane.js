@@ -28,6 +28,8 @@ export function cleanBan(x) {
   };
 }
 export const banOf = (S) => cleanBan({ nm: S?.banNm, off: S?.banOff, side: S?.banSide, gate: S?.banGate, fin: S?.banFin });
+// Réglages d’une manche (objet passé par cleanBan) vers les clés de l’état de l’app : banOf(banToState(b)) redonne b
+export const banToState = (b) => ({ banNm: b.nm, banOff: b.off, banSide: b.side, banGate: b.gate, banFin: b.fin });
 
 export const BANANE = {
   id: BANANE_ID, title: 'Banane (construite)', laps: true, both: true, built: 'BAN', line: 'grandrade',

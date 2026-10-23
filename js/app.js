@@ -16,7 +16,7 @@ import { trackDay, matchRegattas, raceOfTrack, sameTrack, attachTrace, detachTra
 import { breaksOf } from './segments.js';
 import { fetchAll, cached, snapshot, consensus, gridPoints, marineAt, fetchLive, MODELS, WMO, CENTER } from './weather.js';
 import { buildLegs, analyzeLeg, markAdvice, analyzeStart, trendOf, rankCourses, regimeOf, sideName, summarizeTime, prepareLeg, gateText } from './tactics.js';
-import { BANANE_ID, addBanane, banOf, courseMarkUse, legReached } from './banane.js';
+import { BANANE_ID, addBanane, banOf, banToState, courseMarkUse, legReached } from './banane.js';
 import { optimalAngles, boatSpeed, trimAdvice, spiMinTwa, getPolar, setPolar, resetPolar, parsePolar } from './polar.js';
 import { renderJ80 } from './j80.js';
 import { modelPoints, modelAt, idwAt, scoreModels, renderObsCard } from './obs.js';
@@ -1419,6 +1419,7 @@ function stratSettings(cls) {
   return {
     courseId: S.courseId, cls, laps: S.laps, wlNm: S.wlNm, startTime: S.startTime, day: S.day, linePreset: S.linePreset, lineLen: S.lineLen, lineMode: S.lineMode,
     lineBrg: S.lineBrg, lineOverride: S.lineOverride, perf: S.perf, polar: getPolar().source, model: selectedModel(), src: S.src, ...(S.src === 'manual' ? { manual: S.manual } : {}),
+    ...(S.courseId === BANANE_ID ? { ban: banOf(S) } : {}),          // réglages de la banane (D-04), comme wlNm ; absents pour les autres parcours (forme v37)
   };
 }
 
@@ -2077,6 +2078,7 @@ function chooseRace(n) {
   if (set.laps) S.laps = set.laps;
   if (set.startTime != null) { S.startTime = set.startTime; S.hour = Math.floor(S.startTime * 4) / 4; }
   if (set.day && set.day >= today()) S.day = set.day;
+  if (set.ban) Object.assign(S, banToState(set.ban));         // banane de la manche (bornée par raceSettings)
   saveReg(upsertRegatta(REG, { ...reg, sel: n }));         // la manche choisie est gardée avec la régate
   persist(); renderCourse(); updateAll(); renderIC();
   const c = COURSES.find((x) => x.id === S.courseId);
@@ -2149,7 +2151,8 @@ function renderIC() {
     for (const id of ['#rcDate', '#rcTime', '#rcCourse', '#rcCls', '#rcLaps', '#rcNote']) { $(id).addEventListener('input', sync); $(id).addEventListener('change', sync); }
     $('#rcAdd').onclick = () => {
       sync();
-      const r = addRace(cur, raceDraft, { now: Date.now(), by: who(), courses: COURSES });
+      // une manche en banane garde les réglages de la banane de ce téléphone (D-04) : « Choisir cette manche » les rend sur les autres
+      const r = addRace(cur, { ...raceDraft, ...(Number(raceDraft.courseId) === BANANE_ID ? { ban: banOf(S) } : {}) }, { now: Date.now(), by: who(), courses: COURSES });
       if (!r.ok) { raceErr = r.errors; renderIC(); return; }
       raceDraft = null; raceErr = {};
       saveReg(upsertRegatta(REG, r.regatta)); renderIC(); toast(`Manche ajoutée (${r.regatta.races.length} dans la régate)`);

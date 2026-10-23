@@ -11,6 +11,7 @@ import { BANANE_ID, BANANE, BAN_DEF, cleanBan, banOf, addBanane, bananeCourse, o
 import { readFileSync } from 'node:fs';
 import { ROOT } from './helpers/setup.mjs';
 import { bodyOf } from './helpers/scan.mjs';
+import * as R from '../js/regates.js';
 import { NM, toXY, bearingXY, distXY, norm180, Terrain } from '../js/geo.js';
 import { WindField } from '../js/wind.js';
 import { MARKS, COURSES, LINE_PRESETS } from '../js/courses.js';
@@ -481,4 +482,45 @@ test('gardes : passage automatique par legReached, porte reconseillée depuis le
   assert.match(pr, /gate: src\.gate \? \{ g: src\.gate\.g, d: src\.gate\.d \} : undefined/, 'la porte du bord d’origine est transmise');
   assert.match(bodyOf(APP, 'renderLiveNav'), /gateText\(/);
   assert.match(bodyOf(APP, 'renderPlan'), /gateText\(/);
+});
+
+// Réglages de la banane gardés avec la manche (D-04) ; facultatifs, une manche sans banane garde la forme v37 (D-09)
+const regateB = () => ({ id: 'a', name: 'Régate', club: 'CVAT', dateStart: '2026-11-07', dateEnd: '2026-11-09', season: '2026', races: [], ic: null, marks: [], courses: [], frozen: {}, traces: [], by: null, at: 0 });
+const PARCOURS_B = [...COURSES.map(({ id, title }) => ({ id, title })), { id: BANANE_ID, title: BANANE.title }];
+
+test('manche : ban nettoyé gardé avec la manche, ban hostile borné, manche sans banane à la forme v37 (D-04, D-09)', () => {
+  const ok = R.addRace(regateB(), { date: '2026-11-07', time: '10:55', courseId: '90', cls: 'G', laps: '2', ban: { nm: 1.2, off: true, side: 't', gate: false, fin: 'auvent' } }, { now: 1000, by: 'Teiva', courses: PARCOURS_B });
+  assert.equal(ok.ok, true);
+  const m = ok.regatta.races[0];
+  assert.equal(m.courseId, 90);
+  assert.deepEqual(m.ban, { nm: 1.2, off: true, side: 't', gate: false, fin: 'auvent' });
+  assert.deepEqual(Object.keys(m), ['n', 'date', 'time', 'courseId', 'cls', 'laps', 'note', 'by', 'at', 'ban']);
+  const hostile = JSON.parse('{"nm": 99, "side": "x", "gate": "oui", "fin": "<b>", "__proto__": { "pollue": 1 }, "extra": 3}');
+  const h = R.addRace(regateB(), { courseId: 90, ban: hostile }, { now: 1, by: null, courses: PARCOURS_B }).regatta.races[0].ban;
+  assert.deepEqual(h, { nm: 2, off: true, side: 'b', gate: true, fin: 'depart' }, 'bornes et défauts');
+  assert.deepEqual(Object.keys(h), ['nm', 'off', 'side', 'gate', 'fin'], 'aucune clé de plus');
+  assert.equal(Object.getPrototypeOf(h), Object.prototype); assert.equal(h.pollue, undefined);
+  const sans = R.addRace(regateB(), { date: '2026-11-07', time: '10:55', courseId: '5', cls: 'G', laps: '2' }, { now: 1000, by: 'Teiva', courses: PARCOURS_B }).regatta.races[0];
+  assert.deepEqual(Object.keys(sans), ['n', 'date', 'time', 'courseId', 'cls', 'laps', 'note', 'by', 'at'], 'forme v37, sans ban');
+  assert.equal(R.addRace(regateB(), { courseId: 90, ban: 'texte' }, { now: 1, courses: PARCOURS_B }).regatta.races[0].ban, undefined, 'ban qui n’est pas un objet : ignoré');
+});
+
+test('manche : raceSettings rend ban nettoyé ; sans ban, sortie v37 ; banToState aller-retour (D-04)', () => {
+  const avec = R.raceSettings({ date: '2026-11-07', time: '10:55', courseId: 90, cls: 'G', laps: 2, ban: { nm: 5, off: false, side: 't', gate: false, fin: 'sousvent', x: 1 } });
+  assert.deepEqual(avec, { courseId: 90, cls: 'G', laps: 2, day: '2026-11-07', startTime: 11, ban: { nm: 2, off: false, side: 't', gate: false, fin: 'sousvent' } });
+  assert.deepEqual(R.raceSettings({ date: '2026-11-07', time: '10:55', courseId: 5, cls: 'P', laps: 2 }), { courseId: 5, cls: 'P', laps: 2, day: '2026-11-07', startTime: 11 });
+  const { banToState } = banane;
+  assert.equal(typeof banToState, 'function');
+  for (const x of [{}, { nm: 1.2, off: false, side: 't', gate: false, fin: 'auvent' }, { nm: 0.1, fin: 'sousvent' }]) {
+    const b = cleanBan(x), st = banToState(b);
+    assert.deepEqual(Object.keys(st), ['banNm', 'banOff', 'banSide', 'banGate', 'banFin']);
+    assert.deepEqual(banOf(st), b);
+  }
+});
+
+test('gardes : réglages de la banane figés avec la route conseillée, gardés avec la manche, rendus par « Choisir cette manche » (D-04)', () => {
+  assert.match(bodyOf(APP, 'stratSettings'), /S\.courseId === BANANE_ID \? \{ ban: banOf\(S\) \} : \{\}/);
+  assert.match(bodyOf(APP, 'chooseRace'), /if \(set\.ban\) Object\.assign\(S, banToState\(set\.ban\)\);/);
+  const ic = bodyOf(APP, 'renderIC');
+  assert.match(ic, /addRace\(cur, \{ \.\.\.raceDraft, \.\.\.\(Number\(raceDraft\.courseId\) === BANANE_ID \? \{ ban: banOf\(S\) \} : \{\}\) \}/);
 });

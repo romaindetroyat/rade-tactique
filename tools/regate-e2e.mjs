@@ -2485,7 +2485,51 @@ async function banane({ browser, base }) {
   await ctx2.close();
 }
 
-const SCENARIOS = { accueil, 'jour-j': jourJ, 'deux-telephones': deuxTelephones, reprise, equipage, archive, 'archive-bouees': archiveBouees, archivehors: archiveHors, creer, manche, auteur, ic, 'depuis-ic': depuisIC, vraisemblance, gel, 'debrief-tardif': debriefTardif, gpx, 'gpx-choix': gpxChoix, ia, 'ia-erreurs': iaErreurs, arbitre, bouees, guide, entetes, 'retour-port': retourPort, banane };
+// D-04 : une manche courue en banane garde ses réglages ; « Choisir cette manche » rend la même banane sur un autre téléphone
+async function bananeManche({ browser, base }) {
+  const m = await mondeArchive('2026-10-24T08:30:00Z');                                  // samedi 24/10/2026, 10 h 30 à Paris
+  const A = await telephoneArchive(browser, base, m, 'Teiva'), B = await telephoneArchive(browser, base, m, 'Thibaud');
+  const BAN_A = [BAN_B, BAN_C, /Bouée sous le vent/, BAN_B, BAN_C, /Bouée sous le vent/, /^Arrivée au vent \(décalée\)/];
+
+  // A : banane à 1,2 Nq, une seule bouée sous le vent, arrivée au vent
+  await A.page.click('#tabs button[data-tab=course]');
+  await attendBords(A.page, (b) => b.length > 0, 'premier calcul');
+  await A.page.selectOption('#cSel', '90');
+  await A.page.waitForSelector('#cBanNm', { timeout: 10000 });
+  await A.page.fill('#cBanNm', '1.2'); await A.page.locator('#cBanNm').dispatchEvent('change');
+  await A.page.selectOption('#cBanGate', '0');
+  await A.page.selectOption('#cBanFin', 'auvent');
+  const bordsA = await attendBords(A.page, suite(BAN_A), 'banane de A');
+  assert.deepEqual(await reglagesBanane(A.page), { '#cBanNm': '1.2', '#cBanOff': '1', '#cBanSide': 'b', '#cBanGate': '0', '#cBanFin': 'auvent' });
+
+  // A : régate du jour, une manche en banane ; la manche garde les réglages
+  await creeRegate(A.page, { nom: 'Régate banane', debut: new Date(m.t).toISOString().slice(0, 10), club: 'CVAT' });
+  const id = await idOuverte(A.page);
+  await ajouteManche(A.page, { heure: '10:55', parcours: '90', cls: 'G', tours: '2' });
+  const manche = (await regateOuverte(A.page)).races[0];
+  assert.equal(manche.courseId, 90);
+  assert.deepEqual(manche.ban, { nm: 1.2, off: true, side: 'b', gate: false, fin: 'auvent' }, 'réglages de la banane gardés avec la manche');
+  await avanceHeure(m, 60e3); await synchronise(m, A);
+  await avanceHeure(m, 60e3); await synchronise(m, B);
+
+  // B : parcours 3 et réglages par défaut ; « Choisir cette manche » rend la même banane
+  if (await idOuverte(B.page) !== id) await ouvreRegate(B.page, id);
+  assert.deepEqual((await regateOuverte(B.page)).races[0].ban, manche.ban, 'la manche reçue porte la banane');
+  await B.page.click('#tabs button[data-tab=ic]');
+  await B.page.click('[data-race="1"]');
+  await B.page.click('#tabs button[data-tab=course]');
+  await B.page.waitForSelector('#cBanNm', { timeout: 30000 });
+  assert.equal(await B.page.locator('#cSel').inputValue(), '90');
+  assert.deepEqual(await reglagesBanane(B.page), { '#cBanNm': '1.2', '#cBanOff': '1', '#cBanSide': 'b', '#cBanGate': '0', '#cBanFin': 'auvent' }, 'réglages rendus sur B');
+  const bordsB = await attendBords(B.page, suite(BAN_A), 'banane de B');
+  assert.deepEqual(bordsB, bordsA, 'mêmes bords sur les deux téléphones');
+  const stB = await etatPage(B.page);
+  assert.deepEqual([stB.courseId, stB.banNm, stB.banGate, stB.banFin], [90, 1.2, false, 'auvent'], 'gardés dans rade.state de B');
+  sansErreur(A.erreurs, 'téléphone A'); sansErreur(B.erreurs, 'téléphone B');
+  await A.ctx.close(); await B.ctx.close();
+}
+
+const SCENARIOS = { accueil, 'jour-j': jourJ, 'deux-telephones': deuxTelephones, reprise, equipage, archive, 'archive-bouees': archiveBouees, archivehors: archiveHors, creer, manche, auteur, ic, 'depuis-ic': depuisIC, vraisemblance, gel, 'debrief-tardif': debriefTardif, gpx, 'gpx-choix': gpxChoix, ia, 'ia-erreurs': iaErreurs, arbitre, bouees, guide, entetes, 'retour-port': retourPort, banane, 'banane-manche': bananeManche };
 
 // ───────────────────────── lancement
 

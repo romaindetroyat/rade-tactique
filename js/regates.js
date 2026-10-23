@@ -5,6 +5,7 @@
 
 import { parisClock } from './racelock.js';
 import { IC as SNPM } from './courses.js';
+import { cleanBan } from './banane.js';
 
 export const KEY = 'rade.regates.v1';
 export const VERSION = 1;
@@ -217,7 +218,9 @@ export function addRace(r, race = {}, { now = Date.now(), by = null, courses = [
   if (note.length > MAX_NOTE) errors.note = `Note trop longue (${MAX_NOTE} caractères au plus).`;
   if (Object.keys(errors).length) return { ok: false, regatta: r, errors };
   // la manche choisie (sel) suit sa nouvelle place : chaque manche porte une étiquette temporaire d’origine pendant le tri
-  const tagged = [...(r.races || []).map((m) => ({ ...m, _o: m.n })), { n: 0, date, time, courseId, cls, laps: lapsRaw, note, by, at: now, _o: 0 }];
+  // réglages de la banane gardés avec la manche (D-04), facultatifs : une manche sans eux garde la forme v37, qu’une v37 lit sans peine (D-09)
+  const ban = race.ban && typeof race.ban === 'object' ? { ban: cleanBan(race.ban) } : {};
+  const tagged = [...(r.races || []).map((m) => ({ ...m, _o: m.n })), { n: 0, date, time, courseId, cls, laps: lapsRaw, note, by, at: now, ...ban, _o: 0 }];
   const sorted = tagged.sort(raceOrder);
   const races = sorted.map(({ _o, ...m }, i) => ({ ...m, n: i + 1 }));
   const next = { ...r, races };
@@ -239,6 +242,7 @@ export function raceSettings(race) {
   if (race.laps) out.laps = race.laps;
   if (race.date) out.day = race.date;
   if (isTime(race.time)) { const [h, m] = race.time.split(':').map(Number); out.startTime = (h * 60 + m + 5) / 60; }
+  if (race.ban && typeof race.ban === 'object') out.ban = cleanBan(race.ban);       // banane de la manche (D-04), bornée : elle peut venir d’un autre téléphone
   return out;
 }
 
