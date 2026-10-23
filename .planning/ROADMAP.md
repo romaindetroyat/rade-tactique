@@ -202,7 +202,7 @@ Plans:
   4. La référence SNPM (`js/courses.js`, `tests/reference/`) ne bouge pas ; les parcours SNPM, le parcours 13 et les régates déjà archivées donnent exactement les mêmes bords qu'en v37
   5. v38 sur l'aperçu `apercu-phase-06`, vérifiée, puis en production sur décision de Romain avant le 2 novembre
 
-**Plans:** 3/4 plans executed
+**Plans:** 4/4 plans executed (06-04 : décision de production en attente)
 
 Plans:
 **Wave 1**
@@ -215,4 +215,4 @@ Plans:
 - [x] 06-03-PLAN.md — Autre club : porte et arrivée dans le schéma strict d'`api/ic.js` (extraits vérifiés), relecture, fiche et injection ; passages de porte au débrief et dans l'analyse d'une trace ; `tools/compat-v37.mjs` (fiches v37 ↔ v38) ; scénario `porte-ic` (vague 3)
 
 **Wave 4** *(blocked on Wave 3 completion)*
-- [ ] 06-04-PLAN.md — Guide et aide intégrée, v38 (`npm run release`), porte en `VERCEL_ENV=production`, poussée de `apercu-phase-06` et PR brouillon par l'orchestrateur, production seulement sur « publie » de Romain (vague 4, non autonome)
+- [ ] 06-04-PLAN.md — Guide et aide intégrée, v38 (`npm run release`), porte en `VERCEL_ENV=production`, poussée de `apercu-phase-06` et PR brouillon par l'orchestrateur, production seulement sur « publie » de Romain (vague 4, non autonome) — partie autonome faite le 2026-10-23 (guide, aide, v38 locale `db7df7f`, toutes vérifications vertes) ; en attente : poussée, PR brouillon, « publie » de Romain
