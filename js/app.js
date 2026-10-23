@@ -1,7 +1,7 @@
 // Rade Tactique — application principale.
 
 import { report, note, setContext } from './journal.js';
-import { Terrain, toXY, toLL, NM, bearingXY, distXY, norm360, norm180, fmtBrg, fmtNm, fmtLat, fmtLon, cardinal } from './geo.js';
+import { Terrain, toXY, toLL, NM, bearingXY, distXY, norm360, norm180, fmtBrg, fmtNm, fmtLat, fmtLon, cardinal, pointInPolygon } from './geo.js';
 import { WindField, speedColor } from './wind.js';
 import { MARKS, COURSES, LINE_PRESETS, FORBIDDEN_ZONE, DANGERS } from './courses.js';
 import { pdfText, parseIC, cleanText } from './events.js';
@@ -16,7 +16,7 @@ import { trackDay, matchRegattas, raceOfTrack, sameTrack, attachTrace, detachTra
 import { breaksOf } from './segments.js';
 import { fetchAll, cached, snapshot, consensus, gridPoints, marineAt, fetchLive, MODELS, WMO, CENTER } from './weather.js';
 import { buildLegs, analyzeLeg, markAdvice, analyzeStart, trendOf, rankCourses, regimeOf, sideName, summarizeTime, prepareLeg, gateText } from './tactics.js';
-import { BANANE_ID, addBanane, banOf, banToState, courseMarkUse, legReached } from './banane.js';
+import { BANANE_ID, addBanane, banOf, banToState, courseMarkUse, legReached, banHorsEau } from './banane.js';
 import { optimalAngles, boatSpeed, trimAdvice, spiMinTwa, getPolar, setPolar, resetPolar, parsePolar } from './polar.js';
 import { renderJ80 } from './j80.js';
 import { modelPoints, modelAt, idwAt, scoreModels, renderObsCard } from './obs.js';
@@ -433,6 +433,8 @@ async function runAnalysis() {
   const wLine = F.sample(ctr.x, ctr.y);
   const ov = S.lineOverride ? { cb: toXY(S.lineOverride.cb.lat, S.lineOverride.cb.lon), pin: toXY(S.lineOverride.pin.lat, S.lineOverride.pin.lon) } : null;
   const B = buildLegs(course, cls, { laps: S.laps, windDir: wLine.dir, wlLengthNm: S.wlNm, ban: banOf(S), line: { center: preset, lengthNm: S.lineLen, mode: S.lineMode, bearing: S.lineBrg, override: ov } });
+  // banane : bouées construites à terre ou dans la zone interdite avec ce vent (routage impossible, temps absurdes) → avertissement
+  const horsEau = course.built === 'BAN' ? banHorsEau(B, (p) => !T.inside(p.x, p.y) || T.isLand(p.x, p.y) || forbidden.some((poly) => pointInPolygon(p, poly))) : [];
   const trend = S.src === 'forecast' && data ? trendOf(series, Math.max(0, seriesIndex(S.day, S.startTime)), Math.max(0, seriesIndex(S.day, S.startTime + 4))) : 0;
   const ctx = { terrain: T, forbidden, perf: S.perf, trend };
   const start = analyzeStart(B.line, F, { ...B.legs[0] }, ctx);
@@ -466,7 +468,7 @@ async function runAnalysis() {
   if (token !== anaToken) return;
   let ord = 0;
   legs.forEach((l) => { if (l.mark !== 'GATE' && l.mark !== 'FINISH') l.order = ++ord; });
-  analysis = { course, cls, legs, line: B.line, points: B.points, start, total: t - S.startTime, dist: legs.reduce((s, l) => s + l.dist, 0), trend, day: S.day, cfg: stratSettings(cls), finishLine: B.finishLine ?? null };
+  analysis = { course, cls, legs, line: B.line, points: B.points, start, total: t - S.startTime, dist: legs.reduce((s, l) => s + l.dist, 0), trend, day: S.day, cfg: stratSettings(cls), finishLine: B.finishLine ?? null, horsEau };
   freezeTick('analyse');
   applyPendingEnds();
   updateDisplayField();
@@ -633,7 +635,7 @@ function onReplay(st) {
   }
   const l = analysis?.legs[st.p.leg]; if (!l) return;
   const clock = S.startTime + st.t / 3600, twa = st.p.twa ?? l.twa;
-  $('#rhInfo').innerHTML = `<b>${hhmm(clock)}</b> · course ${summarizeTime(st.t)} / ${summarizeTime(st.T)}<br>Bord ${st.p.leg + 1}/${analysis.legs.length} → ${l.order ? `<b>marque ${l.order}</b> (n°${esc(l.to.name)})` : esc(l.to.name)}${l.side ? ' · ' + sideName(l.side) : ''}<br>${(st.p.bsp ?? 0).toFixed(1)} nd · cap ${fmtBrg(st.hd)} · TWA ${Math.abs(twa).toFixed(0)}° ${twa >= 0 ? 'bâbord' : 'tribord'} amures · ${st.p.spi ? 'spi' : 'foc'}`;
+  $('#rhInfo').innerHTML = `<b>${hhmm(clock)}</b> · course ${summarizeTime(st.t)} / ${summarizeTime(st.T)}<br>Bord ${st.p.leg + 1}/${analysis.legs.length} → ${l.order ? `<b>marque ${l.order}</b> (${esc((/^\d/.test(l.to.name) ? 'n°' : '') + l.to.name)})` : esc(l.to.name)}${l.side ? ' · ' + sideName(l.side) : ''}<br>${(st.p.bsp ?? 0).toFixed(1)} nd · cap ${fmtBrg(st.hd)} · TWA ${Math.abs(twa).toFixed(0)}° ${twa >= 0 ? 'bâbord' : 'tribord'} amures · ${st.p.spi ? 'spi' : 'foc'}`;
   $('#rhPlay').textContent = st.playing ? '⏸' : '▶';
   if (document.activeElement !== $('#rhSeek')) $('#rhSeek').value = Math.round((st.t / st.T) * 1000);
 }
@@ -676,6 +678,7 @@ function renderBrief() {
         : 'Faites un relevé dès l’arrivée sur zone (onglet Parcours) : l’app retiendra le modèle qui colle.'));
     }
     tips.push(`Parcours ${analysis.course.id} estimé à <b>${summarizeTime(analysis.total * 3600)}</b> pour un J80 (${(analysis.dist / NM).toFixed(1)} Nq route directe).`);
+    if (analysis.horsEau?.length) tips.push(`<b>⚠ ${esc(horsEauText(analysis.horsEau))}</b>`);
     for (const l of analysis.legs) if (l.gate) tips.push(`Tour ${esc(l.lap ?? 1)} · ${esc(gateText(l.gate))}`);         // porte conseillée à chaque passage (D-06)
     html += `<div class="card"><h3>Stratégie du jour ${tip('Synthèse automatique : rotation du vent attendue pendant la course, zones les plus ventées, désaccord entre modèles et temps estimé du parcours.')}</h3><ul class="tips">${tips.map((t) => `<li>${t}</li>`).join('')}</ul></div>`;
   }
@@ -738,7 +741,7 @@ function chartSVG(rows, isRace) {
 // Réglages de la banane construite (D-04), montrés seulement quand elle est choisie ; valeurs bornées par banOf
 function banPanel() {
   const b = banOf(S), opt = (v, txt, cur) => `<option value="${esc(v)}" ${v === cur ? 'selected' : ''}>${esc(txt)}</option>`;
-  return `<div class="row3" id="cBan" style="margin-top:8px">
+  return `<div class="row2" id="cBan" style="margin-top:8px">
     <div><label class="f">Dist. B (Nq)</label><input id="cBanNm" type="number" min="0.3" max="2" step="0.1" value="${esc(b.nm)}"></div>
     <div><label class="f">Dégagement (C)</label><select id="cBanOff">${opt('1', 'Oui', b.off ? '1' : '0')}${opt('0', 'Non', b.off ? '1' : '0')}</select></div>
     <div><label class="f">B laissée à</label><select id="cBanSide">${opt('b', 'bâbord', b.side)}${opt('t', 'tribord', b.side)}</select></div>
@@ -746,6 +749,8 @@ function banPanel() {
     <div><label class="f">Arrivée</label><select id="cBanFin">${opt('depart', 'Ligne de départ', b.fin)}${opt('sousvent', 'Sous le vent, décalée', b.fin)}${opt('auvent', 'Au vent, décalée', b.fin)}</select></div>
   </div>`;
 }
+// Avertissement d’une banane dont une bouée tombe à terre ou dans la zone interdite (onglet Parcours et briefing)
+function horsEauText(noms) { return `Avec ce vent et ces réglages, ${noms.join(', ')} ${noms.length > 1 ? 'tombent' : 'tombe'} à terre ou dans la zone interdite : temps et conseils de ce parcours faux. Réduisez Dist. B (Nq), ou changez la position de la ligne (onglet Départ).`; }
 function renderCourse() {
   const el = $('section[data-tab=course]');
   const c = COURSES.find((x) => x.id === S.courseId);
@@ -760,6 +765,7 @@ function renderCourse() {
   if (!analysis) html += '<div class="card">Calcul en cours…</div>';
   else {
     const A = analysis, man = A.legs.reduce((s, l) => s + (l.route?.maneuvers || 0), 0);
+    if (A.horsEau?.length) html += `<div class="card" id="banEau" style="border:2px solid var(--bad)"><b>⚠ ${esc(horsEauText(A.horsEau))}</b></div>`;
     html += `<div class="card"><div class="kpis"><div class="kpi"><b>${(A.dist / NM).toFixed(1)}</b><span>Nq route directe${c.nm ? ` (cahier : ${c.nm[A.cls]})` : c.lapNm ? ` (${c.lapNm} Nq/tour)` : ''}</span></div><div class="kpi"><b>${summarizeTime(A.total * 3600)}</b><span>temps J80 estimé</span></div><div class="kpi"><b>${man}</b><span>virements / empannages</span></div></div>
       <div class="small muted" style="margin-top:6px">Arrivée estimée ≈ ${hhmm(S.startTime + A.total)}. Chaque bord est calculé avec le vent prévu à l’heure où vous le courez, depuis le meilleur point de la ligne de départ.</div><button class="btn acc" id="playCourse" style="width:100%;margin-top:8px">▶ Animer le parcours</button></div>`;
     html += `<div class="legs">` + A.legs.map((l, i) => {
@@ -785,7 +791,7 @@ function renderCourse() {
   if ($('#cLaps')) $('#cLaps').onchange = (e) => { S.laps = Math.max(1, Math.min(5, +e.target.value || 1)); persist(); scheduleAnalysis(); };
   if ($('#cWl')) $('#cWl').onchange = (e) => { S.wlNm = +e.target.value || 0.8; persist(); scheduleAnalysis(); };
   // réglages de la banane (D-04) : gardés dans rade.state, bornés par cleanBan au calcul (banOf)
-  const banSet = { '#cBanNm': (v) => { S.banNm = banOf({ ...S, banNm: Number.parseFloat(String(v).replace(',', '.')) }).nm; }, '#cBanOff': (v) => { S.banOff = v === '1'; }, '#cBanSide': (v) => { S.banSide = v; }, '#cBanGate': (v) => { S.banGate = v === '1'; }, '#cBanFin': (v) => { S.banFin = v; } };
+  const banSet = { '#cBanNm': (v) => { const n = Number.parseFloat(String(v).replace(',', '.')); if (Number.isFinite(n)) S.banNm = banOf({ ...S, banNm: n }).nm; }, '#cBanOff': (v) => { S.banOff = v === '1'; }, '#cBanSide': (v) => { S.banSide = v; }, '#cBanGate': (v) => { S.banGate = v === '1'; }, '#cBanFin': (v) => { S.banFin = v; } };
   for (const [id, set] of Object.entries(banSet)) if ($(id)) $(id).onchange = (e) => { set(e.target.value); persist(); scheduleAnalysis(); };
   $('#cStart').onchange = (e) => { const m = /^(\d{1,2})[:h ]?(\d{2})?$/.exec(e.target.value.trim()); if (m) { S.startTime = +m[1] + (+m[2] || 0) / 60; S.hour = Math.floor(S.startTime * 4) / 4; persist(); updateAll(); } };
   $$('.leg', el).forEach((d) => d.addEventListener('click', () => {

@@ -2452,6 +2452,15 @@ async function banane({ browser, base }) {
   await page.waitForSelector('#cBanFin', { timeout: 30000 });
   assert.deepEqual(await reglagesBanane(page), { '#cBanNm': '0.8', '#cBanOff': '1', '#cBanSide': 'b', '#cBanGate': '1', '#cBanFin': 'auvent' }, 'après relance');
   await attendBords(page, suite([BAN_B, BAN_C, BAN_PORTE, BAN_B, BAN_C, BAN_PORTE, /^Arrivée au vent \(décalée\)/]), 'après relance');
+  assert.equal(await page.locator('#banEau').count(), 0, '0,8 Nq par mistral : toutes les bouées dans l’eau, aucun avertissement');
+
+  // Dist. B trop grande pour ce vent : B à terre (Toulon), l’onglet Parcours et le briefing le disent ; retour à 0,8 Nq : plus d’avertissement
+  await page.fill('#cBanNm', '2'); await page.locator('#cBanNm').dispatchEvent('change');
+  await page.waitForSelector('#banEau', { timeout: 120000 });
+  assert.match(await page.locator('#banEau').textContent(), /B \(au vent\).* à terre ou dans la zone interdite/, 'avertissement « à terre »');
+  assert.match(await page.locator('section[data-tab=brief]').textContent(), /à terre ou dans la zone interdite/, 'le briefing le dit aussi');
+  await page.fill('#cBanNm', '0.8'); await page.locator('#cBanNm').dispatchEvent('change');
+  await page.waitForSelector('#banEau', { state: 'detached', timeout: 120000 });
 
   // parcours 3 rechoisi : plus de réglages, ses 13 bords
   await page.selectOption('#cSel', '3');

@@ -524,3 +524,34 @@ test('gardes : réglages de la banane figés avec la route conseillée, gardés 
   const ic = bodyOf(APP, 'renderIC');
   assert.match(ic, /addRace\(cur, \{ \.\.\.raceDraft, \.\.\.\(Number\(raceDraft\.courseId\) === BANANE_ID \? \{ ban: banOf\(S\) \} : \{\}\) \}/);
 });
+
+// ───────────────────────── bouées construites hors de l’eau (apercu-v39)
+
+test('banHorsEau : bouées de la banane à terre ou dans la zone interdite nommées, rien quand tout est dans l’eau', async () => {
+  const { banHorsEau } = banane;
+  assert.equal(typeof banHorsEau, 'function');
+  const T = await new Terrain().load('data/');
+  const { FORBIDDEN_ZONE } = await import('../js/courses.js');
+  const { pointInPolygon } = await import('../js/geo.js');
+  const zone = FORBIDDEN_ZONE.map((p) => toXY(p.lat, p.lon));
+  const bloque = (p) => !T.inside(p.x, p.y) || T.isLand(p.x, p.y) || pointInPolygon(p, zone);
+  const ban = (nm, fin = 'depart', gate = true) => buildLegs(BANANE, 'G', { laps: 2, windDir: 315, ban: { nm, off: true, side: 'b', gate, fin }, line: { center: GR, lengthNm: 0.12, mode: 'wind' } });
+  // Grande Rade, mistral 315° : 0,8 Nq dans l’eau ; 2 Nq met B et C à terre (Toulon)
+  for (const fin of ['depart', 'sousvent', 'auvent']) for (const gate of [true, false]) assert.deepEqual(banHorsEau(ban(0.8, fin, gate), bloque), [], `0,8 Nq ${fin} ${gate}`);
+  const loin = banHorsEau(ban(2), bloque);
+  assert.ok(loin.includes('B (au vent)') && loin.includes('C (dégagement)'), `à 2 Nq : ${loin.join(', ')}`);
+  // tout bloqué : chaque bouée construite une fois, dans l’ordre, arrivée décalée comprise ; sans bouée sous le vent au 1 tour arrivée ligne
+  assert.deepEqual(banHorsEau(ban(0.8, 'auvent'), () => true), ['B (au vent)', 'C (dégagement)', 'Porte gauche', 'Porte droite', 'Arrivée']);
+  assert.deepEqual(banHorsEau(ban(0.8, 'depart', false), () => true), ['B (au vent)', 'C (dégagement)', 'Bouée sous le vent']);
+  assert.deepEqual(banHorsEau(buildLegs(BANANE, 'G', { laps: 1, windDir: 315, ban: { off: false }, line: { center: GR, lengthNm: 0.12 } }), () => true), ['B (au vent)'], '1 tour, sans dégagement, arrivée sur la ligne : B seule');
+  assert.deepEqual(banHorsEau(null, () => true), []);
+});
+
+test('gardes : avertissement « à terre » de la banane dans l’analyse, l’onglet Parcours et le briefing ; Dist. B illisible gardée', () => {
+  const ra = bodyOf(APP, 'runAnalysis');
+  assert.match(ra, /course\.built === 'BAN' \? banHorsEau\(B, \(p\) => !T\.inside\(p\.x, p\.y\) \|\| T\.isLand\(p\.x, p\.y\) \|\| forbidden\.some/);
+  assert.match(ra, /finishLine: B\.finishLine \?\? null, horsEau \}/);
+  assert.match(bodyOf(APP, 'renderCourse'), /if \(A\.horsEau\?\.length\) html \+= `<div class="card" id="banEau"/);
+  assert.match(bodyOf(APP, 'renderBrief'), /if \(analysis\.horsEau\?\.length\) tips\.push/);
+  assert.match(bodyOf(APP, 'renderCourse'), /if \(Number\.isFinite\(n\)\) S\.banNm = banOf\(\{ \.\.\.S, banNm: n \}\)\.nm;/);
+});
