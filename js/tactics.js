@@ -308,10 +308,66 @@ export function analyzeLeg(leg, field, ctx) {
   return { ...leg, wind: { dir, spd, gust, shelter }, twa, type, route: r, time, sides: { dP, dS }, shiftAmp, advice, site };
 }
 
+// ───────────────────────── Porte sous le vent à deux bouées (D-05)
+export const GATE_EQUAL_S = 10;     // écart de moins de 10 s : bouées équivalentes
+const SHIFT_DEG_H = 2;              // bascule annoncée : |tendance| ≥ 2°/h, le seuil de « Rotation attendue » du briefing
+const FALLBACK_KN = 4;              // repli quand le routage n’aboutit pas : distance à 4 nd
+
+// Conseil de porte : pour chaque bouée, temps routé du bord qui y mène plus celui du bord suivant (vers nextTo) ; la plus courte est retenue
+// et devient la destination du bord. Mêmes options de routage que analyzeLeg. ctx.routeFn sert aux seuls tests (l’app ne la passe jamais).
+// Gauche et droite sont vues par les bateaux qui arrivent ; tendance > 0 (rotation à droite) → au près suivant le côté droit du plan d’eau,
+// c’est la bouée gauche en regardant sous le vent.
+export function adviseGate(leg, nextTo, field, ctx = {}) {
+  const opts = { terrain: ctx.terrain, forbidden: ctx.forbidden, perf: ctx.perf ?? 1 };
+  const rf = ctx.routeFn ?? route;
+  const trip = (a, b) => {
+    const d = distXY(a, b);
+    if (d < 20) return 0;
+    const t = rf(a, b, field, opts)?.time;
+    return Number.isFinite(t) ? t : d / (FALLBACK_KN * 0.5144);
+  };
+  const { g, d } = leg.gate;
+  const tg = trip(leg.from, g) + (nextTo ? trip(g, nextTo) : 0);
+  const td = trip(leg.from, d) + (nextTo ? trip(d, nextTo) : 0);
+  const gain = Math.abs(tg - td), equal = gain < GATE_EQUAL_S, trend = ctx.trend || 0;
+  let pick, why;
+  if (!equal) { pick = tg <= td ? 'g' : 'd'; why = 'routage'; }
+  else if (trend >= SHIFT_DEG_H) { pick = 'g'; why = 'bascule'; }
+  else if (trend <= -SHIFT_DEG_H) { pick = 'd'; why = 'bascule'; }
+  else { pick = 'g'; why = 'defaut'; }
+  const to = pick === 'g' ? g : d;
+  leg.to = to; leg.side = to.side; leg.brg = bearingXY(leg.from, to); leg.dist = distXY(leg.from, to);
+  leg.gate = { g, d, pick, gain, times: { g: tg, d: td }, equal, why, ...(why === 'bascule' ? { shift: trend > 0 ? 'droite' : 'gauche' } : {}) };
+  return leg.gate;
+}
+
+// Prépare un bord avant son analyse : après une porte, il part de la bouée retenue ; une porte reçoit son conseil
+// (cible = destination du bord suivant, ou milieu de la porte suivante). Un bord ordinaire après un bord ordinaire ne change pas.
+export function prepareLeg(leg, prev, next, field, ctx) {
+  if (prev?.gate) { leg.from = prev.to; leg.brg = bearingXY(leg.from, leg.to); leg.dist = distXY(leg.from, leg.to); }
+  if (leg.gate) {
+    const target = !next ? null : next.gate ? { x: (next.gate.g.x + next.gate.d.x) / 2, y: (next.gate.g.y + next.gate.d.y) / 2 } : next.to;
+    adviseGate(leg, target, field, ctx);
+  }
+  return leg;
+}
+
+// Conseil de porte en français (briefing, navigation en course)
+export function gateText(gate) {
+  if (!gate) return '';
+  const nom = gate.pick === 'd' ? 'droite' : 'gauche';
+  if (!Number.isFinite(gate.gain)) return `Porte : bouée ${nom} retenue pour le calcul`;
+  const s = Math.round(gate.gain);
+  if (!gate.equal) return `Porte : bouée ${nom} conseillée — ${s} s de mieux`;
+  if (gate.why === 'bascule') return `Porte : bouées équivalentes (${s} s d’écart) — bouée ${nom}, du côté de la bascule à ${gate.shift} annoncée`;
+  return `Porte : bouées équivalentes (${s} s d’écart) — bouée ${nom} retenue pour le calcul`;
+}
+
 // Conseils de passage de marque (entre le bord i et le bord i+1)
 export function markAdvice(a, b) {
   if (!a || a.mark === 'FINISH') return [];
   const out = [];
+  if (a.gate) out.push(gateText(a.gate));
   if (a.mark === 'GATE') { out.push('Porte « ligne de Départ/Arrivée » : point de réduction privilégié — surveiller le Comité (2e substitut + pavillon de classe).'); }
   if (a.side) out.push(`Laisser ${a.to.name} à ${sideName(a.side).toUpperCase()}.`);
   if (a.side === 'b' && a.type.id === 'pres') out.push('Approche conseillée tribord amures (priorité, pas de lay-line bâbord dans la flotte).');

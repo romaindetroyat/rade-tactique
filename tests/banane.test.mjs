@@ -5,9 +5,10 @@ import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { fixture } from './helpers/setup.mjs';
 import { legCases, sameLegs, serialLegs, REGATE_V37 } from './helpers/legs.mjs';
-import { buildLegs, rankCourses } from '../js/tactics.js';
-import { BANANE_ID, BANANE, BAN_DEF, cleanBan, banOf, addBanane, bananeCourse, orientGate } from '../js/banane.js';
-import { NM, toXY, bearingXY, distXY, norm180 } from '../js/geo.js';
+import { buildLegs, rankCourses, adviseGate, prepareLeg, gateText, markAdvice, GATE_EQUAL_S } from '../js/tactics.js';
+import { BANANE_ID, BANANE, BAN_DEF, cleanBan, banOf, addBanane, bananeCourse, orientGate, courseMarkUse } from '../js/banane.js';
+import { NM, toXY, bearingXY, distXY, norm180, Terrain } from '../js/geo.js';
+import { WindField } from '../js/wind.js';
 import { MARKS, COURSES, LINE_PRESETS } from '../js/courses.js';
 import { applyRegattaMarks } from '../js/regmarks.js';
 
@@ -273,4 +274,175 @@ test('parcours de régate : arrivée Comité – bouée ou près d’une bouée 
     assert.equal(sameLegs({ key: 'k', ...serialLegs(inc) }, { key: 'k', ...serialLegs(base) }), null);
     assert.equal(inc.legs.at(-1).to.name, 'Arrivée');
   });
+});
+
+// ───────────────────────── Conseil de porte par routage (D-05), texte et bouées de la carte (D-06, moteur)
+const champ = { sample: () => ({ dir: 0, spd: 12 }) };          // vent du Nord uniforme, 12 nd, sans terrain
+const E = { x: 46, y: 0, name: 'Porte Est', mark: 'PE' }, O = { x: -46, y: 0, name: 'Porte Ouest', mark: 'PO' };
+const bordPorte = (from = { x: 0, y: 1500, name: 'B' }) => {
+  const { g, d } = orientGate(from, E, O);
+  return { i: 2, from, to: g, brg: bearingXY(from, g), dist: distXY(from, g), side: g.side, mark: 'PORTE', lap: 1, gate: { g, d, pick: 'g', gain: null, times: null, equal: null, why: null } };
+};
+// routage simulé : temps imposés selon la bouée d’arrivée ou de départ (ctx.routeFn, réservé aux tests)
+const routeSimule = ({ g, d, gNext, dNext }) => (a, b) => {
+  if (b.x === E.x && b.y === E.y) return { time: g };
+  if (b.x === O.x && b.y === O.y) return { time: d };
+  if (a.x === E.x && a.y === E.y) return { time: gNext };
+  if (a.x === O.x && a.y === O.y) return { time: dNext };
+  return null;
+};
+const NEXT = { x: 2000, y: 0 };
+
+test('adviseGate : vent uniforme, bord suivant vers l’Est → bouée Est (gauche des arrivants) retenue par le routage', () => {
+  const leg = bordPorte();
+  const r = adviseGate(leg, NEXT, champ, { terrain: null, forbidden: [], perf: 1, trend: 0 });
+  assert.equal(r, leg.gate);
+  assert.equal(r.pick, 'g'); assert.equal(r.why, 'routage'); assert.equal(r.equal, false);
+  assert.ok(r.gain >= 10, `gain ${r.gain}`);
+  assert.ok(r.times.g < r.times.d);
+  assert.equal(leg.to.name, 'Porte Est'); assert.equal(leg.side, 'b');
+  assert.equal(leg.brg, bearingXY(leg.from, E)); assert.equal(leg.dist, distXY(leg.from, E));
+  // bord suivant vers l’Ouest : la droite
+  const l2 = bordPorte();
+  adviseGate(l2, { x: -2000, y: 0 }, champ, { trend: 0 });
+  assert.equal(l2.gate.pick, 'd'); assert.equal(l2.to.name, 'Porte Ouest'); assert.equal(l2.side, 't');
+});
+
+test('adviseGate : moins de 10 s d’écart → bouées équivalentes ; bascule annoncée (|tendance| ≥ 2°/h) ou gauche par défaut', () => {
+  const eq = { g: 300, gNext: 200, d: 304, dNext: 200 };
+  const cas = [[0, 'g', 'defaut', undefined], [3, 'g', 'bascule', 'droite'], [-3, 'd', 'bascule', 'gauche'], [1.9, 'g', 'defaut', undefined], [-2, 'd', 'bascule', 'gauche']];
+  for (const [trend, pick, why, shift] of cas) {
+    const leg = bordPorte();
+    const r = adviseGate(leg, NEXT, champ, { trend, routeFn: routeSimule(eq) });
+    assert.equal(r.equal, true); assert.equal(r.gain, 4);
+    assert.equal(r.pick, pick, `tendance ${trend}`); assert.equal(r.why, why); assert.equal(r.shift, shift);
+    assert.deepEqual(r.times, { g: 500, d: 504 });
+    assert.equal(leg.to, pick === 'g' ? r.g : r.d);
+  }
+  const leg = bordPorte();
+  const r = adviseGate(leg, NEXT, champ, { trend: 3, routeFn: routeSimule({ g: 300, gNext: 200, d: 300, dNext: 190 }) });
+  assert.equal(r.pick, 'd'); assert.equal(r.gain, 10); assert.equal(r.equal, false); assert.equal(r.why, 'routage'); assert.equal(r.shift, undefined);
+  assert.equal(GATE_EQUAL_S, 10);
+});
+
+test('adviseGate : porte en dernier (pas de bord suivant) → seul le bord vers chaque bouée compte', () => {
+  const leg = bordPorte();
+  const r = adviseGate(leg, null, champ, { routeFn: routeSimule({ g: 320, gNext: 1, d: 300, dNext: 1 }) });
+  assert.deepEqual(r.times, { g: 320, d: 300 });
+  assert.equal(r.pick, 'd'); assert.equal(r.gain, 20);
+});
+
+test('adviseGate : routage impossible → repli sur la distance à 4 nd, jamais de NaN ni d’exception', () => {
+  const leg = bordPorte();
+  const r = adviseGate(leg, NEXT, champ, { routeFn: () => null });
+  for (const k of ['g', 'd']) assert.ok(Number.isFinite(r.times[k]) && r.times[k] > 0);
+  const tg = (distXY(leg.from, E) + distXY(E, NEXT)) / (4 * 0.5144);
+  near(r.times.g, tg, 1e-9, 'repli à 4 nd');
+  assert.ok(Number.isFinite(r.gain));
+  // routage qui lève une valeur absurde : même repli
+  const r2 = adviseGate(bordPorte(), NEXT, champ, { routeFn: () => ({ time: NaN }) });
+  assert.ok(Number.isFinite(r2.times.g) && Number.isFinite(r2.gain));
+});
+
+test('prepareLeg : bord ordinaire inchangé ; après une porte, le bord part de la bouée retenue ; porte conseillée vers la cible du bord suivant', () => {
+  const B = buildLegs(COURSES.find((c) => c.id === 3), 'G', { laps: 2, windDir: 315, line: regLine });
+  const leg = B.legs[1], avant = JSON.stringify(leg);
+  assert.equal(prepareLeg(leg, B.legs[0], B.legs[2], champ, {}), leg);
+  assert.equal(JSON.stringify(leg), avant);
+  // précédent porte qui a retenu la droite
+  const porte = bordPorte();
+  adviseGate(porte, NEXT, champ, { trend: -3, routeFn: routeSimule({ g: 300, gNext: 200, d: 302, dNext: 200 }) });
+  assert.equal(porte.gate.pick, 'd');
+  const suivant = { i: 3, from: porte.gate.g, to: { x: 0, y: 1500, name: 'B' }, brg: 0, dist: 0, side: 'b', mark: 'B', lap: 2 };
+  prepareLeg(suivant, porte, null, champ, {});
+  assert.equal(suivant.from, porte.gate.d);
+  assert.equal(suivant.brg, bearingXY(O, suivant.to)); assert.equal(suivant.dist, distXY(O, suivant.to));
+  // porte : cible = destination du bord suivant, ou milieu de la porte suivante
+  const vus = [];
+  const espion = (a, b) => { vus.push(b); return { time: 100 }; };
+  prepareLeg(bordPorte(), null, { to: NEXT }, champ, { routeFn: espion });
+  assert.ok(vus.some((p) => p.x === NEXT.x && p.y === NEXT.y));
+  vus.length = 0;
+  const p2 = bordPorte({ x: 0, y: 3000, name: 'X' });
+  p2.gate.g = { ...p2.gate.g, x: 500, y: 100 }; p2.gate.d = { ...p2.gate.d, x: 700, y: 100 };
+  prepareLeg(bordPorte(), null, p2, champ, { routeFn: espion });
+  assert.ok(vus.some((p) => p.x === 600 && p.y === 100), 'milieu de la porte suivante');
+});
+
+test('gateText : conseil, bouées équivalentes par défaut, bascule annoncée', () => {
+  assert.equal(gateText({ pick: 'd', gain: 25.4, equal: false, why: 'routage' }), 'Porte : bouée droite conseillée — 25 s de mieux');
+  assert.equal(gateText({ pick: 'g', gain: 6.2, equal: true, why: 'defaut' }), 'Porte : bouées équivalentes (6 s d’écart) — bouée gauche retenue pour le calcul');
+  assert.equal(gateText({ pick: 'g', gain: 6.2, equal: true, why: 'bascule', shift: 'droite' }), 'Porte : bouées équivalentes (6 s d’écart) — bouée gauche, du côté de la bascule à droite annoncée');
+  assert.equal(gateText({ pick: 'd', gain: 3, equal: true, why: 'bascule', shift: 'gauche' }), 'Porte : bouées équivalentes (3 s d’écart) — bouée droite, du côté de la bascule à gauche annoncée');
+});
+
+test('markAdvice : un bord porte commence par le conseil de porte ; un bord sans porte donne le texte de la v37', () => {
+  const pres = { id: 'pres', label: 'Près (louvoyage)', sail: 'Foc' }, spi = { id: 'largue', label: 'Largue sous spi', sail: 'Spi asymétrique' };
+  const porte = bordPorte();
+  adviseGate(porte, { x: -2000, y: 0 }, champ, {});
+  const out = markAdvice({ ...porte, type: spi, twa: 150 }, { type: pres, twa: -40, brg: 0 });
+  assert.equal(out[0], gateText(porte.gate));
+  assert.equal(out[1], 'Laisser Porte Ouest à TRIBORD.');
+  // parcours 3, bord vers 1 au près puis largue : texte v37 recopié
+  const B = buildLegs(COURSES.find((c) => c.id === 3), 'G', { laps: 2, windDir: 315, line: regLine });
+  const a = { ...B.legs[0], type: pres, twa: 40 }, b = { ...B.legs[1], type: spi, twa: 120, brg: 200 };
+  assert.deepEqual(markAdvice(a, b), [
+    `Laisser 1 ${MARKS['1'].name} à BÂBORD.`,
+    'Approche conseillée tribord amures (priorité, pas de lay-line bâbord dans la flotte).',
+    'Envoi de spi après la marque : envoi direct (bear-away set) — bord suivant largue sous spi au 200°.',
+  ]);
+});
+
+test('banane réelle (relief et vent du dépôt, 315° 15 nd, 2 tours) : chaque porte conseillée, bord suivant parti de la bouée retenue', async () => {
+  const T = await new Terrain().load('data/');
+  const F = new WindField(T);
+  F.compute({ points: [{ x: 0, y: 0, dir: 315, spd: 15, gust: 20 }] }, { localEffects: 1 });
+  const B = buildLegs(BANANE, 'G', { laps: 2, windDir: 315, line: { center: GR, lengthNm: 0.12, mode: 'wind' } });
+  const ctx = { terrain: T, forbidden: [], perf: 1, trend: 0 };
+  B.legs.forEach((l, i) => prepareLeg(l, B.legs[i - 1], B.legs[i + 1], F, ctx));
+  const portes = B.legs.filter((l) => l.gate);
+  assert.equal(portes.length, 1);
+  for (const p of portes) {
+    assert.ok(p.gate.pick === 'g' || p.gate.pick === 'd');
+    assert.ok(Number.isFinite(p.gate.gain));
+    for (const k of ['g', 'd']) assert.ok(Number.isFinite(p.gate.times[k]) && p.gate.times[k] > 0, `temps ${k}`);
+    const retenue = p.gate[p.gate.pick];
+    assert.equal(p.to, retenue);
+    assert.equal(B.legs[p.i + 1].from, retenue);
+  }
+});
+
+test('courseMarkUse : parcours 3 identique à la boucle de drawCourse v37 ; banane : bouées de porte numérotées, conseillée marquée', () => {
+  // boucle `used` de drawCourse (v37), recopiée comme référence
+  const refUse = (legs) => {
+    const used = new Map();
+    legs.forEach((l) => { if (!l.order) return; const u = used.get(l.mark) || { side: l.side, orders: [] }; u.orders.push(l.order); used.set(l.mark, u); });
+    return used;
+  };
+  const num = (legs) => { let o = 0; legs.forEach((l) => { if (l.mark !== 'GATE' && l.mark !== 'FINISH') l.order = ++o; }); return legs; };
+  for (const cls of ['G', 'P']) {
+    const legs = num(buildLegs(COURSES.find((c) => c.id === 3), cls, { laps: 2, windDir: 315, line: regLine }).legs);
+    assert.deepEqual(courseMarkUse(legs), refUse(legs));
+  }
+  // banane 3 tours : deux portes ; la première conseillée à droite, la seconde équivalente par défaut
+  const legs = num(banLegs(315, { laps: 3 }).legs);
+  const [p1, p2] = legs.filter((l) => l.gate);
+  adviseGate(p1, legs[p1.i + 1].to, champ, { routeFn: () => null, trend: 0 });
+  Object.assign(p1.gate, { pick: 'd', equal: false, why: 'routage', gain: 30 });
+  Object.assign(p2.gate, { pick: 'g', equal: true, why: 'defaut', gain: 3 });
+  const u = courseMarkUse(legs);
+  assert.deepEqual(u.get('PG').orders, [p1.order, p2.order]); assert.deepEqual(u.get('PD').orders, [p1.order, p2.order]);
+  assert.equal(u.get('PG').side, 'b'); assert.equal(u.get('PD').side, 't');
+  assert.equal(u.get('PD').advised, true); assert.equal(u.get('PD').note, '· conseillée (tour 1)');
+  assert.equal(u.get('PG').advised, undefined);
+  // les deux passages conseillés du même côté : « · conseillée »
+  Object.assign(p2.gate, { pick: 'd', equal: false, why: 'routage', gain: 12 });
+  assert.equal(courseMarkUse(legs).get('PD').note, '· conseillée');
+  // portes équivalentes par défaut partout : aucune bouée conseillée
+  Object.assign(p1.gate, { pick: 'g', equal: true, why: 'defaut' }); Object.assign(p2.gate, { pick: 'g', equal: true, why: 'defaut' });
+  const v = courseMarkUse(legs);
+  assert.ok(![...v.values()].some((x) => x.advised));
+  // bascule annoncée : c’est un conseil
+  Object.assign(p1.gate, { pick: 'g', equal: true, why: 'bascule', shift: 'droite' });
+  assert.equal(courseMarkUse(legs).get('PG').note, '· conseillée (tour 1)');
 });

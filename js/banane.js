@@ -90,3 +90,30 @@ export function orientGate(prev, a, b) {
   const [l, r] = aLeft ? [a, b] : [b, a];
   return { g: { ...l, side: 'b' }, d: { ...r, side: 't' } };
 }
+
+// Bouées du parcours pour la carte (utilisé par drawCourse, 06-02) : même résultat que la boucle `used` de la v37 pour un parcours sans porte
+// (bord numéroté → { side, orders } sous la clé de la marque). Un bord porte numérote ses deux bouées ; la bouée retenue est marquée
+// « conseillée » seulement quand le conseil en est un (écart d’au moins 10 s, ou bascule annoncée).
+export function courseMarkUse(legs) {
+  const used = new Map(), adv = new Map();
+  legs.forEach((l) => {
+    if (!l.order) return;
+    if (l.gate?.g && l.gate?.d) {
+      const gt = l.gate, conseil = gt.equal === false || gt.why === 'bascule';
+      for (const k of ['g', 'd']) {
+        const m = gt[k], u = used.get(m.mark) || { side: m.side, orders: [] };
+        u.orders.push(l.order); used.set(m.mark, u);
+        if (conseil && gt.pick === k) { const a = adv.get(m.mark) || []; a.push(l.lap ?? u.orders.length); adv.set(m.mark, a); }
+      }
+      return;
+    }
+    const u = used.get(l.mark) || { side: l.side, orders: [] };
+    u.orders.push(l.order); used.set(l.mark, u);
+  });
+  for (const [k, tours] of adv) {
+    const u = used.get(k);
+    u.advised = true;
+    u.note = tours.length === u.orders.length ? '· conseillée' : `· conseillée (${tours.length > 1 ? 'tours' : 'tour'} ${tours.join(', ')})`;
+  }
+  return used;
+}
