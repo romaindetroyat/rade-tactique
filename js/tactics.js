@@ -4,6 +4,7 @@ import { MARKS, COURSES, LINE_PRESETS, PLACES } from './courses.js';
 import { toXY, toLL, NM, bearingXY, distXY, fromBearing, norm180, norm360, fmtBrg, fmtNm, cardinal } from './geo.js';
 import { boatSpeed, optimalAngles, spiMinTwa } from './polar.js';
 import { route, tackName } from './router.js';
+import { bananeCourse } from './banane.js';
 
 export const sideName = (s) => (s === 'b' ? 'bâbord' : s === 't' ? 'tribord' : '');
 
@@ -72,7 +73,7 @@ export function lineGeometry({ center, lengthNm = 0.12, windDir, mode = 'wind', 
 }
 
 export function buildLegs(course, cls, opts) {
-  const { laps = 2, windDir, line, wlLengthNm = 0.8 } = opts;
+  const { laps = 2, windDir, line, wlLengthNm = 0.8, ban } = opts;
   const seqDef = course.seq[cls] || course.seq.G;
   const pts = {};
   for (const [k, m] of Object.entries(MARKS)) pts[k] = { ...toXY(m.lat, m.lon), name: `${k} ${m.name}` };
@@ -91,11 +92,36 @@ export function buildLegs(course, cls, opts) {
     pts.B = { ...B, name: 'B (au vent)' };
     pts.C = { ...fromBearing(B, windDir - 90, 0.08 * NM), name: 'C (dog-leg)' };
     pts.A = { ...fromBearing(L.cb, windDir + 180, 0.05 * NM), name: 'A (arrivée)' };
+  } else if (course.built === 'BAN') {
+    L = lineGeometry({ center, lengthNm: line.lengthNm, windDir });
   } else {
     const first = seqDef[0][0];
     L = lineGeometry({ center, lengthNm: line.lengthNm, windDir, mode: line.mode, firstMark: pts[first], bearing: line.bearing });
   }
   if (line.override?.cb && line.override?.pin) { L = { ...L, cb: line.override.cb, pin: line.override.pin, c: { x: (line.override.cb.x + line.override.pin.x) / 2, y: (line.override.cb.y + line.override.pin.y) / 2 } }; }
+  // Chaîne des bords : un élément ordinaire comme en v37 ; une porte ({ g, d } orientés) est UN bord vers la bouée gauche par défaut,
+  // le conseil de porte (adviseGate) choisit ensuite la bouée et prepareLeg fait partir le bord suivant d’elle.
+  const chain = (start, items) => {
+    const legs = [];
+    let prev = start;
+    items.forEach((p, i) => {
+      if (p.gate) {
+        const { g, d } = p.gate;
+        legs.push({ i, from: prev, to: g, brg: bearingXY(prev, g), dist: distXY(prev, g), side: g.side, mark: 'PORTE', lap: p.lap, gate: { g, d, pick: 'g', gain: null, times: null, equal: null, why: null } });
+        prev = g;
+        return;
+      }
+      legs.push({ i, from: prev, to: p, brg: bearingXY(prev, p), dist: distXY(prev, p), side: p.side, mark: p.mark, lap: p.lap });
+      prev = p;
+    });
+    return legs;
+  };
+  if (course.built === 'BAN') {
+    const bc = bananeCourse(L, windDir, { laps, ban });
+    Object.assign(pts, bc.points);
+    const legs = chain({ x: L.c.x, y: L.c.y, name: 'Départ' }, [...bc.seq, { ...bc.finish, mark: 'FINISH', side: null }]);
+    return { legs, line: L, points: pts, finishLine: bc.finishLine };
+  }
   const gate = { x: L.c.x, y: L.c.y, name: 'Porte Départ/Arrivée' };
   let finish = { x: L.c.x, y: L.c.y, name: 'Arrivée' };
   if (course.finishNear1) finish = { ...toXY(43.0955, 5.9325), name: 'Arrivée (près de 1)' };
@@ -111,12 +137,7 @@ export function buildLegs(course, cls, opts) {
     seqDef.forEach(([m, sd]) => seq.push(m === 'GATE' ? { ...gate, mark: 'GATE', side: null } : { ...pts[m], mark: m, side: sd }));
   }
   seq.push({ ...finish, mark: 'FINISH', side: null });
-  const legs = [];
-  let prev = { x: L.c.x, y: L.c.y, name: 'Départ' };
-  seq.forEach((p, i) => {
-    legs.push({ i, from: prev, to: p, brg: bearingXY(prev, p), dist: distXY(prev, p), side: p.side, mark: p.mark, lap: p.lap });
-    prev = p;
-  });
+  const legs = chain({ x: L.c.x, y: L.c.y, name: 'Départ' }, seq);
   return { legs, line: L, points: pts };
 }
 
