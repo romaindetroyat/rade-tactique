@@ -272,3 +272,86 @@ test('sortie du modèle incomplète ou à champs inattendus : jamais d’excepti
   assert.deepEqual(v.races, []); assert.deepEqual(v.marks.map((m) => m.verified), [false, false]);
   assert.deepEqual(verify(null, texte).firstWarning, { value: null, excerpt: null });
 });
+
+// ── porte et arrivée d’un parcours d’un autre club (phase 6, D-08) : prouvées par le texte, sinon vidées et signalées
+const TEXTE_PORTE = `Annexe : parcours
+Parcours B : départ, Alpha bâbord, porte 4s/4p, Alpha bâbord, arrivée entre le bateau comité et la bouée F
+Parcours E : départ, Alpha bâbord, porte 4s, arrivée près de la bouée Golf au vent du comité`;
+const EX_B = 'Parcours B : départ, Alpha bâbord, porte 4s/4p, Alpha bâbord, arrivée entre le bateau comité et la bouée F';
+const EX_E = 'Parcours E : départ, Alpha bâbord, porte 4s, arrivée près de la bouée Golf au vent du comité';
+const parcoursB = (over = {}) => ({
+  name: 'Parcours B', excerpt: EX_B,
+  sequence: [{ mark: 'Départ', side: null, gate: null }, { mark: 'Alpha', side: 'b', gate: null }, { mark: '4s', side: null, gate: '4p' }, { mark: 'Arrivée', side: null, gate: null }],
+  finish: { kind: 'comite', mark: 'F', excerpt: 'arrivée entre le bateau comité et la bouée F' }, ...over,
+});
+const verifie = (...courses) => verify({ ...sortieVide(), courses }, TEXTE_PORTE);
+
+test('schéma porte / arrivée : gate requis dans chaque élément de la suite, finish { kind, mark, excerpt } requis dans chaque parcours ; consignes en français', () => {
+  const co = SCHEMA.properties.courses.items, el = co.properties.sequence.items;
+  assert.deepEqual([...el.required].sort(), ['gate', 'mark', 'side']);
+  assert.deepEqual(el.properties.gate.type, ['string', 'null']);
+  assert.ok(co.required.includes('finish'));
+  assert.equal(co.properties.finish.additionalProperties, false);
+  assert.deepEqual([...co.properties.finish.required].sort(), ['excerpt', 'kind', 'mark']);
+  assert.deepEqual(co.properties.finish.properties.kind.enum, ['comite', 'pres', null]);
+  assert.match(SYSTEM, /porte 4s\/4p/); assert.match(SYSTEM, /"gate" = l’autre/); assert.match(SYSTEM, /"finish"/); assert.match(SYSTEM, /"comite"/);
+});
+
+test('verify : porte dont les deux noms sont dans l’extrait du parcours → gardée (côté null) ; arrivée prouvée → verified', () => {
+  const v = verifie(parcoursB());
+  assert.equal(v.courses[0].verified, true);
+  assert.deepEqual(v.courses[0].sequence[2], { mark: '4s', side: null, gate: '4p' });
+  assert.deepEqual(v.courses[0].sequence[1], { mark: 'Alpha', side: 'b', gate: null });
+  assert.deepEqual(v.courses[0].finish, { kind: 'comite', mark: 'F', excerpt: 'arrivée entre le bateau comité et la bouée F', verified: true });
+  assert.equal(v.flags, 0);
+});
+
+test('verify : porte dont un nom manque à l’extrait du parcours → gate vidée, gateFlag, un signalement de plus', () => {
+  const v = verifie(parcoursB({ excerpt: EX_E, name: 'Parcours E', finish: { kind: null, mark: null, excerpt: null } }));
+  assert.equal(v.courses[0].verified, true);
+  assert.equal(v.courses[0].sequence[2].gate, null);
+  assert.equal(v.courses[0].sequence[2].gateFlag, 'porte non prouvée par l’extrait du parcours');
+  assert.equal(v.courses[0].finish, null, 'arrivée tout à null : pas d’arrivée, rien à signaler');
+  assert.equal(v.flags, 1);
+});
+
+test('verify : arrivée à extrait inventé ou sans sa bouée → vidée et signalée ; type hors comite / pres → vidé', () => {
+  const inv = verifie(parcoursB({ finish: { kind: 'comite', mark: 'F', excerpt: 'arrivée entre le comité et la bouée F au large' } }));
+  assert.deepEqual(inv.courses[0].finish, { kind: null, mark: null, excerpt: null, verified: false, flag: 'extrait introuvable dans le texte' });
+  assert.equal(inv.flags, 1);
+  const sans = verifie(parcoursB({ finish: { kind: 'comite', mark: 'Zulu', excerpt: 'arrivée entre le bateau comité et la bouée F' } }));
+  assert.equal(sans.courses[0].finish.flag, 'la bouée ne figure pas dans l’extrait'); assert.equal(sans.courses[0].finish.mark, null);
+  const court = verifie(parcoursB({ finish: { kind: 'pres', mark: 'F', excerpt: 'bouée F' } }));
+  assert.equal(court.courses[0].finish.verified, false, 'extrait trop court : ne prouve rien');
+  const type = verifie(parcoursB({ finish: { kind: 'ligne', mark: 'F', excerpt: 'arrivée entre le bateau comité et la bouée F' } }));
+  assert.equal(type.courses[0].finish.verified, false); assert.equal(type.courses[0].finish.kind, null);
+  assert.equal(type.flags, 1);
+});
+
+test('verify : parcours à extrait inventé → porte vidée sans signalement en double ; arrivée vérifiée pour elle-même', () => {
+  const v = verifie(parcoursB({ excerpt: 'Parcours B : départ, porte 4s/4p, arrivée ailleurs' }));
+  assert.equal(v.courses[0].verified, false);
+  assert.equal(v.courses[0].sequence[2].gate, null); assert.ok(!('gateFlag' in v.courses[0].sequence[2]));
+  assert.equal(v.flags, 1, 'seul le parcours non vérifié est compté');
+});
+
+test('verify : ancien format (sans gate ni finish), champs inattendus, suites nulles → aucune exception, gate et finish nuls', () => {
+  const v = verifie(
+    { name: 'Parcours B', excerpt: EX_B, sequence: [{ mark: 'Alpha', side: 'b' }, null, 3, { mark: { x: 1 }, side: 'z', gate: ['4p'] }], finish: 'F', extra: 1 },
+    { name: 'Parcours B', excerpt: EX_B, sequence: null, finish: { kind: 'comite' } },
+    null,
+  );
+  assert.deepEqual(v.courses[0].sequence, [{ mark: 'Alpha', side: 'b', gate: null }, { mark: '', side: null, gate: null }, { mark: '', side: null, gate: null }, { mark: '', side: null, gate: null }]);
+  assert.equal(v.courses[0].finish, null);
+  assert.deepEqual(v.courses[1].sequence, []); assert.equal(v.courses[1].finish, null);
+  assert.equal(v.courses[2].verified, false);
+  assert.doesNotThrow(() => verify({ courses: [{ finish: { kind: 'pres', mark: 5, excerpt: 7 } }] }, TEXTE_PORTE));
+});
+
+test('verify puis reviewFromApi : porte et arrivée prouvées entrent dans la relecture, une arrivée non prouvée n’y est que sa raison', () => {
+  const v = verifie(parcoursB(), parcoursB({ name: 'Parcours C', finish: { kind: 'pres', mark: 'F', excerpt: 'arrivée près de la bouée F au large de la digue' } }));
+  const rv = reviewFromApi(v, { text: TEXTE_PORTE });
+  assert.deepEqual(rv.courses[0].sequence[2], { mark: '4s', side: null, gate: '4p' });
+  assert.deepEqual(rv.courses[0].finish, { kind: 'comite', mark: 'F', excerpt: 'arrivée entre le bateau comité et la bouée F' });
+  assert.equal(rv.courses[1].finish, null); assert.equal(rv.courses[1].finishFlag, 'extrait introuvable dans le texte');
+});
