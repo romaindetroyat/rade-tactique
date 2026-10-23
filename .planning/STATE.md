@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 06
 current_phase_name: "Parcours banane : dégagement, porte sous le vent, arrivée décalée"
 status: executing
-stopped_at: Completed 06-02-PLAN.md
-last_updated: "2026-10-23T18:18:16.862Z"
+stopped_at: Completed 06-03-PLAN.md
+last_updated: "2026-10-23T18:35:32.651Z"
 last_activity: 2026-10-23
-last_activity_desc: Plan 06-01 terminé (moteur de la banane)
-state_head: f9207abf1bfcb85406d8776d0f8062ad5d122073
+last_activity_desc: Plan 06-03 terminé (porte et arrivée d’un autre club, passages de porte, compatibilité v37)
+state_head: 8aba72e0c0c29d218f71ea89a8e7723f2639f026
 progress:
   total_phases: 6
   completed_phases: 5
   total_plans: 28
-  completed_plans: 26
+  completed_plans: 27
   percent: 83
 ---
 
@@ -28,9 +28,9 @@ See: .planning/PROJECT.md (updated 2026-10-19)
 ## Current Position
 
 Phase: 06 (Parcours banane : dégagement, porte sous le vent, arrivée décalée) — EXECUTING
-Plan: 3 of 4
+Plan: 4 of 4
 Status: Ready to execute
-Last activity: 2026-10-23 — Plan 06-01 terminé (moteur : banane, porte, arrivées, conseil de porte)
+Last activity: 2026-10-23 — Plan 06-03 terminé (porte et arrivée d’un autre club, passages de porte au débrief, compatibilité v37)
 
 Progress: [████████░░] 83%
 
@@ -84,6 +84,7 @@ Progress: [████████░░] 83%
 | Phase 05 P03 | 15 min | 3 tasks | 5 files |
 | Phase 06 P01 | 7 min | 3 tasks | 7 files |
 | Phase 06 P02 | 13 min | 3 tasks | 8 files |
+| Phase 06 P03 | 15 min | 3 tasks | 15 files |
 
 ## Accumulated Context
 
@@ -155,6 +156,9 @@ Décisions récentes qui orientent le travail en cours :
 - [Phase 06]: 06-02 : la banane entre dans COURSES par addBanane(COURSES) avant la lecture de l’état ; ses cinq réglages vivent dans DEF (banNm, banOff, banSide, banGate, banFin) et sont bornés dès la saisie
 - [Phase 06]: 06-02 : prepareLeg est appelé avant analyzeLeg dans runAnalysis et planRest ; une porte est passée en course à moins de 40 m de l’une ou l’autre bouée (legReached)
 - [Phase 06]: 06-02 : une manche en banane porte ban (cleanBan), facultatif ; raceSettings le rend, chooseRace l’applique ; stratSettings le fige avec la route conseillée
+- [Phase 06]: 06-03 : une porte de régate n’est gardée que si ses deux noms figurent dans l’extrait vérifié du parcours ; l’arrivée a son propre extrait vérifié mot pour mot et le nom de sa bouée dedans, sinon vidée et signalée
+- [Phase 06]: 06-03 : un parcours de régate n’est injecté que lorsque toutes ses bouées (porte et arrivée comprises) sont confirmées ; une arrivée de type illisible empêche l’injection (jamais devinée)
+- [Phase 06]: 06-03 : au débrief, une porte compte un seul passage, la bouée approchée de plus près dans les 180 s ; un téléphone v37 voit la porte comme sa première bouée et l’arrivée sur la ligne de départ, ses fusions gardent porte, arrivée et ban (tools/compat-v37.mjs)
 
 ### Pending Todos
 
@@ -192,6 +196,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-10-23T18:18:16.656Z
-Stopped at: Completed 06-02-PLAN.md
+Last session: 2026-10-23T18:35:32.496Z
+Stopped at: Completed 06-03-PLAN.md
 Resume file: None
