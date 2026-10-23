@@ -16,7 +16,7 @@ import { trackDay, matchRegattas, raceOfTrack, sameTrack, attachTrace, detachTra
 import { breaksOf } from './segments.js';
 import { fetchAll, cached, snapshot, consensus, gridPoints, marineAt, fetchLive, MODELS, WMO, CENTER } from './weather.js';
 import { buildLegs, analyzeLeg, markAdvice, analyzeStart, trendOf, rankCourses, regimeOf, sideName, summarizeTime, prepareLeg, gateText } from './tactics.js';
-import { BANANE_ID, addBanane, banOf, courseMarkUse } from './banane.js';
+import { BANANE_ID, addBanane, banOf, courseMarkUse, legReached } from './banane.js';
 import { optimalAngles, boatSpeed, trimAdvice, spiMinTwa, getPolar, setPolar, resetPolar, parsePolar } from './polar.js';
 import { renderJ80 } from './j80.js';
 import { modelPoints, modelAt, idwAt, scoreModels, renderObsCard } from './obs.js';
@@ -1253,7 +1253,7 @@ async function stopGps() {
 function autoAdvance() {
   if (!analysis || !gps?.pos) return;
   const l = analysis.legs[nextIdx]; if (!l) return;
-  if (distXY(gps.pos, l.to) < 40 && nextIdx < analysis.legs.length - 1) nextIdx++;
+  if (legReached(gps.pos, l, 40) && nextIdx < analysis.legs.length - 1) nextIdx++;        // porte : près de l’une ou l’autre bouée (D-06)
 }
 // Onglet « En course » : cadre fixe + zones mises à jour à chaque position GPS
 const recorder = new Recorder({ wake, report: (w, e) => report(w, e) });
@@ -1297,7 +1297,10 @@ function renderLiveNav() {
   if (!A) { n.innerHTML = '<p class="small muted">Analyse du parcours en cours de calcul…</p>'; return; }
   nextIdx = Math.min(nextIdx, A.legs.length - 1);
   const l = A.legs[nextIdx];
-  let html = `<h3>Prochaine marque</h3><select id="nSel">${A.legs.map((x, i) => `<option value="${i}" ${i === nextIdx ? 'selected' : ''}>${x.order ? 'Marque ' + x.order + ' — ' : ''}${esc((/^\d/.test(x.to.name) ? 'n°' : '') + x.to.name)}${x.side ? ' (' + sideName(x.side) + ')' : ''}${DOUBT(MARKS[x.mark]) ? ' (à confirmer)' : ''}</option>`).join('')}</select>`;
+  let html = `<h3>Prochaine marque</h3><select id="nSel">${A.legs.map((x, i) => `<option value="${i}" ${i === nextIdx ? 'selected' : ''}>${x.order ? 'Marque ' + x.order + ' — ' : ''}${esc((/^\d/.test(x.to.name) ? 'n°' : '') + x.to.name)}${x.gate ? ' (porte)' : x.side ? ' (' + sideName(x.side) + ')' : ''}${DOUBT(MARKS[x.mark]) ? ' (à confirmer)' : ''}</option>`).join('')}</select>`;
+  // porte : le conseil (venu de l’analyse ou du recalcul), avec ou sans GPS ; avec GPS, l’autre bouée (D-06)
+  const other = l.gate ? (l.gate.pick === 'd' ? l.gate.g : l.gate.d) : null;
+  if (l.gate) html += `<p class="small" style="margin:6px 0 0"><b>${esc(gateText(l.gate))}</b></p>`;
   if (p) {
     const brg = bearingXY(p, l.to), d = distXY(p, l.to), w = fieldOn ? F.sample(p.x, p.y) : { dir: l.wind.dir, spd: l.wind.spd };
     const twaM = norm180(brg - w.dir), { up, down } = optimalAngles(Math.max(1, w.spd));
@@ -1313,6 +1316,7 @@ function renderLiveNav() {
     html += `<div class="kpis" style="margin-top:8px"><div class="kpi live"><b class="big">${fmtBrg(brg)}</b><span>relèvement</span></div><div class="kpi"><b class="big" style="font-size:28px">${(d / NM).toFixed(2)}</b><span>Nq</span></div><div class="kpi"><b>${eta ? summarizeTime(eta) : '—'}</b><span>ETA (VMC ${vmc != null ? vmc.toFixed(1) : '—'} nd)</span></div></div>
       <div class="kpis" style="margin-top:8px"><div class="kpi"><b>${p.sog != null ? p.sog.toFixed(1) : '—'}</b><span>SOG nd</span></div><div class="kpi"><b>${p.cog != null ? fmtBrg(p.cog) : '—'}</b><span>COG</span></div><div class="kpi"><b>${fmtBrg(w.dir)}</b><span>vent modèle ${w.spd.toFixed(0)} nd</span></div></div>
       <p class="small">${rec}</p>`;
+    if (other) html += `<p class="small">Autre bouée : ${esc(fmtBrg(bearingXY(p, other)))} · ${esc((distXY(p, other) / NM).toFixed(2))} Nq</p>`;
   } else html += `<p class="small muted">Activez le GPS pour le relèvement, la distance et l’ETA vers la marque.</p>`;
   html += `<div class="btns"><button class="btn alt small" id="nPrev">◀ Marque précédente</button><button class="btn small" id="nNext">Marque passée ▶</button></div>`;
   n.innerHTML = html;
@@ -1331,9 +1335,11 @@ async function planRest() {
   const legs = []; let t = t0, lastH = -1;
   for (let i = nextIdx; i < analysis.legs.length; i++) {
     const src = analysis.legs[i];
-    const leg = { from: i === nextIdx ? { x: pos.x, y: pos.y, name: 'Bateau' } : legs[legs.length - 1].to, to: src.to, side: src.side, mark: src.mark, lap: src.lap };
+    const leg = { from: i === nextIdx ? { x: pos.x, y: pos.y, name: 'Bateau' } : legs[legs.length - 1].to, to: src.to, side: src.side, mark: src.mark, lap: src.lap, gate: src.gate ? { g: src.gate.g, d: src.gate.d } : undefined };
     leg.brg = bearingXY(leg.from, leg.to); leg.dist = distXY(leg.from, leg.to);
     if (S.src === 'forecast' && Math.abs(t - lastH) >= 0.25) { computeField(S.day, t); lastH = t; }
+    // porte reconseillée depuis la position du bateau et le vent de l’heure ; le bord suivant part de la bouée retenue
+    prepareLeg(leg, legs[legs.length - 1], analysis.legs[i + 1], F, ctx);
     const a = analyzeLeg(leg, F, ctx); a.order = src.order; a.eta0 = t; t += a.time / 3600; a.eta1 = t;
     legs.push(a);
     await new Promise((r) => setTimeout(r, 0));
@@ -1347,7 +1353,7 @@ function renderPlan() {
   const el = $('#livePlan'); if (!el) return;
   if (!rest) { el.innerHTML = `<p class="small muted">Plan initial (calculé depuis la ligne de départ à ${hhmm(S.startTime)}).</p><button class="btn acc" id="planGo" style="width:100%">↻ Recalculer la suite depuis ma position</button>`; $('#planGo').onclick = planRest; return; }
   el.innerHTML = `<p class="small">Recalculé à ${hhmm(rest.t0)} · modèle ${esc(rest.model)}${rest.obs ? ` + ${rest.obs} relevé(s)` : ''} · arrivée estimée <b>${hhmm(rest.t1)}</b></p>
-    ${rest.legs.map((l) => `<div class="small" style="border-top:1px solid var(--line);padding:6px 0">${l.order ? `<span class="ord">${l.order}</span>` : ''}<b>${esc((/^\d/.test(l.to.name) ? 'n°' : '') + l.to.name)}</b> · ${hhmm(l.eta0)}→${hhmm(l.eta1)} · ${esc(l.type.label)} · vent ${fmtBrg(l.wind.dir)} ${l.wind.spd.toFixed(0)} nd<br>${esc(l.advice[1] || l.advice[0] || '')}</div>`).join('')}
+    ${rest.legs.map((l) => `<div class="small" style="border-top:1px solid var(--line);padding:6px 0">${l.order ? `<span class="ord">${l.order}</span>` : ''}<b>${esc((/^\d/.test(l.to.name) ? 'n°' : '') + l.to.name)}</b> · ${hhmm(l.eta0)}→${hhmm(l.eta1)} · ${esc(l.type.label)} · vent ${fmtBrg(l.wind.dir)} ${l.wind.spd.toFixed(0)} nd<br>${esc(l.gate ? gateText(l.gate) : l.advice[1] || l.advice[0] || '')}</div>`).join('')}
     <div class="btns"><button class="btn acc small" id="planGo">↻ Recalculer</button><button class="btn alt small" id="planReset">Revenir au plan initial</button></div>`;
   $('#planGo').onclick = planRest;
   $('#planReset').onclick = () => { rest = null; drawCourse(); renderPlan(); };

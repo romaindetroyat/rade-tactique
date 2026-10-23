@@ -2,7 +2,7 @@
 // Module pur (aucun DOM, aucun stockage) : js/app.js l’ajoute à COURSES au chargement (addBanane) ; buildLegs (js/tactics.js) en tire les bords.
 // Toutes les distances partent du centre de la ligne de départ réellement utilisée (pinguée comprise), axe = vent de la ligne.
 
-import { NM, fromBearing, bearingXY, norm180 } from './geo.js';
+import { NM, fromBearing, bearingXY, distXY, norm180 } from './geo.js';
 
 export const BANANE_ID = 90;                     // hors des parcours SNPM (1-13) et des parcours de régate (101+) ; numérique (comparaisons strictes)
 export const BAN_DEF = Object.freeze({ nm: 0.8, off: true, side: 'b', gate: true, fin: 'depart' });
@@ -116,4 +116,12 @@ export function courseMarkUse(legs) {
     u.note = tours.length === u.orders.length ? '· conseillée' : `· conseillée (${tours.length > 1 ? 'tours' : 'tour'} ${tours.join(', ')})`;
   }
   return used;
+}
+
+// Marque atteinte en course (passage automatique, autoAdvance) : à moins de r mètres de la destination du bord ; pour une porte,
+// de l’une OU l’autre bouée, même si ce n’est pas la conseillée (D-06)
+export function legReached(p, leg, r = 40) {
+  if (!p || !leg) return false;
+  const cibles = leg.gate?.g && leg.gate?.d ? [leg.gate.g, leg.gate.d] : [leg.to];
+  return cibles.some((c) => c && distXY(p, c) < r);
 }

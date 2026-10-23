@@ -2460,6 +2460,29 @@ async function banane({ browser, base }) {
   sansErreur(erreurs, 'pendant le scénario');
   console.log(`  conseil affiché : ${exemple}`);
   await ctx.close();
+
+  // En course (D-06) : GPS simulé au centre de la ligne de la Grande Rade, banane par défaut ; le bord visé est la première porte
+  const ctx2 = await ouvreContexte(browser, { heure: '2026-10-24T08:30:00Z', geo: { latitude: 43.0905, longitude: 5.97 } });
+  const { page: p2, erreurs: e2 } = await ouvrePage(ctx2);
+  await ouvreApp(p2, base);
+  await ventManuel(p2);
+  await p2.evaluate(() => { const s = JSON.parse(localStorage.getItem('rade.state')); localStorage.setItem('rade.state', JSON.stringify({ ...s, courseId: 90 })); });
+  await ouvreApp(p2, base);
+  await p2.click('#tabs button[data-tab=live]');
+  await p2.waitForFunction(() => document.querySelectorAll('#nSel option').length === 6, null, { timeout: 90000 });
+  const options2 = await p2.locator('#nSel option').allTextContents();
+  assert.match(options2[2], /^Marque 3 — Porte (gauche|droite) \(porte\)$/, `bouée de la porte dans la liste : ${options2.join(' | ')}`);
+  await p2.selectOption('#nSel', '2');
+  assert.match(await p2.locator('#liveNav').textContent(), /Porte : /, 'conseil de porte sans GPS');
+  await p2.click('#gOn');
+  await p2.waitForFunction(() => /Porte : /.test(document.querySelector('#liveNav')?.textContent) && /autre bouée : \d{3}° · \d+\.\d{2} Nq/i.test(document.querySelector('#liveNav')?.textContent), null, { timeout: 30000 });
+  await p2.click('#planGo');
+  await p2.waitForFunction(() => /Recalculé à/.test(document.querySelector('#livePlan')?.textContent), null, { timeout: 90000 });
+  const plan = await p2.locator('#livePlan').textContent();
+  assert.match(plan, /Porte (gauche|droite)/, `la suite recalculée passe par la porte : ${plan.slice(0, 300)}`);
+  assert.match(plan, /Porte : (bouée (gauche|droite) conseillée|bouées équivalentes)/, 'porte reconseillée depuis le bateau');
+  sansErreur(e2, 'en course');
+  await ctx2.close();
 }
 
 const SCENARIOS = { accueil, 'jour-j': jourJ, 'deux-telephones': deuxTelephones, reprise, equipage, archive, 'archive-bouees': archiveBouees, archivehors: archiveHors, creer, manche, auteur, ic, 'depuis-ic': depuisIC, vraisemblance, gel, 'debrief-tardif': debriefTardif, gpx, 'gpx-choix': gpxChoix, ia, 'ia-erreurs': iaErreurs, arbitre, bouees, guide, entetes, 'retour-port': retourPort, banane };

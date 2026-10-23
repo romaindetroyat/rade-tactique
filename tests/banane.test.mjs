@@ -6,7 +6,11 @@ import assert from 'node:assert/strict';
 import { fixture } from './helpers/setup.mjs';
 import { legCases, sameLegs, serialLegs, REGATE_V37 } from './helpers/legs.mjs';
 import { buildLegs, rankCourses, adviseGate, prepareLeg, gateText, markAdvice, GATE_EQUAL_S } from '../js/tactics.js';
+import * as banane from '../js/banane.js';
 import { BANANE_ID, BANANE, BAN_DEF, cleanBan, banOf, addBanane, bananeCourse, orientGate, courseMarkUse } from '../js/banane.js';
+import { readFileSync } from 'node:fs';
+import { ROOT } from './helpers/setup.mjs';
+import { bodyOf } from './helpers/scan.mjs';
 import { NM, toXY, bearingXY, distXY, norm180, Terrain } from '../js/geo.js';
 import { WindField } from '../js/wind.js';
 import { MARKS, COURSES, LINE_PRESETS } from '../js/courses.js';
@@ -445,4 +449,36 @@ test('courseMarkUse : parcours 3 identique à la boucle de drawCourse v37 ; bana
   // bascule annoncée : c’est un conseil
   Object.assign(p1.gate, { pick: 'g', equal: true, why: 'bascule', shift: 'droite' });
   assert.equal(courseMarkUse(legs).get('PG').note, '· conseillée (tour 1)');
+});
+
+// ───────────────────────── interface (plan 06-02)
+const APP = readFileSync(ROOT + 'js/app.js', 'utf8');
+
+test('legReached : bord ordinaire près de sa bouée seulement ; porte près de l’une OU l’autre bouée (D-06)', () => {
+  const { legReached } = banane;
+  assert.equal(typeof legReached, 'function');
+  const to = { x: 1000, y: 2000 };
+  const leg = { to, mark: '3', side: 'b' };
+  assert.equal(legReached({ x: 1030, y: 2000 }, leg), true, 'à 30 m de la bouée');
+  assert.equal(legReached({ x: 1039.9, y: 2000 }, leg, 40), true);
+  assert.equal(legReached({ x: 1041, y: 2000 }, leg, 40), false, 'au-delà de 40 m');
+  assert.equal(legReached({ x: 1000, y: 2100 }, leg), false);
+  assert.equal(legReached({ x: 1000, y: 2060 }, leg, 80), true, 'rayon donné');
+  const g = { x: 0, y: 0, side: 'b' }, d = { x: 90, y: 0, side: 't' };
+  const porte = { to: g, mark: 'PORTE', gate: { g, d, pick: 'g' } };
+  assert.equal(legReached({ x: 10, y: 10 }, porte), true, 'près de la bouée conseillée');
+  assert.equal(legReached({ x: 95, y: -20 }, porte), true, 'près de l’autre bouée');
+  assert.equal(legReached({ x: 45, y: 0 }, porte), false, 'au milieu de la porte, à 45 m de chacune');
+  assert.equal(legReached({ x: 90, y: 200 }, porte), false, 'loin des deux');
+  assert.equal(legReached(null, leg), false, 'sans position');
+});
+
+test('gardes : passage automatique par legReached, porte reconseillée depuis le bateau, conseil en course (D-06, D-07)', () => {
+  assert.match(bodyOf(APP, 'autoAdvance'), /legReached\(gps\.pos, l, 40\)/);
+  assert.doesNotMatch(bodyOf(APP, 'autoAdvance'), /distXY\(/, 'plus de test de distance à la seule destination');
+  const pr = bodyOf(APP, 'planRest');
+  assert.ok(pr.indexOf('prepareLeg(') > 0 && pr.indexOf('prepareLeg(') < pr.indexOf('analyzeLeg('), 'prepareLeg avant analyzeLeg');
+  assert.match(pr, /gate: src\.gate \? \{ g: src\.gate\.g, d: src\.gate\.d \} : undefined/, 'la porte du bord d’origine est transmise');
+  assert.match(bodyOf(APP, 'renderLiveNav'), /gateText\(/);
+  assert.match(bodyOf(APP, 'renderPlan'), /gateText\(/);
 });
