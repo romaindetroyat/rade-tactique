@@ -54,8 +54,8 @@ export class Terrain {
     return H[j * n + i] * (1 - tx) * (1 - ty) + H[j * n + i + 1] * tx * (1 - ty) + H[(j + 1) * n + i] * (1 - tx) * ty + H[(j + 1) * n + i + 1] * tx * ty;
   }
   coverAt(x, y) {
-    const [fx, fy] = this.fi(x, y);
-    const i = Math.round(fx), j = Math.round(fy);
+    // mêmes indices que fi(), sans tableau intermédiaire (appelée pour chaque pas de chaque route)
+    const i = Math.round((x - this.x0) / this.dx - 0.5), j = Math.round((this.y1 - y) / this.dy - 0.5);
     if (i < 0 || j < 0 || i >= this.nx || j >= this.ny) return 0;
     return this.cover[j * this.nx + i];
   }

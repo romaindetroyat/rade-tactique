@@ -1,6 +1,7 @@
 // Routes mémorisées d’une analyse (ctx.memo, routeOf de js/tactics.js) : le conseil de porte et les bords d’une banane donnent EXACTEMENT
 // les mêmes résultats avec et sans mémoire (mêmes bords, mêmes temps, même conseil), sur plusieurs vents et sur le vrai relief, avec au moins
 // deux fois moins de routes calculées ; une route n’est jamais reprise d’un autre état du champ (WindField.gen) ni d’autres options.
+// Avant / après : six bananes comparées à la capture de la v38 (tests/fixtures/banane-v38.json, tests/helpers/banvue.mjs), route accélérée comprise.
 import { test, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -10,7 +11,10 @@ import { buildLegs, prepareLeg, analyzeLeg, routeOf } from '../js/tactics.js';
 import { BANANE } from '../js/banane.js';
 import { Terrain, toXY } from '../js/geo.js';
 import { WindField } from '../js/wind.js';
-import { COURSES, LINE_PRESETS } from '../js/courses.js';
+import { COURSES, LINE_PRESETS, FORBIDDEN_ZONE } from '../js/courses.js';
+import * as tac from '../js/tactics.js';
+import { fixture } from './helpers/setup.mjs';
+import { BAN_CASES, banCase } from './helpers/banvue.mjs';
 
 let T, F;
 before(async () => { T = await new Terrain().load('data/'); F = new WindField(T); });
@@ -43,6 +47,18 @@ test('banane de 3 tours, quatre vents, vrai relief : résultats strictement iden
     const appels = sans.length + 4 * sans.filter((l) => l.gate).length;
     assert.ok(memo.size * 2 <= appels, `vent ${dir}° : ${memo.size} routes calculées pour ${appels} appels`);
     assert.ok(sans.some((l) => l.gate), 'la banane a au moins une porte');
+  }
+});
+
+test('avant / après : six bananes (vent constant, ou qui tourne de ±6°/h avec le champ recalculé tous les quarts d’heure) identiques à la v38 capturée (d311328)', () => {
+  const ref = JSON.parse(fixture('banane-v38.json'));
+  assert.equal(ref.v, 38); assert.equal(ref.from, 'd311328');
+  assert.deepEqual(ref.cases.map((x) => x.c), BAN_CASES, 'mêmes cas que la capture');
+  const mods = { tac, BANANE, LINE_PRESETS, FORBIDDEN_ZONE, toXY, F, T };
+  for (const [i, c] of BAN_CASES.entries()) {
+    const memo = new Map(), cur = banCase(mods, c, memo);
+    assert.deepEqual(cur.legs, ref.cases[i].legs, `cas ${i + 1} (${c.dir}° ${c.spd} nd${c.turn ? `, ${c.turn}°/h` : ''}) : mêmes bords, temps, portes, conseils et routes qu’en v38`);
+    assert.ok(memo.size < cur.calls, `cas ${i + 1} : ${memo.size} routes calculées pour ${cur.calls} appels`);
   }
 });
 
