@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 06
 current_phase_name: "Parcours banane : dégagement, porte sous le vent, arrivée décalée"
 status: executing
-stopped_at: Completed 06-01-PLAN.md
-last_updated: "2026-10-23T18:03:31.460Z"
+stopped_at: Completed 06-02-PLAN.md
+last_updated: "2026-10-23T18:18:16.862Z"
 last_activity: 2026-10-23
 last_activity_desc: Plan 06-01 terminé (moteur de la banane)
-state_head: 82a02d000ac597bba6b79ea44725752544788905
+state_head: f9207abf1bfcb85406d8776d0f8062ad5d122073
 progress:
   total_phases: 6
   completed_phases: 5
   total_plans: 28
-  completed_plans: 25
+  completed_plans: 26
   percent: 83
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-10-19)
 ## Current Position
 
 Phase: 06 (Parcours banane : dégagement, porte sous le vent, arrivée décalée) — EXECUTING
-Plan: 2 of 4
+Plan: 3 of 4
 Status: Ready to execute
 Last activity: 2026-10-23 — Plan 06-01 terminé (moteur : banane, porte, arrivées, conseil de porte)
 
@@ -83,6 +83,7 @@ Progress: [████████░░] 83%
 | Phase 05 P02 | 15 min | 3 tasks | 15 files |
 | Phase 05 P03 | 15 min | 3 tasks | 5 files |
 | Phase 06 P01 | 7 min | 3 tasks | 7 files |
+| Phase 06 P02 | 13 min | 3 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -151,6 +152,9 @@ Décisions récentes qui orientent le travail en cours :
 - [Phase 06]: 06-01 : la fixture des bords v37 (127 cas, capturée sur 6e7af98 avant toute modification de js/) est comparée à 1e-9 près à chaque npm test ; côté et tour absents sérialisés en null
 - [Phase 06]: 06-01 : une porte (banane ou régate) est un seul bord PORTE vers la bouée retenue ; conseil seulement si l’écart routé atteint 10 s ou si une bascule de 2°/h est annoncée, sinon bouée gauche « retenue pour le calcul »
 - [Phase 06]: 06-01 : la banane (id 90, js/banane.js) est posée depuis le centre de la ligne réellement utilisée, pinguée comprise ; js/courses.js intact
+- [Phase 06]: 06-02 : la banane entre dans COURSES par addBanane(COURSES) avant la lecture de l’état ; ses cinq réglages vivent dans DEF (banNm, banOff, banSide, banGate, banFin) et sont bornés dès la saisie
+- [Phase 06]: 06-02 : prepareLeg est appelé avant analyzeLeg dans runAnalysis et planRest ; une porte est passée en course à moins de 40 m de l’une ou l’autre bouée (legReached)
+- [Phase 06]: 06-02 : une manche en banane porte ban (cleanBan), facultatif ; raceSettings le rend, chooseRace l’applique ; stratSettings le fige avec la route conseillée
 
 ### Pending Todos
 
@@ -188,6 +192,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-10-23T18:03:31.302Z
-Stopped at: Completed 06-01-PLAN.md
+Last session: 2026-10-23T18:18:16.656Z
+Stopped at: Completed 06-02-PLAN.md
 Resume file: None

@@ -202,14 +202,14 @@ Plans:
   4. La référence SNPM (`js/courses.js`, `tests/reference/`) ne bouge pas ; les parcours SNPM, le parcours 13 et les régates déjà archivées donnent exactement les mêmes bords qu'en v37
   5. v38 sur l'aperçu `apercu-phase-06`, vérifiée, puis en production sur décision de Romain avant le 2 novembre
 
-**Plans:** 1/4 plans executed
+**Plans:** 2/4 plans executed
 
 Plans:
 **Wave 1**
 - [x] 06-01-PLAN.md — Moteur : bords v37 figés (fixture capturée sur 6e7af98 avant toute modification), `js/banane.js` (banane construite : B, dégagement, porte à deux bouées, arrivées décalées), porte et arrivée de régate dans `buildLegs`, conseil de porte par routage (`adviseGate`, `prepareLeg`, `gateText`) (vague 1)
 
 **Wave 2** *(blocked on Wave 1 completion)*
-- [ ] 06-02-PLAN.md — Interface : banane dans l'onglet Parcours avec ses réglages (clés de `DEF`), analyse chaînée par `prepareLeg`, conseil au briefing, dans les bords, sur la carte 2D/3D et en course ; réglages gardés avec la manche et la route figée ; scénarios `banane`, `banane-manche` (vague 2)
+- [x] 06-02-PLAN.md — Interface : banane dans l'onglet Parcours avec ses réglages (clés de `DEF`), analyse chaînée par `prepareLeg`, conseil au briefing, dans les bords, sur la carte 2D/3D et en course ; réglages gardés avec la manche et la route figée ; scénarios `banane`, `banane-manche` (vague 2)
 
 **Wave 3** *(blocked on Wave 2 completion : mêmes fichiers `tools/regate-e2e.mjs`, `sw.js`, `js/version.js`)*
 - [ ] 06-03-PLAN.md — Autre club : porte et arrivée dans le schéma strict d'`api/ic.js` (extraits vérifiés), relecture, fiche et injection ; passages de porte au débrief et dans l'analyse d'une trace ; `tools/compat-v37.mjs` (fiches v37 ↔ v38) ; scénario `porte-ic` (vague 3)

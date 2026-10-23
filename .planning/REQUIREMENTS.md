@@ -49,9 +49,9 @@ Version visée : prête pour la régate CVAT des 7-9 novembre 2026 (gel du code 
 
 ### Parcours (PARC)
 
-- [ ] **PARC-01**: Parcours banane construit au vent (bouée au vent, dégagement facultatif, nombre de tours) depuis la ligne choisie
-- [ ] **PARC-02**: Porte sous le vent à deux bouées, avec la bouée conseillée à chaque passage d'après le routage
-- [ ] **PARC-03**: Arrivée décalée (au vent ou sous le vent), distincte de la ligne de départ
+- [x] **PARC-01**: Parcours banane construit au vent (bouée au vent, dégagement facultatif, nombre de tours) depuis la ligne choisie
+- [x] **PARC-02**: Porte sous le vent à deux bouées, avec la bouée conseillée à chaque passage d'après le routage
+- [x] **PARC-03**: Arrivée décalée (au vent ou sous le vent), distincte de la ligne de départ
 - [ ] **PARC-04**: Porte et arrivée décalée dans les parcours d'un autre club (IC lues par l'IA ou saisies)
 
 ## v2 Requirements
@@ -126,9 +126,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | ARCH-04 | Phase 3 | Complete |
 | ARCH2-01 | Phase 5 | Complete |
 | SECU2-01 | Phase 5 | Complete |
-| PARC-01 | Phase 6 | Pending |
-| PARC-02 | Phase 6 | Pending |
-| PARC-03 | Phase 6 | Pending |
+| PARC-01 | Phase 6 | Complete |
+| PARC-02 | Phase 6 | Complete |
+| PARC-03 | Phase 6 | Complete |
 | PARC-04 | Phase 6 | Pending |
 
 **Coverage:**
