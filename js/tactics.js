@@ -441,9 +441,9 @@ export function trendOf(series, startIdx, endIdx) {
   return den ? num / den : 0; // °/h
 }
 
-// Classement des parcours selon le vent (le comité cherche souvent un premier bord au près)
-export function rankCourses(cls, windDir, windSpd) {
-  return COURSES.filter((c) => c.seq[cls] && !c.built).map((c) => {
+// Classement des parcours selon le vent (le comité cherche souvent un premier bord au près) ; list : parcours proposés (ceux de la régate ouverte)
+export function rankCourses(cls, windDir, windSpd, list = COURSES) {
+  return list.filter((c) => c.seq[cls] && !c.built && MARKS[c.seq[cls][0]?.[0]]).map((c) => {
     const first = MARKS[c.seq[cls][0][0]];
     const ctr = toXY(LINE_PRESETS[c.line || 'vignettes'].lat, LINE_PRESETS[c.line || 'vignettes'].lon);
     const brg = bearingXY(ctr, toXY(first.lat, first.lon));

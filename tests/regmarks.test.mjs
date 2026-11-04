@@ -450,3 +450,66 @@ test('fiche : « porte 4s / 4p », « Arrivée : entre le Comité et F », « en
   const v37 = parseHTML(`<div>${marksSectionHTML(structuredClone(REGATE_V37))}</div>`).document;
   assert.doesNotMatch(v37.querySelector('[data-co-row="101"]').textContent, /Arrivée|porte/, 'régate archivée : fiche inchangée');
 });
+
+// Parcours proposés : la régate ouverte qui a ses parcours (IC) ne propose qu’eux ; sinon le cahier CVAT et la banane (v41)
+const CS = [{ id: 1, title: 'Parcours 1' }, { id: 3, title: 'Parcours 3' }, { id: 13, title: 'Parcours 13 (construit)', built: 'WL' }, { id: 90, title: 'Banane (construite)', built: 'BAN' },
+  { id: 101, title: 'Parcours 1 (IC)', fromRegatta: 'rgA' }, { id: 102, title: 'Parcours 2 (IC)', fromRegatta: 'rgA' }, { id: 103, title: 'Parcours X (IC)', fromRegatta: 'rgB' }];
+const ids = (l) => l.map((c) => c.id);
+
+test('allowedCourses : seulement les parcours de la régate ouverte, sinon cahier CVAT et banane, jamais ceux d’une autre régate', async () => {
+  const { allowedCourses } = await import('../js/regmarks.js');
+  assert.deepEqual(ids(allowedCourses(CS, 'rgA')), [101, 102], 'La Seyne Cup : ses parcours IC seulement');
+  assert.deepEqual(ids(allowedCourses(CS, 'snpm-2026')), [1, 3, 13, 90], 'régate CVAT sans parcours propres : cahier CVAT et banane');
+  assert.deepEqual(ids(allowedCourses(CS, null)), [1, 3, 13, 90], 'entraînement libre : cahier CVAT et banane');
+  assert.deepEqual(ids(allowedCourses(CS, undefined)), [1, 3, 13, 90]);
+  assert.deepEqual(ids(allowedCourses(CS, 'rgB')), [103]);
+  assert.deepEqual(allowedCourses(null, 'rgA'), []);
+  // sur la vraie table (sans parcours de régate) : le cahier 1-13, rien d’autre
+  assert.deepEqual(ids(allowedCourses(COURSES, 'snpm-2026')), ids(COURSES.filter((c) => !c.fromRegatta)));
+});
+
+test('courseFallback : manche choisie, sinon parcours 3, sinon premier de la liste ; rien quand le parcours est proposé', async () => {
+  const { courseFallback } = await import('../js/regmarks.js');
+  assert.equal(courseFallback(CS, { courseId: 101, openId: 'rgA' }), null, 'parcours de la régate : rien à changer');
+  assert.equal(courseFallback(CS, { courseId: 90, openId: null }), null, 'banane en entraînement libre');
+  assert.equal(courseFallback(CS, { courseId: 3, openId: 'snpm-2026' }), null, 'régate CVAT : le cahier reste proposé');
+  assert.deepEqual(courseFallback(CS, { courseId: 3, openId: 'rgA' }), { id: 101, from: 'liste' }, 'ouverture de La Seyne Cup : Parcours 1 (IC)');
+  assert.deepEqual(courseFallback(CS, { courseId: 3, openId: 'rgA', raceCourseId: 102 }), { id: 102, from: 'manche' }, 'parcours de la manche choisie');
+  assert.deepEqual(courseFallback(CS, { courseId: 3, openId: 'rgA', raceCourseId: '102' }), { id: 102, from: 'manche' }, 'identifiant de manche en texte');
+  assert.deepEqual(courseFallback(CS, { courseId: 3, openId: 'rgA', raceCourseId: 5 }), { id: 101, from: 'liste' }, 'manche sur un parcours non proposé : ignoré');
+  assert.deepEqual(courseFallback(CS, { courseId: 101, openId: null, def: 3 }), { id: 3, from: 'defaut' }, 'fermeture : parcours CVAT par défaut');
+  assert.deepEqual(courseFallback(CS, { courseId: 101, openId: 'snpm-2026', def: 3 }), { id: 3, from: 'defaut' }, 'autre régate, CVAT');
+  assert.deepEqual(courseFallback(CS, { courseId: 103, openId: 'rgA' }), { id: 101, from: 'liste' }, 'parcours d’une autre régate jamais gardé');
+  assert.deepEqual(courseFallback(CS, { courseId: 101, openId: null, def: 77 }), { id: 1, from: 'liste' });
+  assert.equal(courseFallback([], { courseId: 3, openId: null }), null, 'liste vide : rien');
+});
+
+test('courseFallback : jamais pendant une course (chrono, mode départ, trace, GPS), sauf parcours disparu', async () => {
+  const { courseFallback, courseMismatch } = await import('../js/regmarks.js');
+  assert.deepEqual(courseFallback(CS, { courseId: 3, openId: 'rgA', active: true }), { blocked: true }, 'jour J en course : parcours 3 gardé');
+  assert.deepEqual(courseFallback(CS, { courseId: 3, openId: 'rgA', raceCourseId: 102, active: true }), { blocked: true }, 'même avec une manche');
+  assert.equal(courseFallback(CS, { courseId: 101, openId: 'rgA', active: true }), null);
+  assert.deepEqual(courseFallback(CS, { courseId: 104, openId: null, active: true }), { id: 3, from: 'defaut' }, 'parcours retiré (n’existe plus) : remplacé, il faut un parcours');
+  // l’avertissement de la course : parcours choisi hors de la liste
+  assert.deepEqual(courseMismatch(CS, 3, 'rgA'), { current: 'Parcours 3', allowed: ['Parcours 1 (IC)', 'Parcours 2 (IC)'] });
+  assert.equal(courseMismatch(CS, 101, 'rgA'), null, 'parcours de la régate : rien à dire');
+  assert.equal(courseMismatch(CS, 3, null), null, 'entraînement libre');
+  assert.equal(courseMismatch(CS, 3, 'snpm-2026'), null, 'régate sans parcours propres (cahier CVAT)');
+});
+
+test('câblage : sélecteur, manche, parcours probables et débrief ne proposent que les parcours permis ; repli jamais en course', () => {
+  const app = readFileSync(ROOT + 'js/app.js', 'utf8');
+  assert.match(app, /const proposes = \(\) => allowedCourses\(COURSES, openReg\(\)\?\.id \?\? null\)/);
+  assert.match(app, /Parcours — \$\{esc\(openReg\(\)\.name\)\}` : 'Parcours \(cahier CVAT\)'/, 'libellé du sélecteur');
+  assert.doesNotMatch(app, /optgroup/, 'plus de groupes');
+  assert.match(app, /rankCourses\(S\.cls, w\.dir, w\.spd, proposes\(\)\)/);
+  assert.match(app, /choices: proposes\(\)/);
+  assert.match(app, /courses: proposes\(\) \}\);/, 'addRace : parcours permis');
+  assert.match(app, /const racing = \(now = Date\.now\(\)\) => raceActive\(now\);/, 'chrono, mode départ, trace, GPS : pas la journée verrouillée seule');
+  assert.doesNotMatch(app.slice(app.indexOf('function syncRegMarks'), app.indexOf('function refreshRegMarks')), /raceLock/);
+  assert.match(app, /function syncRegMarks\(\{ active = racing\(\) \} = \{\}\)/);
+  assert.match(app, /syncRegMarks\(\{ active: chronoRepris \|\| racing\(\) \}\)/, 'au démarrage, un chrono repris compte comme une course');
+  assert.match(app, /if \(!f \|\| f\.blocked\) return;/);
+  assert.match(app, /présélectionné<\/b>/);
+  assert.match(app, /def: DEF\.courseId/);
+});

@@ -40,6 +40,8 @@ button { font: inherit; cursor: pointer; }
 #windBadge { background: rgba(12,34,54,.88); color: #fff; border-radius: 12px; padding: 7px 11px; font-size: 13px; box-shadow: 0 2px 8px rgba(0,0,0,.25); pointer-events: auto; }
 #windBadge b { font-size: 18px; }
 #windBadge .arr { display: inline-block; font-size: 20px; line-height: 1; vertical-align: -2px; }
+#windBadge.nowx { background: rgba(150,40,20,.92); }
+#windBadge .small b { font-size: inherit; }
 #mapBtns { position: absolute; right: 12px; top: 12px; display: flex; flex-direction: column; gap: 6px; }
 #mapBtns button { width: 42px; height: 42px; border: 0; border-radius: 10px; background: rgba(255,255,255,.95); color: var(--bg); font-weight: 700; box-shadow: 0 2px 8px rgba(0,0,0,.2); }
 #mapBtns button.on { background: var(--accent); color: #fff; }

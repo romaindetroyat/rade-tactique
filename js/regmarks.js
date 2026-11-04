@@ -205,3 +205,36 @@ export function applyRegattaMarks(marks, courses, r) {
   const gone = prior.filter((p) => !(r?.id != null && p.from === r.id && addedCourses.includes(p.id))).map((p) => p.id);
   return { marks, courses, addedMarks, addedCourses, removedMarks, removedCourses, gone };
 }
+
+// ───────────────────────── parcours proposés pour la régate ouverte
+
+// Parcours proposés (onglet Parcours, « Ajouter une manche », parcours probables, débrief) : la régate ouverte qui a ses propres parcours (lus dans
+// ses IC, `fromRegatta`) ne propose QU’EUX ; sinon (régate CVAT, entraînement libre) le cahier CVAT et les parcours construits (banane).
+// Jamais les parcours d’une autre régate (applyRegattaMarks n’injecte de toute façon que ceux de la régate ouverte).
+export function allowedCourses(courses, openId) {
+  const all = courses || [];
+  const own = openId != null ? all.filter((c) => c.fromRegatta === openId) : [];
+  return own.length ? own : all.filter((c) => !c.fromRegatta);
+}
+// Parcours à présélectionner quand le parcours choisi n’est pas proposé (ouverture, changement ou fermeture de régate, bouées confirmées) :
+// celui de la manche choisie s’il est proposé, sinon `def` (parcours 3 du cahier) s’il l’est, sinon le premier de la liste.
+// Rend null quand rien ne change. Pendant une course (`active` : chrono, mode départ, trace, GPS allumé ; pas la seule journée verrouillée), le parcours choisi n’est
+// JAMAIS changé ({ blocked: true } : l’avertissement le dit), sauf s’il n’existe plus du tout (bouées retirées) : il faut bien un parcours.
+// Rend sinon { id, from: 'manche' | 'defaut' | 'liste' }.
+export function courseFallback(courses, { courseId, openId = null, raceCourseId = null, active = false, def = 3 } = {}) {
+  const list = allowedCourses(courses, openId);
+  if (list.some((c) => c.id === courseId)) return null;
+  const exists = (courses || []).some((c) => c.id === courseId);
+  if (active && exists) return { blocked: true };
+  const race = raceCourseId != null ? list.find((c) => c.id === Number(raceCourseId)) : null;
+  if (race) return { id: race.id, from: 'manche' };
+  const d = list.find((c) => c.id === def);
+  if (d) return { id: d.id, from: 'defaut' };
+  return list.length ? { id: list[0].id, from: 'liste' } : null;
+}
+// Parcours choisi hors de la liste proposée (seulement pendant une course, où il n’est jamais changé) : { current, allowed } à signaler, sinon null.
+export function courseMismatch(courses, courseId, openId) {
+  const list = allowedCourses(courses, openId);
+  if (list.some((c) => c.id === courseId)) return null;
+  return { current: (courses || []).find((c) => c.id === courseId)?.title ?? null, allowed: list.map((c) => c.title) };
+}

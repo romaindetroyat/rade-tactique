@@ -264,15 +264,16 @@ export function historySectionHTML(r) {
     + `<p class="small muted">Valeurs remplacées par une modification plus récente : quoi, de qui, quand, et ce qu’elle contenait avant.</p>${lignes.join('')}</details>`;
 }
 
-// Fiche de la régate ouverte : nom, club, dates, statut, auteur, puis les manches (courses = parcours connus [{ id, title }]) et le vent du jour
-export function sheetHTML(r, { now = Date.now(), courses = [], raceDraft = null, raceErrors = {}, markFix = null, nmOf, local = null, daysLocal = null, me = null, tipHtml = '' } = {}) {
+// Fiche de la régate ouverte : nom, club, dates, statut, auteur, puis les manches (courses = parcours connus [{ id, title }], pour les libellés ;
+// choices = parcours proposés dans « Ajouter une manche », ceux de la régate quand elle en a) et le vent du jour
+export function sheetHTML(r, { now = Date.now(), courses = [], choices = courses, raceDraft = null, raceErrors = {}, markFix = null, nmOf, local = null, daysLocal = null, me = null, tipHtml = '' } = {}) {
   if (!r) return '';
   const races = r.races || [];
   return `<div class="card" id="rgSheet"><h3><span>${escHTML(r.name)}</span><small>${escHTML(r.club || 'club à préciser')}</small></h3>
     <div class="small">${escHTML(datesLabel(r))} ${statusChip(r, now)}</div>
     <div class="small muted" style="margin-top:4px">Créée ${byLine(r.by, r.at)}</div>
     <div class="rgraces"><h4>Manches</h4>${races.length ? races.map((m) => raceRowHTML(m, { courses, chosen: r.sel === m.n })).join('') : '<p class="small muted">Aucune manche : ajoutez-en une avec son heure de signal et son parcours.</p>'}
-    ${raceDraft ? raceFormHTML(r, raceDraft, raceErrors, courses) : '<div class="btns"><button type="button" class="btn small acc" id="rcNew">＋ Ajouter une manche</button></div>'}</div>
+    ${raceDraft ? raceFormHTML(r, raceDraft, raceErrors, choices) : '<div class="btns"><button type="button" class="btn small acc" id="rcNew">＋ Ajouter une manche</button></div>'}</div>
     ${marksSectionHTML(r, { markFix, nmOf })}
     ${windSectionHTML(r, { now, courses })}
     ${tracesSectionHTML(r, { local })}

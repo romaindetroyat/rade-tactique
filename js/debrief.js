@@ -198,7 +198,7 @@ export function detect(tr, opts = {}) {
   const P = points(tr);
   if (P.length < 50) throw new Error('trace trop courte');
   let pass = passages(P);
-  let mc = pass.length ? matchCourse(pass) : null;
+  let mc = pass.length ? matchCourse(pass, opts.courses) : null;          // opts.courses : parcours proposés (ceux de la régate ouverte), sinon tous
   const ban = opts.banane ? { ...detectBanane(P, opts.banane), ban: cleanBan(opts.banane.ban), from: opts.banane.from || null } : null;
   const useBan = !!ban?.mc && (!!opts.banane.prefer || !mc || (ban.mc.hit.length >= 3 && ban.mc.hit.length > mc.hit.length));
   const cahier = { pass, mc };
@@ -359,7 +359,7 @@ export function ask(det, tr, api) {
     const mc = views.cahier.mc;
     // la trace ne révèle aucun parcours : celui de la manche de la régate (api.courseHint) est pré-sélectionné, l'équipier le confirme ou le change
     const isCourse = (c) => (mc ? mc.c.id === c.id : api.courseHint != null && String(c.id) === String(api.courseHint));
-    const courseOpts = COURSES.filter((c) => !c.built).map((c) => `<option value="${c.id}" ${kind === 'cahier' && isCourse(c) ? 'selected' : ''}>${esc(c.title)}</option>`).join('')
+    const courseOpts = (api.courses || COURSES).filter((c) => !c.built).map((c) => `<option value="${c.id}" ${kind === 'cahier' && isCourse(c) ? 'selected' : ''}>${esc(c.title)}</option>`).join('')
       + (det.ban ? `<option value="${BANANE.id}" ${kind === 'ban' ? 'selected' : ''}>${esc(BANANE.title)}</option>` : '');
     const html = (k) => {
       const v = views[k], m2 = v.mc;
