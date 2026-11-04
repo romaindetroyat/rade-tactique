@@ -53,7 +53,7 @@ async function lit(B, chemin) {
   if (!r || r.statusCode !== 200) return { n: 0, etag: null };
   const j = JSON.parse(await new Response(r.stream).text());
   if (!Number.isSafeInteger(j?.n) || j.n < 0) throw new Error('compteur illisible');
-  return { n: j.n, etag: r.blob.etag };
+  return { n: j.n, etag: String(r.blob.etag || '').replace(/^W\//, '') || null };   // ETag faible du CDN : ifMatch ne l’accepte que sans « W/ »
 }
 // Écriture refusée parce qu’un autre appel a écrit entre-temps ; à la création, l’échec « existe déjà » n’a pas de classe dédiée dans le SDK
 const perdue = (B, e, etag) => e instanceof B.BlobPreconditionFailedError || (!etag && e instanceof B.BlobError && !(e instanceof B.BlobServiceRateLimited));

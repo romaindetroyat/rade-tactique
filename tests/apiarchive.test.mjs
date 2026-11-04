@@ -648,3 +648,16 @@ test('compatibilité v36 : un PUT dont le document porte une régate ouverte au 
   assert.ok(blob.store.size > 0);
   for (const e of blob.store.values()) assert.ok(!/"current"|"open"/.test(e.text), 'ni dans le magasin');
 });
+
+test('ETag faible du CDN (W/"…") : la révision lue sert à ifMatch sans le préfixe, et une modification n’échoue plus en 409', async () => {
+  const { revision } = await import('../api/archive.js');
+  assert.equal(revision('W/"abc"'), '"abc"');
+  assert.equal(revision('"abc"'), '"abc"');
+  assert.equal(revision(''), null);
+  const { teiva, thibaud } = installe();
+  await teiva('PUT', PUT, { doc: doc(regatta({ races: [manche('2026-11-07', '10:55')] })) });
+  const deux = await thibaud('PUT', PUT, { doc: doc(regatta({ races: [manche('2026-11-07', '10:55'), manche('2026-11-08', '10:55')] })) });
+  assert.equal(deux.status, 200, 'la seconde écriture (écrasement sous ifMatch) passe');
+  assert.equal(deux.body.changed, true);
+  assert.ok(!String(deux.body.rev).startsWith('W/'));
+});

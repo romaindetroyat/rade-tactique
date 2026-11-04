@@ -112,10 +112,13 @@ export function attribute(incoming, stored, who) {
 // ───────────────────────── lecture / écriture du document léger avec ifMatch
 
 async function readText(stream) { return new Response(stream).text(); }
+// L’ETag d’une lecture revient « faible » (W/"…", contenu recompressé par le CDN) et ifMatch la refuse toujours : sans le préfixe,
+// c’est la révision exacte. Sans cette correction, toute modification de l’archive finissait en « écritures simultanées » (409).
+export const revision = (etag) => String(etag || '').replace(/^W\//, '') || null;
 async function readLight(B, path) {
   const r = await B.get(path, { access: 'private', useCache: false });          // useCache:false : relire la dernière version, pas la copie du CDN (jusqu’à 60 s de retard)
   if (!r || r.statusCode !== 200) return { doc: emptyDoc(), etag: null };
-  try { return { doc: { ...emptyDoc(), ...JSON.parse(await readText(r.stream)) }, etag: r.blob.etag }; } catch { throw fail('document stocké illisible', 502); }
+  try { return { doc: { ...emptyDoc(), ...JSON.parse(await readText(r.stream)) }, etag: revision(r.blob.etag) }; } catch { throw fail('document stocké illisible', 502); }
 }
 // Une écriture qui a perdu la course contre un autre équipier se rejoue (relire, refusionner) ; à la création, l’échec « existe déjà » n’a pas de classe dédiée dans le SDK
 const lost = (B, e, etag) => e instanceof B.BlobPreconditionFailedError || (!etag && e instanceof B.BlobError && !(e instanceof B.BlobServiceRateLimited));
@@ -234,10 +237,10 @@ export function createHandler({ blob, now = Date.now } = {}) {
       if (req.method === 'GET') {
         const r = await B.get(path, { access: 'private', useCache: false, ...(q.rev ? { ifNoneMatch: String(q.rev) } : {}) });
         if (!r) return res.status(200).json({ rev: null, doc: emptyDoc(), env: P });
-        if (r.statusCode === 304) return res.status(200).json({ unchanged: true, rev: r.blob.etag, env: P });
+        if (r.statusCode === 304) return res.status(200).json({ unchanged: true, rev: revision(r.blob.etag) || String(q.rev), env: P });
         let doc;
         try { doc = { ...emptyDoc(), ...JSON.parse(await readText(r.stream)) }; } catch { throw fail('document stocké illisible', 502); }
-        return res.status(200).json({ rev: r.blob.etag, doc, env: P });
+        return res.status(200).json({ rev: revision(r.blob.etag), doc, env: P });
       }
       const t = now(), incoming = cleanDoc(req.body?.doc, t);
       const out = await mutateLight(B, path, (stored) => {
