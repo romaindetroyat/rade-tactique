@@ -254,7 +254,7 @@ test('verrou et voyant suivent chaque geste de course tout de suite (pas d’att
   assert.match(app, /releaseGps\('chrono arrêté'\); raceTick\(\); \}/, 'chrono arrêté');
   assert.match(app, /écran allumé\.'\); renderLiveNav\(\); raceTick\(\);/, 'trace lancée');
   assert.match(app, /releaseGps\('trace arrêtée'\); raceTick\(\); \}/, 'trace arrêtée');
-  assert.match(app, /if \(saved\?\.end[^\n]*startTimer\(\); resumed = true; \}/, 'la reprise du chrono au démarrage n’appelle pas raceTick (startMode pas encore créé)');
+  assert.match(app, /const chronoRepris = !!\(saved\?\.end[^\n]*\n[\s\S]*?if \(chronoRepris\) \{[^\n]*startTimer\(\); resumed = true; \}/, 'la reprise du chrono au démarrage n’appelle pas raceTick (startMode pas encore créé)');
 });
 
 test('archive : les déclencheurs réseau relancent la synchronisation (online, sonde, retour au premier plan)', () => {

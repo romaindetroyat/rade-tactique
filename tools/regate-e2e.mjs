@@ -195,6 +195,15 @@ async function ajouteManche(page, { heure, parcours, cls, tours }) {
   await page.waitForSelector('#rcForm', { state: 'detached', timeout: 10000 });
   assert.equal(await page.locator('section[data-tab=ic] .rgrace').count(), avant + 1, 'la manche doit apparaître dans la fiche');
 }
+// Onglet Parcours : libellé du sélecteur et parcours proposés (textes des options) ; revient à l’onglet de départ si `retour`
+const CAHIER = ['Parcours 1', 'Parcours 2', 'Parcours 3', 'Parcours 4', 'Parcours 5', 'Parcours 6', 'Parcours 7', 'Parcours 8', 'Parcours 9', 'Parcours 10', 'Parcours 11', 'Parcours 12', 'Parcours 13 (construit)', 'Banane (construite)'];
+async function selecteur(page, retour = null) {
+  await page.click('#tabs button[data-tab=course]');
+  await page.waitForSelector('#cSel', { state: 'attached', timeout: 90000 });
+  const r = await page.evaluate(() => { const s = document.querySelector('#cSel'); return { label: s.closest('div').querySelector('label').textContent, options: [...s.options].map((o) => o.textContent), value: s.value, groupes: s.querySelectorAll('optgroup').length }; });
+  if (retour) await page.click(`#tabs button[data-tab=${retour}]`);
+  return r;
+}
 const reglages = (page) => page.evaluate(() => ({ parcours: document.querySelector('#cSel')?.value, cls: document.querySelector('#cCls')?.value, depart: document.querySelector('#cStart')?.value }));
 
 // REG-02 : plusieurs manches dans une journée, chacune avec son parcours ; « Choisir cette manche » cale le départ
@@ -203,6 +212,12 @@ async function manche({ browser, base }) {
   const { page, erreurs } = await ouvrePage(ctx);
   await ouvreApp(page, base);
   await creeRegate(page, { nom: 'Régate des manches', debut: '2026-11-07', club: 'CVAT' });
+  // v41 : régate CVAT (sans parcours lus) : « Ajouter une manche » et l’onglet Parcours proposent le cahier CVAT et la banane, rien d’autre
+  await page.click('#rcNew');
+  assert.deepEqual(await page.locator('#rcCourse option').allTextContents(), ['parcours à préciser', ...CAHIER]);
+  await page.click('#rcCancel');
+  const sel = await selecteur(page, 'ic');
+  assert.deepEqual([sel.label, sel.options, sel.value, sel.groupes], ['Parcours — Régate des manches', CAHIER, '3', 0]);
   await ajouteManche(page, { heure: '10:55', parcours: '5', cls: 'G', tours: '2' });
   await ajouteManche(page, { heure: '13:25', parcours: '3', cls: 'P', tours: '1' });
   const lignes = await page.locator('section[data-tab=ic] .rgrace').allTextContents();
@@ -827,6 +842,10 @@ async function depuisIC({ browser, base }) {
   assert.equal(liste.length, 1); assert.match(liste[0].rows[0].text, /2026/, 'l’année reste lisible dans la ligne');
   assert.deepEqual(liste.map((g) => g.status), ['Terminées'], 'le 18/10 est passé le 19/10');
   assert.equal(liste[0].rows[0].name, nom); assert.ok(liste[0].rows[0].open);
+  // v41 : régate des IC sans parcours lus : le cahier CVAT et la banane, sous le nom de la régate ; parcours choisi inchangé
+  const sel = await selecteur(page, 'ic');
+  assert.deepEqual([sel.label, sel.options, sel.value], [`Parcours — ${nom}`, CAHIER, '3']);
+  assert.equal(await page.locator('section[data-tab=course] :is(#coursePick, #courseMismatch)').count(), 0, 'rien à présélectionner');
 
   // après relance : cette seule régate, aucune ancienne fiche, rade.events.v1 toujours absente
   await ouvreApp(page, base);
@@ -1183,6 +1202,9 @@ async function bouees({ browser, base }) {
   await membreGarde(page, 'Équipier test');
   await creeRegate(page, { nom: 'Régate bouées', debut: '2026-10-19', club: 'SNM' });
   const idPremiere = (await regateOuverte(page)).id;
+  // v41 : tant qu’elle n’a aucun parcours lu, la régate propose le cahier CVAT et la banane
+  let sel = await selecteur(page, 'ic');
+  assert.deepEqual([sel.label, sel.options, sel.value], ['Parcours — Régate bouées', CAHIER, '3']);
   await importeTexte(page, TEXTE_BOUEES);
   await page.click('#icIa');
   await page.waitForSelector('.icmark', { timeout: 30000 });
@@ -1257,12 +1279,14 @@ async function bouees({ browser, base }) {
   const apresAlpha = await regateOuverte(page);
   assert.equal(apresAlpha.marks[0].status, 'confirmee'); assert.equal(typeof apresAlpha.marks[0].confirmed.at, 'number'); assert.equal(apresAlpha.marks[0].confirmed.by, 'Équipier test');
 
-  // Confirmer Bravo : le parcours est proposé
+  // Confirmer Bravo : le parcours est proposé, SEUL (v41) : la régate a désormais son parcours, il est présélectionné et dit
   await page.click('[data-mk-ok=X2]');
   t = await tables();
   assert.deepEqual(t.marks, [...CVAT, 'X1', 'X2'], 'X3 (Charlie) n’est jamais entrée');
   assert.ok(t.courses.includes('101:Parcours A (IC)'));
-  assert.ok((await parcours()).includes('Parcours A (IC)'), 'l’onglet Parcours propose « Parcours A (IC) »');
+  assert.deepEqual(await parcours(), ['Parcours A (IC)'], 'l’onglet Parcours ne propose que « Parcours A (IC) »');
+  assert.equal((await etatApp()).courseId, 101, 'parcours 3 remplacé par le parcours de la régate');
+  await toastVu(page, 'Parcours A \\(IC\\) présélectionné — choisissez celui annoncé par le Comité', 10000);
   assert.match(await page.locator('#rgSheet [data-co-row="101"]').textContent(), /proposé dans l’onglet Parcours/);
 
   // le choisir : l'analyse se fait avec les deux bouées confirmées, sans erreur de page
@@ -1285,9 +1309,10 @@ async function bouees({ browser, base }) {
   await ouvreRegate(page, idPremiere);
   t = await tables();
   assert.deepEqual(t.marks, [...CVAT, 'X1', 'X2'], 'régate rouverte : bouées confirmées retrouvées'); assert.ok(t.courses.includes('101:Parcours A (IC)'));
+  assert.equal((await etatApp()).courseId, 101, '« Ouvrir » présélectionne le parcours de la régate');
   await page.click('#tabs button[data-tab=course]');
-  await page.selectOption('#cSel', '101');
-  assert.equal((await etatApp()).courseId, 101);
+  assert.match(await page.locator('section[data-tab=course] #coursePick').textContent(), /Parcours A \(IC\) présélectionné — choisissez celui annoncé par le Comité/);
+  assert.match(await page.locator('#cSel').evaluate((s) => s.closest('div').querySelector('label').textContent), /^Parcours — Coupe de la Société Nautique de Marseille Sud$/, 'nom lu dans les IC');
   await page.waitForFunction(() => [...document.querySelectorAll('section[data-tab=course] .leg .hd')].some((e) => /X2 Bravo/.test(e.textContent)), null, { timeout: 90000 });
   sansErreur(erreurs, 'après la relance');
 
@@ -1312,12 +1337,21 @@ async function bouees({ browser, base }) {
   assert.equal((await page.locator('#cSel').inputValue()), '3', 'le parcours 3 est choisi');
   sansErreur(erreurs, 'après le changement de régate');
 
-  // retour à la première : bouées confirmées réinjectées (le parcours choisi reste le 3), « Voir sur la carte » replie le panneau
+  sel = await selecteur(page, 'ic');
+  assert.deepEqual([sel.label, sel.options], ['Parcours — Autre régate', CAHIER], 'régate CVAT : cahier CVAT et banane, plus rien de la précédente');
+
+  // retour à la première : bouées confirmées réinjectées, son parcours présélectionné ; « Voir sur la carte » replie le panneau
   await page.click(`#tabs button[data-tab=ic]`);
   await page.click(`[data-rg="${idPremiere}"]`);
   t = await tables();
   assert.deepEqual(t.marks, [...CVAT, 'X1', 'X2']); assert.ok(t.courses.includes('101:Parcours A (IC)'));
-  assert.equal((await etatApp()).courseId, 3);
+  assert.equal((await etatApp()).courseId, 101);
+  // fermer la régate : son parcours disparaît, retour au parcours 3 du cahier
+  await fermeRegate(page);
+  await page.waitForFunction(() => JSON.parse(localStorage.getItem('rade.state')).courseId === 3, null, { timeout: 15000 });
+  sel = await selecteur(page, 'ic');
+  assert.deepEqual([sel.label, sel.options, sel.value], ['Parcours (cahier CVAT)', CAHIER, '3']);
+  await ouvreRegate(page, idPremiere);
   await page.click('[data-mk-voir=X2]');
   await page.waitForFunction(() => document.body.dataset.sheet === 'min', null, { timeout: 5000 });
   sansErreur(erreurs, 'à la fin du scénario');
@@ -2173,6 +2207,9 @@ async function accueil({ browser, base }) {
   assert.match(await page.locator('#windBadge').textContent(), /manuel, sans prévision/);
   assert.doesNotMatch(await page.locator('#windBadge').textContent(), /AROME/, 'jamais le nom d’un modèle sur un vent manuel');
   assert.ok(await page.locator('#windBadge.nowx').count(), 'badge de la carte en couleur d’alerte');
+  // v41 : entraînement libre : le cahier CVAT et la banane, sans groupes
+  let sel = await selecteur(page, 'brief');
+  assert.deepEqual([sel.label, sel.options, sel.value, sel.groupes], ['Parcours (cahier CVAT)', CAHIER, '3', 0]);
 
   // le chrono (séquence commune), le mode départ, le GPS et la trace marchent sans régate
   await page.click('#tabs button[data-tab=start]');
@@ -2215,6 +2252,10 @@ async function accueil({ browser, base }) {
   assert.ok(liste[0].rows[0].open, 'la liste marque la régate ouverte'); assert.equal(await page.locator('#rgList [data-rg="snpm-2026"]').count(), 0, 'plus de bouton « Ouvrir » sur la régate ouverte');
   assert.doesNotMatch(await page.locator('#daySeg').textContent(), /🏁/, 'le 18/10 est passé : il n’est pas parmi les trois jours affichés');
   idx = await indexRegates(page); assert.ok(!('current' in idx), 'ouvrir n’écrit rien dans l’index');
+  // v41 : Coupe de la SNPM (régate CVAT, sans parcours lus) : le cahier CVAT et la banane, parcours choisi inchangé, rien à présélectionner
+  sel = await selecteur(page, 'ic');
+  assert.deepEqual([sel.label, sel.options, sel.value], ['Parcours — Coupe de la SNPM — CVAT', CAHIER, '3']);
+  assert.equal(await page.locator('section[data-tab=course] :is(#coursePick, #courseMismatch)').count(), 0);
   await fermeRegate(page);
   b = await bandeau(page); assert.match(b.texte, /Entraînement libre/);
   assert.equal(await page.locator('#rgNone').count(), 1); assert.equal(await page.locator('#rgSheet').count(), 0);
@@ -2323,6 +2364,52 @@ async function jourJ({ browser, base }) {
   await p3.waitForSelector('#regBar[data-open="lundi"]', { timeout: 15000 });
   sansErreur(e3, 'passage de jour pendant un chrono');
   await ctx3.close();
+
+  // (5) v41 : régate d’un autre club avec ses parcours confirmés (« La Seyne Cup », manche 1 sur son Parcours 2). Lundi 8 h 30 : ouverte seule, elle ne
+  // propose que ses parcours et présélectionne celui de la manche choisie à la place du parcours 3 de la veille
+  const pos = { X1: [43.097417, 5.93415], X2: [43.0905, 5.9587] };          // Alpha et Bravo du scénario bouees
+  const bouee = (id, name) => ({ id, name, text: '', lat: pos[id][0], lon: pos[id][1], excerpt: '', status: 'confirmee', src: 'IC SNS', by: null, at: 0, confirmed: { by: null, at: 0 } });
+  const pc = (id, name, seq) => ({ id, name, seq, excerpt: '', incomplete: false, missing: [], by: null, at: 0 });
+  const seyne = {
+    ...regateSemee('seyne', 'La Seyne Cup', '2026-10-19'), club: 'SNS', sel: 1,
+    marks: [bouee('X1', 'Alpha'), bouee('X2', 'Bravo')],
+    courses: [pc(101, 'Parcours 1', [{ mark: 'X1', side: 'b' }, { mark: 'X2', side: 'b' }]), pc(102, 'Parcours 2', [{ mark: 'X2', side: 'b' }, { mark: 'X1', side: 'b' }])],
+    races: [{ ...manche14, courseId: 102 }],
+  };
+  const ctx4 = await ouvreContexte(browser, { heure: '2026-10-19T06:30:00Z' });
+  const { page: p4, erreurs: e4 } = await ouvrePage(ctx4);
+  await sème(p4, base, [seyne]);
+  assert.equal(await idOuverte(p4), 'seyne', 'ouverte au lancement, sans geste');
+  assert.equal((await etatPage(p4)).courseId, 102, 'parcours de la manche choisie présélectionné');
+  let sel = await selecteur(p4);
+  assert.deepEqual([sel.label, sel.options, sel.value, sel.groupes], ['Parcours — La Seyne Cup', ['Parcours 1 (IC)', 'Parcours 2 (IC)'], '102', 0], 'seulement les parcours de la régate');
+  assert.match(await p4.locator('section[data-tab=course] #coursePick').textContent(), /^Parcours 2 \(IC\) présélectionné \(parcours de la manche 1\) — choisissez celui annoncé par le Comité\.$/);
+  await p4.click('#tabs button[data-tab=brief]');
+  assert.match(await p4.locator('section[data-tab=brief] #coursePick').textContent(), /Parcours 2 \(IC\) présélectionné/);
+  // la manche : « Ajouter une manche » ne propose que les parcours de la régate
+  await ongletIC(p4);
+  await p4.click('#rcNew');
+  assert.deepEqual(await p4.locator('#rcCourse option').allTextContents(), ['parcours à préciser', 'Parcours 1 (IC)', 'Parcours 2 (IC)']);
+  assert.equal(await p4.locator('#rcCourse').inputValue(), '102');
+  await p4.click('#rcCancel');
+  sansErreur(e4, 'jour J, régate avec ses parcours');
+
+  // (6) pendant la course (journée verrouillée après 9 h) : un parcours du cahier choisi n’est JAMAIS changé au lancement, il est signalé
+  await p4.evaluate(() => { const s = JSON.parse(localStorage.getItem('rade.state')); s.courseId = 3; localStorage.setItem('rade.state', JSON.stringify(s)); });
+  await ctx4.clock.setFixedTime(new Date('2026-10-19T08:30:00Z'));                                 // 10 h 30 à Paris, jour de la régate
+  await ouvreApp(p4, base);
+  assert.equal(await idOuverte(p4), 'seyne');
+  assert.equal((await etatPage(p4)).courseId, 3, 'journée de course : parcours gardé');
+  sel = await selecteur(p4);
+  assert.deepEqual([sel.options, sel.value], [['Parcours 1 (IC)', 'Parcours 2 (IC)', 'Parcours 3'], '3'], 'le parcours gardé reste affiché, à sa place');
+  assert.match(await p4.locator('section[data-tab=course] #courseMismatch').textContent(), /Parcours choisi : Parcours 3[\s\S]*pas un parcours de La Seyne Cup[\s\S]*ne change jamais le parcours d’elle-même[\s\S]*Parcours 1 \(IC\), Parcours 2 \(IC\)/);
+  assert.equal(await p4.locator('section[data-tab=course] #coursePick').count(), 0);
+  // l’équipier choisit : l’avertissement disparaît
+  await p4.selectOption('#cSel', '101');
+  assert.equal(await p4.locator('section[data-tab=course] #courseMismatch').count(), 0);
+  assert.equal((await etatPage(p4)).courseId, 101);
+  sansErreur(e4, 'journée de course');
+  await ctx4.close();
 }
 
 // D-A4 : la régate ouverte est un état local de chaque téléphone ; ouvrir ou fermer ne change rien chez l'autre et ne voyage jamais dans l'archive
@@ -2667,7 +2754,7 @@ async function porteIC({ browser, base }) {
   await ventManuel(page);
   await ouvreApp(page, base);
   await membreGarde(page, 'Équipier test');
-  await creeRegate(page, { nom: 'Régate porte', debut: '2026-10-19', club: 'SNM' });
+  await creeRegate(page, { nom: 'Régate porte', debut: '2026-10-20', club: 'SNM' });          // la veille : hors journée de course (v41)
   await importeTexte(page, TEXTE_PORTE);
   await page.click('#icIa');
   await page.waitForSelector('.iccourse', { timeout: 30000 });
@@ -2722,14 +2809,19 @@ async function porteIC({ browser, base }) {
 
   // l’onglet Parcours : X1 Alpha, la porte (4s ou 4p, conseil de porte), X1 Alpha, arrivée entre le Comité et F
   await page.click('#tabs button[data-tab=course]');
-  // v41 : parcours rangés par origine, et parcours choisi hors de la régate ouverte signalé
-  const groupes = await page.locator('#cSel optgroup').evaluateAll((g) => g.map((x) => x.label));
-  assert.equal(groupes.length, 2); assert.equal(groupes[0], 'Cahier CVAT'); assert.match(groupes[1], / — IC$/);
-  assert.match(await page.locator('#courseMismatch').textContent(), /Parcours choisi : Parcours 3 \(cahier CVAT\)[\s\S]*Parcours B \(IC\)/);
+  // v41 : la régate ne propose que ses parcours. Le parcours C (Alpha, 4s) est complet dès la confirmation de 4p : il remplace alors le parcours 3,
+  // présélectionné et dit ; le parcours B, complet ensuite avec F, s’ajoute à la liste sans rien changer au choix
+  const sel = await selecteur(page);
+  assert.deepEqual([sel.label, sel.options, sel.value, sel.groupes], ['Parcours — Régate porte', ['Parcours B (IC)', 'Parcours C (IC)'], '102', 0]);
+  assert.equal((await etatPage(page)).courseId, 102);
+  assert.match(await page.locator('section[data-tab=course] #coursePick').textContent(), /^Parcours C \(IC\) présélectionné — choisissez celui annoncé par le Comité\.$/);
+  await page.click('#tabs button[data-tab=brief]');
+  assert.match(await page.locator('section[data-tab=brief] #coursePick').textContent(), /Parcours C \(IC\) présélectionné/, 'dit aussi au briefing');
+  await page.click('#tabs button[data-tab=course]');
   await videEtiquettes(page);
   await page.selectOption('#cSel', '101');
   await attendBords(page, suite([/X1 Alpha/, /X[23] 4[sp]/, /X1 Alpha/, /^Arrivée \(Comité – X4 F\)/]), 'parcours B avec porte et arrivée');
-  assert.equal(await page.locator('#courseMismatch').count(), 0, 'parcours de la régate choisi : plus d’avertissement');
+  assert.equal(await page.locator(':is(#coursePick, #courseMismatch)').count(), 0, 'parcours choisi par l’équipier : plus de message (onglet Parcours et briefing)');
   const porte = await page.locator('section[data-tab=course] .leg').nth(1).textContent();
   assert.match(porte, /Porte : /, `conseil de porte dans le bord : ${porte.slice(0, 300)}`);
   await page.waitForFunction(() => window.__labels.some((x) => x.startsWith('4s · ')) && window.__labels.some((x) => x.startsWith('4p · ')), null, { timeout: 30000 });

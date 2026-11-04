@@ -162,7 +162,7 @@ test('analyzeTrack : un bord porte (destination g) dont la trace contourne d →
 
 test('garde : le choix du parcours du débrief exclut toujours les parcours construits ; passages, expectedSeq et matchCourse prennent leurs tables en paramètre', () => {
   const src = readFileSync(ROOT + 'js/debrief.js', 'utf8');
-  assert.match(src, /COURSES\.filter\(\(c\) => !c\.built\)/);
+  assert.match(src, /\(api\.courses \|\| COURSES\)\.filter\(\(c\) => !c\.built\)/);
   assert.match(src, /export function passages\(P, marks = MARKS\)/);
   assert.match(src, /export function expectedSeq\(c, cls, laps, marks = MARKS\)/);
   assert.match(src, /export function matchCourse\(pass, courses = COURSES, marks = MARKS\)/);

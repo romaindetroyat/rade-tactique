@@ -174,12 +174,12 @@ test('câblage : débrief et bord par bord de l’app reconstruisent la banane d
   assert.match(bo, /cleanBan\(rec\.ban\)/, 'réglages enregistrés, bornés');
   assert.match(bo, /banOf\(S\)/, 'à défaut, réglages de l’app');
   assert.match(bo, /trackWindAt\(/, 'vent du moment de la course');
-  assert.match(bodyOf(app, 'runDebrief'), /dbDetect\(tr, bo \? \{ banane: bo \} : \{\}\)/);
+  assert.match(bodyOf(app, 'runDebrief'), /dbDetect\(tr, \{ courses, \.\.\.\(bo \? \{ banane: bo \} : \{\}\) \}\)/);
   assert.match(bodyOf(app, 'showTrace'), /traceBanane\(tr, bo\)/);
   assert.match(bodyOf(app, 'planBananeTrace'), /F\.compute\(prev\.base, \{ localEffects: prev\.fx \}\)/, 'champ rétabli à l’identique');
   assert.match(app, /ban: banOf\(S\), \.\.\.banGeo/, 'la trace enregistrée garde la banane, son axe et sa ligne');
   // rien de la banane n’entre dans MARKS ni dans le choix du cahier
   const dbr = readFileSync(ROOT + 'js/debrief.js', 'utf8');
-  assert.match(dbr, /COURSES\.filter\(\(c\) => !c\.built\)/);
+  assert.match(dbr, /\(api\.courses \|\| COURSES\)\.filter\(\(c\) => !c\.built\)/);
   assert.doesNotMatch(dbr, /MARKS\[[^\]]+\]\s*=/);
 });
