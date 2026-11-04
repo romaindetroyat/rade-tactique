@@ -2168,6 +2168,11 @@ async function accueil({ browser, base }) {
   assert.doesNotMatch(await page.locator('#daySeg').textContent(), /🏁/, 'aucun jour de course marqué');
   await page.click('#tabs button[data-tab=brief]');
   assert.doesNotMatch(await page.locator('section[data-tab=brief]').textContent(), /Coupe de la SNPM|1er avertissement/, 'le briefing ne parle d’aucune épreuve');
+  // v41 : réseau coupé, prévisions embarquées du 17 au 19/10 : le 22/10 n’a aucune prévision, la carte montre le vent manuel et le DIT
+  assert.match(await page.locator('#noWx').textContent(), /Aucune prévision pour ce jour[\s\S]*vent manuel/, 'briefing : prévisions absentes dites');
+  assert.match(await page.locator('#windBadge').textContent(), /manuel, sans prévision/);
+  assert.doesNotMatch(await page.locator('#windBadge').textContent(), /AROME/, 'jamais le nom d’un modèle sur un vent manuel');
+  assert.ok(await page.locator('#windBadge.nowx').count(), 'badge de la carte en couleur d’alerte');
 
   // le chrono (séquence commune), le mode départ, le GPS et la trace marchent sans régate
   await page.click('#tabs button[data-tab=start]');
@@ -2717,9 +2722,14 @@ async function porteIC({ browser, base }) {
 
   // l’onglet Parcours : X1 Alpha, la porte (4s ou 4p, conseil de porte), X1 Alpha, arrivée entre le Comité et F
   await page.click('#tabs button[data-tab=course]');
+  // v41 : parcours rangés par origine, et parcours choisi hors de la régate ouverte signalé
+  const groupes = await page.locator('#cSel optgroup').evaluateAll((g) => g.map((x) => x.label));
+  assert.equal(groupes.length, 2); assert.equal(groupes[0], 'Cahier CVAT'); assert.match(groupes[1], / — IC$/);
+  assert.match(await page.locator('#courseMismatch').textContent(), /Parcours choisi : Parcours 3 \(cahier CVAT\)[\s\S]*Parcours B \(IC\)/);
   await videEtiquettes(page);
   await page.selectOption('#cSel', '101');
   await attendBords(page, suite([/X1 Alpha/, /X[23] 4[sp]/, /X1 Alpha/, /^Arrivée \(Comité – X4 F\)/]), 'parcours B avec porte et arrivée');
+  assert.equal(await page.locator('#courseMismatch').count(), 0, 'parcours de la régate choisi : plus d’avertissement');
   const porte = await page.locator('section[data-tab=course] .leg').nth(1).textContent();
   assert.match(porte, /Porte : /, `conseil de porte dans le bord : ${porte.slice(0, 300)}`);
   await page.waitForFunction(() => window.__labels.some((x) => x.startsWith('4s · ')) && window.__labels.some((x) => x.startsWith('4p · ')), null, { timeout: 30000 });

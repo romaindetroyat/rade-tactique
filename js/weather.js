@@ -38,14 +38,32 @@ async function getJSON(url) {
   } finally { clearTimeout(to); }
 }
 
+// Un essai de plus après une coupure réseau rapide (connexion interrompue) ou un refus passager (429, 5xx) : un seul échec ne doit pas laisser
+// l’équipage sur l’instantané embarqué. Jamais après un délai dépassé (réseau muet : le repli arrive à 10 s, pas à 20) ni après un refus 4xx.
+export async function withRetry(fn, { tries = 2, waitMs = 1500, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) } = {}) {
+  let last;
+  for (let i = 0; i < tries; i++) {
+    try { return await fn(); } catch (e) {
+      last = e;
+      const m = /^HTTP (\d+)/.exec(e?.message || '');
+      if ((m && +m[1] !== 429 && +m[1] < 500) || /^délai dépassé/.test(e?.message || '')) throw e;
+      if (i < tries - 1) await sleep(waitMs);
+    }
+  }
+  throw last;
+}
+
+// Vrai si les prévisions `d` ont des heures pour le jour `day` (AAAA-MM-JJ) ; sinon la carte n’a aucun vent prévu pour ce jour
+export const coversDay = (d, day) => !!d?.multi?.hourly?.time?.some((t) => String(t).startsWith(day));
+
 export async function fetchAll() {
   const common = 'wind_speed_unit=kn&timezone=Europe%2FParis&forecast_days=3';
   const models = MODELS.map((m) => m.id).join(',');
   const vars = 'wind_speed_10m,wind_direction_10m,wind_gusts_10m,temperature_2m,cloud_cover,precipitation,pressure_msl,weather_code';
   const lats = GRID.map((p) => p.lat).join(','), lons = GRID.map((p) => p.lon).join(',');
   const [multi, grid, marine] = await Promise.allSettled([
-    getJSON(`${OM}?latitude=${CENTER.lat}&longitude=${CENTER.lon}&hourly=${vars}&models=${models}&${common}`),
-    getJSON(`${OM}?latitude=${lats}&longitude=${lons}&hourly=wind_speed_10m,wind_direction_10m,wind_gusts_10m&models=meteofrance_arome_france_hd&${common}`),
+    withRetry(() => getJSON(`${OM}?latitude=${CENTER.lat}&longitude=${CENTER.lon}&hourly=${vars}&models=${models}&${common}`)),
+    withRetry(() => getJSON(`${OM}?latitude=${lats}&longitude=${lons}&hourly=wind_speed_10m,wind_direction_10m,wind_gusts_10m&models=meteofrance_arome_france_hd&${common}`)),
     getJSON(`https://marine-api.open-meteo.com/v1/marine?latitude=43.06&longitude=5.96&hourly=wave_height,wave_direction,wave_period,wind_wave_height,swell_wave_height,swell_wave_direction,ocean_current_velocity,ocean_current_direction,sea_surface_temperature&timezone=Europe%2FParis&forecast_days=3`),
   ]);
   if (multi.status !== 'fulfilled') throw multi.reason;

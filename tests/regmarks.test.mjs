@@ -450,3 +450,18 @@ test('fiche : « porte 4s / 4p », « Arrivée : entre le Comité et F », « en
   const v37 = parseHTML(`<div>${marksSectionHTML(structuredClone(REGATE_V37))}</div>`).document;
   assert.doesNotMatch(v37.querySelector('[data-co-row="101"]').textContent, /Arrivée|porte/, 'régate archivée : fiche inchangée');
 });
+
+test('courseGroups et courseMismatch : parcours de la régate ouverte séparés du cahier CVAT, parcours d’ailleurs signalé (v41)', async () => {
+  const { courseGroups, courseMismatch } = await import('../js/regmarks.js');
+  const cs = [{ id: 3, title: 'Parcours 3' }, { id: 90, title: 'Banane (construite)' }, { id: 101, title: 'Parcours 1 (IC)', fromRegatta: 'rgA' }, { id: 102, title: 'Parcours 2 (IC)', fromRegatta: 'rgA' }];
+  const g = courseGroups(cs, { id: 'rgA', name: 'La Seyne Cup 2026' });
+  assert.deepEqual(g.map((x) => [x.label, x.items.map((c) => c.id)]), [['Cahier CVAT', [3, 90]], ['La Seyne Cup 2026 — IC', [101, 102]]]);
+  assert.deepEqual(courseGroups(cs.slice(0, 2), null).map((x) => x.label), ['Cahier CVAT']);
+  assert.deepEqual(courseMismatch(cs, 3, 'rgA'), { current: 'Parcours 3', own: ['Parcours 1 (IC)', 'Parcours 2 (IC)'] });
+  assert.equal(courseMismatch(cs, 101, 'rgA'), null, 'parcours de la régate : rien à dire');
+  assert.equal(courseMismatch(cs, 3, null), null, 'entraînement libre');
+  assert.equal(courseMismatch(cs, 3, 'snpm-2026'), null, 'régate sans parcours propres (cahier CVAT)');
+  const app = readFileSync(ROOT + 'js/app.js', 'utf8');
+  assert.doesNotMatch(app, /Parcours \(cahier CVAT\)/, 'le sélecteur ne se dit plus « cahier CVAT » quand il porte des parcours IC');
+  assert.match(app, /courseGroups\(COURSES, openReg\(\)\)/);
+});

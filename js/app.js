@@ -11,10 +11,10 @@ import { migrate, seedNorm, KEY as REG_KEY, saveRegattas, createRegatta, upsertR
 import { THROTTLE_MS, slotKey, freezeAction, obsNeedsCopy, stratNeedsCopy, sliceDays, freezeSummary, strategySummary, compactStrategy, windSourceKind, frozenLabel, parisInstant } from './gel.js';
 import { putSlot, getSlot } from './regstore.js';
 import { listHTML, noRegattaHTML, newRegattaFormHTML, sheetHTML } from './regview.js';
-import { applyRegattaMarks, pendingMarks, confirmMark, moveMark, ignoreMark } from './regmarks.js';
+import { applyRegattaMarks, pendingMarks, confirmMark, moveMark, ignoreMark, courseGroups, courseMismatch } from './regmarks.js';
 import { trackDay, matchRegattas, raceOfTrack, sameTrack, attachTrace, detachTrace, traceSummary, setTraceSummary, setTraceReport } from './attach.js';
 import { breaksOf } from './segments.js';
-import { fetchAll, cached, snapshot, consensus, gridPoints, marineAt, fetchLive, MODELS, WMO, CENTER } from './weather.js';
+import { fetchAll, cached, snapshot, consensus, gridPoints, marineAt, fetchLive, coversDay, MODELS, WMO, CENTER } from './weather.js';
 import { buildLegs, analyzeLeg, markAdvice, analyzeStart, trendOf, rankCourses, regimeOf, sideName, summarizeTime, prepareLeg, gateText, routeOf } from './tactics.js';
 import { BANANE_ID, BANANE, addBanane, banOf, banToState, cleanBan, courseMarkUse, legReached, banHorsEau } from './banane.js';
 import { optimalAngles, boatSpeed, trimAdvice, spiMinTwa, getPolar, setPolar, resetPolar, parsePolar } from './polar.js';
@@ -217,16 +217,20 @@ function status(msg) {
 // ───────────────────────── vent de base
 const seriesIndex = (day, h) => series.findIndex((r) => r.time === `${day}T${String(Math.floor(h)).padStart(2, '0')}:00`);
 
+// Modèle qui donne le vent de (day, hour) : le modèle retenu, sinon le premier des autres qui a cette heure (AROME HD s’arrête avant la fin
+// du 3e jour). null : aucune prévision chargée pour cette heure (instantané embarqué d’un autre jour, réseau absent) : le vent manuel prend
+// le relais, et l’écran le DIT (badge de la carte, briefing) au lieu de l’afficher sous le nom d’un modèle.
+function baseModel(day, hour) {
+  if (S.src === 'manual' || !data) return null;
+  const sel = selectedModel();
+  for (const id of [sel, ...MODELS.map((m) => m.id).filter((x) => x !== sel)]) { const pts = modelPoints(data, day, hour, id); if (pts) return { id, pts }; }
+  return null;
+}
 function baseAt(day, hour) {
-  let pts;
-  if (S.src === 'manual' || !data) {
-    pts = [{ x: 0, y: 0, ...S.manual }];
-  } else {
-    pts = modelPoints(data, day, hour, selectedModel());
-    if (!pts) pts = [{ x: 0, y: 0, ...S.manual }];
-    else if (S.nowcast) pts = applyResiduals(pts, day, hour);
-  }
-  return { points: pts };
+  if (S.src === 'manual') return { points: [{ x: 0, y: 0, ...S.manual }] };
+  const b = baseModel(day, hour);
+  if (!b) return { points: [{ x: 0, y: 0, ...S.manual }], missing: true };
+  return { points: S.nowcast && b.id === selectedModel() ? applyResiduals(b.pts, day, hour) : b.pts };
 }
 
 // ───────────────────────── relevés de vent : modèle du jour et ajustement
@@ -416,7 +420,10 @@ function updateDisplayField() {
   computeField(S.day, S.hour);
   scene.setField(F);
   const c = F.sample(toXY(43.088, 5.962).x, toXY(43.088, 5.962).y);
-  $('#windBadge').innerHTML = `${arrow(c.dir)} <b>${c.spd.toFixed(0)}</b> nd · ${cardinal(c.dir)} ${fmtBrg(c.dir)}<br><span class="small">rafales ${c.gust.toFixed(0)} nd · ${hhmm(S.hour)}${S.src === 'manual' ? ' · manuel' : ''}${S.src === 'forecast' && data ? ' · ' + modelLabel(selectedModel()) : ''}${S.src === 'forecast' && S.nowcast && resid.length ? ' + relevés' : ''}</span>`;
+  const b = S.src === 'forecast' ? baseModel(S.day, S.hour) : null;
+  const src = S.src === 'manual' ? ' · manuel' : !b ? ' · <b>manuel, sans prévision</b>' : ' · ' + esc(modelLabel(b.id)) + (S.nowcast && resid.length && b.id === selectedModel() ? ' + relevés' : '');
+  $('#windBadge').innerHTML = `${arrow(c.dir)} <b>${c.spd.toFixed(0)}</b> nd · ${cardinal(c.dir)} ${fmtBrg(c.dir)}<br><span class="small">rafales ${c.gust.toFixed(0)} nd · ${hhmm(S.hour)}${src}</span>`;
+  $('#windBadge').classList.toggle('nowx', S.src === 'forecast' && !b);
   renderLegend();
 }
 function scheduleAnalysis() { clearTimeout(anaTimer); anaTimer = setTimeout(runAnalysis, 120); }
@@ -650,6 +657,8 @@ function renderBrief() {
   const rs = series[iStart];
   let html = '';
   if (!data) html += `<div class="notice">Pas encore de prévision chargée${navigator.onLine ? ' — téléchargement en cours…' : ' (hors ligne). Le mode « Manuel » reste disponible.'}</div>`;
+  html += mismatchHTML();
+  if (S.src === 'forecast' && data && !coversDay(data, S.day)) html += `<div class="notice" id="noWx"><b>Aucune prévision pour ce jour.</b> Les prévisions chargées sont ${data.snapshot ? 'celles embarquées dans l’app' : 'celles téléchargées'} le ${esc(new Date(data.fetched).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' }))} : elles ne couvrent pas le ${esc(dayName(S.day))}. La carte, le briefing et les calculs montrent le <b>vent manuel</b> (${fmtBrg(S.manual.dir)} ${S.manual.spd} nd), pas une prévision. Touchez ⟳ dès que le réseau revient.</div>`;
   if (S.src === 'manual') html += `<div class="notice">Mode <b>vent manuel</b> : ${fmtBrg(S.manual.dir)} ${S.manual.spd} nd. Les prévisions sont ignorées pour la carte et l’analyse.</div>`;
   if (S.src === 'forecast' && dayObs().length) html += `<div class="notice">${dayObs().length} relevé(s) aujourd’hui · modèle retenu : <b>${esc(modelLabel(selectedModel()))}</b>${S.nowcast ? ', ajusté sur vos relevés' : ''}. <button class="btn small alt" id="goObs2">Relevés</button></div>`;
   const w = rs ? { dir: rs.dir, spd: rs.spd, gust: rs.gust } : S.manual;
@@ -748,6 +757,12 @@ function banPanel() {
     <div><label class="f">Arrivée</label><select id="cBanFin">${opt('depart', 'Ligne de départ', b.fin)}${opt('sousvent', 'Sous le vent, décalée', b.fin)}${opt('auvent', 'Au vent, décalée', b.fin)}</select></div>
   </div>`;
 }
+// Régate ouverte avec ses propres parcours (IC) mais parcours choisi d’ailleurs (cahier CVAT, banane) : dit sur l’onglet Parcours et au briefing
+function mismatchHTML() {
+  const r = openReg(), m = courseMismatch(COURSES, S.courseId, r?.id);
+  if (!m) return '';
+  return `<div class="notice" id="courseMismatch" style="margin-top:8px"><b>Parcours choisi : ${esc(m.current || '—')}${COURSES.find((x) => x.id === S.courseId)?.fromRegatta ? '' : ' (cahier CVAT)'}</b>, pas un parcours de ${esc(r.name)}. Choisissez celui annoncé par le Comité parmi ${esc(m.own.join(', '))}.</div>`;
+}
 // Avertissement d’une banane dont une bouée tombe à terre ou dans la zone interdite (onglet Parcours et briefing)
 function horsEauText(noms) { return `Avec ce vent et ces réglages, ${noms.join(', ')} ${noms.length > 1 ? 'tombent' : 'tombe'} à terre ou dans la zone interdite : temps et conseils de ce parcours faux. Réduisez Dist. B (Nq), ou changez la position de la ligne (onglet Départ).`; }
 function renderCourse() {
@@ -755,12 +770,12 @@ function renderCourse() {
   const c = COURSES.find((x) => x.id === S.courseId);
   const nObs = dayObs().length;
   let html = `<details class="card obsbox" ${S.obsOpen !== false ? 'open' : ''}><summary><span>🌬 Relevé de vent sur l’eau ${tip('Réglez la direction d’où vient le vent (compas) et sa force mesurée, puis Enregistrer. L’app compare votre relevé aux 6 modèles, garde celui qui colle le mieux et recale la prévision autour de cette heure. Plusieurs relevés dans la journée affinent le choix.')}</span><small>${S.src === 'manual' ? 'mode manuel' : `${nObs ? nObs + ' relevé(s) · ' : ''}modèle : ${esc(modelLabel(selectedModel()))}`}</small></summary><div class="obs-card"></div></details>
-  <div class="card"><div class="row2"><div><label class="f">Parcours (cahier CVAT)</label><select id="cSel">${COURSES.map((x) => `<option value="${x.id}" ${x.id === S.courseId ? 'selected' : ''}>${esc(x.title)}</option>`).join('')}</select></div>
+  <div class="card"><div class="row2"><div><label class="f">Parcours</label><select id="cSel">${courseGroups(COURSES, openReg()).map((g) => `<optgroup label="${esc(g.label)}">${g.items.map((x) => `<option value="${x.id}" ${x.id === S.courseId ? 'selected' : ''}>${esc(x.title)}</option>`).join('')}</optgroup>`).join('')}</select></div>
     <div><label class="f">Classes</label><select id="cCls"><option value="G" ${S.cls === 'G' ? 'selected' : ''}>C–D–L–R1-R3 (grand)</option><option value="P" ${S.cls === 'P' ? 'selected' : ''}>P1–P2 (petit)</option></select></div></div>
     <div class="row3">${c.laps ? `<div><label class="f">Tours</label><input id="cLaps" type="number" min="1" max="5" value="${S.laps}"></div>` : ''}${c.built === 'WL' ? `<div><label class="f">Dist. B (Nq)</label><input id="cWl" type="number" min="0.3" max="2" step="0.1" value="${S.wlNm}"></div>` : ''}
     <div><label class="f">Heure de départ</label><input id="cStart" type="text" inputmode="numeric" value="${hhmm(S.startTime)}"></div></div>
     ${c.built === 'BAN' ? banPanel() : ''}
-    <p class="small muted" style="margin:8px 0 0">${esc(c.text)}</p></div>`;
+    <p class="small muted" style="margin:8px 0 0">${esc(c.text)}</p>${mismatchHTML()}</div>`;
   if (!analysis) html += '<div class="card">Calcul en cours…</div>';
   else {
     const A = analysis, man = A.legs.reduce((s, l) => s + (l.route?.maneuvers || 0), 0);
@@ -1373,7 +1388,7 @@ function renderPlan() {
 // reportée de H−6 min à H+1 min (le sceau tombe justement à H−5 min) et ne passe ni par autoHeavy ni par deferHeavy. Une seule copie à la fois,
 // lancée hors du tour courant ; une base refusée ou pleine est consignée et ne gêne ni l’interface ni le chrono.
 let freezeBusy = false, freezeAgain = false, freezeFailAt = 0, icStale = false;     // icStale : un gel est tombé fiche fermée ou occupée ; elle est redessinée à la prochaine ouverture de l’onglet Régates
-const couvre = (d, day) => !!d?.multi?.hourly?.time?.some((t) => String(t).startsWith(day));
+const couvre = coversDay;
 const obsStamp = (obs) => obs.reduce((m, o) => Math.max(m, o.t || 0), 0);
 const obsCopy = (o) => ({ day: o.day, h: o.h, t: o.t, dir: o.dir, spd: o.spd, lat: o.lat, lon: o.lon });
 function freezeTick(why) {
@@ -2131,7 +2146,8 @@ function chooseRace(n) {
   saveReg(upsertRegatta(REG, { ...reg, sel: n }));         // la manche choisie est gardée avec la régate
   persist(); renderCourse(); updateAll(); renderIC();
   const c = COURSES.find((x) => x.id === S.courseId);
-  toast(`Manche ${n} : ${c?.title || 'parcours'}, ${m.time ? `départ ${hhmm(S.startTime)} le ${dayName(S.day)}` : 'heure de départ inchangée (signal inconnu)'}`);
+  const keep = set.courseId == null ? ` (parcours de la manche à préciser : ${c?.title || '—'}${c?.fromRegatta ? '' : ' du cahier CVAT'} conservé)` : '';
+  toast(`Manche ${n} : ${c?.title || 'parcours'}${keep}, ${m.time ? `départ ${hhmm(S.startTime)} le ${dayName(S.day)}` : 'heure de départ inchangée (signal inconnu)'}`);
 }
 function renderIC() {
   const el = $('section[data-tab=ic]');
