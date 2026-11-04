@@ -1,7 +1,7 @@
 {
-  "n": 38,
-  "date": "2026-10-23",
-  "note": "parcours banane : dégagement, porte conseillée, arrivée décalée",
+  "n": 40,
+  "date": "2026-11-04",
+  "note": "archive : synchronisation réparée (écritures refusées en 409)",
   "critical": false,
-  "hash": "bc914d22fb"
+  "hash": "204babfa33"
 }

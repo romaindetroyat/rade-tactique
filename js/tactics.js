@@ -225,6 +225,22 @@ export function legSamples(leg, routePath = []) {
   return pts.concat(routePath.map((p) => ({ x: p.x, y: p.y })));
 }
 
+// ───────────────────────── Routes mémorisées (une analyse)
+// ctx.memo : Map créée par l’appelant pour UNE analyse (runAnalysis, planRest, plan d’une trace). Une route déjà calculée entre les mêmes
+// points, dans le même état du champ (field.gen, +1 à chaque WindField.compute) et avec les mêmes options n’est pas recalculée : c’est le
+// même résultat (le même objet), donc les mêmes bords, temps et conseils. Sert au bord de porte retenu (déjà routé par adviseGate), au bord
+// qui en part, et aux bords identiques d’un tour à l’autre. Sans ctx.memo : route() à chaque appel, comme avant.
+export function routeOf(from, to, field, opts, ctx) {
+  const memo = ctx?.memo;
+  if (!memo) return route(from, to, field, opts);
+  const k = `${field.gen ?? 0}|${from.x},${from.y}|${to.x},${to.y}|${opts.perf}|${opts.tackLoss}|${opts.gybeLoss}`;
+  const m = memo.get(k);
+  if (m && m.field === field && m.terrain === opts.terrain && m.forbidden === opts.forbidden) return m.r;
+  const r = route(from, to, field, opts);
+  memo.set(k, { field, terrain: opts.terrain, forbidden: opts.forbidden, r });
+  return r;
+}
+
 // ───────────────────────── Analyse d’un bord
 const legType = (twa, tws) => {
   const a = Math.abs(twa), { up, down } = optimalAngles(tws);
@@ -261,7 +277,7 @@ export function analyzeLeg(leg, field, ctx) {
   const spd = Math.hypot(su, sv) / (N + 1), dir = norm360(Math.atan2(-su, -sv) * 180 / Math.PI), gust = sg / (N + 1), shelter = ssh / (N + 1);
   const twa = norm180(leg.brg - dir);
   const type = legType(twa, spd);
-  const r = route(leg.from, leg.to, field, { terrain: ctx.terrain, forbidden: ctx.forbidden, perf: ctx.perf ?? 1 });
+  const r = routeOf(leg.from, leg.to, field, { terrain: ctx.terrain, forbidden: ctx.forbidden, perf: ctx.perf ?? 1 }, ctx);
   const time = r ? r.time : leg.dist / (Math.max(1, boatSpeed(spd, twa)) * 0.5144);
   const sides = sideSample(field, leg);
   const dP = sides.right.spd - sides.left.spd; // >0 : plus de vent à droite
@@ -314,12 +330,13 @@ const SHIFT_DEG_H = 2;              // bascule annoncée : |tendance| ≥ 2°/h,
 const FALLBACK_KN = 4;              // repli quand le routage n’aboutit pas : distance à 4 nd
 
 // Conseil de porte : pour chaque bouée, temps routé du bord qui y mène plus celui du bord suivant (vers nextTo) ; la plus courte est retenue
-// et devient la destination du bord. Mêmes options de routage que analyzeLeg. ctx.routeFn sert aux seuls tests (l’app ne la passe jamais).
+// et devient la destination du bord. Mêmes options de routage que analyzeLeg, et mêmes routes mémorisées (ctx.memo, routeOf) : analyzeLeg
+// reprend la route de la bouée retenue et celle du bord suivant sans les recalculer. ctx.routeFn sert aux seuls tests (l’app ne la passe jamais).
 // Gauche et droite sont vues par les bateaux qui arrivent ; tendance > 0 (rotation à droite) → au près suivant le côté droit du plan d’eau,
 // c’est la bouée gauche en regardant sous le vent.
 export function adviseGate(leg, nextTo, field, ctx = {}) {
   const opts = { terrain: ctx.terrain, forbidden: ctx.forbidden, perf: ctx.perf ?? 1 };
-  const rf = ctx.routeFn ?? route;
+  const rf = ctx.routeFn ?? ((a, b, f, o) => routeOf(a, b, f, o, ctx));
   const trip = (a, b) => {
     const d = distXY(a, b);
     if (d < 20) return 0;

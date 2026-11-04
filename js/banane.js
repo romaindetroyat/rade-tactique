@@ -120,6 +120,18 @@ export function courseMarkUse(legs) {
   return used;
 }
 
+// Bouées construites d’une banane qui tombent à terre, hors de la carte ou dans la zone interdite avec ce vent et ces réglages
+// (blocked(p) → vrai). Rend leurs noms, sans doublon, dans l’ordre du parcours ; [] si tout est dans l’eau. Sert à prévenir l’équipier :
+// une bouée à terre donne des temps absurdes (routage impossible) sans autre signe.
+export function banHorsEau(built, blocked) {
+  const P = built?.points || {}, out = [];
+  const add = (p, nom) => { if (p && !out.includes(nom) && blocked(p)) out.push(nom); };
+  for (const k of ['B', 'C', 'PG', 'PD', 'S']) add(P[k], P[k]?.name);
+  const fin = built?.legs?.at(-1);
+  if (built?.finishLine) { add(built.finishLine.a, 'Arrivée'); add(built.finishLine.b, 'Arrivée'); add(fin?.to, 'Arrivée'); }
+  return out;
+}
+
 // Marque atteinte en course (passage automatique, autoAdvance) : à moins de r mètres de la destination du bord ; pour une porte,
 // de l’une OU l’autre bouée, même si ce n’est pas la conseillée (D-06)
 export function legReached(p, leg, r = 40) {

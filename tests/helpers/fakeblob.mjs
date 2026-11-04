@@ -3,13 +3,15 @@
 //   - tout accès autre que `access: 'private'` lève ; `list()` lève toujours (le magasin n’est jamais énuméré : opération avancée comptée) ;
 //   - `get` rend null si le blob est absent, { statusCode: 304, stream: null } si `ifNoneMatch` égale l’etag, sinon un flux ;
 //   - `put` échoue (BlobError) si le blob existe sans `allowOverwrite` ni `ifMatch`, et (BlobPreconditionFailedError) si `ifMatch` diffère ;
+//   - `get` rend, comme la production, une ETag « faible » (W/"…", contenu recompressé par le CDN) qu’`ifMatch` refuse : seule `head` (ou `put`)
+//     donne la révision exacte (weakGet: false pour l’ancien comportement) ;
 //   - `head` lève BlobNotFoundError si le blob est absent ;
 //   - `ops` compte les appels (écritures = opérations avancées du quota) et `ops.log` garde chaque appel avec ses options.
 // `invoke` adapte un gestionnaire Vercel (req, res) à un appel de fonction : { status, headers, body }.
 
 import { Writable } from 'node:stream';
 
-export function createFakeBlob({ gate = null } = {}) {
+export function createFakeBlob({ gate = null, weakGet = true } = {}) {
   class BlobError extends Error {}
   class BlobPreconditionFailedError extends BlobError { constructor() { super('Precondition failed: ETag mismatch.'); } }
   class BlobNotFoundError extends BlobError { constructor() { super('The requested blob does not exist'); } }
@@ -35,9 +37,10 @@ export function createFakeBlob({ gate = null } = {}) {
     if (gate) await gate(path, ops.get);                      // porte de test : retient la lecture avant qu’elle ne regarde le magasin
     const e = store.get(path);
     if (!e) return null;
-    const blob = { pathname: path, etag: e.etag, contentType: e.contentType, size: Buffer.byteLength(e.text), uploadedAt: e.uploadedAt };
-    if (opts.ifNoneMatch && opts.ifNoneMatch === e.etag) return { statusCode: 304, stream: null, headers: new Headers(), blob: { ...blob, contentType: null, size: null } };
-    return { statusCode: 200, stream: toStream(e.text), headers: new Headers({ etag: e.etag }), blob };
+    const lu = weakGet ? `W/${e.etag}` : e.etag;
+    const blob = { pathname: path, etag: lu, contentType: e.contentType, size: Buffer.byteLength(e.text), uploadedAt: e.uploadedAt };
+    if (opts.ifNoneMatch && opts.ifNoneMatch.replace(/^W\//, '') === e.etag) return { statusCode: 304, stream: null, headers: new Headers(), blob: { ...blob, contentType: null, size: null } };
+    return { statusCode: 200, stream: toStream(e.text), headers: new Headers({ etag: lu }), blob };
   }
 
   async function put(path, body, opts = {}) {

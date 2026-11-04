@@ -2452,6 +2452,15 @@ async function banane({ browser, base }) {
   await page.waitForSelector('#cBanFin', { timeout: 30000 });
   assert.deepEqual(await reglagesBanane(page), { '#cBanNm': '0.8', '#cBanOff': '1', '#cBanSide': 'b', '#cBanGate': '1', '#cBanFin': 'auvent' }, 'après relance');
   await attendBords(page, suite([BAN_B, BAN_C, BAN_PORTE, BAN_B, BAN_C, BAN_PORTE, /^Arrivée au vent \(décalée\)/]), 'après relance');
+  assert.equal(await page.locator('#banEau').count(), 0, '0,8 Nq par mistral : toutes les bouées dans l’eau, aucun avertissement');
+
+  // Dist. B trop grande pour ce vent : B à terre (Toulon), l’onglet Parcours et le briefing le disent ; retour à 0,8 Nq : plus d’avertissement
+  await page.fill('#cBanNm', '2'); await page.locator('#cBanNm').dispatchEvent('change');
+  await page.waitForSelector('#banEau', { timeout: 120000 });
+  assert.match(await page.locator('#banEau').textContent(), /B \(au vent\).* à terre ou dans la zone interdite/, 'avertissement « à terre »');
+  assert.match(await page.locator('section[data-tab=brief]').textContent(), /à terre ou dans la zone interdite/, 'le briefing le dit aussi');
+  await page.fill('#cBanNm', '0.8'); await page.locator('#cBanNm').dispatchEvent('change');
+  await page.waitForSelector('#banEau', { state: 'detached', timeout: 120000 });
 
   // parcours 3 rechoisi : plus de réglages, ses 13 bords
   await page.selectOption('#cSel', '3');
@@ -2527,6 +2536,76 @@ async function bananeManche({ browser, base }) {
   assert.deepEqual([stB.courseId, stB.banNm, stB.banGate, stB.banFin], [90, 1.2, false, 'auvent'], 'gardés dans rade.state de B');
   sansErreur(A.erreurs, 'téléphone A'); sansErreur(B.erreurs, 'téléphone B');
   await A.ctx.close(); await B.ctx.close();
+}
+
+// ───────────────────────── débrief d’une banane (v39)
+
+// GPX fabriqué d’une banane courue le 24/10/2026 : axe 300° (le vent manuel de l’app dit 315°), 0,8 Nq, 2 tours, porte prise à droite,
+// arrivée sur la ligne de départ ; boucles d’avant-départ près de la ligne. Un point toutes les 3 s, tous les 10 m (≈ 6,5 nd).
+async function gpxBanane() {
+  const { toXY, toLL, distXY, fromBearing } = await import('../js/geo.js');
+  const { LINE_PRESETS } = await import('../js/courses.js');
+  const { bananeLegs } = await import('../js/debrief.js');
+  const c = { lat: LINE_PRESETS.grandrade.lat, lon: LINE_PRESETS.grandrade.lon }, cx = toXY(c.lat, c.lon);
+  const B = bananeLegs({ ban: { nm: 0.8 }, c, dir: 300, laps: 2 });
+  const wps = [fromBearing(cx, 120, 600), fromBearing(cx, 200, 160), fromBearing(cx, 20, 160), fromBearing(cx, 120, 300), cx];
+  for (const l of B.legs) wps.push(l.gate ? l.gate.d : l.to);
+  wps.push(fromBearing(wps.at(-1), 120, 800));
+  let t = Date.parse('2026-10-24T08:45:00Z'); const pts = [];
+  for (let k = 1; k < wps.length; k++) {
+    const a = wps[k - 1], b = wps[k], n = Math.max(1, Math.round(distXY(a, b) / 10));
+    for (let i = k === 1 ? 0 : 1; i <= n; i++) { const ll = toLL(a.x + (b.x - a.x) * i / n, a.y + (b.y - a.y) * i / n); pts.push(`<trkpt lat="${ll.lat.toFixed(6)}" lon="${ll.lon.toFixed(6)}"><time>${new Date(t).toISOString()}</time></trkpt>`); t += 3000; }
+  }
+  return Buffer.from(`<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="test" xmlns="http://www.topografix.com/GPX/1/1"><trk><name>Banane CVAT</name><trkseg>\n${pts.join('\n')}\n</trkseg></trk></gpx>\n`);
+}
+
+// Une course en banane importée en GPX : rangée dans la régate du jour, le questionnaire propose la banane de la manche (axe ajusté sur la
+// trace), retrouve B, C, la porte (bouée prise) et l’arrivée ; le détail de la trace donne le tableau bord par bord ; le rapport s’écrit.
+async function bananeDebrief({ browser, base }) {
+  const ctx = await ouvreContexte(browser, { heure: '2026-10-24T13:00:00Z' });          // samedi 24/10/2026, 15 h à Paris, après la course
+  const { page, erreurs } = await ouvrePage(ctx);
+  await ouvreApp(page, base);
+  await ventManuel(page);
+  await ouvreApp(page, base);
+  await page.click('#tabs button[data-tab=course]');
+  await attendBords(page, (b) => b.length > 0, 'premier calcul');
+  await page.selectOption('#cSel', '90');
+  await attendBords(page, suite([BAN_B, BAN_C, BAN_PORTE, BAN_B, BAN_C, /^Arrivée \(ligne de départ\)/]), 'banane par défaut');
+  await creeRegate(page, { nom: 'Régate banane', debut: '2026-10-24', club: 'CVAT' });
+  await ajouteManche(page, { heure: '10:55', parcours: '90', cls: 'G', tours: '2' });
+  // l’équipier revient au parcours 3 : la banane du débrief vient de la manche, pas du parcours choisi
+  await page.click('#tabs button[data-tab=course]');
+  await page.selectOption('#cSel', '3');
+  await attendBords(page, (b) => b.length === 13, 'parcours 3');
+
+  await page.click('#tabs button[data-tab=tracks]');
+  await page.setInputFiles('#gpxIn', { name: 'banane-cvat.gpx', mimeType: 'application/gpx+xml', buffer: await gpxBanane() });
+  await page.waitForSelector('#dqCourse', { timeout: 90000 });
+  assert.equal(await page.locator('#dqCourse').inputValue(), '90', 'la banane est le parcours proposé');
+  const q = (await page.locator('#modal').textContent()).replace(/\s+/g, ' ');
+  assert.match(q, /Banane reconstruite : B à 0,8 Nq, axe (29[89]|30[012])° \(ajusté sur la trace\), réglages de la manche\./, `questionnaire : ${q.slice(0, 400)}`);
+  assert.match(q, /Détecté : B → C → Porte D → B → C → Arrivée\./);
+  assert.match(q, /Porte droite \(porte\)/);
+  // l’équipier lance l’analyse telle quelle (réseau coupé : rédaction automatique)
+  await page.click('#dqGo');
+  await page.waitForSelector('#rpFrame, #dmGo', { state: 'attached', timeout: 120000 });
+  if (await page.locator('#dmGo').isVisible()) { await page.click('#dmGo'); await page.waitForSelector('#rpFrame', { state: 'attached', timeout: 120000 }); }
+  await page.waitForFunction(() => document.querySelector('#rpFrame')?.srcdoc?.length > 500, null, { timeout: 120000 });
+  const rapport = await page.evaluate(() => document.querySelector('#rpFrame').srcdoc);
+  assert.match(rapport, /Banane \(construite\) : B à 0,8 Nq, axe/, 'le rapport dit la banane');
+  assert.match(rapport, /C → Porte droite \(porte : bouée prise\)/, 'bord vers la porte, bouée prise');
+  assert.match(rapport, /C → Arrivée \(ligne de départ\)/, 'bord d’arrivée');
+  await page.click('#rpClose');
+  // détail de la trace : tableau bord par bord de la banane reconstruite
+  await page.waitForSelector('#trBan', { timeout: 60000 });
+  const d = (await page.locator('#traceDetail').textContent()).replace(/\s+/g, ' ');
+  assert.match(d, /Banane reconstruite : B à 0,8 Nq, axe \d+° \(ajusté sur la trace\), 2 tours, réglages de la manche\./);
+  assert.match(d, /Bord par bord/);
+  assert.match(d, /3 · Porte droite \(porte : bouée prise\)/);
+  assert.match(d, /6 · Arrivée \(ligne de départ\)/);
+  assert.doesNotMatch(d, /non détectée/, `toutes les bouées retrouvées : ${d.slice(0, 600)}`);
+  sansErreur(erreurs, 'débrief de la banane');
+  await ctx.close();
 }
 
 // ───────────────────────── porte et arrivée d’un parcours d’un autre club (phase 6 : D-08)
@@ -2649,7 +2728,7 @@ async function porteIC({ browser, base }) {
   await ctx.close();
 }
 
-const SCENARIOS = { accueil, 'jour-j': jourJ, 'deux-telephones': deuxTelephones, reprise, equipage, archive, 'archive-bouees': archiveBouees, archivehors: archiveHors, creer, manche, auteur, ic, 'depuis-ic': depuisIC, vraisemblance, gel, 'debrief-tardif': debriefTardif, gpx, 'gpx-choix': gpxChoix, ia, 'ia-erreurs': iaErreurs, arbitre, bouees, guide, entetes, 'retour-port': retourPort, banane, 'banane-manche': bananeManche, 'porte-ic': porteIC };
+const SCENARIOS = { accueil, 'jour-j': jourJ, 'deux-telephones': deuxTelephones, reprise, equipage, archive, 'archive-bouees': archiveBouees, archivehors: archiveHors, creer, manche, auteur, ic, 'depuis-ic': depuisIC, vraisemblance, gel, 'debrief-tardif': debriefTardif, gpx, 'gpx-choix': gpxChoix, ia, 'ia-erreurs': iaErreurs, arbitre, bouees, guide, entetes, 'retour-port': retourPort, banane, 'banane-manche': bananeManche, 'banane-debrief': bananeDebrief, 'porte-ic': porteIC };
 
 // ───────────────────────── lancement
 

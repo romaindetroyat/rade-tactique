@@ -65,7 +65,12 @@ const EXIGEES = [
   'iOS 18.4', 'Verrouillage automatique', 'GR1 (3)', 'Carqueiranne (11)', 'Le Comité fait foi', 'Les voyants', 'Dépannage',
   // repères de la phase 6 (D-11) : banane, porte conseillée, arrivées décalées, porte et arrivée d’un autre club
   'Banane (construite)', 'Porte sous le vent', 'bouées équivalentes', 'Au vent, décalée', 'Sous le vent, décalée', 'porte : bouée prise', 'Arrivée : entre le Comité et',
-  'celles de la porte et de l’arrivée comprises', 'Passez les trois téléphones en v38 avant la régate CVAT',
+  'celles de la porte et de l’arrivée comprises', 'Passez les trois téléphones en v39 avant la régate CVAT',
+  // pas-à-pas de la banane, de la porte et de la mise à jour avant la CVAT (apercu-v39)
+  'Préparer une banane, pas à pas', 'Lire le conseil de porte', 'Courir la porte, pas à pas', 'Arrivée décalée', 'Porte et arrivée d’un autre club, pas à pas',
+  'Avant la CVAT : les trois iPhone à jour', 'Une bouée de la banane est à terre',
+  // débrief de la banane (v39)
+  'Débriefer une banane, pas à pas', 'Banane reconstruite', 'ajusté sur la trace', 'réglages de la manche',
 ];
 // Formules qui ne doivent jamais apparaître : [motif, raison]
 const INTERDITES = [
@@ -76,6 +81,7 @@ const INTERDITES = [
   [/naos-[\p{L}]+-[0-9a-z]{4}/iu, 'ni la forme du code personnel'],
   [/gpt|claude|opus|sonnet|haiku/i, 'aucun nom de modèle d’IA'],
   [/régate courante/i, 'libellé retiré en v37 : régate ouverte'],
+  [/ne se débriefe pas encore|ne la connaît pas encore|ne connaît pas encore la banane/, 'la banane se débriefe depuis la v39'],
   [/Aujourd’hui, À venir, Passée/, 'ancien classement de la liste'],
 ];
 
@@ -118,6 +124,7 @@ const MESSAGES_DE_L_APP = [
   'Écran non maintenu : réglez Verrouillage automatique sur « Jamais » pendant la course', 'Son coupé — touchez pour réactiver', 'Bips non entendus au test — le flash visuel reste actif', 'Son non testé',
   'Hors ligne — prévisions du', 'Laisser sans régate', 'Confirmer la suppression', 'Copié ✓', 'Confirmer ?',
   'Aucune régate ouverte', 'Entraînement libre', 'Retour à l’entraînement libre',
+  'à terre ou dans la zone interdite', 'Autre bouée :', 'Suite du parcours',
 ];
 
 test('messages : chaque message cité par le guide est celui de l’app', () => {
@@ -172,7 +179,7 @@ test('aide intégrée : plus de formule périmée, repères de la v32 présents'
   for (const p of ['Tester le son', 'Course finie', 'Mettre à jour', 'reprise demain', 'Mode départ plein écran', 'Top 5’', 'Top 4’', 'Top 1’', 'GPS, ÉCRAN, SON et RÉSEAU',
     '30 appels', 'Open GPX Tracker', '25 nœuds', 'Arrêter le GPS', 'Pas encore synchronisé', 'Synchronisation à relancer', 'Plafond du jour atteint · reprise demain',
     'Code d’accès à renouveler', 'Mettez l’app à jour pour synchroniser', 'premier jour de la régate ouverte', 'Entraînement libre', 'Fermer la régate',
-    'Banane (construite)', 'Porte sous le vent', 'bouées équivalentes', 'porte : bouée prise']) assert.ok(aideTexte.includes(p), `l’aide ne cite pas « ${p} »`);
+    'Banane (construite)', 'Porte sous le vent', 'bouées équivalentes', 'porte : bouée prise', 'Dist. B (Nq)', 'Choisir cette manche']) assert.ok(aideTexte.includes(p), `l’aide ne cite pas « ${p} »`);
   assert.ok(AIDE.includes('href="guide.html#minute"'), 'le lien du guide complet ouvre « En 1 minute »');
   assert.ok(document.getElementById('minute'), 'l’ancre #minute existe dans guide.html');
   assert.doesNotMatch(aideTexte, /blob\.vercel|vercel-storage|\?acces=|rt_acces|BLOB_READ_WRITE_TOKEN|gpt|claude|opus|sonnet|haiku/i, 'ni code, ni cookie, ni adresse, ni nom de modèle');

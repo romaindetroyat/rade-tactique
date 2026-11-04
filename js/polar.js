@@ -37,18 +37,23 @@ export function parsePolar(text) {
   return { tws, twa, bsp };
 }
 
-function interp(arr, v) {
-  if (v <= arr[0]) return [0, 0];
-  if (v >= arr[arr.length - 1]) return [arr.length - 2, 1];
-  for (let i = 0; i < arr.length - 1; i++) if (v <= arr[i + 1]) return [i, (v - arr[i]) / (arr[i + 1] - arr[i])];
-  return [arr.length - 2, 1];
+// interp sans tableau intermédiaire (boatSpeed est appelée des centaines de milliers de fois par analyse) : mêmes calculs, résultat dans IX, IT
+let IX = 0, IT = 0;
+function interpTo(arr, v) {
+  const n = arr.length;
+  if (v <= arr[0]) { IX = 0; IT = 0; return; }
+  if (v >= arr[n - 1]) { IX = n - 2; IT = 1; return; }
+  for (let i = 0; i < n - 1; i++) if (v <= arr[i + 1]) { IX = i; IT = (v - arr[i]) / (arr[i + 1] - arr[i]); return; }
+  IX = n - 2; IT = 1;
 }
 
 export function boatSpeed(tws, twa) {
   twa = Math.abs(twa) % 360; if (twa > 180) twa = 360 - twa;
   if (tws <= 0.3) return 0;
-  const [i, ti] = interp(TWA, twa);
-  let [j, tj] = interp(TWS, tws);
+  interpTo(TWA, twa);
+  const i = IX, ti = IT;
+  interpTo(TWS, tws);
+  let j = IX, tj = IT;
   let scale = 1;
   if (tws < TWS[0]) { scale = tws / TWS[0]; j = 0; tj = 0; }
   const a = BSP[i][j] * (1 - tj) + BSP[i][j + 1] * tj;

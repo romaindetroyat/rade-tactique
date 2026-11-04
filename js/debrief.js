@@ -5,8 +5,9 @@
 import { toXY, toLL, bearingXY, distXY, norm180, norm360, fmtBrg, cardinal } from './geo.js';
 import { boatSpeed, optimalAngles } from './polar.js';
 import { analyzeTrack } from './track.js';
-import { analyzeLeg } from './tactics.js';
+import { analyzeLeg, buildLegs, prepareLeg } from './tactics.js';
 import { MARKS, COURSES } from './courses.js';
+import { BANANE, cleanBan } from './banane.js';
 
 const KN = 0.5144;
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -44,28 +45,98 @@ export function expectedSeq(c, cls, laps, marks = MARKS) {
 // Les bouées d’une porte sont à ~90 m : la trace « passe » souvent les deux. Le passage retenu est la bouée approchée de plus près dans les
 // 180 s qui suivent le premier passage de l’une ou l’autre, marqué `gate: [bouée, autre bouée]` ; l’autre n’est pas comptée.
 const GATE_WINDOW_MS = 180000;
+// Passages retenus pour une suite attendue, dans l’ordre : { j (nombre trouvé), hit }
+function matchExp(pass, exp) {
+  let j = 0; const hit = [], used = new Set();
+  for (const p of pass) {
+    if (j >= exp.length || used.has(p)) continue;
+    const e = exp[j];
+    if (e.gate) {
+      if (p.k !== e.k && p.k !== e.gate) continue;
+      const win = pass.filter((q) => (q.k === e.k || q.k === e.gate) && q.t >= p.t && q.t - p.t <= GATE_WINDOW_MS);
+      const b = win.reduce((a, q) => (q.d < a.d ? q : a), p);
+      for (const q of win) used.add(q);
+      hit.push({ ...b, side: e.side, gate: [e.k, e.gate] }); j++;
+    } else if (p.k === e.k) { hit.push({ ...p, side: e.side }); j++; }
+  }
+  return { j, hit };
+}
 export function matchCourse(pass, courses = COURSES, marks = MARKS) {
   let best = null;
   for (const c of courses) for (const cls of Object.keys(c.seq)) for (const laps of c.laps ? [1, 2, 3] : [1]) {
     const exp = expectedSeq(c, cls, laps, marks); if (!exp.length) continue;
-    let j = 0; const hit = [], used = new Set();
-    for (const p of pass) {
-      if (j >= exp.length || used.has(p)) continue;
-      const e = exp[j];
-      if (e.gate) {
-        if (p.k !== e.k && p.k !== e.gate) continue;
-        const win = pass.filter((q) => (q.k === e.k || q.k === e.gate) && q.t >= p.t && q.t - p.t <= GATE_WINDOW_MS);
-        const b = win.reduce((a, q) => (q.d < a.d ? q : a), p);
-        for (const q of win) used.add(q);
-        hit.push({ ...b, side: e.side, gate: [e.k, e.gate] }); j++;
-      } else if (p.k === e.k) { hit.push({ ...p, side: e.side }); j++; }
-    }
+    const { j, hit } = matchExp(pass, exp);
     if (!j) continue;
     const score = j * 10 - (exp.length - j) * 0.5 - laps * 0.1;
     if (!best || score > best.score) best = { c, cls, laps, exp, hit, score, reduced: j < exp.length };
   }
   return best;
 }
+// ───────────────────────── banane construite (hors du cahier)
+// Une banane n’a pas de bouées fixes : elle se reconstruit depuis ses réglages (ceux de la manche, sinon ceux de la trace ou de l’app),
+// le centre de la ligne de départ et l’axe du vent. Ses bouées vont dans une table à part (clés B, C, PG, PD, S, A) : les passages et la
+// suite attendue se lisent comme ceux d’un parcours du cahier, sans jamais toucher à MARKS.
+export const BAN_KEYS = { B: 'B', C: 'C', PG: 'Porte G', PD: 'Porte D', S: 'S', A: 'Arrivée' };
+// Bords d’une banane : réglages bornés (cleanBan), centre de ligne c en { lat, lon }, axe dir (d’où vient le vent), nombre de tours
+export function bananeLegs({ ban, cls = 'G', c, dir, laps }) {
+  return buildLegs(BANANE, cls, { laps, windDir: dir, ban: cleanBan(ban), line: { center: c, lengthNm: 0.12, mode: 'wind' } });
+}
+// Table des bouées d’une banane construite (sortie de buildLegs), au format de MARKS ({ lat, lon, name }) plus x, y et un nom court
+export function bananeTable(B) {
+  const t = {};
+  const put = (k, p, name) => { if (p) t[k] = { ...toLL(p.x, p.y), x: p.x, y: p.y, name, short: BAN_KEYS[k] }; };
+  put('B', B.points.B, B.points.B?.name); put('C', B.points.C, B.points.C?.name);
+  put('PG', B.points.PG, 'Porte gauche'); put('PD', B.points.PD, 'Porte droite'); put('S', B.points.S, B.points.S?.name);
+  const fin = B.legs.at(-1)?.to; put('A', fin, fin?.name);
+  return t;
+}
+// Suite attendue d’une banane, tirée de ses bords : une porte = [PG, PD] au choix (bouée prise), l’arrivée = A
+export const bananeSeq = (B) => B.legs.map((l) => (l.gate ? { k: 'PG', side: null, gate: 'PD' } : l.mark === 'FINISH' ? { k: 'A', side: null } : { k: l.mark, side: l.side }));
+const BAN_LAPS = [1, 2, 3, 4, 5];
+// Banane la mieux suivie par la trace. Axe connu (trace enregistrée avec la banane) : tel quel. Sinon (fit) : axe cherché à ±45° du vent
+// du moment (dir), de 3° en 3° puis au degré, pour le plus de bouées passées, puis les passages les plus proches, puis l’axe le plus près
+// du vent du moment ; le nombre de tours est cherché de 1 à 5. Rend { dir, laps, B, table, pass, mc } (mc au format de matchCourse, ou null).
+export function detectBanane(P, { ban, cls = 'G', c, dir, fit = false }) {
+  const evalDir = (d) => {
+    d = norm360(d);
+    const table = bananeTable(bananeLegs({ ban, cls, c, dir: d, laps: 5 }));
+    const pass = passages(P, table);
+    let best = { dir: d, table, pass, mc: null, score: -Infinity, err: Infinity };
+    for (const laps of BAN_LAPS) {
+      const B = bananeLegs({ ban, cls, c, dir: d, laps }), exp = bananeSeq(B), { j, hit } = matchExp(pass, exp);
+      if (!j) continue;
+      const score = j * 10 - (exp.length - j) * 0.5 - laps * 0.1, err = hit.reduce((s, h) => s + h.d, 0);
+      if (score > best.score || (score === best.score && err < best.err)) best = { dir: d, laps, B, table, pass, score, err, mc: { c: BANANE, cls, laps, exp, hit, score, reduced: j < exp.length } };
+    }
+    return best;
+  };
+  const better = (a, b) => a.score > b.score || (a.score === b.score && a.err < b.err);
+  const scan = (center, step, n) => { let best = null; for (let k = 0; k <= n; k++) for (const s of k ? [1, -1] : [1]) { const r = evalDir(center + s * k * step); if (!best || better(r, best)) best = r; } return best; };
+  let best = fit ? scan(dir, 3, 15) : evalDir(dir);
+  if (fit) { const fine = scan(best.dir, 1, 2); if (better(fine, best)) best = fine; }
+  if (!best.B) best.B = bananeLegs({ ban, cls, c, dir: best.dir, laps: BAN_LAPS.includes(best.laps) ? best.laps : 2 });
+  return { dir: best.dir, laps: best.laps ?? null, B: best.B, table: best.table, pass: best.pass, mc: best.mc, fitted: !!fit };
+}
+
+// Banane retrouvée sur une trace (tableau bord par bord de l’onglet Traces) : null si la trace est trop courte, si aucune bouée n’est
+// passée, ou, quand rien ne désigne la banane (opts.prefer faux), si moins de 3 bouées le sont.
+export function traceBanane(tr, opts) {
+  const P = points(tr);
+  if (P.length < 50) return null;
+  const r = detectBanane(P, opts);
+  if (!r.mc || (!opts.prefer && r.mc.hit.length < 3)) return null;
+  return { ...r, ban: cleanBan(opts.ban), from: opts.from || null };
+}
+// Bords d’une banane reconstruite analysés comme runAnalysis (porte conseillée, bord suivant parti de la bouée retenue, routes mémorisées)
+// dans `field` déjà calculé ; numérotés comme l’onglet Parcours, l’arrivée comprise (une arrivée décalée se compte aussi). Modifie B.legs.
+export function planBanane(B, field, ctx) {
+  const c = { ...ctx, memo: new Map() }, legs = [];
+  for (const [k, leg] of B.legs.entries()) { prepareLeg(leg, legs[legs.length - 1], B.legs[k + 1], field, c); legs.push(analyzeLeg(leg, field, c)); }
+  let ord = 0;
+  legs.forEach((l) => { l.order = ++ord; });
+  return legs;
+}
+
 // fortes abattées / lofées : virages de plus de 100° en moins de 40 s
 function bigTurns(P, t0, t1) {
   const out = []; let last = -1e15;
@@ -120,15 +191,25 @@ function windWindows(P, t0, t1) {
   return out;
 }
 
-export function detect(tr) {
+// opts.banane (facultatif) : { ban, cls, c, dir, fit, prefer } — la banane est aussi cherchée sur la trace ; elle est retenue quand la manche
+// ou la trace la désigne (prefer), quand aucune marque du cahier n’est passée, ou quand elle explique au moins 3 passages de plus que le cahier.
+// Sans opts.banane : exactement la détection d’avant (bouées du cahier).
+export function detect(tr, opts = {}) {
   const P = points(tr);
   if (P.length < 50) throw new Error('trace trop courte');
-  const pass = passages(P);
-  const mc = pass.length ? matchCourse(pass) : null;
+  let pass = passages(P);
+  let mc = pass.length ? matchCourse(pass) : null;
+  const ban = opts.banane ? { ...detectBanane(P, opts.banane), ban: cleanBan(opts.banane.ban), from: opts.banane.from || null } : null;
+  const useBan = !!ban?.mc && (!!opts.banane.prefer || !mc || (ban.mc.hit.length >= 3 && ban.mc.hit.length > mc.hit.length));
+  const cahier = { pass, mc };
+  if (useBan) ({ pass, mc } = ban);
   const firstPass = mc?.hit[0] || null;
   const tStart = firstPass ? detectStart(P, firstPass) : P[0].t;
   const lau = firstPass ? launches(P, tStart - 15 * 60000, tStart) : [];
-  return { P, pass, mc, tStart, launches: lau, finish: mc?.hit[mc.hit.length - 1] || null };
+  const out = { P, pass, mc, tStart, launches: lau, finish: mc?.hit[mc.hit.length - 1] || null };
+  // banane proposée au questionnaire : désignée par la manche ou la trace, ou retrouvée sur la trace
+  if (ban && (opts.banane.prefer || ban.mc)) Object.assign(out, { ban, cahier, kind: useBan || opts.banane.prefer ? 'ban' : 'cahier' });
+  return out;
 }
 
 // ───────────────────────── analyse complète (après les réponses)
@@ -162,10 +243,12 @@ export function analyze(det, ans, api) {
   const ref0 = ref;
   for (const w of W) { const c = [w.mid, norm360(w.mid + 180)]; w.dir = Math.abs(norm180(c[0] - ref)) <= Math.abs(norm180(c[1] - ref)) ? c[0] : c[1]; ref = w.dir; }
   const legs = [];
+  // bouées : le cahier (MARKS), ou la table d’une banane reconstruite (ans.table, noms courts B, C, Porte G…)
+  const tab = ans.table || MARKS, ban = !!ans.table;
   let A = { ...toXY(startP.lat, startP.lon), name: 'Départ' }, ta = tStart;
   marks.forEach((m, i) => {
-    const mk = MARKS[m.k], pt = P.find((p) => p.t >= m.t) || P[P.length - 1];
-    const B = { ...toXY(mk.lat, mk.lon), name: `${m.k} ${mk.name}` };
+    const mk = tab[m.k], pt = P.find((p) => p.t >= m.t) || P[P.length - 1];
+    const B = { ...toXY(mk.lat, mk.lon), name: ban ? mk.name : `${m.k} ${mk.name}` };
     const tb = m.t;
     const inLeg = W.filter((w) => w.t - 240000 >= ta && w.t + 240000 <= tb);
     // bord tiré presque d'un seul bord : on garde le vent de référence, affiné par le cap si l'on était au près
@@ -197,9 +280,11 @@ export function analyze(det, ans, api) {
     api.F.compute({ points: [{ x: 0, y: 0, dir, spd, gust: spd * 1.35 }] }, { localEffects: api.localFx });
     const leg = { from: A, to: B, brg, dist: distXY(A, B), side: m.side, mark: m.k };
     const plan = analyzeLeg(leg, api.F, api.ctx);
-    legs.push({ i, name: `${i ? A.name.split(' ')[0] : 'Départ'} → ${m.k} ${mk.name}${m.gate ? ' (porte : bouée prise)' : ''}${i === marks.length - 1 ? ' (arrivée)' : ''}`, mk: m.k, mkName: mk.name, side: m.side, ta, tb, wind: { dir, spd: Math.round(spd * 2) / 2, src }, st, plan,
+    const name = ban ? `${i ? A.name : 'Départ'} → ${mk.name}${m.gate ? ' (porte : bouée prise)' : ''}${i === marks.length - 1 && m.k !== 'A' ? ' (arrivée)' : ''}`
+      : `${i ? A.name.split(' ')[0] : 'Départ'} → ${m.k} ${mk.name}${m.gate ? ' (porte : bouée prise)' : ''}${i === marks.length - 1 ? ' (arrivée)' : ''}`;
+    legs.push({ i, name, mk: m.k, mkName: mk.name, side: m.side, ta, tb, wind: { dir, spd: Math.round(spd * 2) / 2, src }, st, plan,
       path: plan.route ? plan.route.path.map((p) => { const ll = toLL(p.x, p.y); return [ll.lat, ll.lon]; }) : [] });
-    A = B; A.name = m.k; ta = tb;
+    A = B; A.name = ban ? mk.short || m.k : m.k; ta = tb;
   });
   api.restoreField();
   // verdicts automatiques par bord
@@ -250,7 +335,7 @@ export function analyze(det, ans, api) {
       L.angles = { mesure: Math.round(sep), polaire: Math.round(up ? 2 * o.up.twa : 2 * (180 - o.down.twa)), kind: up ? 'virement' : 'empannage' };
     }
   }
-  return { tStart, tFin, legs, W, launches: det.launches, startP };
+  return { tStart, tFin, legs, W, launches: det.launches, startP, ...(ans.table ? { table: ans.table } : {}) };
 }
 
 // ───────────────────────── questions
@@ -266,44 +351,81 @@ const fromLocalInput = (base, v) => { const [h, m, s] = v.split(':').map(Number)
 
 export function ask(det, tr, api) {
   return new Promise((resolve) => {
-    const mc = det.mc;
+    // deux lectures possibles quand la banane est proposée (det.ban) : bouées du cahier ou bouées de la banane reconstruite ; le choix du
+    // parcours bascule de l’une à l’autre (passages, détection, côtés). Sans det.ban : le questionnaire d’avant.
+    const views = { cahier: det.ban ? { ...det.cahier, table: MARKS } : { pass: det.pass, mc: det.mc, table: MARKS } };
+    if (det.ban) views.ban = { pass: det.ban.pass, mc: det.ban.mc, table: det.ban.table };
+    let kind = det.ban ? det.kind : 'cahier';
+    const mc = views.cahier.mc;
     // la trace ne révèle aucun parcours : celui de la manche de la régate (api.courseHint) est pré-sélectionné, l'équipier le confirme ou le change
     const isCourse = (c) => (mc ? mc.c.id === c.id : api.courseHint != null && String(c.id) === String(api.courseHint));
-    const courseOpts = COURSES.filter((c) => !c.built).map((c) => `<option value="${c.id}" ${isCourse(c) ? 'selected' : ''}>${esc(c.title)}</option>`).join('');
-    // une bouée de porte du parcours détecté se lit « marque X3 4p (porte X2/X3) » : l’équipier voit laquelle a été prise
-    const gateOf = (k) => mc?.exp.find((e) => e.gate && (e.k === k || e.gate === k));
-    const passOpts = det.pass.map((p, i) => { const g = gateOf(p.k); return `<label class="dq-pass"><input type="checkbox" data-p="${i}" ${mc?.hit.some((h) => h.t === p.t) ? 'checked' : ''}> ${hms(p.t)} · marque ${esc(p.k)} ${esc(MARKS[p.k].name)}${g ? ` (porte ${esc(g.k)}/${esc(g.gate)})` : ''} <span class="muted">(${Math.round(p.d)} m)</span></label>`; }).join('');
+    const courseOpts = COURSES.filter((c) => !c.built).map((c) => `<option value="${c.id}" ${kind === 'cahier' && isCourse(c) ? 'selected' : ''}>${esc(c.title)}</option>`).join('')
+      + (det.ban ? `<option value="${BANANE.id}" ${kind === 'ban' ? 'selected' : ''}>${esc(BANANE.title)}</option>` : '');
+    const html = (k) => {
+      const v = views[k], m2 = v.mc;
+      if (k === 'ban') {
+        // bouées voisines (porte à 90 m, arrivée près de la porte) : un même instant peut être le plus proche de deux bouées, d’où la clé
+        const b = det.ban, nom = (key) => v.table[key]?.name || key;
+        const passOpts = v.pass.map((p, i) => `<label class="dq-pass"><input type="checkbox" data-p="${i}" ${m2?.hit.some((h) => h.t === p.t && h.k === p.k) ? 'checked' : ''}> ${hms(p.t)} · ${esc(nom(p.k))}${p.k === 'PG' || p.k === 'PD' ? ' (porte)' : ''} <span class="muted">(${Math.round(p.d)} m)</span></label>`).join('');
+        const lu = `Banane reconstruite : B à ${String(cleanBan(b.ban).nm).replace('.', ',')} Nq, axe ${fmtBrg(b.dir)}${b.fitted ? ' (ajusté sur la trace)' : ' (enregistré avec la trace)'}, réglages ${esc(b.from || 'de l’app')}.`;
+        return { passOpts, found: m2 ? `<p class="small">${lu} Détecté : ${m2.hit.map((h) => esc(BAN_KEYS[h.k] || h.k)).join(' → ')}${m2.reduced ? ' (parcours réduit ou trace arrêtée avant la fin)' : ''}.</p>` : `<p class="small">${lu} Aucune bouée de la banane retrouvée à moins de 200 m : vérifiez les réglages de la banane et la ligne de départ.</p>` };
+      }
+      // une bouée de porte du parcours détecté se lit « marque X3 4p (porte X2/X3) » : l’équipier voit laquelle a été prise
+      const gateOf = (key) => m2?.exp.find((e) => e.gate && (e.k === key || e.gate === key));
+      const passOpts = v.pass.map((p, i) => { const g = gateOf(p.k); return `<label class="dq-pass"><input type="checkbox" data-p="${i}" ${m2?.hit.some((h) => h.t === p.t) ? 'checked' : ''}> ${hms(p.t)} · marque ${esc(p.k)} ${esc(MARKS[p.k].name)}${g ? ` (porte ${esc(g.k)}/${esc(g.gate)})` : ''} <span class="muted">(${Math.round(p.d)} m)</span></label>`; }).join('');
+      return { passOpts, found: m2 ? `<p class="small">Détecté : <b>${esc(m2.c.title)}</b>, marques ${m2.hit.map((h) => esc(h.k)).join(' → ')}${m2.reduced ? ' (parcours réduit ou trace arrêtée avant la fin)' : ''}.</p>` : '<p class="small">Aucune marque du cahier détectée à moins de 200 m.</p>' };
+    };
+    const h0 = html(kind);
+    const guess = kind === 'ban' && det.ban.mc ? { dir: Math.round(norm360(det.ban.dir)), src: 'l’axe de la banane retrouvé sur la trace' } : api.windGuess(det.tStart);
     const m = overlay(`
       <h2>Débrief de course</h2>
       <p class="small muted">L’app a lu la trace. Vérifiez et complétez, puis lancez l’analyse.</p>
       <label class="f">Parcours couru</label><select id="dqCourse">${courseOpts}</select>
-      ${mc ? `<p class="small">Détecté : <b>${esc(mc.c.title)}</b>, marques ${mc.hit.map((h) => esc(h.k)).join(' → ')}${mc.reduced ? ' (parcours réduit ou trace arrêtée avant la fin)' : ''}.</p>` : '<p class="small">Aucune marque du cahier détectée à moins de 200 m.</p>'}
+      <div id="dqFound">${h0.found}</div>
       <label class="f">Marques passées (cochez celles du parcours, la dernière cochée = arrivée)</label>
-      <div class="dq-list">${passOpts || '<span class="small muted">aucune</span>'}</div>
+      <div class="dq-list">${h0.passOpts || '<span class="small muted">aucune</span>'}</div>
       <label class="f">Heure du bon départ</label><input id="dqStart" type="time" step="1" value="${toLocalInput(det.tStart)}">
       <p class="small muted">${det.launches.length ? `Lancées avant le départ détectées : ${det.launches.map((l) => `${hm(l.t0)}–${hm(l.t1)}`).join(', ')} (faux départs ou rappels ?).` : 'Pas d’autre lancée détectée avant le départ.'}</p>
-      <label class="f">Vent au départ (direction d’où il vient, en degrés)</label><input id="dqWind" type="number" min="0" max="359" inputmode="numeric" value="${api.windGuess(det.tStart)?.dir ?? ''}">
-      <p class="small muted">${api.windGuess(det.tStart)?.src ? `Pré-rempli avec ${esc(api.windGuess(det.tStart).src)}. ` : ''}Indispensable : la trace seule ne distingue pas un bord de près d’un vent arrière dans la direction opposée.</p>
+      <label class="f">Vent au départ (direction d’où il vient, en degrés)</label><input id="dqWind" type="number" min="0" max="359" inputmode="numeric" value="${guess?.dir ?? ''}">
+      <p class="small muted">${guess?.src ? `Pré-rempli avec ${esc(guess.src)}. ` : ''}Indispensable : la trace seule ne distingue pas un bord de près d’un vent arrière dans la direction opposée.</p>
       <label class="f">Faux départs / rappels</label><select id="dqFalse">${[0, 1, 2, 3].map((n) => `<option ${n === det.launches.length ? 'selected' : ''}>${n}</option>`).join('')}</select>
-      <label class="f">Arrivée</label><select id="dqFinish"><option value="line">Ligne d’arrivée normale</option><option value="reduced" ${mc?.reduced ? 'selected' : ''}>Parcours réduit (pointage à la dernière marque cochée)</option></select>
+      <label class="f">Arrivée</label><select id="dqFinish"><option value="line">Ligne d’arrivée normale</option><option value="reduced" ${views[kind].mc?.reduced ? 'selected' : ''}>Parcours réduit (pointage à la dernière marque cochée)</option></select>
       <label class="f">Départ : extrémité et amure</label><input id="dqStartNote" type="text" placeholder="ex. bâbord à la bouée sur une bascule gauche">
       <label class="f">Ce que vous avez vu sur l’eau</label><textarea id="dqNotes" rows="4" placeholder="Bateaux qui doublent, plus de vent au large, nouveau vent, molles, erreurs…"></textarea>
       <div class="row2"><div><label class="f">Classement</label><input id="dqPlace" type="text" inputmode="numeric" placeholder="ex. 1"></div><div><label class="f">Sur combien de bateaux</label><input id="dqFleet" type="text" inputmode="numeric" placeholder="facultatif"></div></div>
       <label class="f">Nom de l’épreuve</label><input id="dqEvent" type="text" value="${esc(api.eventName || '')}">
       <div class="btns"><button class="btn acc" id="dqGo">Analyser</button><button class="btn alt" id="dqCancel">Annuler</button></div>`);
+    // banane ↔ parcours du cahier : la liste des passages et la détection suivent le parcours choisi
+    if (det.ban) m.querySelector('#dqCourse').onchange = (e) => {
+      const k = +e.target.value === BANANE.id ? 'ban' : 'cahier';
+      if (k === kind) return;
+      kind = k; const h = html(kind);
+      m.querySelector('#dqFound').innerHTML = h.found;
+      m.querySelector('.dq-list').innerHTML = h.passOpts || '<span class="small muted">aucune</span>';
+      m.querySelector('#dqFinish').value = views[kind].mc?.reduced ? 'reduced' : 'line';
+    };
     m.querySelector('#dqCancel').onclick = () => { m.hidden = true; resolve(null); };
     m.querySelector('#dqGo').onclick = () => {
-      const picked = [...m.querySelectorAll('[data-p]')].filter((x) => x.checked).map((x) => det.pass[+x.dataset.p]);
+      const v = views[kind];
+      const picked = [...m.querySelectorAll('[data-p]')].filter((x) => x.checked).map((x) => v.pass[+x.dataset.p]);
       if (!picked.length) { api.toast('Cochez au moins une marque'); return; }
       const wv = m.querySelector('#dqWind').value; if (wv === '') { api.toast('Indiquez le vent au départ'); return; }
-      const c = COURSES.find((x) => x.id === +m.querySelector('#dqCourse').value);
-      const seq = (c.seq[mc?.cls || 'G'] || c.seq.G);
-      const marks = picked.map((p) => { const el = seq.find(([k, , g]) => k === p.k || g === p.k); return { k: p.k, t: p.t, side: el?.[1] ?? null, ...(el?.[2] != null ? { gate: true } : {}) }; });
+      const c = kind === 'ban' ? BANANE : COURSES.find((x) => x.id === +m.querySelector('#dqCourse').value);
+      let marks;
+      if (kind === 'ban') {
+        // côtés de la banane : B, C et la bouée sous le vent du côté réglé ; une bouée de porte = porte (bouée prise), l’arrivée sans côté
+        const sd = cleanBan(det.ban.ban).side;
+        marks = picked.map((p) => ({ k: p.k, t: p.t, side: p.k === 'B' || p.k === 'C' || p.k === 'S' ? sd : null, ...(p.k === 'PG' || p.k === 'PD' ? { gate: true } : {}) }));
+      } else {
+        const seq = (c.seq[mc?.cls || 'G'] || c.seq.G);
+        marks = picked.map((p) => { const el = seq.find(([k, , g]) => k === p.k || g === p.k); return { k: p.k, t: p.t, side: el?.[1] ?? null, ...(el?.[2] != null ? { gate: true } : {}) }; });
+      }
       resolve({
-        course: c, cls: mc?.cls || 'G', marks, startWind: norm360(+wv), tStart: fromLocalInput(det.tStart, m.querySelector('#dqStart').value || toLocalInput(det.tStart)),
+        course: c, cls: kind === 'ban' ? (det.ban.mc?.cls || 'G') : (mc?.cls || 'G'), marks, startWind: norm360(+wv), tStart: fromLocalInput(det.tStart, m.querySelector('#dqStart').value || toLocalInput(det.tStart)),
         falseStarts: +m.querySelector('#dqFalse').value, reduced: m.querySelector('#dqFinish').value === 'reduced',
         startNote: m.querySelector('#dqStartNote').value.trim(), notes: m.querySelector('#dqNotes').value.trim(),
         place: m.querySelector('#dqPlace').value.trim(), fleet: m.querySelector('#dqFleet').value.trim(), event: m.querySelector('#dqEvent').value.trim(),
+        ...(kind === 'ban' ? { table: v.table, ban: { ...cleanBan(det.ban.ban), dir: det.ban.dir, laps: det.ban.laps, fitted: det.ban.fitted } } : {}),
       });
     };
   });
@@ -372,7 +494,7 @@ export async function narrative(an, ans) {
 async function mapImage(an, P, meta) {
   const pts = P.filter((p) => p.t >= an.tStart - 5 * 60000 && p.t <= an.tFin + 2 * 60000);
   const lats = pts.map((p) => p.lat), lons = pts.map((p) => p.lon);
-  an.legs.forEach((L) => { const m = MARKS[L.mk]; lats.push(m.lat); lons.push(m.lon); });
+  an.legs.forEach((L) => { const m = (an.table || MARKS)[L.mk]; lats.push(m.lat); lons.push(m.lon); });
   let S = Math.min(...lats), N = Math.max(...lats), Wl = Math.min(...lons), E = Math.max(...lons);
   const padY = (N - S) * 0.12 + 0.002, padX = (E - Wl) * 0.12 + 0.003; S -= padY; N += padY; Wl -= padX; E += padX;
   const img = new Image(); img.src = 'data/basemap.jpg';
@@ -406,7 +528,7 @@ export async function buildReport(an, ans, nar, det, api) {
   for (const L of an.legs) if (L.path.length) svg += `<polyline points="${L.path.map(([la, lo]) => `${X(lo)},${Y(la)}`).join(' ')}" fill="none" stroke="#00a6c8" stroke-width="3" stroke-dasharray="7 6"/>`;
   for (let i = 1; i < race.length; i++) svg += `<line x1="${X(race[i - 1].lon)}" y1="${Y(race[i - 1].lat)}" x2="${X(race[i].lon)}" y2="${Y(race[i].lat)}" stroke="${col(race[i].v)}" stroke-width="4.5" stroke-linecap="round"/>`;
   const lab = (x, y, t) => `<text x="${x}" y="${y}" font-family="system-ui" font-weight="700" font-size="14" fill="#fff" paint-order="stroke" stroke="#0009" stroke-width="3">${esc(t)}</text>`;
-  an.legs.forEach((L, i) => { const m = MARKS[L.mk], last = i === an.legs.length - 1; svg += `<circle cx="${X(m.lon)}" cy="${Y(m.lat)}" r="12" fill="${last ? '#c92a2a' : '#e8590c'}" stroke="#fff" stroke-width="2"/><text x="${X(m.lon)}" y="${+Y(m.lat) + 5}" text-anchor="middle" font-family="system-ui" font-weight="700" font-size="13" fill="#fff">${esc(L.mk)}</text>` + lab(+X(m.lon) + 16, +Y(m.lat) + 5, `${hm(L.tb)}${last ? ' · ARRIVÉE' : ''}`); });
+  an.legs.forEach((L, i) => { const m = (an.table || MARKS)[L.mk], last = i === an.legs.length - 1; svg += `<circle cx="${X(m.lon)}" cy="${Y(m.lat)}" r="12" fill="${last ? '#c92a2a' : '#e8590c'}" stroke="#fff" stroke-width="2"/><text x="${X(m.lon)}" y="${+Y(m.lat) + 5}" text-anchor="middle" font-family="system-ui" font-weight="700" font-size="13" fill="#fff">${esc(L.mk)}</text>` + lab(+X(m.lon) + 16, +Y(m.lat) + 5, `${hm(L.tb)}${last ? ' · ARRIVÉE' : ''}`); });
   svg += `<circle cx="${X(an.startP.lon)}" cy="${Y(an.startP.lat)}" r="7" fill="#fff" stroke="#10222f" stroke-width="2"/>` + lab(+X(an.startP.lon) + 12, +Y(an.startP.lat) - 8, `DÉPART ${hm(an.tStart)}`) + '</svg>';
   // graphique du vent
   const t0 = an.tStart - 5 * 60000, t1 = an.tFin + 5 * 60000, cw = 900, ch = 220;
@@ -462,7 +584,7 @@ td.n{font-family:ui-monospace,Menlo,monospace;font-size:13px;white-space:nowrap}
 .lg{display:flex;flex-wrap:wrap;gap:6px 16px;padding:10px 14px;font-size:13px;color:var(--muted);border-top:1px solid var(--line)}.lg i{display:inline-block;width:22px;height:4px;border-radius:2px;vertical-align:middle;margin-right:6px}
 </style></head><body><div class="wrap">
 <header style="display:grid;gap:8px"><div class="eyebrow">Débrief · J80 · Rade Tactique</div>${ans.place === '1' ? '<div class="win">Victoire</div>' : ''}<h1>${esc(title)}, ${esc(date)}</h1>
-<div class="meta"><span class="chip">${esc(ans.course.title)}${ans.reduced ? ', réduit' : ''}</span><span class="chip">Départ ${hm(an.tStart)}${ans.falseStarts ? ` après ${ans.falseStarts} rappel${ans.falseStarts > 1 ? 's' : ''}` : ''}</span><span class="chip">Arrivée ${hms(an.tFin)}</span><span class="chip">Course ${mins(total)}</span><span class="chip">${nm(dist)} parcourus pour ${nm(direct)} de route directe</span>${ans.place ? `<span class="chip">Classement ${esc(ans.place)}${ans.fleet ? ' / ' + esc(ans.fleet) : ''}</span>` : ''}</div></header>
+<div class="meta"><span class="chip">${esc(ans.course.title)}${ans.ban ? ` : B à ${String(ans.ban.nm).replace('.', ',')} Nq, axe ${fmtBrg(ans.ban.dir)}` : ''}${ans.reduced ? ', réduit' : ''}</span><span class="chip">Départ ${hm(an.tStart)}${ans.falseStarts ? ` après ${ans.falseStarts} rappel${ans.falseStarts > 1 ? 's' : ''}` : ''}</span><span class="chip">Arrivée ${hms(an.tFin)}</span><span class="chip">Course ${mins(total)}</span><span class="chip">${nm(dist)} parcourus pour ${nm(direct)} de route directe</span>${ans.place ? `<span class="chip">Classement ${esc(ans.place)}${ans.fleet ? ' / ' + esc(ans.fleet) : ''}</span>` : ''}</div></header>
 <div class="keys"><div class="key good"><span class="k">Ce qui a marché</span><p>${esc(nar.resume.bien)}</p></div><div class="key warn"><span class="k">Ce qui a coûté</span><p>${esc(nar.resume.coute)}</p></div><div class="key bad"><span class="k">La météo</span><p>${esc(nar.resume.meteo)}</p></div></div>
 <section><h2>1 · Le parcours</h2><div class="tbl"><table><tr><th>Bord</th><th>Passage</th><th>Allure</th><th>Route directe</th><th>Parcouru</th><th>Vent</th></tr>${legRows}</table></div>
 <div class="fig">${svg}<div class="lg"><span><i style="background:#2b8a3e"></i>&gt; 5 nd</span><span><i style="background:#0d6e8a"></i>3,5–5 nd</span><span><i style="background:#c27c0e"></i>2–3,5 nd</span><span><i style="background:#c92a2a"></i>&lt; 2 nd</span><span><i style="background:#00a6c8"></i>route conseillée</span></div></div></section>
