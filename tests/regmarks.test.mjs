@@ -484,7 +484,7 @@ test('courseFallback : manche choisie, sinon parcours 3, sinon premier de la lis
   assert.equal(courseFallback([], { courseId: 3, openId: null }), null, 'liste vide : rien');
 });
 
-test('courseFallback : jamais pendant une course (chrono, mode départ, trace, journée verrouillée), sauf parcours disparu', async () => {
+test('courseFallback : jamais pendant une course (chrono, mode départ, trace, GPS), sauf parcours disparu', async () => {
   const { courseFallback, courseMismatch } = await import('../js/regmarks.js');
   assert.deepEqual(courseFallback(CS, { courseId: 3, openId: 'rgA', active: true }), { blocked: true }, 'jour J en course : parcours 3 gardé');
   assert.deepEqual(courseFallback(CS, { courseId: 3, openId: 'rgA', raceCourseId: 102, active: true }), { blocked: true }, 'même avec une manche');
@@ -505,7 +505,8 @@ test('câblage : sélecteur, manche, parcours probables et débrief ne proposent
   assert.match(app, /rankCourses\(S\.cls, w\.dir, w\.spd, proposes\(\)\)/);
   assert.match(app, /choices: proposes\(\)/);
   assert.match(app, /courses: proposes\(\) \}\);/, 'addRace : parcours permis');
-  assert.match(app, /const racing = \(now = Date\.now\(\)\) => raceActive\(now\) \|\| raceLock\(now\)\.locked;/);
+  assert.match(app, /const racing = \(now = Date\.now\(\)\) => raceActive\(now\);/, 'chrono, mode départ, trace, GPS : pas la journée verrouillée seule');
+  assert.doesNotMatch(app.slice(app.indexOf('function syncRegMarks'), app.indexOf('function refreshRegMarks')), /raceLock/);
   assert.match(app, /function syncRegMarks\(\{ active = racing\(\) \} = \{\}\)/);
   assert.match(app, /syncRegMarks\(\{ active: chronoRepris \|\| racing\(\) \}\)/, 'au démarrage, un chrono repris compte comme une course');
   assert.match(app, /if \(!f \|\| f\.blocked\) return;/);

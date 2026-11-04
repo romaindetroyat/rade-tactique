@@ -768,7 +768,7 @@ let preselect = null;
 // choisi qui n’est pas un parcours de la régate ouverte
 function pickHTML() {
   const r = openReg(), m = courseMismatch(COURSES, S.courseId, r?.id ?? null);
-  if (m) return `<div class="notice" id="courseMismatch" style="margin-top:8px"><b>Parcours choisi : ${esc(m.current || '—')}</b>, pas un parcours ${r ? `de ${esc(r.name)}` : 'du cahier CVAT'}. En course (chrono, mode départ, trace ou journée de régate), l’app ne change jamais le parcours d’elle-même. Choisissez celui annoncé par le Comité parmi ${esc(m.allowed.join(', '))}.</div>`;
+  if (m) return `<div class="notice" id="courseMismatch" style="margin-top:8px"><b>Parcours choisi : ${esc(m.current || '—')}</b>, pas un parcours ${r ? `de ${esc(r.name)}` : 'du cahier CVAT'}. En course (chrono, mode départ, trace ou GPS allumé), l’app ne change jamais le parcours d’elle-même. Choisissez celui annoncé par le Comité parmi ${esc(m.allowed.join(', '))}.</div>`;
   if (!preselect || preselect.id !== S.courseId || !r || preselect.regId !== r.id) return '';
   const c = COURSES.find((x) => x.id === S.courseId);
   return `<div class="notice" id="coursePick" style="margin-top:8px"><b>${esc(c?.title || '—')} présélectionné</b>${preselect.n != null ? ` (parcours de la manche ${preselect.n})` : ''} — choisissez celui annoncé par le Comité.</div>`;
@@ -838,8 +838,9 @@ function raceLock(now = Date.now()) {
   const { raceFrom, raceTo } = lockDates({ now, list: REG.list });
   return lockState({ now, active: raceActive(now), raceFrom, raceTo, lastActiveAt: RL.lastActiveAt ?? null, finishedAt: RL.finishedAt ?? null });
 }
-// Course en cours (chrono, mode départ, trace, GPS) ou journée verrouillée en course : le parcours choisi n’est jamais changé par l’app
-const racing = (now = Date.now()) => raceActive(now) || raceLock(now).locked;
+// Course en cours (chrono, mode départ, trace, GPS allumé) : le parcours choisi n’est jamais changé par l’app. La journée verrouillée seule ne
+// bloque pas : le jour J à 9 h 30 au ponton, ouvrir la régate présélectionne encore le parcours de la manche
+const racing = (now = Date.now()) => raceActive(now);
 function saveRaceActivity() { const now = Date.now(); if (raceActive(now)) { RL.lastActiveAt = now; saveRL(now); } }
 let wasRaceActive = false, lockReason = null;
 function raceTick() {

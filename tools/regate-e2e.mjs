@@ -2394,12 +2394,33 @@ async function jourJ({ browser, base }) {
   await p4.click('#rcCancel');
   sansErreur(e4, 'jour J, régate avec ses parcours');
 
-  // (6) pendant la course (journée verrouillée après 9 h) : un parcours du cahier choisi n’est JAMAIS changé au lancement, il est signalé
-  await p4.evaluate(() => { const s = JSON.parse(localStorage.getItem('rade.state')); s.courseId = 3; localStorage.setItem('rade.state', JSON.stringify(s)); });
-  await ctx4.clock.setFixedTime(new Date('2026-10-19T08:30:00Z'));                                 // 10 h 30 à Paris, jour de la régate
+  // (6) 9 h 30 au ponton, journée verrouillée mais aucune course en cours : la présélection joue encore (parcours de la manche)
+  const cahier3 = () => p4.evaluate(() => { const s = JSON.parse(localStorage.getItem('rade.state')); s.courseId = 3; localStorage.setItem('rade.state', JSON.stringify(s)); });
+  await cahier3();
+  await ctx4.clock.setFixedTime(new Date('2026-10-19T07:30:00Z'));                                 // 9 h 30 à Paris, jour de la régate
   await ouvreApp(p4, base);
   assert.equal(await idOuverte(p4), 'seyne');
-  assert.equal((await etatPage(p4)).courseId, 3, 'journée de course : parcours gardé');
+  await p4.click('#tabs button[data-tab=live]');
+  assert.equal(await p4.locator('#raceDone').count(), 1, 'journée verrouillée (« Course finie » proposé)');
+  assert.equal((await etatPage(p4)).courseId, 102, 'journée verrouillée sans course : parcours de la manche présélectionné');
+  sel = await selecteur(p4);
+  assert.deepEqual([sel.options, sel.value], [['Parcours 1 (IC)', 'Parcours 2 (IC)'], '102']);
+  assert.match(await p4.locator('section[data-tab=course] #coursePick').textContent(), /Parcours 2 \(IC\) présélectionné \(parcours de la manche 1\)/);
+  sansErreur(e4, 'journée verrouillée');
+
+  // (7) chrono lancé puis relance de l’app (chrono repris) : un parcours du cahier choisi n’est JAMAIS changé, il est signalé
+  await p4.click('#tabs button[data-tab=start]'); await p4.click('#t5');
+  await p4.waitForFunction(() => document.querySelector('#tPhase').textContent !== 'Prêt', null, { timeout: 10000 });
+  await cahier3();
+  await ouvreApp(p4, base);
+  assert.equal(await idOuverte(p4), 'seyne');
+  assert.notEqual(await p4.locator('#tPhase').textContent(), 'Prêt', 'chrono repris');
+  assert.equal((await etatPage(p4)).courseId, 3, 'chrono en cours : parcours gardé');
+  await p4.waitForTimeout(3000);
+  assert.equal((await etatPage(p4)).courseId, 3, 'toujours gardé');
+  // le chrono suspend les recalculs (H−6 min) : on l’arrête pour lire l’onglet Parcours ; l’arrêt ne change pas le parcours, l’avertissement reste
+  await p4.click('#tabs button[data-tab=start]'); await p4.click('#tstop');
+  await p4.waitForFunction(() => document.querySelector('#tPhase').textContent === 'Prêt', null, { timeout: 10000 });
   sel = await selecteur(p4);
   assert.deepEqual([sel.options, sel.value], [['Parcours 1 (IC)', 'Parcours 2 (IC)', 'Parcours 3'], '3'], 'le parcours gardé reste affiché, à sa place');
   assert.match(await p4.locator('section[data-tab=course] #courseMismatch').textContent(), /Parcours choisi : Parcours 3[\s\S]*pas un parcours de La Seyne Cup[\s\S]*ne change jamais le parcours d’elle-même[\s\S]*Parcours 1 \(IC\), Parcours 2 \(IC\)/);
@@ -2408,7 +2429,7 @@ async function jourJ({ browser, base }) {
   await p4.selectOption('#cSel', '101');
   assert.equal(await p4.locator('section[data-tab=course] #courseMismatch').count(), 0);
   assert.equal((await etatPage(p4)).courseId, 101);
-  sansErreur(e4, 'journée de course');
+  sansErreur(e4, 'chrono en cours');
   await ctx4.close();
 }
 
