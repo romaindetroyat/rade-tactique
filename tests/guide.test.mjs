@@ -71,6 +71,8 @@ const EXIGEES = [
   'Avant la CVAT : les trois iPhone à jour', 'Une bouée de la banane est à terre',
   // débrief de la banane (v39)
   'Débriefer une banane, pas à pas', 'Banane reconstruite', 'ajusté sur la trace', 'réglages de la manche',
+  // modifier une manche (v42)
+  'Modifier la manche', 'déplace', 'sans doublon', 'modifiée par Prénom le JJ/MM',
 ];
 // Formules qui ne doivent jamais apparaître : [motif, raison]
 const INTERDITES = [
@@ -125,6 +127,7 @@ const MESSAGES_DE_L_APP = [
   'Hors ligne — prévisions du', 'Laisser sans régate', 'Confirmer la suppression', 'Copié ✓', 'Confirmer ?',
   'Aucune régate ouverte', 'Entraînement libre', 'Retour à l’entraînement libre',
   'à terre ou dans la zone interdite', 'Autre bouée :', 'Suite du parcours',
+  'Course en cours : modification de la manche après la course', 'a déjà ce jour et cette heure',
 ];
 
 test('messages : chaque message cité par le guide est celui de l’app', () => {
@@ -140,7 +143,7 @@ const BOUTONS = [
   'Bips', 'Bouée ici', 'Chiffres', 'Choisir cette manche', 'Comité ici', 'Confirmer', 'Continuer', 'Copier', 'Créer la régate', 'Détacher', 'Enregistrer le relevé', 'Exporter GPX', 'Fermer', 'GPX',
   'Ignorer', 'Ligne', 'Ligne théorique', 'Marque passée ▶', '◀ Marque précédente', 'Masquer', 'Modifier', 'OK', 'Partager', 'Partager le rapport', 'Partager… (WhatsApp, Messages)', 'Plein soleil',
   'Plein écran', 'Polaire par défaut', 'Position d’origine', 'Ranger…', 'Recaler', 'Relevé de vent ici…', 'Relevés', 'Revenir au plan initial', 'Règles du départ (P, I, U, Z, noir)', 'Stop',
-  'Supprimer cette régate', 'Synchroniser', 'Top 1’', 'Top 4’', 'Top 5’ (avertissement)', 'Télécharger pour le hors réseau', 'Valider', 'Valider les IC', 'Vider', 'Voir', 'Voir la trace',
+  'Supprimer cette régate', 'Synchroniser', '✎ Modifier', 'Enregistrer', 'Top 1’', 'Top 4’', 'Top 5’ (avertissement)', 'Télécharger pour le hors réseau', 'Valider', 'Valider les IC', 'Vider', 'Voir', 'Voir la trace',
   'Voir sur la carte', 'Voix', '↻ Recalculer', '↻ Recalculer la suite depuis ma position', '⏹ Arrêter et enregistrer', '⏺ Enregistrer ma trace', '▶ Activer le GPS', '▶ Animer le parcours',
   '▶ Rejouer la trace', '⚙', '⚡ Flash visuel', '⤓ Importer un fichier GPX', '＋ Ajouter une manche', '＋ Nouvelle régate', '🎤', '🏁 Course finie — retour au port', '📄 Voir le débrief',
   '📍 Ping Bouée (GPS)', '📍 Ping Comité (GPS)', '🔊 Tester le son', '🔓',
@@ -179,7 +182,7 @@ test('aide intégrée : plus de formule périmée, repères de la v32 présents'
   for (const p of ['Tester le son', 'Course finie', 'Mettre à jour', 'reprise demain', 'Mode départ plein écran', 'Top 5’', 'Top 4’', 'Top 1’', 'GPS, ÉCRAN, SON et RÉSEAU',
     '30 appels', 'Open GPX Tracker', '25 nœuds', 'Arrêter le GPS', 'Pas encore synchronisé', 'Synchronisation à relancer', 'Plafond du jour atteint · reprise demain',
     'Code d’accès à renouveler', 'Mettez l’app à jour pour synchroniser', 'premier jour de la régate ouverte', 'Entraînement libre', 'Fermer la régate',
-    'Banane (construite)', 'Porte sous le vent', 'bouées équivalentes', 'porte : bouée prise', 'Dist. B (Nq)', 'Choisir cette manche']) assert.ok(aideTexte.includes(p), `l’aide ne cite pas « ${p} »`);
+    'Banane (construite)', 'Porte sous le vent', 'bouées équivalentes', 'porte : bouée prise', 'Dist. B (Nq)', 'Choisir cette manche', '✎ Modifier', 'Enregistrer']) assert.ok(aideTexte.includes(p), `l’aide ne cite pas « ${p} »`);
   assert.ok(AIDE.includes('href="guide.html#minute"'), 'le lien du guide complet ouvre « En 1 minute »');
   assert.ok(document.getElementById('minute'), 'l’ancre #minute existe dans guide.html');
   assert.doesNotMatch(aideTexte, /blob\.vercel|vercel-storage|\?acces=|rt_acces|BLOB_READ_WRITE_TOKEN|gpt|claude|opus|sonnet|haiku/i, 'ni code, ni cookie, ni adresse, ni nom de modèle');
