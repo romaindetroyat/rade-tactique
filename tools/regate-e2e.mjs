@@ -2851,7 +2851,86 @@ async function porteIC({ browser, base }) {
   await ctx.close();
 }
 
-const SCENARIOS = { accueil, 'jour-j': jourJ, 'deux-telephones': deuxTelephones, reprise, equipage, archive, 'archive-bouees': archiveBouees, archivehors: archiveHors, creer, manche, auteur, ic, 'depuis-ic': depuisIC, vraisemblance, gel, 'debrief-tardif': debriefTardif, gpx, 'gpx-choix': gpxChoix, ia, 'ia-erreurs': iaErreurs, arbitre, bouees, guide, entetes, 'retour-port': retourPort, banane, 'banane-manche': bananeManche, 'banane-debrief': bananeDebrief, 'porte-ic': porteIC };
+// v42 : « ✎ Modifier » une manche (parcours et note), conflit d’heure refusé, puis déplacement de son heure ; la manche choisie est recalée ;
+// refus pendant un chrono ; les deux téléphones voient le même résultat après synchronisation (une seule manche, aucune résurrection)
+async function modifierManche({ browser, base }) {
+  const m = await mondeArchive();
+  const A = await telephoneArchive(browser, base, m, 'Teiva'), B = await telephoneArchive(browser, base, m, 'Thibaud');
+  await creeRegate(A.page, { nom: 'Régate modifiée', debut: '2026-11-07', fin: '2026-11-08', club: 'CVAT' });
+  await ajouteManche(A.page, { heure: '10:55', parcours: '5', cls: 'G', tours: '2' });
+  await ajouteManche(A.page, { heure: '13:25', parcours: '3', cls: 'P', tours: '1' });
+  await avanceHeure(m, 60e3); await synchronise(m, A);
+  await avanceHeure(m, 60e3); await synchronise(m, B);
+  await ouvreLigne(B.page.locator('section[data-tab=ic] .rg', { hasText: 'Régate modifiée' }));
+  const lignes = (page) => page.locator('section[data-tab=ic] .rgrace').evaluateAll((els) => els.map((e) => e.querySelector('.rgrh').textContent.replace(/\s*choisie\s*$/, '').trim() + ' | ' + e.querySelectorAll('.small')[1].textContent.trim() + ' | ' + (e.querySelector('i')?.textContent ?? '')));
+  assert.deepEqual(await lignes(B.page), await lignes(A.page), 'B voit les deux manches de A');
+
+  // 1) A choisit la manche 1, puis la modifie : formulaire prérempli, parcours 3 et une note ; la manche choisie est recalée (parcours 3)
+  await A.page.click('[data-race="1"]');
+  await A.page.click('#tabs button[data-tab=ic]');
+  await A.page.click('[data-edrace="1"]');
+  await A.page.waitForSelector('#rcForm[data-edit="1"]', { timeout: 10000 });
+  assert.equal(await A.page.locator('#rcForm h4').textContent(), 'Modifier la manche 1');
+  assert.deepEqual(await A.page.evaluate(() => ['#rcDate', '#rcTime', '#rcCourse', '#rcCls', '#rcLaps', '#rcNote'].map((s) => document.querySelector(s).value)), ['2026-11-07', '10:55', '5', 'G', '2', ''], 'formulaire prérempli');
+  assert.equal(await A.page.locator('#rcAdd').count(), 0, 'pas de « Ajouter la manche » en modification');
+  await A.page.selectOption('#rcCourse', '3');
+  await A.page.fill('#rcNote', 'grain annoncé <b>18 nd</b>');
+  await A.page.click('#rcSave');
+  await A.page.waitForSelector('#rcForm', { state: 'detached', timeout: 10000 });
+  assert.match(await A.page.locator('#toast').textContent(), /^Manche modifiée — Manche 1 : Parcours 3/);
+  assert.match((await lignes(A.page))[0], /Manche 1[\s\S]*10:55 \| Parcours 3 · classe G · 2 tours \| grain annoncé <b>18 nd<\/b>/);
+  await A.page.click('#tabs button[data-tab=course]');
+  assert.deepEqual(await reglages(A.page), { parcours: '3', cls: 'G', depart: '11:00' }, 'la manche choisie modifiée est recalée');
+
+  // 2) conflit : la déplacer à 13:25 (heure de la manche 2) est refusé, rien n’est enregistré
+  await A.page.click('#tabs button[data-tab=ic]');
+  await A.page.click('[data-edrace="1"]');
+  await A.page.fill('#rcTime', '13:25');
+  await A.page.click('#rcSave');
+  assert.equal(await A.page.locator('#rcForm [data-err=time]').textContent(), 'La manche 2 a déjà ce jour et cette heure : changez l’heure, ou modifiez ou supprimez l’autre manche.');
+  // 3) déplacement à 11:30 : nouvel identifiant, départ recalé à 11:35
+  await A.page.fill('#rcTime', '11:30');
+  await A.page.click('#rcSave');
+  await A.page.waitForSelector('#rcForm', { state: 'detached', timeout: 10000 });
+  assert.match(await A.page.locator('#toast').textContent(), /^Manche déplacée — Manche 1 : Parcours 3/);
+  await A.page.click('#tabs button[data-tab=course]');
+  assert.deepEqual(await reglages(A.page), { parcours: '3', cls: 'G', depart: '11:35' });
+  const ids = (page) => page.evaluate(() => JSON.parse(localStorage.getItem('rade.regates.v1')).list.find((r) => r.name === 'Régate modifiée').races.map((x) => `${x.id} ${x.time} ${x.courseId} ${x.note}`));
+  assert.deepEqual(await ids(A.page), ['m202611071130 11:30 3 grain annoncé <b>18 nd</b>', 'm202611071325 13:25 3 ']);
+
+  // 4) pendant un chrono : « ✎ Modifier » est refusé avec un message
+  await A.page.click('#tabs button[data-tab=start]'); await A.page.click('#t5');
+  await A.page.click('#tabs button[data-tab=ic]');
+  await A.page.click('[data-edrace="2"]');
+  assert.equal(await A.page.locator('#toast').textContent(), 'Course en cours : modification de la manche après la course');
+  assert.equal(await A.page.locator('#rcForm').count(), 0, 'aucun formulaire pendant la course');
+  await A.page.click('#tabs button[data-tab=start]'); await A.page.click('#tstop');
+
+  // 5) synchronisation : B voit exactement la même chose (une seule manche 1, à 11:30, au nouvel identifiant ; plus de 10:55)
+  await avanceHeure(m, 60e3); await synchronise(m, A);
+  await avanceHeure(m, 60e3); await synchronise(m, B);
+  await avanceHeure(m, 60e3); await synchronise(m, A);
+  await B.page.click('#tabs button[data-tab=ic]');
+  assert.deepEqual(await ids(B.page), await ids(A.page), 'mêmes manches chez A et chez B');
+  assert.deepEqual(await lignes(B.page), await lignes(A.page), 'mêmes lignes affichées');
+  assert.equal(await B.page.locator('section[data-tab=ic] .rgrace b b').count(), 0, 'note échappée chez B');
+  assert.match(await B.page.locator('.rghist').textContent(), /Manche[\s\S]*signal 10:55/, 'l’ancienne version est dans l’historique de B');
+  // B modifie à son tour la note de la manche déplacée : A la reçoit, même identifiant
+  await B.page.click('[data-edrace="1"]');
+  await B.page.fill('#rcNote', 'rappel au départ');
+  await B.page.click('#rcSave');
+  await B.page.waitForSelector('#rcForm', { state: 'detached', timeout: 10000 });
+  await avanceHeure(m, 60e3); await synchronise(m, B);
+  await avanceHeure(m, 60e3); await synchronise(m, A);
+  await A.page.click('#tabs button[data-tab=ic]');
+  assert.deepEqual(await ids(A.page), ['m202611071130 11:30 3 rappel au départ', 'm202611071325 13:25 3 ']);
+  assert.deepEqual(await lignes(A.page), await lignes(B.page));
+  assert.match(await A.page.locator('section[data-tab=ic] .rgrace[data-n="1"]').textContent(), /modifiée par Thibaud/);
+  sansErreur(A.erreurs, 'sur A'); sansErreur(B.erreurs, 'sur B');
+  await A.ctx.close(); await B.ctx.close();
+}
+
+const SCENARIOS = { accueil, 'jour-j': jourJ, 'deux-telephones': deuxTelephones, reprise, equipage, archive, 'archive-bouees': archiveBouees, archivehors: archiveHors, creer, manche, auteur, ic, 'depuis-ic': depuisIC, vraisemblance, gel, 'debrief-tardif': debriefTardif, gpx, 'gpx-choix': gpxChoix, ia, 'ia-erreurs': iaErreurs, arbitre, bouees, guide, entetes, 'retour-port': retourPort, banane, 'banane-manche': bananeManche, 'banane-debrief': bananeDebrief, 'porte-ic': porteIC, 'modifier-manche': modifierManche };
 
 // ───────────────────────── lancement
 
