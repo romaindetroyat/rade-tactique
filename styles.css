@@ -204,6 +204,7 @@ input[type=date] { width: 100%; padding: 9px 10px; border: 1px solid #cdd6df; bo
 .rgraces h4, .rgrform h4 { margin: 12px 0 4px; font-size: 14px; }
 .rgrace { border-left: 4px solid #cfd8e2; padding: 6px 10px; margin: 6px 0; background: #f8fafc; border-radius: 0 10px 10px 0; }
 .rgrace.on { border-left-color: var(--accent); background: #fff8ef; }
+.rgrace.edit { border-left-color: #2b6cb0; background: #eef5fc; }
 .rgrform { margin-top: 10px; padding-top: 4px; border-top: 1px solid var(--line); }
 .rgwinds h4 { margin: 12px 0 4px; font-size: 14px; }
 .rgwind { border-left: 4px solid #cfd8e2; padding: 6px 10px; margin: 6px 0; background: #f8fafc; border-radius: 0 10px 10px 0; }
