@@ -503,7 +503,8 @@ test('câblage : sélecteur, manche, parcours probables et débrief ne proposent
   assert.match(app, /Parcours — \$\{esc\(openReg\(\)\.name\)\}` : 'Parcours \(cahier CVAT\)'/, 'libellé du sélecteur');
   assert.doesNotMatch(app, /optgroup/, 'plus de groupes');
   assert.match(app, /rankCourses\(S\.cls, w\.dir, w\.spd, proposes\(\)\)/);
-  assert.match(app, /choices: proposes\(\)/);
+  assert.match(app, /choices: raceChoices\(cur\)/);
+  assert.match(app, /function raceChoices\(reg\) \{\n  const out = proposes\(\)/, 'formulaire des manches : les parcours permis (et, en modification, celui de la manche)');
   assert.match(app, /courses: proposes\(\) \}\);/, 'addRace : parcours permis');
   assert.match(app, /const racing = \(now = Date\.now\(\)\) => raceActive\(now\);/, 'chrono, mode départ, trace, GPS : pas la journée verrouillée seule');
   assert.doesNotMatch(app.slice(app.indexOf('function syncRegMarks'), app.indexOf('function refreshRegMarks')), /raceLock/);

@@ -15,6 +15,7 @@ import { parisClock, isRaceDay } from '../js/racelock.js';
 import { escHTML, byLine, listHTML, noRegattaHTML, newRegattaFormHTML, sheetHTML, historySectionHTML, tracesSectionHTML } from '../js/regview.js';
 import { IC as SNPM } from '../js/courses.js';
 import { verdict } from '../tools/regate-e2e.mjs';
+import { stamp } from '../js/archmerge.js';
 
 const t = (s) => Date.parse(s);
 const mem = (init = {}) => { const m = new Map(Object.entries(init)); return { m, getItem: (k) => (m.has(k) ? m.get(k) : null), setItem: (k, v) => { m.set(k, String(v)); }, removeItem: (k) => { m.delete(k); } }; };
@@ -382,6 +383,105 @@ test('manche : la fiche affiche chaque manche (n, jour, heure, parcours, classe,
   assert.ok(avecForm.querySelector('#rcAdd') && avecForm.querySelector('#rcTime') && avecForm.querySelector('#rcCls') && avecForm.querySelector('#rcLaps') && avecForm.querySelector('#rcNote'));
   assert.match(avecForm.querySelector('[data-err=time]').textContent, /Heure impossible/);
   assert.ok(parseHTML(`<html><body>${sheetHTML(r, { now, courses: PARCOURS })}</body></html>`).document.querySelector('#rcNew'), 'bouton « Ajouter une manche »');
+});
+
+// ───────────────────────── modifier une manche (v42)
+
+const modifie = (r, key, race, by = 'Thibaud', now = 5000) => R.updateRace(r, key, race, { now, by, courses: PARCOURS, rnd: () => 0.123456 });
+// régate de deux manches marquées comme après une synchronisation (id jour + heure, u/ub posés)
+const deuxManches = () => {
+  let r = regate();
+  r = ajoute(r, { date: '2026-11-07', time: '10:55', courseId: 5, cls: 'G', laps: 2, note: 'vent faible' }).regatta;
+  r = ajoute(r, { date: '2026-11-07', time: '13:25', courseId: 3, cls: 'P', laps: 1 }).regatta;
+  return deepFreeze(stamp(null, r, { now: 1000, by: 'Teiva' }));
+};
+
+test('modifier une manche : mêmes refus qu’à l’ajout, un message par champ, régate inchangée ; manche introuvable : refus clair', () => {
+  const r = deuxManches();
+  const bad = (race, champ) => { const x = modifie(r, 1, race); assert.equal(x.ok, false, JSON.stringify(race)); assert.match(x.errors[champ] || '', /[a-zé]/i, `message pour ${champ}`); assert.equal(x.regatta, r, 'régate inchangée'); };
+  bad({ date: '2026-11-06' }, 'date'); bad({ time: '25:00' }, 'time'); bad({ courseId: 9999 }, 'courseId'); bad({ cls: 'Z' }, 'cls');
+  bad({ laps: 0 }, 'laps'); bad({ laps: 5 }, 'laps'); bad({ note: 'n'.repeat(201) }, 'note');
+  const absente = modifie(r, 9, { note: 'x' });
+  assert.equal(absente.ok, false); assert.match(absente.errors.race, /introuvable/); assert.equal(absente.regatta, r);
+  assert.equal(modifie(r, 'm-inconnu', { note: 'x' }).ok, false, 'identifiant inconnu');
+});
+
+test('modifier une manche sans changer jour ni heure : même identifiant, champs absents gardés, auteur et instant de création gardés ; stamp date la modification', () => {
+  const r = deuxManches(), id = r.races[0].id;
+  const x = modifie(r, 1, { courseId: '3', note: ' grain annoncé ' });
+  assert.equal(x.ok, true); assert.equal(x.moved, false);
+  const m = x.regatta.races[0];
+  assert.deepEqual([m.id, m.n, m.date, m.time, m.courseId, m.cls, m.laps, m.note, m.by, m.at], [id, 1, '2026-11-07', '10:55', 3, 'G', 2, 'grain annoncé', 'Teiva', 1000]);
+  assert.deepEqual(modifie(r, id, { note: 'par identifiant' }).regatta.races[0].note, 'par identifiant', 'désignée par son identifiant');
+  assert.deepEqual(x.regatta.races[1], r.races[1], 'l’autre manche n’est pas touchée');
+  const s = stamp(r, x.regatta, { now: 5000, by: 'Thibaud' });
+  assert.deepEqual([s.races[0].u, s.races[0].ub, s.races[1].u], [5000, 'Thibaud', r.races[1].u], 'seule la manche modifiée reçoit u/ub');
+  assert.deepEqual(s.tomb, {}, 'aucune pierre tombale');
+  assert.equal(stamp(r, modifie(r, 1, {}).regatta, { now: 6000, by: 'Thibaud' }).races[0].u, r.races[0].u, 'rien de changé : rien de daté');
+});
+
+test('modifier le jour ou l’heure : la manche est déplacée (nouvel identifiant, pierre tombale de l’ancien, ancienne version dans l’historique), renumérotée, le choix suit', () => {
+  const r = deepFreeze({ ...deuxManches(), sel: 1 }), ancien = r.races[0];
+  const x = modifie(r, 1, { time: '14:00' });
+  assert.equal(x.ok, true); assert.equal(x.moved, true);
+  assert.deepEqual(x.regatta.races.map((m) => [m.n, m.time, m.id]), [[1, '13:25', r.races[1].id], [2, '14:00', 'm202611071400']]);
+  assert.equal(x.regatta.sel, 2, 'la manche choisie suit sa nouvelle place');
+  const m = x.regatta.races[1];
+  assert.deepEqual([m.courseId, m.note, m.by, m.at, 'u' in m, 'ub' in m], [5, 'vent faible', 'Thibaud', 5000, false, false], 'contenu gardé ; auteur et instant du déplacement');
+  assert.deepEqual(x.regatta.hist.map((h) => [h.kind, h.id, h.t, h.by, h.v.time, h.v.note, 'n' in h.v, 'u' in h.v]), [['race', ancien.id, ancien.u, 'Teiva', '10:55', 'vent faible', false, false]]);
+  const s = stamp(r, x.regatta, { now: 5000, by: 'Thibaud' });
+  assert.deepEqual(s.tomb, { [`race:${ancien.id}`]: { t: 5000, by: 'Thibaud' } }, 'pierre tombale de l’ancien identifiant');
+  assert.equal(s.races.find((e) => e.id === 'm202611071400').u, 5000);
+  // jour changé (même heure) : autre identifiant aussi ; heure retirée : identifiant aléatoire ; sans heure au départ, l’identifiant aléatoire reste
+  assert.equal(modifie(r, 1, { date: '2026-11-08' }).regatta.races[1].id, 'm202611081055');
+  const sansHeure = modifie(r, 1, { time: '' });
+  assert.equal(sansHeure.moved, true); assert.match(sansHeure.regatta.races[1].id, /^m[0-9a-z]{1,6}$/); assert.notEqual(sansHeure.regatta.races[1].id, ancien.id);
+  const libre = stamp(null, ajoute(regate(), { date: '2026-11-07', time: '' }).regatta, { now: 1000, by: 'Teiva', rnd: () => 0.5 });
+  const y = modifie(libre, 1, { date: '2026-11-08' });
+  assert.equal(y.moved, false); assert.equal(y.regatta.races[0].id, libre.races[0].id, 'manche sans heure : son identifiant ne dépend pas du jour');
+});
+
+test('modifier vers le jour et l’heure d’une autre manche : refusé avec un message clair, rien n’est écrasé', () => {
+  const r = deuxManches();
+  const x = modifie(r, 1, { time: '13:25' });
+  assert.equal(x.ok, false); assert.equal(x.regatta, r);
+  assert.equal(x.errors.time, 'La manche 2 a déjà ce jour et cette heure : changez l’heure, ou modifiez ou supprimez l’autre manche.');
+  assert.equal(modifie(r, 1, { time: '13:25', date: '2026-11-08' }).ok, true, 'même heure un autre jour : acceptée');
+  assert.equal(modifie(r, 2, { time: '13:25', note: 'sans déplacer' }).ok, true, 'garder sa propre heure n’est pas un conflit');
+});
+
+test('modifier une manche : réglages de banane gardés, remplacés (bornés) ou retirés ; raceSettings les rend', () => {
+  let r = regate();
+  r = R.addRace(r, { date: '2026-11-07', time: '10:55', courseId: 90, ban: { nm: 1.2, off: true, side: 't', gate: false, fin: 'auvent' } }, { now: 1000, by: 'Teiva', courses: [...PARCOURS, { id: 90 }] }).regatta;
+  const cs = { now: 2000, by: 'Thibaud', courses: [...PARCOURS, { id: 90 }] };
+  const garde = R.updateRace(r, 1, { note: 'x' }, cs).regatta.races[0];
+  assert.deepEqual(garde.ban, r.races[0].ban, 'ban absent de la saisie : gardé');
+  const autre = R.updateRace(r, 1, { ban: { nm: 99, off: false, side: 'b', gate: true, fin: 'sousvent' } }, cs).regatta.races[0];
+  assert.ok(autre.ban.nm <= 3 && autre.ban.side === 'b', 'remplacé et borné par cleanBan');
+  const sans = R.updateRace(r, 1, { courseId: 5, ban: null }, cs).regatta.races[0];
+  assert.ok(!('ban' in sans), 'plus une banane : réglages retirés');
+  assert.deepEqual(R.raceSettings(R.updateRace(r, 1, { laps: 3 }, cs).regatta.races[0]).ban, r.races[0].ban);
+});
+
+test('fiche : bouton « ✎ Modifier » par manche ; formulaire prérempli « Modifier la manche n » avec « Enregistrer » et « Annuler » ; « modifiée par »', () => {
+  const r = deuxManches(), now = t('2026-11-07T08:30:00Z');
+  const { document } = parseHTML(`<html><body>${sheetHTML(r, { now, courses: PARCOURS })}</body></html>`);
+  assert.deepEqual([...document.querySelectorAll('button[data-edrace]')].map((b) => [b.getAttribute('data-edrace'), b.textContent, b.getAttribute('aria-label')]), [['1', '✎ Modifier', 'Modifier la manche 1'], ['2', '✎ Modifier', 'Modifier la manche 2']]);
+  const d = { edit: 1, id: r.races[0].id, date: '2026-11-07', time: '10:55', courseId: '5', cls: 'G', laps: '2', note: '"><img src=x>' };
+  const f = parseHTML(`<html><body>${sheetHTML(r, { now, courses: PARCOURS, raceDraft: d, raceErrors: { time: 'La manche 2 a déjà ce jour et cette heure : changez l’heure, ou modifiez ou supprimez l’autre manche.' } })}</body></html>`).document;
+  assert.equal(f.querySelector('#rcForm h4').textContent, 'Modifier la manche 1');
+  assert.ok(f.querySelector('#rcSave') && !f.querySelector('#rcAdd') && f.querySelector('#rcCancel'));
+  assert.equal(f.querySelector('#rcSave').textContent, 'Enregistrer');
+  assert.deepEqual([f.querySelector('#rcTime').getAttribute('value'), f.querySelector('#rcCourse option[selected]').getAttribute('value'), f.querySelector('#rcNote').getAttribute('value')], ['10:55', '5', '"><img src=x>']);
+  assert.equal(f.querySelectorAll('img').length, 0, 'note échappée');
+  assert.match(f.querySelector('[data-err=time]').textContent, /La manche 2 a déjà ce jour et cette heure/);
+  assert.ok(f.querySelector('.rgrace.edit[data-n="1"]') && !f.querySelector('.rgrace[data-n="1"] [data-edrace]'), 'la manche en cours de modification est marquée, sans ses boutons');
+  assert.ok(!f.querySelector('#rcNew'), 'pas d’ajout pendant une modification');
+  const mod = { ...r, races: [{ ...r.races[0], u: t('2026-11-08T09:00:00Z'), ub: '<b>Romain</b>' }, r.races[1]] };
+  const g = parseHTML(`<html><body>${sheetHTML(mod, { now, courses: PARCOURS })}</body></html>`).document;
+  assert.match(g.querySelector('.rgrace[data-n="1"]').textContent, /modifiée par <b>Romain<\/b> le 08\/11/);
+  assert.equal(g.querySelectorAll('.rgrace b').length, 2, 'nom échappé (seuls les titres « Manche n » sont en gras)');
+  assert.doesNotMatch(g.querySelector('.rgrace[data-n="2"]').textContent, /modifiée/, 'jamais modifiée : rien');
 });
 
 // ───────────────────────── auteur (D-05, ARCH-02)

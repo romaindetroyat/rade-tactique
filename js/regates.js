@@ -6,6 +6,7 @@
 import { parisClock } from './racelock.js';
 import { IC as SNPM } from './courses.js';
 import { cleanBan } from './banane.js';
+import { raceId } from './archmerge.js';
 
 export const KEY = 'rade.regates.v1';
 export const VERSION = 1;
@@ -198,8 +199,9 @@ export function daysOf(r) {
 // Ordre des manches : jour, puis heure ; une manche sans heure après celles du même jour qui en ont une
 const raceOrder = (a, b) => String(a.date).localeCompare(String(b.date)) || (a.time ? 0 : 1) - (b.time ? 0 : 1) || String(a.time).localeCompare(String(b.time));
 
-// Ajoute une manche : { date, time, courseId, cls, laps, note }. `courses` = parcours connus ([{ id }]). Un parcours vide est accepté (à préciser).
-export function addRace(r, race = {}, { now = Date.now(), by = null, courses = [] } = {}) {
+// Champs d’une manche vérifiés : { date, time, courseId, cls, laps, note }. `courses` = parcours connus ([{ id }]). Un parcours vide est accepté (à préciser).
+// Rend { errors, v } : mêmes règles pour l’ajout et la modification.
+function checkRace(r, race, courses) {
   const errors = {};
   const date = race.date ? String(race.date) : r.dateStart;
   if (!daysOf(r).includes(date)) errors.date = 'Ce jour ne fait pas partie de la régate.';
@@ -216,16 +218,62 @@ export function addRace(r, race = {}, { now = Date.now(), by = null, courses = [
   if (!Number.isInteger(lapsRaw) || lapsRaw < 1 || lapsRaw > 4) errors.laps = 'Tours : de 1 à 4.';
   const note = String(race.note ?? '').trim();
   if (note.length > MAX_NOTE) errors.note = `Note trop longue (${MAX_NOTE} caractères au plus).`;
-  if (Object.keys(errors).length) return { ok: false, regatta: r, errors };
-  // la manche choisie (sel) suit sa nouvelle place : chaque manche porte une étiquette temporaire d’origine pendant le tri
-  // réglages de la banane gardés avec la manche (D-04), facultatifs : une manche sans eux garde la forme v37, qu’une v37 lit sans peine (D-09)
-  const ban = race.ban && typeof race.ban === 'object' ? { ban: cleanBan(race.ban) } : {};
-  const tagged = [...(r.races || []).map((m) => ({ ...m, _o: m.n })), { n: 0, date, time, courseId, cls, laps: lapsRaw, note, by, at: now, ...ban, _o: 0 }];
+  return { errors, v: { date, time, courseId, cls, laps: lapsRaw, note } };
+}
+// Trie et renumérote les manches ; la manche choisie (sel) suit sa nouvelle place : chaque manche porte une étiquette temporaire d’origine `_o`
+function resort(r, tagged) {
   const sorted = tagged.sort(raceOrder);
   const races = sorted.map(({ _o, ...m }, i) => ({ ...m, n: i + 1 }));
   const next = { ...r, races };
   if (r.sel != null) { const i = sorted.findIndex((m) => m._o === r.sel); if (i >= 0) next.sel = i + 1; else delete next.sel; }
-  return { ok: true, regatta: next, errors };
+  return next;
+}
+
+// Ajoute une manche : { date, time, courseId, cls, laps, note }. `courses` = parcours connus ([{ id }]). Un parcours vide est accepté (à préciser).
+export function addRace(r, race = {}, { now = Date.now(), by = null, courses = [] } = {}) {
+  const { errors, v } = checkRace(r, race, courses);
+  if (Object.keys(errors).length) return { ok: false, regatta: r, errors };
+  // réglages de la banane gardés avec la manche (D-04), facultatifs : une manche sans eux garde la forme v37, qu’une v37 lit sans peine (D-09)
+  const ban = race.ban && typeof race.ban === 'object' ? { ban: cleanBan(race.ban) } : {};
+  const tagged = [...(r.races || []).map((m) => ({ ...m, _o: m.n })), { n: 0, ...v, by, at: now, ...ban, _o: 0 }];
+  return { ok: true, regatta: resort(r, tagged), errors };
+}
+
+// Modifie une manche, désignée par son rang `n` (nombre) ou son identifiant `id` (texte) : mêmes champs et mêmes règles qu’addRace. Un champ absent
+// de `race` garde sa valeur ; `ban` : objet = réglages de banane (bornés), null = retirés, absent = gardés.
+// Fusion (js/archmerge.js) : même jour et même heure → même identifiant, la modification est datée par stamp (u/ub) et la plus récente gagne sur les
+// autres téléphones. Jour ou heure changés → l’identifiant (jour + heure) change : la manche est DÉPLACÉE (nouvel élément, l’ancien reçoit une pierre
+// tombale au marquage, son contenu va dans l’historique de la fiche) ; elle prend l’auteur et l’instant du déplacement, comme le serveur la signera.
+// Refusée si une autre manche a déjà ce jour et cette heure : rien n’est jamais écrasé.
+export function updateRace(r, key, race = {}, { now = Date.now(), by = null, courses = [], rnd = Math.random } = {}) {
+  const list = r.races || [];
+  const old = typeof key === 'string' ? list.find((m) => m.id === key) : list.find((m) => m.n === key);
+  if (!old) return { ok: false, regatta: r, errors: { race: 'Manche introuvable : elle a peut-être été supprimée sur un autre téléphone.' } };
+  const src = { date: old.date, time: old.time, courseId: old.courseId, cls: old.cls, laps: old.laps, note: old.note, ...race };
+  const { errors, v } = checkRace(r, src, courses);
+  if (v.time && !errors.date && !errors.time) {
+    const autre = list.find((m) => m !== old && m.date === v.date && m.time === v.time);
+    if (autre) errors.time = `La manche ${autre.n} a déjà ce jour et cette heure : changez l’heure, ou modifiez ou supprimez l’autre manche.`;
+  }
+  if (Object.keys(errors).length) return { ok: false, regatta: r, errors };
+  const { ban: oldBan, _o, ...base } = old;
+  let ban = oldBan && typeof oldBan === 'object' ? { ban: cleanBan(oldBan) } : {};
+  if ('ban' in race) ban = race.ban && typeof race.ban === 'object' ? { ban: cleanBan(race.ban) } : {};
+  const moved = v.date !== old.date || v.time !== String(old.time ?? '').trim();
+  const m = { ...base, ...v, ...ban };
+  if (moved && old.id != null) {
+    // nouvel identifiant : jour + heure, ou aléatoire pour une manche qui perd son heure (sans heure, l’ancien identifiant aléatoire reste valable)
+    if (v.time || old.time) m.id = raceId({ date: v.date, time: v.time }, rnd);
+    if (m.id !== old.id) {
+      const { n, u, ub, by: _b, ...ancien } = old;
+      const t = Number.isFinite(u) ? u : Number.isFinite(old.at) ? old.at : 0;
+      Object.assign(m, { by, at: now });
+      delete m.u; delete m.ub;
+      const trace = { kind: 'race', id: String(old.id), t, by: ub ?? old.by ?? null, v: ancien };
+      return { ok: true, moved: true, regatta: { ...resort(r, list.map((x) => (x === old ? { ...m, _o: x.n } : { ...x, _o: x.n }))), hist: [...(r.hist || []), trace] }, errors };
+    }
+  }
+  return { ok: true, moved: false, regatta: resort(r, list.map((x) => (x === old ? { ...m, _o: x.n } : { ...x, _o: x.n }))), errors };
 }
 // Retire la manche n et renumérote ; la manche choisie suit sa nouvelle place (ou disparaît avec elle)
 export function removeRace(r, n) {

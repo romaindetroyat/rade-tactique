@@ -7,7 +7,7 @@ import { MARKS, COURSES, LINE_PRESETS, FORBIDDEN_ZONE, DANGERS } from './courses
 import { pdfText, parseIC, cleanText } from './events.js';
 import { IA_IC, iaOffer, iaErrorMessage, reviewFromParse, reviewFromRegatta, reviewFromApi, setValue, setKeep, setKeepRace, setKeepMark, setKeepCourse, courseReady, canValidate, checksFor, applyReview, reviewHTML, chipOf, validatedHTML } from './icread.js';
 import { stampState, markDirty, canon, legacyStamp } from './archmerge.js';
-import { migrate, seedNorm, KEY as REG_KEY, saveRegattas, createRegatta, upsertRegatta, removeRegatta, openRegatta, openAtBoot, openOnNewDay, regattaStatus, STATUS_LABEL, todayRegatta, icOf, groupByStatus, lockDates, daysOf, addRace, removeRace, raceSettings, membre, saveMembre, backfillAuthor } from './regates.js';
+import { migrate, seedNorm, KEY as REG_KEY, saveRegattas, createRegatta, upsertRegatta, removeRegatta, openRegatta, openAtBoot, openOnNewDay, regattaStatus, STATUS_LABEL, todayRegatta, icOf, groupByStatus, lockDates, daysOf, addRace, updateRace, removeRace, raceSettings, membre, saveMembre, backfillAuthor } from './regates.js';
 import { THROTTLE_MS, slotKey, freezeAction, obsNeedsCopy, stratNeedsCopy, sliceDays, freezeSummary, strategySummary, compactStrategy, windSourceKind, frozenLabel, parisInstant } from './gel.js';
 import { putSlot, getSlot } from './regstore.js';
 import { listHTML, noRegattaHTML, newRegattaFormHTML, sheetHTML } from './regview.js';
@@ -2086,7 +2086,7 @@ function iaState() {
   return { show: o.show, enabled: o.enabled && !iaBusy, msg: iaBusy ? iaMsg : o.enabled ? iaMsg : o.msg };
 }
 let rgDraft = null, rgErr = {};              // formulaire « Nouvelle régate » ouvert : sa saisie survit à un redessin
-let raceDraft = null, raceErr = {};          // formulaire « Nouvelle manche » ouvert
+let raceDraft = null, raceErr = {};          // formulaire « Nouvelle manche » ouvert ; `edit` (rang) et `id` : formulaire « Modifier la manche »
 let markFix = null;                          // correction de la position d’une bouée de régate en cours : { id, txt, err, ask }
 const icBusy = () => !!(rgDraft || icDraft || raceDraft || markFix);
 const courseList = () => COURSES.map(({ id, title }) => ({ id, title }));
@@ -2153,8 +2153,17 @@ function syncRegMarks({ active = racing() } = {}) {
   else if (r) toast(`${t} présélectionné — choisissez celui annoncé par le Comité`);
 }
 function refreshRegMarks() { syncRegMarks(); if (analysis) { drawCourse(); renderCourse(); } scheduleAnalysis(); }
+// Parcours du formulaire des manches : ceux proposés ; en modification, le parcours actuel de la manche reste choisissable même s’il ne l’est plus
+const draftRace = (reg) => (Number.isInteger(raceDraft?.edit) ? (reg?.races || []).find((x) => (raceDraft.id != null ? x.id === raceDraft.id : x.n === raceDraft.edit)) || null : null);
+function raceChoices(reg) {
+  const out = proposes().map(({ id, title }) => ({ id, title })), m = draftRace(reg);
+  const c = m && m.courseId != null ? COURSES.find((x) => String(x.id) === String(m.courseId)) : null;
+  if (c && !out.some((x) => String(x.id) === String(c.id))) out.push({ id: c.id, title: c.title });
+  return out;
+}
+const RACE_LOCK_MSG = 'Course en cours : modification de la manche après la course';
 // « Choisir cette manche » (geste) : cale parcours, classe, tours, jour et heure de départ (avertissement + 5 min) comme « Caler le départ sur ces IC »
-function chooseRace(n) {
+function chooseRace(n, { avant = '' } = {}) {
   const reg = openReg(), m = reg?.races.find((x) => x.n === n);
   if (!m) return;
   const set = raceSettings(m);
@@ -2168,7 +2177,7 @@ function chooseRace(n) {
   persist(); renderCourse(); updateAll(); renderIC();
   const c = COURSES.find((x) => x.id === S.courseId);
   const keep = set.courseId == null ? ` (parcours de la manche à préciser : ${c?.title || '—'} conservé)` : '';
-  toast(`Manche ${n} : ${c?.title || 'parcours'}${keep}, ${m.time ? `départ ${hhmm(S.startTime)} le ${dayName(S.day)}` : 'heure de départ inchangée (signal inconnu)'}`);
+  toast(`${avant}Manche ${n} : ${c?.title || 'parcours'}${keep}, ${m.time ? `départ ${hhmm(S.startTime)} le ${dayName(S.day)}` : 'heure de départ inchangée (signal inconnu)'}`);
 }
 function renderIC() {
   const el = $('section[data-tab=ic]');
@@ -2181,7 +2190,7 @@ function renderIC() {
     <div class="small muted" id="rgSync" hidden></div>
     <div class="btns" style="margin:6px 0 0"><button type="button" class="btn small alt" id="rgSyncBtn"${SYNC.off ? ' disabled' : ''}>Synchroniser</button><button type="button" class="btn small alt" id="rgSyncOff">${SYNC.off ? 'Réactiver la synchronisation' : 'Désactiver la synchronisation'}</button>${tip(SYNC_TIP)}</div></div>`;
   if (rgDraft) html += newRegattaFormHTML(rgDraft, rgErr);
-  html += cur ? sheetHTML(cur, { now, courses: courseList(), choices: proposes().map(({ id, title }) => ({ id, title })), raceDraft, raceErrors: raceErr, markFix, nmOf: fmtNm, local: LOCAL?.traces ?? null, daysLocal: LOCAL?.days ?? null, me: who(), tipHtml: tip(DL_TIP) }) : noRegattaHTML();
+  html += cur ? sheetHTML(cur, { now, courses: courseList(), choices: raceChoices(cur), raceDraft, raceErrors: raceErr, markFix, nmOf: fmtNm, local: LOCAL?.traces ?? null, daysLocal: LOCAL?.days ?? null, me: who(), tipHtml: tip(DL_TIP) }) : noRegattaHTML();
   if (icDraft) html += reviewHTML(icDraft, icChecks(), { ia: iaState(), isLand: T ? (x, y) => T.isLand(x, y) : undefined });
   if (cur) html += `<div class="card"><h3>Instructions de course <small>${cur.ic ? 'validées' : 'à importer'}</small></h3>
     <div class="btns" style="margin:0 0 6px"><label class="btn acc small" for="icFile" style="cursor:pointer">＋ Importer des IC (PDF)</label><button class="btn alt small" id="evEdit">Modifier</button></div>
@@ -2233,9 +2242,9 @@ function renderIC() {
     renderIC(); $('#rcTime')?.focus();
   });
   if (raceDraft) {
-    const sync = () => { raceDraft = { date: $('#rcDate').value, time: $('#rcTime').value, courseId: $('#rcCourse').value, cls: $('#rcCls').value, laps: $('#rcLaps').value, note: $('#rcNote').value }; };
+    const sync = () => { raceDraft = { ...raceDraft, date: $('#rcDate').value, time: $('#rcTime').value, courseId: $('#rcCourse').value, cls: $('#rcCls').value, laps: $('#rcLaps').value, note: $('#rcNote').value }; };
     for (const id of ['#rcDate', '#rcTime', '#rcCourse', '#rcCls', '#rcLaps', '#rcNote']) { $(id).addEventListener('input', sync); $(id).addEventListener('change', sync); }
-    $('#rcAdd').onclick = () => {
+    if ($('#rcAdd')) $('#rcAdd').onclick = () => {
       sync();
       // une manche en banane garde les réglages de la banane de ce téléphone (D-04) : « Choisir cette manche » les rend sur les autres
       const r = addRace(cur, { ...raceDraft, ...(Number(raceDraft.courseId) === BANANE_ID ? { ban: banOf(S) } : {}) }, { now: Date.now(), by: who(), courses: proposes() });
@@ -2243,8 +2252,34 @@ function renderIC() {
       raceDraft = null; raceErr = {};
       saveReg(upsertRegatta(REG, r.regatta)); renderIC(); toast(`Manche ajoutée (${r.regatta.races.length} dans la régate)`);
     };
+    // « Enregistrer » (modification) : jamais pendant une course ; la manche choisie modifiée est recalée comme par « Choisir cette manche »
+    if ($('#rcSave')) $('#rcSave').onclick = () => {
+      sync();
+      if (racing()) { toast(RACE_LOCK_MSG); return; }
+      const old = draftRace(cur);
+      if (!old) { raceErr = { race: 'Manche introuvable : elle a peut-être été supprimée sur un autre téléphone.' }; renderIC(); return; }
+      // banane : la manche garde ses propres réglages ; devenue banane, elle prend ceux de ce téléphone (comme à l’ajout) ; plus banane, elle les perd
+      const ban = Number(raceDraft.courseId) === BANANE_ID ? (Number(old.courseId) === BANANE_ID && old.ban ? old.ban : banOf(S)) : null;
+      const { edit, id, ...champs } = raceDraft;
+      const r = updateRace(cur, old.id ?? old.n, { ...champs, ban }, { now: Date.now(), by: who(), courses: raceChoices(cur) });
+      if (!r.ok) { raceErr = r.errors; renderIC(); return; }
+      const choisie = cur.sel === old.n;
+      raceDraft = null; raceErr = {};
+      saveReg(upsertRegatta(REG, r.regatta));
+      const quoi = r.moved ? 'Manche déplacée' : 'Manche modifiée', n = r.regatta.races.find((x) => x.date === champs.date && (x.time || '') === String(champs.time || '').trim())?.n;
+      if (choisie && r.regatta.sel != null) chooseRace(r.regatta.sel, { avant: `${quoi} — ` });
+      else { renderIC(); toast(n ? `${quoi} : c’est maintenant la manche ${n}` : quoi); }
+    };
     $('#rcCancel').onclick = () => { raceDraft = null; raceErr = {}; renderIC(); };
   }
+  // « ✎ Modifier » : le formulaire de la manche, prérempli ; refusé pendant une course
+  $$('[data-edrace]', el).forEach((b) => b.addEventListener('click', () => {
+    if (racing()) { toast(RACE_LOCK_MSG); return; }
+    const m = (cur.races || []).find((x) => x.n === +b.dataset.edrace);
+    if (!m) return;
+    raceDraft = { edit: m.n, id: m.id ?? null, date: m.date, time: m.time || '', courseId: m.courseId == null ? '' : String(m.courseId), cls: m.cls || 'G', laps: String(m.laps || 2), note: m.note || '' }; raceErr = {};
+    renderIC(); $('#rcForm')?.scrollIntoView({ behavior: 'smooth', block: 'center' }); $('#rcTime')?.focus();
+  }));
   $$('[data-race]', el).forEach((b) => b.addEventListener('click', () => chooseRace(+b.dataset.race)));
   $$('[data-rmrace]', el).forEach((b) => b.addEventListener('click', () => {
     if (b.dataset.c !== '1') { b.dataset.c = '1'; b.textContent = 'Supprimer ?'; return; }

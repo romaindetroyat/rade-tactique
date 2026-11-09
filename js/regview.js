@@ -68,26 +68,35 @@ export function newRegattaFormHTML(draft = {}, errors = {}) {
 const dayLabel = (d) => DAY.format(at12(d));
 const courseLabel = (id, courses) => (id == null ? 'parcours à préciser' : courses.find((c) => String(c.id) === String(id))?.title || `Parcours ${id}`);
 
-// Une ligne par manche : numéro, jour, signal d’avertissement, parcours, classe, tours, auteur ; « Choisir cette manche » et suppression
-function raceRowHTML(m, { courses, chosen }) {
+// Une ligne par manche : numéro, jour, signal d’avertissement, parcours, classe, tours, auteur (et dernière modification) ; « Choisir cette manche »,
+// « ✎ Modifier » et suppression. `editing` : la manche dont le formulaire de modification est ouvert (ses boutons sont masqués).
+// « modifiée par » : u/ub posés par le marquage et signés par le serveur, quand la manche a changé plus d’une minute après sa création.
+function raceRowHTML(m, { courses, chosen, editing }) {
   const signal = m.time ? `signal ${escHTML(m.time)}` : 'signal : heure inconnue';
-  return `<div class="rgrace${chosen ? ' on' : ''}" data-n="${m.n}"><div class="rgrh"><b>Manche ${m.n}</b> <span class="small">${escHTML(dayLabel(m.date))} · ${signal}</span>${chosen ? ' <span class="chip good">choisie</span>' : ''}</div>`
+  const modif = typeof m.ub === 'string' && m.ub && Number.isFinite(m.u) && Number.isFinite(m.at) && m.u - m.at > 60000 ? ` · modifiée ${byLine(m.ub, m.u)}` : '';
+  return `<div class="rgrace${chosen ? ' on' : ''}${editing ? ' edit' : ''}" data-n="${m.n}"><div class="rgrh"><b>Manche ${m.n}</b> <span class="small">${escHTML(dayLabel(m.date))} · ${signal}</span>${chosen ? ' <span class="chip good">choisie</span>' : ''}</div>`
     + `<div class="small">${escHTML(courseLabel(m.courseId, courses))} · classe ${escHTML(m.cls)} · ${m.laps} tour${m.laps > 1 ? 's' : ''}</div>`
-    + `${m.note ? `<div class="small"><i>${escHTML(m.note)}</i></div>` : ''}<div class="small muted">${byLine(m.by, m.at)}</div>`
-    + `<div class="btns" style="margin-top:6px"><button type="button" class="btn small acc" data-race="${m.n}">Choisir cette manche</button><button type="button" class="btn small alt" data-rmrace="${m.n}" aria-label="Supprimer la manche ${m.n}">✕</button></div></div>`;
+    + `${m.note ? `<div class="small"><i>${escHTML(m.note)}</i></div>` : ''}<div class="small muted">${byLine(m.by, m.at)}${modif}</div>`
+    + (editing ? '<div class="small muted">Modification en cours, ci-dessous.</div>'
+      : `<div class="btns" style="margin-top:6px"><button type="button" class="btn small acc" data-race="${m.n}">Choisir cette manche</button><button type="button" class="btn small alt" data-edrace="${m.n}" aria-label="Modifier la manche ${m.n}">✎ Modifier</button><button type="button" class="btn small alt" data-rmrace="${m.n}" aria-label="Supprimer la manche ${m.n}">✕</button></div>`)
+    + '</div>';
 }
-// Petit formulaire « Ajouter une manche » : jour (parmi ceux de la régate), signal d’avertissement, parcours, classe, tours, note
+// Petit formulaire « Ajouter une manche » : jour (parmi ceux de la régate), signal d’avertissement, parcours, classe, tours, note.
+// Le même formulaire, prérempli, sert à « Modifier la manche » quand `d.edit` porte le rang de la manche : « Enregistrer » au lieu d’« Ajouter la manche ».
 function raceFormHTML(r, d, errors, courses) {
   const err = (k) => (errors[k] ? `<div class="rgerr" data-err="${k}">${escHTML(errors[k])}</div>` : '');
   const sel = (v, x) => (String(v ?? '') === String(x) ? ' selected' : '');
-  return `<div class="rgrform" id="rcForm"><h4>Nouvelle manche</h4>
-    <div class="row2"><div><label class="f" for="rcDate">Jour</label><select id="rcDate">${daysOf(r).map((x) => `<option value="${escHTML(x)}"${sel(d.date, x)}>${escHTML(dayLabel(x))}</option>`).join('')}</select>${err('date')}</div>
+  const edit = Number.isInteger(d.edit) ? d.edit : null;
+  const jours = daysOf(r), dates = d.date && !jours.includes(d.date) ? [d.date, ...jours] : jours;       // un jour hors régate (dates changées) reste visible, refusé à l’enregistrement
+  return `<div class="rgrform" id="rcForm"${edit != null ? ` data-edit="${edit}"` : ''}><h4>${edit != null ? `Modifier la manche ${edit}` : 'Nouvelle manche'}</h4>${err('race')}
+    <div class="row2"><div><label class="f" for="rcDate">Jour</label><select id="rcDate">${dates.map((x) => `<option value="${escHTML(x)}"${sel(d.date, x)}>${escHTML(dayLabel(x))}</option>`).join('')}</select>${err('date')}</div>
     <div><label class="f" for="rcTime">Signal d’avertissement</label><input id="rcTime" type="time" value="${escHTML(d.time)}">${err('time')}</div></div>
     <label class="f" for="rcCourse">Parcours</label><select id="rcCourse"><option value="">parcours à préciser</option>${courses.map((c) => `<option value="${escHTML(c.id)}"${sel(d.courseId, c.id)}>${escHTML(c.title)}</option>`).join('')}</select>${err('courseId')}
     <div class="row2"><div><label class="f" for="rcCls">Classe</label><select id="rcCls"><option value="G"${sel(d.cls, 'G')}>G (grand)</option><option value="P"${sel(d.cls, 'P')}>P (petit)</option></select>${err('cls')}</div>
     <div><label class="f" for="rcLaps">Tours</label><select id="rcLaps">${[1, 2, 3, 4].map((n) => `<option value="${n}"${sel(d.laps, n)}>${n}</option>`).join('')}</select>${err('laps')}</div></div>
     <label class="f" for="rcNote">Note <small>facultatif</small></label><input id="rcNote" type="text" maxlength="${MAX_NOTE}" autocomplete="off" value="${escHTML(d.note)}">${err('note')}
-    <div class="btns"><button type="button" class="btn acc" id="rcAdd">Ajouter la manche</button><button type="button" class="btn alt" id="rcCancel">Annuler</button></div></div>`;
+    ${edit != null ? '<p class="small muted">Changer le jour ou l’heure déplace la manche chez tout l’équipage, à la synchronisation suivante.</p>' : ''}
+    <div class="btns">${edit != null ? '<button type="button" class="btn acc" id="rcSave">Enregistrer</button>' : '<button type="button" class="btn acc" id="rcAdd">Ajouter la manche</button>'}<button type="button" class="btn alt" id="rcCancel">Annuler</button></div></div>`;
 }
 
 // ───────────────────────── vent du jour figé (ARCH-02)
@@ -272,7 +281,7 @@ export function sheetHTML(r, { now = Date.now(), courses = [], choices = courses
   return `<div class="card" id="rgSheet"><h3><span>${escHTML(r.name)}</span><small>${escHTML(r.club || 'club à préciser')}</small></h3>
     <div class="small">${escHTML(datesLabel(r))} ${statusChip(r, now)}</div>
     <div class="small muted" style="margin-top:4px">Créée ${byLine(r.by, r.at)}</div>
-    <div class="rgraces"><h4>Manches</h4>${races.length ? races.map((m) => raceRowHTML(m, { courses, chosen: r.sel === m.n })).join('') : '<p class="small muted">Aucune manche : ajoutez-en une avec son heure de signal et son parcours.</p>'}
+    <div class="rgraces"><h4>Manches</h4>${races.length ? races.map((m) => raceRowHTML(m, { courses, chosen: r.sel === m.n, editing: Number.isInteger(raceDraft?.edit) && (raceDraft.id != null ? raceDraft.id === m.id : raceDraft.edit === m.n) })).join('') : '<p class="small muted">Aucune manche : ajoutez-en une avec son heure de signal et son parcours.</p>'}
     ${raceDraft ? raceFormHTML(r, raceDraft, raceErrors, choices) : '<div class="btns"><button type="button" class="btn small acc" id="rcNew">＋ Ajouter une manche</button></div>'}</div>
     ${marksSectionHTML(r, { markFix, nmOf })}
     ${windSectionHTML(r, { now, courses })}
