@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import * as geo from '../js/geo.js';
 import * as courses from '../js/courses.js';
 import * as lieu from '../js/lieu.js';
-import { VENUES, VENUE_IDS, bootVenue, inBounds, venueAt, venueOf } from '../js/venues.js';
+import { VENUES, VENUE_IDS, bootVenue, inBounds, venueAt, venueOf, needsVenueRepair } from '../js/venues.js';
 import { VENUE_IDS as ARCHIVE_VENUE_IDS } from '../js/archmerge.js';
 import { BREST } from '../js/venue-brest.js';
 import { buildLegs } from '../js/tactics.js';
@@ -320,4 +320,39 @@ test('venueOf : champ `venue` en liste blanche, sinon Toulon (régates d’avant
   assert.equal(venueOf({ venue: 'brest' }), 'brest');
   assert.equal(venueOf({ venue: 'toulon' }), 'toulon');
   for (const r of [{}, null, undefined, { venue: 'lorient' }, { venue: '__proto__' }, { venue: 'constructor' }, { venue: {} }, { venue: 'Brest' }]) assert.equal(venueOf(r), 'toulon', JSON.stringify(r));
+});
+
+// ───────────────────────── déduction par les bouées confirmées et réparation (07-05, tâche 3)
+
+const mk = (lat, lon, status = 'confirmee') => ({ id: 'X' + Math.round(lat * 1000), name: 'B', lat, lon, status });
+const B1 = mk(48.29817, -4.3605), B2 = mk(48.31, -4.37), T1 = mk(43.0905, 5.9587), T2 = mk(43.07, 5.93);
+
+test('venueOf : bouées confirmées toutes dans l’emprise d’un même plan d’eau → ce plan d’eau ; mélange ou rien → Toulon', () => {
+  assert.equal(venueOf({ marks: [B1, B2] }), 'brest', 'deux bouées confirmées à Brest');
+  assert.equal(venueOf({ marks: [B1, T1] }), 'toulon', 'une à Brest, une à Toulon');
+  assert.equal(venueOf({ marks: [T1, T2] }), 'toulon');
+  assert.equal(venueOf({ marks: [B1, mk(43.07, 5.93, 'a_confirmer')] }), 'brest', 'bouée non confirmée ignorée');
+  assert.equal(venueOf({ marks: [mk(48.3, -4.36, 'a_confirmer')] }), 'toulon', 'aucune bouée confirmée');
+  assert.equal(venueOf({ marks: [B1, mk(48.3, -4.36, 'ignoree')] }), 'brest', 'bouée ignorée sans effet');
+  assert.equal(venueOf({ marks: [{ ...B1, lat: null }, B2] }), 'brest', 'position à saisir ignorée');
+  assert.equal(venueOf({ marks: [mk(10, 10)] }), 'toulon', 'hors de tout plan d’eau');
+  assert.equal(venueOf({ marks: 'pas une liste' }), 'toulon');
+});
+
+test('venueOf : le champ `venue` l’emporte sur les bouées ; une valeur inconnue est ignorée (déduction)', () => {
+  assert.equal(venueOf({ venue: 'brest', marks: [T1, T2] }), 'brest');
+  assert.equal(venueOf({ venue: 'toulon', marks: [B1, B2] }), 'toulon', '« toulon » écrit explicitement');
+  assert.equal(venueOf({ venue: 'lorient', marks: [B1] }), 'brest', 'valeur inconnue : déduite des bouées');
+  assert.equal(venueOf({ venue: '__proto__', marks: [T1] }), 'toulon');
+});
+
+test('needsVenueRepair : vrai seulement sans `venue` et avec des bouées confirmées hors de Toulon', () => {
+  assert.equal(needsVenueRepair({ marks: [B1, B2] }), true, 'plan d’eau perdu (copie v42), bouées à Brest');
+  assert.equal(needsVenueRepair({ venue: 'brest', marks: [B1] }), false, 'déjà écrit');
+  assert.equal(needsVenueRepair({ venue: 'toulon', marks: [B1, B2] }), false, '« toulon » explicite : jamais réécrit');
+  assert.equal(needsVenueRepair({ marks: [T1] }), false, 'Toulon : rien à écrire (forme de la v42)');
+  assert.equal(needsVenueRepair({ marks: [] }), false);
+  assert.equal(needsVenueRepair({ marks: [B1, T1] }), false, 'mélange : Toulon');
+  assert.equal(needsVenueRepair({ venue: 'lorient', marks: [B1] }), true, 'valeur inconnue : réparée');
+  assert.equal(needsVenueRepair(null), false);
 });
