@@ -3,7 +3,8 @@
 import { report, note, setContext } from './journal.js';
 import { Terrain, toXY, toLL, NM, bearingXY, distXY, norm360, norm180, fmtBrg, fmtNm, fmtLat, fmtLon, cardinal, pointInPolygon } from './geo.js';
 import { WindField, speedColor } from './wind.js';
-import { MARKS, COURSES, LINE_PRESETS, FORBIDDEN_ZONE, DANGERS } from './courses.js';
+import { VENUE, MARKS, COURSES, LINE_PRESETS, FORBIDDEN_ZONES, DANGERS, setVenue } from './lieu.js';
+import { bootVenue } from './venues.js';
 import { pdfText, parseIC, cleanText } from './events.js';
 import { IA_IC, iaOffer, iaErrorMessage, reviewFromParse, reviewFromRegatta, reviewFromApi, setValue, setKeep, setKeepRace, setKeepMark, setKeepCourse, courseReady, canValidate, checksFor, applyReview, reviewHTML, chipOf, validatedHTML } from './icread.js';
 import { stampState, markDirty, canon, legacyStamp } from './archmerge.js';
@@ -53,6 +54,10 @@ const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(
 const addDays = (s, n) => { const d = new Date(s + 'T12:00:00'); d.setDate(d.getDate() + n); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 const dayName = (s) => new Date(s + 'T12:00:00').toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
 
+// Plan d’eau de la session (D-03, D-05) : lu dans rade.state (liste blanche, sinon Toulon) et fixé AVANT tout toXY et avant addBanane ;
+// changer de plan d’eau recharge l’app
+setVenue(bootVenue(store.get('rade.state', {})));
+
 // Banane construite (D-01) : ajoutée à la liste des parcours hors du cahier js/courses.js, AVANT toute lecture de S.courseId et avant
 // syncRegMarks (sinon un parcours choisi à 90 serait ramené au parcours 3) ; applyRegattaMarks ne retire que les parcours d’une régate
 addBanane(COURSES);
@@ -62,8 +67,10 @@ const DEF = {
   courseId: 3, cls: 'G', laps: 2, wlNm: 0.8, startTime: 11, linePreset: 'vignettes', lineLen: 0.12, lineMode: 'wind', lineBrg: 0, lineOverride: null,
   perf: 1, polar: null, obsOpen: true, startFlash: true,
   banNm: 0.8, banOff: true, banSide: 'b', banGate: true, banFin: 'depart',          // réglages de la banane (D-04), lus par banOf(S) qui les borne
+  venue: 'toulon',                                                                     // plan d’eau (lu au démarrage par bootVenue)
 };
 const S = { ...DEF, ...store.get('rade.state', {}) };
+S.venue = VENUE.id;                                   // valeur inconnue ou hostile ramenée au plan d’eau retenu par bootVenue
 // Régates : l’index (petit) se lit de façon synchrone au chargement ; IC garde la forme d’avant (icOf)
 let REG = migrate({ storage: localStore(), now: Date.now(), by: who() });
 // la Coupe SNPM semée est la même fiche sur les trois téléphones (instant commun) : une graine d'avant ramenée à cet instant, index réécrit seulement si l'objet change
@@ -103,7 +110,7 @@ S.obs = (S.obs || []).filter((o) => o.day >= addDays(today(), -1));
 const persist = () => store.set('rade.state', Object.fromEntries(Object.keys(DEF).map((k) => [k, S[k]])));
 
 let T, F, scene, data = null, series = [], live = [], analysis = null, selLeg = null, gps = null, follow = false, nextIdx = 0;
-const forbidden = [FORBIDDEN_ZONE.map((p) => toXY(p.lat, p.lon))];
+const forbidden = FORBIDDEN_ZONES.map((poly) => poly.map((p) => toXY(p.lat, p.lon)));
 
 if (S.polar) { try { setPolar(S.polar.tws, S.polar.twa, S.polar.bsp, S.polar.source); } catch (e) { S.polar = null; report('polaire', e); } }
 
@@ -169,7 +176,7 @@ async function init() {
   if (data) series = consensus(data);
   renderStatic();                                      // onglets Prévisions, Vent, J80 et IC : sans la carte
   const { Scene3D } = await import('./scene3d.js');
-  T = await new Terrain().load('data/');
+  T = await new Terrain().load(VENUE.files.base);
   F = new WindField(T);
   scene = new Scene3D($('#view'), T);
   scene.upAngle = (tws) => optimalAngles(Math.max(1, tws)).up.twa;

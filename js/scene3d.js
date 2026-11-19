@@ -4,7 +4,7 @@ import * as THREE from '../vendor/three.module.min.js';
 import { OrbitControls } from '../vendor/OrbitControls.js';
 import { toXY, toLL } from './geo.js';
 import { speedColor } from './wind.js';
-import { PLACES } from './courses.js';
+import { PLACES } from './lieu.js';
 import { lineIndex } from './segments.js';
 
 const W = (x, y, h = 0) => new THREE.Vector3(x, h, -y);

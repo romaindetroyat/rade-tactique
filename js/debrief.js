@@ -6,7 +6,7 @@ import { toXY, toLL, bearingXY, distXY, norm180, norm360, fmtBrg, cardinal } fro
 import { boatSpeed, optimalAngles } from './polar.js';
 import { analyzeTrack } from './track.js';
 import { analyzeLeg, buildLegs, prepareLeg } from './tactics.js';
-import { MARKS, COURSES } from './courses.js';
+import { MARKS, COURSES } from './lieu.js';
 import { BANANE, cleanBan } from './banane.js';
 
 const KN = 0.5144;

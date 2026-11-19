@@ -1,6 +1,6 @@
 // Analyse tactique : parcours → bords, ligne de départ, conseils par bord, stratégie du jour.
 
-import { MARKS, COURSES, LINE_PRESETS, PLACES } from './courses.js';
+import { MARKS, COURSES, LINE_PRESETS, PLACES, VENUE } from './lieu.js';
 import { toXY, toLL, NM, bearingXY, distXY, fromBearing, norm180, norm360, fmtBrg, fmtNm, cardinal } from './geo.js';
 import { boatSpeed, optimalAngles, spiMinTwa } from './polar.js';
 import { route, tackName } from './router.js';
@@ -58,7 +58,8 @@ export const REGIMES = [
       'Repérer de quel côté arrive le nouveau vent (risées au large, nuages) et s’y placer avant la transition.',
     ] },
 ];
-export const regimeOf = (dir, spd) => REGIMES.find((r) => r.test(norm360(dir), spd));
+// régimes du plan d’eau courant ; Toulon (regimes: null) garde REGIMES ci-dessus
+export const regimeOf = (dir, spd) => (VENUE.regimes?.length ? VENUE.regimes : REGIMES).find((r) => r.test(norm360(dir), spd));
 
 // ───────────────────────── Géométrie du parcours
 export function lineGeometry({ center, lengthNm = 0.12, windDir, mode = 'wind', firstMark, bearing }) {

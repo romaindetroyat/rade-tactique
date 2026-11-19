@@ -1,7 +1,14 @@
 // Géographie : projection locale, relief, utilitaires de cap et de distance.
 
-export const ORIGIN = { lat: 43.09, lon: 5.95 };
-const KX = Math.cos((ORIGIN.lat * Math.PI) / 180) * 111320;
+// Origine de la projection locale : celle du plan d’eau courant (Toulon par défaut, valeurs de la v42 au bit près).
+export let ORIGIN = { lat: 43.09, lon: 5.95 };
+let KX = Math.cos((ORIGIN.lat * Math.PI) / 180) * 111320;
+// Appelé une seule fois, au démarrage et avant tout toXY (js/lieu.js setVenue) ; jamais en cours de session :
+// tous les objets en XY (terrain, champ de vent, zones, routes) dépendent de l’origine (D-05 : changer de plan d’eau recharge l’app).
+export function setOrigin(o) {
+  ORIGIN = { lat: o.lat, lon: o.lon };
+  KX = Math.cos((ORIGIN.lat * Math.PI) / 180) * 111320;
+}
 const KY = 110574;
 export const NM = 1852;
 
