@@ -50,8 +50,23 @@ export const inBounds = (b, lat, lon) => !!b && Number.isFinite(lat) && Number.i
 // Identifiant du premier plan d’eau dont l’emprise contient le point, sinon null
 export const venueAt = (lat, lon) => VENUE_IDS.find((id) => inBounds(VENUES[id].bounds, lat, lon)) ?? null;
 
-// Plan d’eau d’une régate (D-06) : son champ `venue` s’il est dans la liste blanche, sinon Toulon (régates d’avant la v43)
+const knownVenue = (r) => typeof r?.venue === 'string' && Object.hasOwn(VENUES, r.venue);
+// Plan d’eau désigné par les bouées CONFIRMÉES d’une régate (js/regmarks.js, status 'confirmee', position connue) : toutes dans les bornes de
+// saisie d’un même plan d’eau, sinon null (aucune, ou mélange). Les bornes de saisie (emprise ± 0,1°) sont celles qui ont servi à les lire.
+function venueOfMarks(r) {
+  const conf = (Array.isArray(r?.marks) ? r.marks : []).filter((m) => m?.status === 'confirmee' && Number.isFinite(m.lat) && Number.isFinite(m.lon));
+  if (!conf.length) return null;
+  return VENUE_IDS.find((id) => conf.every((m) => inBounds(VENUES[id].inputBounds, m.lat, m.lon))) ?? null;
+}
+// Plan d’eau d’une régate (D-06) : son champ `venue` (liste blanche), sinon celui de ses bouées confirmées (champ perdu par une copie v42),
+// sinon Toulon (régates d’avant la v43)
 export function venueOf(r) {
-  if (typeof r?.venue === 'string' && Object.hasOwn(VENUES, r.venue)) return r.venue;
-  return 'toulon';
+  if (knownVenue(r)) return r.venue;
+  return venueOfMarks(r) ?? 'toulon';
+}
+// Réparation hors course (07-05) : champ absent (ou inconnu) alors que les bouées confirmées désignent un autre plan d’eau que Toulon.
+// Une régate de Toulon n’est jamais réécrite (absent = Toulon, forme de la v42) ; « toulon » écrit explicitement non plus.
+export function needsVenueRepair(r) {
+  if (!r || knownVenue(r)) return false;
+  return venueOf(r) !== 'toulon';
 }

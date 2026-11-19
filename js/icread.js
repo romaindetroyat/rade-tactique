@@ -19,6 +19,7 @@ import { parisClock } from './racelock.js';
 import { checkDate, checkDateEnd, checkTime, checkSeq, checkVhf, checkPos } from './icplaus.js';
 import { parseLatLon } from './marks.js';
 import { VENUE } from './lieu.js';
+import { VENUES, venueOf } from './venues.js';
 import { marksFromReview, coursesFromReview, normName, isLineName, fmtPos, sideTxt } from './regmarks.js';
 
 export const FIELDS = Object.freeze([
@@ -88,9 +89,10 @@ export function reviewFromApi(a, { source = '', text, regatta = null } = {}) {
   const races = list(a?.races).map((r) => ({ date: str(r?.date), time: str(r?.warning), label: str(r?.label), excerpt: r?.verified ? str(r.excerpt) : null, verified: !!r?.verified, keep: !!r?.verified }));
   // Bouées : la position est du TEXTE recopié du PDF, convertie ici par la page (parseLatLon, bornée à la rade) ; illisible → lat/lon nuls, jamais devinée.
   // Cochée au départ seulement si vérifiée, lisible et sans puce rouge (positions hors carte).
+  const lieu = regatta ? VENUES[venueOf(regatta)] : VENUE;                       // plan d’eau de la régate relue (sinon celui du téléphone : nouvelle régate)
   const marks = list(a?.marks).map((m) => {
-    const p = parseLatLon(str(m?.position), VENUE.inputBounds), lat = p.error ? null : p.lat, lon = p.error ? null : p.lon, verified = !!m?.verified;
-    return { name: str(m?.name), position: str(m?.position), lat, lon, excerpt: verified ? str(m?.excerpt) : null, verified, keep: verified && lat != null && str(m?.name) !== '' && checkPos(lat, lon, { bounds: VENUE.bounds }).level !== 'bad' };
+    const p = parseLatLon(str(m?.position), lieu.inputBounds), lat = p.error ? null : p.lat, lon = p.error ? null : p.lon, verified = !!m?.verified;
+    return { name: str(m?.name), position: str(m?.position), lat, lon, excerpt: verified ? str(m?.excerpt) : null, verified, keep: verified && lat != null && str(m?.name) !== '' && checkPos(lat, lon, { bounds: lieu.bounds }).level !== 'bad' };
   });
   // Porte (gate) et arrivée (finish) : seulement prouvées par api/ic.js ; une arrivée non prouvée n’est jamais gardée, sa raison est montrée (finishFlag)
   const courses = list(a?.courses).map((c) => {
@@ -194,7 +196,7 @@ export function applyReview(r, review, { by = null, at = Date.now() } = {}) {
   // Bouées et parcours lus (autre club) : rangés « à confirmer » dans la régate. Ils ne servent à rien tant qu’un équipier ne les a pas confirmés sur la carte.
   const keptMarks = (review.marks || []).filter((m) => m.keep && m.verified);
   if (keptMarks.length) {
-    const fresh = marksFromReview(keptMarks, { by, at, club: next.club, existing: next.marks });
+    const fresh = marksFromReview(keptMarks, { by, at, club: next.club, existing: next.marks, bounds: VENUES[venueOf(next)].inputBounds });   // bornes du plan d’eau de la régate
     next = { ...next, marks: [...(next.marks || []), ...fresh] };
     const keptCourses = (review.courses || []).filter((c) => c.keep && c.verified && courseReady(review, c));
     if (keptCourses.length) next = { ...next, courses: [...(next.courses || []), ...coursesFromReview(keptCourses, next.marks, { by, at, existing: next.courses })] };

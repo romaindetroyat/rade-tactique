@@ -13,6 +13,7 @@
 
 import { parseLatLon, MAX_MOVE_M } from './marks.js';
 import { toXY, distXY, fmtLat, fmtLon } from './geo.js';
+import { VENUES, venueOf } from './venues.js';
 
 export const MARK_PREFIX = 'X';
 export const COURSE_BASE = 100;                 // identifiants numériques 101, 102… : les comparaisons `x.id === S.courseId` sont strictes
@@ -46,9 +47,10 @@ const nextMarkNumber = (existing) => (existing || []).reduce((n, m) => { const k
 const nextCourseId = (existing) => (existing || []).reduce((n, c) => (Number.isInteger(c?.id) ? Math.max(n, c.id) : n), COURSE_BASE) + 1;
 
 // Bouées cochées de la relecture → bouées de régate « à confirmer ». items : [{ name, position, excerpt }] ; la position est du TEXTE recopié du PDF,
-// convertie ici par parseLatLon (bornée à la rade) : illisible → lat/lon nuls (« position à saisir »), jamais devinée. Une bouée de même nom déjà
-// présente n’est pas ajoutée deux fois. existing : bouées déjà dans la régate (les identifiants ne sont jamais réutilisés, même pour une bouée ignorée).
-export function marksFromReview(items, { by = null, at = Date.now(), club = '', existing = [] } = {}) {
+// convertie ici par parseLatLon (bornée au plan d’eau de la régate : `bounds`, Toulon par défaut) : illisible → lat/lon nuls (« position à saisir »),
+// jamais devinée. Une bouée de même nom déjà présente n’est pas ajoutée deux fois. existing : bouées déjà dans la régate (les identifiants ne sont
+// jamais réutilisés, même pour une bouée ignorée).
+export function marksFromReview(items, { by = null, at = Date.now(), club = '', existing = [], bounds } = {}) {
   const out = [], known = new Set((existing || []).map((m) => normName(m.name)));
   let n = nextMarkNumber(existing);
   const src = `IC ${clean(club, MAX_CLUB) || 'autre club'}`;
@@ -56,7 +58,7 @@ export function marksFromReview(items, { by = null, at = Date.now(), club = '', 
     if ((existing.length + out.length) >= MAX_MARKS) break;
     const name = clean(it?.name, MAX_NAME);
     if (!name || known.has(normName(name))) continue;
-    const text = clean(it?.position, 120), p = text ? parseLatLon(text) : { error: 'position absente' };
+    const text = clean(it?.position, 120), p = text ? parseLatLon(text, bounds) : { error: 'position absente' };
     known.add(normName(name));
     out.push({
       id: `${MARK_PREFIX}${n++}`, name, text, lat: p.error ? null : p.lat, lon: p.error ? null : p.lon, excerpt: clean(it?.excerpt, MAX_EXCERPT),
@@ -116,13 +118,13 @@ export function confirmMark(r, id, { by = null, at = Date.now() } = {}) {
   if (!m || m.status !== STATUS.A_CONFIRMER || !hasPos(m)) return r;
   return setMark(r, id, (x) => ({ ...x, status: STATUS.CONFIRMEE, confirmed: { by, at } }));
 }
-// « Corriger la position » : même saisie que « Recaler » (parseLatLon, bornée à la rade). Rend { ok, regatta, error?, ask? }.
+// « Corriger la position » : même saisie que « Recaler » (parseLatLon, bornée au plan d’eau de la régate, venueOf). Rend { ok, regatta, error?, ask? }.
 // Un déplacement de plus de 2 Nq demande une confirmation (`ask` : { lat, lon, d }) puis passe avec confirmFar. La bouée reste « à confirmer »
 // (ou redevient à confirmer) : seul le geste « Confirmer » la fait servir.
 export function moveMark(r, id, txt, { by = null, at = Date.now(), confirmFar = false } = {}) {
   const m = find(r, id);
   if (!m || m.status === STATUS.IGNOREE) return { ok: false, regatta: r, error: 'Bouée inconnue ou ignorée' };
-  const p = parseLatLon(txt);
+  const p = parseLatLon(txt, VENUES[venueOf(r)].inputBounds);
   if (p.error) return { ok: false, regatta: r, error: p.error };
   if (hasPos(m)) {
     const d = distXY(toXY(m.lat, m.lon), toXY(p.lat, p.lon));

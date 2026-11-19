@@ -194,6 +194,14 @@ await controle('(f) la Coupe SNPM semée reste la même fiche sur les deux tél�
   return `fiche de ${voir(graine).length} caractères`;
 });
 
+await controle('(g) copie v42 d’une régate de Brest avec bouées confirmées : la règle de la v43 la place à Brest par ses bouées (réparation possible) ; sans bouée, Toulon', async () => {
+  exige(!('venue' in B.reg(AVEC)), 'copie v42 sans champ');
+  exige(lieux.venueOf(B.reg(AVEC)) === 'brest' && lieux.needsVenueRepair(B.reg(AVEC)), 'déduction par les bouées');
+  exige(!lieux.needsVenueRepair(A.reg(AVEC)), 'copie v43 : rien à réparer');
+  exige(!lieux.needsVenueRepair(B.reg(SANS)) && !lieux.needsVenueRepair(B.reg('snpm-2026')), 'Toulon ou sans bouée : jamais réécrite');
+  return 'brest par les bouées X1, X2';
+});
+
 const total = ok.length + echecs.length;
 if (echecs.length) {
   console.log(`ÉCHEC : ${echecs.length} contrôle(s) sur ${total} — ${echecs.join(' ; ')}`);

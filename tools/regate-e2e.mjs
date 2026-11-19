@@ -3231,6 +3231,55 @@ async function regateBrest({ browser, base }) {
   // relancée à Brest : la régate du jour est ici, elle s’ouvre comme d’habitude
   await ouvreApp(B.page, base);
   assert.equal(await idOuverte(B.page), id, 'régate du jour à Brest, ouverte au lancement');
+
+  // D-12 : recalage CVAT réservé à Toulon. B avait un recalage de la bouée 11 gardé avant de passer à Brest ; A (Toulon) recale la bouée 3 et synchronise.
+  // À Brest : aucun bouton « Recaler », le recalage gardé n’est pas appliqué, celui reçu est gardé sur le téléphone sans toucher aux marques.
+  const toulon = (page, k) => page.evaluate(async (n) => { const { MARKS } = await import('/js/courses.js'); const x = MARKS[n]; return { lat: x.lat, lon: x.lon, ov: x.ov ?? null }; }, k);
+  const lieu = (page) => page.evaluate(async () => { const l = await import('/js/lieu.js'); return { venue: l.VENUE.id, cles: Object.keys(l.MARKS) }; });
+  const origine3 = await toulon(A.page, 3);
+  assert.equal((await lieu(B.page)).venue, 'brest');
+  assert.ok(!(await lieu(B.page)).cles.some((k) => /^\d+$/.test(k)), 'aucune bouée du cahier CVAT dans les marques de Brest');
+  await B.page.click('#tabs button[data-tab=ic]');
+  assert.equal(await B.page.locator('[data-mkfix]').count(), 0, 'aucun bouton « Recaler » à Brest');
+  await B.page.evaluate(() => { const o = JSON.parse(localStorage.getItem('rade.marks.v1') || '{}'); o[11] = { lat: 43.0712, lon: 5.9231, src: 'saisie', t: Date.parse('2026-12-04T10:00:00Z') }; localStorage.setItem('rade.marks.v1', JSON.stringify(o)); });
+  await ouvreApp(B.page, base);
+  assert.equal((await toulon(B.page, 11)).ov, null, 'recalage gardé : pas appliqué au démarrage à Brest');
+  await A.page.click('#tabs button[data-tab=ic]'); await A.page.click('[data-mkfix="3"]');
+  await A.page.fill('#mkTxt', '43.0905 5.9587'); await A.page.click('#mkOk');
+  await A.page.waitForSelector('#mkTxt', { state: 'detached', timeout: 10000 });
+  await avanceHeure(m, 60e3); await synchronise(m, A);
+  await avanceHeure(m, 60e3); await synchronise(m, B);
+  const gardes = await B.page.evaluate(() => JSON.parse(localStorage.getItem('rade.marks.v1') || '{}'));
+  assert.deepEqual([gardes[3]?.lat, gardes[3]?.lon], [43.0905, 5.9587], 'recalage reçu : gardé sur le téléphone');
+  assert.equal(gardes[11]?.lat, 43.0712, 'recalage local toujours gardé');
+  assert.deepEqual(await toulon(B.page, 3), origine3, 'recalage reçu : pas appliqué à Brest');
+  assert.ok(!(await lieu(B.page)).cles.includes('3'));
+  assert.deepEqual(Object.keys((await syncMeta(B.page)).dirty || {}), [], 'rien à renvoyer');
+  assert.doesNotMatch(await B.page.evaluate(() => document.getElementById('toast')?.textContent || ''), /recalée/, 'aucun message de recalage à Brest');
+  // retour à Toulon (régate fermée d’abord, pas de course) : les deux recalages sont appliqués comme en v42
+  await fermeRegate(B.page);
+  await B.page.click('#tabs button[data-tab=ic]');
+  await rechargePar(B.page, () => B.page.click('#pkGo'));
+  assert.equal((await lieu(B.page)).venue, 'toulon');
+  const b3 = await toulon(B.page, 3), b11 = await toulon(B.page, 11);
+  assert.deepEqual([b3.lat, b3.lon, b3.ov?.src], [43.0905, 5.9587, 'saisie'], 'revenu à Toulon : recalage reçu appliqué');
+  assert.deepEqual([b11.lat, b11.lon], [43.0712, 5.9231], 'revenu à Toulon : recalage gardé appliqué');
+  await B.page.click('#tabs button[data-tab=ic]');
+  assert.ok(await B.page.locator('[data-mkfix="3"]').count(), '« Recaler » de retour à Toulon');
+
+  // Trace d’un autre plan d’eau : importée à Toulon, jamais analysée sur la carte de Toulon ; « Passer » → Brest, trace rouverte et analysée
+  const pts = Array.from({ length: 80 }, (_, i) => `<trkpt lat="${(48.29 + i * 0.0004).toFixed(6)}" lon="${(-4.37 + i * 0.0003).toFixed(6)}"><time>${new Date(Date.parse('2026-12-05T09:40:00Z') + i * 5000).toISOString()}</time></trkpt>`).join('');
+  const gpxBrest = `<?xml version="1.0" encoding="UTF-8"?><gpx version="1.1" creator="test" xmlns="http://www.topografix.com/GPX/1/1"><trk><trkseg>${pts}</trkseg></trk></gpx>`;
+  await ongletTraces(A.page);
+  await A.page.setInputFiles('#gpxIn', { name: 'brest.gpx', mimeType: 'application/gpx+xml', buffer: Buffer.from(gpxBrest) });
+  await A.page.waitForSelector('#trElse', { timeout: 30000 });
+  assert.equal(await texte(A.page, '#trElse p'), 'Cette trace a été faite en rade de Brest : passez sur ce plan d’eau pour la débriefer.');
+  assert.equal(await texte(A.page, '#trVenue'), 'Passer à la rade de Brest');
+  assert.equal(await A.page.locator('#traceDetail .kpis, #dqEvent').count(), 0, 'aucune analyse ni débrief sur la carte de Toulon');
+  await rechargePar(A.page, () => A.page.click('#trVenue'));
+  assert.equal((await etatApp(A.page)).venue, 'brest');
+  await A.page.waitForSelector('#traceDetail .kpis', { timeout: 60000 });
+  assert.equal(await A.page.locator('#trElse').count(), 0, 'à Brest : la trace est analysée');
   sansErreur(A.erreurs, 'sur A'); sansErreur(B.erreurs, 'sur B');
   await A.ctx.close(); await B.ctx.close();
 }

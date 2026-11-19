@@ -4,7 +4,7 @@ import { report, note, setContext } from './journal.js';
 import { Terrain, toXY, toLL, NM, bearingXY, distXY, norm360, norm180, fmtBrg, fmtNm, fmtLat, fmtLon, cardinal, pointInPolygon } from './geo.js';
 import { WindField, speedColor } from './wind.js';
 import { VENUE, MARKS, COURSES, LINE_PRESETS, FORBIDDEN_ZONES, DANGERS, setVenue } from './lieu.js';
-import { bootVenue, VENUES, venueOf } from './venues.js';
+import { bootVenue, VENUES, venueOf, needsVenueRepair, venueAt } from './venues.js';
 import { packStatus, downloadPack, prunePacks, fmtMo } from './pack.js';
 import { pdfText, parseIC, cleanText } from './events.js';
 import { IA_IC, iaOffer, iaErrorMessage, reviewFromParse, reviewFromRegatta, reviewFromApi, setValue, setKeep, setKeepRace, setKeepMark, setKeepCourse, courseReady, canValidate, checksFor, applyReview, reviewHTML, chipOf, validatedHTML } from './icread.js';
@@ -83,11 +83,14 @@ let REG = migrate({ storage: localStore(), now: Date.now(), by: who() });
 // Plan d’eau d’une régate (D-05, D-06) : la régate du jour d’un autre plan d’eau n’est jamais ouverte ici en silence (bandeau « Régate du jour en … ») ;
 // après « Passer » sur une régate d’un autre plan d’eau, `rade.venue.reopen` (lue une seule fois, effacée tout de suite) la rouvre au rechargement.
 const REOPEN_KEY = 'rade.venue.reopen';
-const REOPEN = (() => {
-  const id = store.get(REOPEN_KEY, null);
-  if (id != null) { try { localStorage.removeItem(REOPEN_KEY); } catch { /* stockage indisponible : la clé ne sert qu’une fois de toute façon */ } }
-  return typeof id === 'string' ? id : null;
+// Valeur : { rg } (régate à rouvrir) et/ou { tr } (trace à rouvrir dans l’onglet Traces) ; identifiants textuels seulement
+const AGAIN = (() => {
+  const v = store.get(REOPEN_KEY, null);
+  if (v != null) { try { localStorage.removeItem(REOPEN_KEY); } catch { /* stockage indisponible : la clé ne sert qu’une fois de toute façon */ } }
+  const id = (x) => (typeof x === 'string' && x.length <= 80 ? x : null);
+  return v && typeof v === 'object' && !Array.isArray(v) ? { rg: id(v.rg), tr: id(v.tr) } : { rg: null, tr: null };
 })();
+const REOPEN = AGAIN.rg;
 let OPEN = openAtBoot({ now: Date.now(), list: REG.list, here: (r) => venueOf(r) === VENUE.id, reopen: REOPEN });
 let openDay = parisClock(Date.now()).date;          // jour de Paris pour lequel la règle d’ouverture a joué (passage de jour sans relance : dayOpenTick)
 const openReg = () => openRegatta(REG.list, OPEN);
@@ -136,8 +139,9 @@ const nextFrame = () => new Promise((ok) => {
   requestAnimationFrame(go); setTimeout(go, 250);          // page masquée : pas d’image, on n’attend pas
 });
 async function init() {
-  // recalages de bouées de ce téléphone (D-04) : appliqués ici, une seule fois au démarrage, avant toute vue ; jamais dans les tests
-  try { applyOverrides(MARKS, loadOverrides(marksStore())); } catch (e) { report('bouees', e); }
+  // recalages de bouées de ce téléphone (D-04) : appliqués ici, une seule fois au démarrage, avant toute vue ; jamais dans les tests.
+  // Recalage du cahier CVAT : Toulon seulement (D-12) ; ailleurs ils restent gardés sur le téléphone pour le retour à Toulon
+  if (VENUE.id === 'toulon') { try { applyOverrides(MARKS, loadOverrides(marksStore())); } catch (e) { report('bouees', e); } }
   // chrono repris après un rechargement ou une relance d’iOS : lu d’abord, car un chrono qui tourne interdit de changer le parcours choisi
   const saved = store.get('rade.timer.v1', null);
   const chronoRepris = !!(saved?.end && Date.now() < saved.end + 10 * 60e3);
@@ -156,6 +160,7 @@ async function init() {
   status('Préparation de la carte…');
   $('#splash').classList.add('gone');
   performance.mark('rt:ui');
+  repairVenues();
   if (resumed) toast('Chrono repris — touchez l’écran pour réactiver le son');
   // réactivation au toucher : le contexte audio ne naît ou ne revient que d’un geste (relance d’iOS, écran verrouillé, appel)
   const reveil = () => {
@@ -210,6 +215,7 @@ async function init() {
   refreshLive();
   setInterval(refreshLive, 5 * 60000);
   if (VENUE.id !== 'toulon') setTimeout(packUpdate, 8000);   // ancienne version du pack : la nouvelle est téléchargée hors course, avec du réseau
+  if (AGAIN.tr) { openTab('tracks'); showTrace(AGAIN.tr).catch((err) => report('traces', err)); }   // trace d’un autre plan d’eau demandée avant le rechargement
 }
 
 // auto : téléchargement lancé sans geste (ouverture de l’app) ; son calcul est reporté pendant la séquence de départ. Le bouton ⟳ est un geste : tout de suite.
@@ -1559,6 +1565,7 @@ function bananeOfTrace(tr, src) {
   return { ban, cls, c, dir: norm360(vent.dir), fit: true, prefer: designe != null, from };
 }
 async function runDebrief(tr) {
+  { const v = traceElsewhere(tr); if (v) { toast(`Cette trace a été faite en ${venueIn(v)} : passez sur ce plan d’eau pour la débriefer.`); openTab('tracks'); await mapReady; traceAilleurs(tr, v); return; } }
   fieldKey = null;                           // le débrief écrit dans F (une base par bord) : le champ affiché sera recalculé
   // même vent que l'analyse de la trace : prévisions vivantes, ou vent du jour figé quand elles ne couvrent plus ce jour (jamais le vent manuel sans le dire)
   const src = traceView?.id === tr.id && traceView.src ? traceView.src : await windSource(parisClock(tr.start).date);
@@ -1732,9 +1739,29 @@ async function openTraceDebrief(id) {
   const tr = await getTrack(id); if (!tr) { toast('Trace introuvable sur cet appareil'); return; }
   if (tr.report) showReport(tr); else await runDebrief(tr);
 }
+// Plan d’eau d’une trace (07-05) : celui qui contient la majorité de ses points (venueAt), sinon null (hors de tout plan d’eau connu)
+function traceVenue(tr) {
+  const n = {}, pts = tr?.pts || [];
+  for (const p of pts) { const v = Array.isArray(p) ? venueAt(p[1], p[2]) : null; if (v) n[v] = (n[v] || 0) + 1; }
+  const best = Object.keys(n).sort((a, b) => n[b] - n[a])[0];
+  return best && n[best] * 2 > pts.length ? best : null;
+}
+const traceElsewhere = (tr) => { const v = traceVenue(tr); return v && v !== VENUE.id ? v : null; };
+// Trace d’un autre plan d’eau : jamais analysée ni débriefée sur cette carte ; message et « Passer à … » (trace rouverte après le rechargement)
+function traceAilleurs(tr, v) {
+  const b = !!traceView?.ban;
+  if (traceView) { scene?.setTrace(null); if (b) drawCourse(); }                   // une trace affichée avant est retirée, comme « Masquer »
+  traceView = null;
+  const el = $('#traceDetail'); if (!el) return;
+  el.innerHTML = `<div class="card" id="trElse" data-venue="${esc(v)}"><h3><span>${esc(tr.name)}</span></h3>
+    <p class="small">Cette trace a été faite en ${esc(venueIn(v))} : passez sur ce plan d’eau pour la débriefer.</p>
+    <div class="btns" style="margin:6px 0 0"><button type="button" class="btn acc" id="trVenue">Passer à la ${esc(venueIn(v))}</button></div></div>`;
+  $('#trVenue').onclick = () => packGo(v, { retrace: tr.id });
+}
 async function showTrace(id) {
   await mapReady;                                        // la carte (temps 2 d'init) : jamais gelée, l'appel attend
   const tr = await getTrack(id); if (!tr) { toast('Trace introuvable sur cet appareil'); return; }
+  { const v = traceElsewhere(tr); if (v) { traceAilleurs(tr, v); return; } }
   const day = parisClock(tr.start).date;
   const src = await windSource(day);                     // vent des prévisions, ou vent du jour figé si elles ne couvrent plus ce jour
   // banane : reconstruite pour cette trace (réglages de la manche, ligne et vent du moment), jamais lue dans l’analyse en cours
@@ -1769,7 +1796,7 @@ function renderTraceDetail() {
   const sp = res.split.filter((s) => !s.missed);
   const worst = sp.filter((s) => s.plan && s.t - s.plan > 30).sort((a, b) => (b.t - b.plan) - (a.t - a.plan))[0];
   // bouées à confirmer contournées sur cette trace : jusqu’à trois virages proposés par bouée, l’équipier valide (D-02 amendé, JUST-02)
-  const fits = Object.entries(MARKS).filter(([, m]) => DOUBT(m)).map(([k, m]) => ({ k, m, c: candidates(res.P, toXY(m.lat, m.lon)) })).filter((f) => f.c.length);
+  const fits = Object.entries(MARKS).filter(([k, m]) => cvatKey(k) && DOUBT(m)).map(([k, m]) => ({ k, m, c: candidates(res.P, toXY(m.lat, m.lon)) })).filter((f) => f.c.length);
   const hms = (t) => new Date(t).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
   const fitCard = fits.length ? `<div class="card"><h3><span>Bouées à confirmer ${tip('La trace montre où vous avez contourné la bouée : l’app propose le sommet de votre virage, décalé de 14 m vers l’intérieur. Choisissez le virage qui correspond à votre arrondi : rien n’est changé sans votre validation, puis le recalage est partagé avec l’équipage à la synchronisation suivante, hors course.')}</span><small>d’après cette trace</small></h3>
     <p class="small muted" style="margin:0 0 4px">Précision attendue ±${ACCURACY_M} m (davantage si l’arrondi était large). Choisissez le virage où vous avez contourné la bouée.</p>
@@ -1873,7 +1900,7 @@ function renderJ80Tab() {
 
 // ───────────────────────── bouées : recalage par saisie (JUST-02, D-02 : possible, sans être mise en avant)
 let markEdit = null;                                       // { k, txt, err, ask } : ligne du tableau des marques en cours de saisie
-const cvatKey = (k) => /^\d+$/.test(k);                    // « Recaler » ne concerne que les bouées du cahier CVAT (clés numériques) ; celles d’une régate se corrigent dans la fiche
+const cvatKey = (k) => VENUE.id === 'toulon' && /^\d+$/.test(k);   // « Recaler » : bouées du cahier CVAT (clés numériques) à Toulon seulement (D-12) ; celles d’une régate se corrigent dans la fiche
 function marksRow(k, m) {
   const ed = markEdit?.k === k ? markEdit : null;
   let html = `<tr><td><b>${esc(k)}</b></td><td>${esc(m.name)}<div class="small muted">${esc(m.note)}</div></td><td class="small">${fmtLat(m.lat)}<br>${fmtLon(m.lon)}<br><span class="muted">${esc(m.src)}</span>${DOUBT(m) ? ' <span class="chip mid">à confirmer</span>' : ''}
@@ -1907,9 +1934,16 @@ function resetMark(k) {
 }
 // Recalages venus de l’archive (D-05), appliqués seulement après une réponse acceptée hors course (runSync) : mémorisés comme un recalage local,
 // jamais renvoyés. Un toast dit qui les a faits quand ce n’est pas cet équipier ; MARKS n’est touchée qu’ici et dans recalMark / resetMark.
+// Hors de Toulon (D-12) : gardés sur le téléphone comme en v42, jamais appliqués aux marques du plan d’eau (une clé « 1 » n’y est pas la bouée 1 du CVAT)
 function applyRemoteMarks(fusion) {
   const st = marksStore(), ch = remoteMarkChanges(fusion, loadOverrides(st), SYNC.marksDel || {}), msgs = [];
   let change = false;
+  if (VENUE.id !== 'toulon') {
+    for (const [k, { by, ...ov }] of ch.put) if (VENUES.toulon.MARKS[k]) saveOverride(st, k, ov);
+    for (const k of ch.del) if (VENUES.toulon.MARKS[k]) clearOverride(st, k);
+    for (const k of ch.ack) delete SYNC.marksDel?.[k];
+    return;
+  }
   for (const [k, { by, ...ov }] of ch.put) {
     if (!MARKS[k]) continue;
     saveOverride(st, k, ov); applyOverrides(MARKS, { [k]: ov }); change = true;
@@ -1999,6 +2033,7 @@ async function syncNow(reason) {
     if (!SYNC.first) { const marque = legacyStamp(REG); if (marque !== REG) saveReg(marque, { fromSync: true }); }     // première synchronisation : les éléments d'avant l'archive reçoivent une date
     const res = await syncMod.runSync(syncDeps(), reason);
     note('archive', res.merged ? `fusion faite, ${Object.keys(SYNC.dirty || {}).length} en attente` : res.unchanged ? 'à jour' : res.skipped ? 'reporté : ' + res.skipped : 'échec : ' + res.error);
+    if (res.merged) repairVenues();                                                 // plan d’eau perdu par une copie v42 : retrouvé par les bouées, renvoyé
     if (res.skipped === 'trop_tot') scheduleSync((res.in || 30000) + 500);
     else if (res.skipped === 'saisie') scheduleSync(30000);
     else if (res.error && !['no_blob', 'acces'].includes(res.error)) scheduleSync(syncMod.BACKOFF_MS[Math.min(SYNC.fails || 1, syncMod.BACKOFF_MS.length) - 1] + 500);   // recul : 30 s · 2 min · 10 min · 30 min
@@ -2242,16 +2277,17 @@ async function packDownload() {
   return ok;
 }
 // « Passer à la rade de Brest » télécharge d’abord le pack s’il n’est pas sur ce téléphone ; « Revenir à la rade de Toulon » bascule tout de suite
-// reopen : identifiant d’une régate de ce plan d’eau à rouvrir après le rechargement (ouverture d’une régate d’un autre plan d’eau, D-06)
-async function packGo(id, { reopen = null } = {}) {
+// reopen / retrace : régate ou trace du plan d’eau visé à rouvrir après le rechargement (ouverture d’une régate ou d’une trace d’un autre plan d’eau, D-06)
+async function packGo(id, { reopen = null, retrace = null } = {}) {
   if (!Object.hasOwn(VENUES, id) || id === VENUE.id) return;
   if (raceActive(Date.now())) { toast('Pas pendant une course : terminez-la d’abord'); paintPack(); return; }
   if (id !== 'toulon') {
     const st = (await refreshPack())?.state;
     if (st !== 'ready' && st !== 'stale' && !(await packDownload())) { toast(`${VENUES[id].nom} non téléchargée : ${PACK.error || 'réessayez avec du réseau'}`); return; }
   }
-  if (reopen != null) store.set(REOPEN_KEY, String(reopen));
-  if (!switchVenue(id) && reopen != null) { try { localStorage.removeItem(REOPEN_KEY); } catch { /* stockage indisponible : rien n’a été écrit */ } }
+  const again = reopen != null || retrace != null;
+  if (again) store.set(REOPEN_KEY, { ...(reopen != null ? { rg: String(reopen) } : {}), ...(retrace != null ? { tr: String(retrace) } : {}) });
+  if (!switchVenue(id) && again) { try { localStorage.removeItem(REOPEN_KEY); } catch { /* stockage indisponible : rien n’a été écrit */ } }
 }
 // Change de plan d’eau : range les réglages du plan d’eau quitté, reprend ceux du nouveau (ou ses défauts), enregistre et recharge (D-05)
 function switchVenue(id) {
@@ -2320,6 +2356,14 @@ function dayOpenTick(now, active) {
   afterRegChange();
 }
 
+// Plan d’eau d’une régate perdu (copie venue d’un téléphone v42, 07-05) mais désigné par ses bouées confirmées : réécrit une fois, hors course, par saveReg
+// (marqué pour l’envoi). Au démarrage et après une fusion. Une régate de Toulon n’est jamais réécrite (needsVenueRepair).
+function repairVenues() {
+  if (raceActive(Date.now()) || !REG.list.some(needsVenueRepair)) return;
+  const n = REG.list.filter(needsVenueRepair).length;
+  saveReg({ ...REG, list: REG.list.map((r) => (needsVenueRepair(r) ? { ...r, venue: venueOf(r) } : r)) });
+  note('plan-eau', `${n} régate${n > 1 ? 's' : ''} : plan d’eau retrouvé par les bouées`);
+}
 // Après un changement de régate ouverte ou de ses données : tout ce qui lit IC ou le verrou est redessiné
 function afterRegChange() { markFix = null; paintRegBar(); refreshRegMarks(); renderIC(); renderDaySeg(); renderBrief(); renderLive(); }
 // Bouées et parcours de la régate ouverte (D-04) : retire ceux de la précédente, ajoute les seules bouées CONFIRMÉES et les parcours dont toutes les bouées le sont.
