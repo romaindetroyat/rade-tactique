@@ -216,3 +216,13 @@ Plans:
 
 **Wave 4** *(blocked on Wave 3 completion)*
 - [ ] 06-04-PLAN.md — Guide et aide intégrée, v38 (`npm run release`), porte en `VERCEL_ENV=production`, poussée de `apercu-phase-06` et PR brouillon par l'orchestrateur, production seulement sur « publie » de Romain (vague 4, non autonome) — partie autonome faite le 2026-10-23 (guide, aide, v38 locale `db7df7f`, toutes vérifications vertes) ; en attente : poussée, PR brouillon, « publie » de Romain
+
+### Phase 7: Plans d'eau : Toulon et rade de Brest (GPEN)
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 6
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 7 to break down)
