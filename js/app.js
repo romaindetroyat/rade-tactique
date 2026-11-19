@@ -862,7 +862,7 @@ function renderBrief() {
         ? `Vos relevés tranchent pour <b>${esc(best.label)}</b> (écart moyen ${Math.round(best.ddir)}° et ${Math.abs(best.dspd).toFixed(1)} nd)${ranking[1] ? `, devant ${esc(ranking[1].label)} (${Math.round(ranking[1].ddir)}°)` : ''}.`
         : 'Faites un relevé dès l’arrivée sur zone (onglet Parcours) : l’app retiendra le modèle qui colle.'));
     }
-    tips.push(`Parcours ${analysis.course.id} estimé à <b>${summarizeTime(analysis.total * 3600)}</b> pour un J80 (${(analysis.dist / NM).toFixed(1)} Nq route directe).`);
+    tips.push(`${VENUE.id === 'toulon' ? `Parcours ${analysis.course.id}` : esc(analysis.course.title)} estimé à <b>${summarizeTime(analysis.total * 3600)}</b> pour un J80 (${(analysis.dist / NM).toFixed(1)} Nq route directe).`);
     if (analysis.courant) tips.push(analysis.courant.ok ? 'Temps de parcours avec le courant de marée (atlas du Shom).' : `<b>${esc(analysis.courant.raison)}</b>`);
     const c0 = analysis.legs[0]?.courant?.advice;           // Brest : ce que le courant change au premier bord (renverse : carte du courant)
     if (c0?.length) tips.push(`Premier bord : ${esc(c0.map(tipText).join(' · '))}`);

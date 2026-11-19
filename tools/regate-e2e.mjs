@@ -3286,6 +3286,8 @@ async function gpen({ browser, base }) {
   const brief = (await texte(page, 'section[data-tab=brief]')).replace(/\s+/g, ' ');
   assert.match(brief, /Courant à l’heure du départ 14:00/);
   assert.match(brief, /Tour 1 · Porte 3S \/ 3P : /);
+  assert.match(brief, /GPEN — parcours 1 \(2 tours\) estimé à \d/, 'briefing : titre du parcours (07-10)');
+  assert.doesNotMatch(brief, /Parcours 91 estimé/);
   // marque 1 à 1,5 Nq : hors du cercle, signalée dans l’onglet Parcours et au briefing
   await page.click('#tabs button[data-tab=course]');
   await page.fill('#cBanNm', '1.5'); await page.locator('#cBanNm').dispatchEvent('change');

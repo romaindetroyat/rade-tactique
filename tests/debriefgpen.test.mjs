@@ -125,7 +125,7 @@ test('Virginie Hériot (93) : bord par bord d’une trace, arrivée devant la ch
   assert.ok(res.split.every((s) => !s.missed), res.split.map((s) => `${s.leg.to.name}:${s.missed ? 'manquée' : Math.round(s.dMark)}`).join(' | '));
 });
 
-test('câblage : la trace d’un parcours du GPEN garde ses réglages, sa ligne et son axe ; bananeOfTrace le reconstruit ', () => {
+test('câblage : la trace d’un parcours du GPEN garde ses réglages, sa ligne et son axe ; bananeOfTrace le reconstruit ; briefing titré hors de Toulon', () => {
   const app = readFileSync(ROOT + 'js/app.js', 'utf8');
   const bo = bodyOf(app, 'bananeOfTrace');
   assert.match(bo, /COURSES\.find\(\(c\) => c\.id === Number\(designe\) && c\.built === 'BAN' && c\.ban\)/, 'parcours du GPEN désigné : retrouvé dans le catalogue');
@@ -133,5 +133,6 @@ test('câblage : la trace d’un parcours du GPEN garde ses réglages, sa ligne 
   assert.match(bo, /K\.centre && !ov/, 'ligne recentrée comme runAnalysis, sauf ligne pinguée');
   assert.match(bo, /\.\.\.course \}/, 'parcours passé au débrief');
   assert.match(app, /construit \? \{ ban: courseBan\(c, S\), \.\.\.banGeo \}/, 'la trace enregistrée garde le parcours construit, son axe et sa ligne');
+  assert.match(app, /VENUE\.id === 'toulon' \? `Parcours \$\{analysis\.course\.id\}` : esc\(analysis\.course\.title\)/, 'briefing : numéro à Toulon (v42), titre ailleurs');
   assert.match(bodyOf(app, 'renderTraceDetail'), /Parcours reconstruit \(\$\{esc\(ban\.course\.title\)\}\)/);
 });
