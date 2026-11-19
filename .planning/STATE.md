@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 07
 current_phase_name: "Plans d'eau : Toulon et rade de Brest (GPEN)"
 status: executing
-stopped_at: Completed 07-03-PLAN.md
-last_updated: "2026-11-19T07:10:22.333Z"
+stopped_at: Completed 07-04-PLAN.md
+last_updated: "2026-11-19T07:35:52.941Z"
 last_activity: 2026-11-19
-last_activity_desc: Plan 07-03 — pack physique de la rade de Brest (relief, couverture, côte, fond de carte, masque) hors de la liste hors réseau, manifeste data/venues.json, Toulon identique
-state_head: eb7886b5029f89e3e3cdf80ff71c3bbd55b731c4
+last_activity_desc: Plan 07-04 — choix du plan d’eau en entraînement libre, pack de Brest vérifié dans un cache dédié gardé par le service worker, Brest hors réseau, Toulon identique
+state_head: b475802b7df57ccf875bc2218fa06da8ca9a72b6
 progress:
   total_phases: 7
   completed_phases: 5
   total_plans: 38
-  completed_plans: 31
+  completed_plans: 32
   percent: 71
 ---
 
@@ -28,9 +28,9 @@ See: .planning/PROJECT.md (updated 2026-10-19)
 ## Current Position
 
 Phase: 07 (Plans d'eau : Toulon et rade de Brest (GPEN)) — EXECUTING
-Plan: 4 of 10
-Status: Ready to execute 07-04
-Last activity: 2026-11-19 — Plan 07-03 : data/brest.* (3,65 Mo, pack 7aa34dd280) construits par les outils paramétrés (OSM par l’API en 151 boîtes, EMODnet, Terrarium), hors du SHELL, manifeste data/venues.json, docs/brest-sources.md ; vent de Brest ≈ 1,5 × Toulon (maille 150 m gardée) ; instantané météo de Brest non produit (Open-Meteo refusé, 07-10) ; 719 tests (718 verts, 1 sauté), gardes Toulon, toulon-vue et entetes verts ; branche apercu-phase-07 non poussée
+Plan: 5 of 10
+Status: Ready to execute 07-05
+Last activity: 2026-11-19 — Plan 07-04 : carte « Plan d’eau » (Régates), pack de Brest téléchargé et vérifié (SHA-256) dans rade-venue-brest-7aa34dd280, gardé par le worker et servi hors réseau, passage par rechargement jamais en course, Brest en mode avion (brest-avion) ; version 91c6ef73d4 ; ouverture hors réseau Toulon 374 ms (403 avant), Brest 373 ms ; 737 tests (736 verts, 1 sauté), gardes Toulon vertes ; essai iPhone D-15 à faire sur l’aperçu (07-04-SUMMARY) ; BREST-03 fait, BREST-02 attend la régate (07-05)
 
 Progress: [███████░░░] 71%
 
@@ -89,6 +89,7 @@ Progress: [███████░░░] 71%
 | Phase 07 P01 | 18min | 3 tasks | 7 files |
 | Phase 07 P02 | 25min | 3 tasks | 17 files |
 | Phase 07 P03 | 21min | 3 tasks | 20 files |
+| Phase 07 P04 | 50min | 3 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -171,6 +172,9 @@ Décisions récentes qui orientent le travail en cours :
 - [Phase 07]: 07-03 : maille du vent de Brest gardée à 150 m (coût mesuré ≈ 1,5 × Toulon) et seuil openSea 1 500 m
 - [Phase 07]: 07-03 : data/<id>.* hors du SHELL dès qu’un data/<id>.meta.json existe ; data/venues.json généré, dans le SHELL et le hachage
 - [Phase 07]: 07-03 : instantané météo de Brest non produit (Open-Meteo refusé), à produire en 07-10
+- [Phase 07]: 07-04 : pack de Brest téléchargé par la page, vérifié par taille et SHA-256 (crypto.subtle) avant toute écriture, tout ou rien dans rade-venue-brest-<pack> ; ancien cache supprimé après succès seulement
+- [Phase 07]: 07-04 : sw.js épargne rade-venue-* à l’activation, sert data/<id>.* hors liste depuis rade-venue-<id>-* (du plus ancien au plus récent), n’intercepte pas ?pack= ; Toulon inchangé
+- [Phase 07]: 07-04 : changer de plan d’eau = réglages rangés dans S.byVenue (VENUE_KEYS) puis rechargement, refusé par isActive pendant une course ; à Toulon, init() ne lit ni manifeste ni caches
 
 ### Pending Todos
 
@@ -208,6 +212,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-11-19T07:10:22.140Z
-Stopped at: Completed 07-03-PLAN.md
+Last session: 2026-11-19T07:35:52.774Z
+Stopped at: Completed 07-04-PLAN.md
 Resume file: None

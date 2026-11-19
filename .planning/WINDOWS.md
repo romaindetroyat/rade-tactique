@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 2
+open_count: 3
 waived_count: 0
 fixed_count: 4
-total_count: 6
-last_updated: 2026-11-19T07:10:38.594Z
+total_count: 7
+last_updated: 2026-11-19T07:36:20.892Z
 ---
 
 # Broken Windows Ledger
@@ -21,6 +21,7 @@ last_updated: 2026-11-19T07:10:38.594Z
 | 4 | 04 | unrun-verify | api/archive.js |  | 04-04 : recette humaine sur l'aperçu avec le vrai magasin Blob : head() d'un objet absent doit lever BlobNotFoundError (objets immuables trace et rapport), put sans allowOverwrite sur un objet existant doit échouer (perte de course), get en flux d'une trace de 600 Ko, 401 sans code sur ?k=trace\|report\|day | open |  | 2026-10-20T05:45:27.963Z |  |
 | 5 | 04 | unrun-verify | js/archheavy.js |  | 04-04 tâche 2 : contrôle humain sur iPhone (app installée, mode avion) : fiche, vent du jour, trace, débrief et rapport d'une régate récente s'ouvrent ; espace occupé de l'ordre de 1 Mo par régate (Réglages > Safari > Données de sites) | fixed |  | 2026-10-20T05:45:28.170Z | 2026-10-20T08:23:51.398Z |
 | 6 | 07 | stub | data/brest.wx-snapshot.json |  | Instantané météo de Brest absent (Open-Meteo refusé) : l’app reçoit null ; à produire en 07-10 | open |  | 2026-11-19T07:10:38.594Z |  |
+| 7 | 07 | stub | js/app.js |  | VENUE_DEF.brest.courseId = banane (90) au premier passage, faute de catalogue du GPEN (07-09) | open |  | 2026-11-19T07:36:20.892Z |  |
 
 ````json
 [
@@ -99,6 +100,19 @@ last_updated: 2026-11-19T07:10:38.594Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-11-19T07:10:38.594Z",
+    "resolved_at": null,
+    "milestone": null
+  },
+  {
+    "id": 7,
+    "kind": "stub",
+    "phase": "07",
+    "file": "js/app.js",
+    "line": null,
+    "description": "VENUE_DEF.brest.courseId = banane (90) au premier passage, faute de catalogue du GPEN (07-09)",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-11-19T07:36:20.892Z",
     "resolved_at": null,
     "milestone": null
   }
