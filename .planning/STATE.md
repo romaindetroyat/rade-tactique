@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 07
 current_phase_name: "Plans d'eau : Toulon et rade de Brest (GPEN)"
 status: executing
-stopped_at: Completed 07-06-PLAN.md
-last_updated: "2026-11-19T09:00:43.785Z"
+stopped_at: Completed 07-07-PLAN.md
+last_updated: "2026-11-19T09:25:05.857Z"
 last_activity: 2026-11-19
-last_activity_desc: Plan 07-06 — connaissance locale de Brest (zones interdites évitées, lieux, marques, dangers, régimes et vents prédéfinis marqués selon leur origine), Toulon identique
-state_head: 14a6f990a60c7d4896bbcd891d088bb48754f9ec
+last_activity_desc: Plan 07-07 — marée de Brest calculée hors réseau et affichée au briefing, atlas 560 du Shom et fonds dans le pack, js/courant.js contrôlé contre l’étude, Toulon identique
+state_head: 7975f7a9601b502cfadd1b68ef000e1a6a0a9ab5
 progress:
   total_phases: 7
   completed_phases: 5
   total_plans: 38
-  completed_plans: 34
+  completed_plans: 35
   percent: 71
 ---
 
@@ -28,9 +28,9 @@ See: .planning/PROJECT.md (updated 2026-10-19)
 ## Current Position
 
 Phase: 07 (Plans d'eau : Toulon et rade de Brest (GPEN)) — EXECUTING
-Plan: 7 of 10
-Status: Ready to execute 07-07
-Last activity: 2026-11-19 — Plan 07-06 : zones interdites de Brest (Île Longue élargie de 50 m, couloir de Pen ar Vir) dessinées, évitées par le routage et signalées « à compléter sur carte marine » ; 42 lieux, 36 marques à clés non numériques (2 à confirmer), 6 dangers, zones A, B, C ; huit régimes aux conseils { t, o } (hypothèses « à confirmer sur l’eau »), neuf vents prédéfinis, seuil « mer dégagée » 1 500 m validé, dévent conforme à l’étude ; version 96960cb043 ; 771 tests (770 verts, 1 sauté), 34/34 scénarios, gardes Toulon vertes ; BREST-04 et BREST-05 faits
+Plan: 8 of 10
+Status: Ready to execute 07-08
+Last activity: 2026-11-19 — Plan 07-07 : marée de Brest par 68 harmoniques du marégraphe (Shom – REFMAR), contrôle 2025-2026 14,2 cm et 3,7 min, carte « Marée à Brest » au briefing ; atlas 560 du Shom compacté (13 heures × coefficients 45 et 95, 0,91 Mo) et fonds EMODnet au zéro des cartes ; js/courant.js redonne les valeurs de contrôle de l’étude (goulet, zone A, zone F) ; pack de Brest 4,67 Mo ; version e76325c20b ; 794 tests (793 verts, 1 sauté), scénarios plan-eau, toulon-vue, brest-avion, regate-brest verts, gardes Toulon vertes ; BREST-06 fait, BREST-07 données et calcul faits (routage et affichage en 07-08)
 
 Progress: [███████░░░] 71%
 
@@ -92,6 +92,7 @@ Progress: [███████░░░] 71%
 | Phase 07 P04 | 50min | 3 tasks | 10 files |
 | Phase 07 P05 | 45min | 3 tasks | 18 files |
 | Phase 07 P06 | 35min | 3 tasks | 10 files |
+| Phase 07 P07 | 20min | 3 tasks | 20 files |
 
 ## Accumulated Context
 
@@ -184,6 +185,10 @@ Décisions récentes qui orientent le travail en cours :
 - [Phase 07]: 07-06 : polygone de l’Île Longue fermé par le rivage est et l’isthme, « D » avant 7 (sinon contour recoupé), élargi de 50 m ; couloir de Pen ar Vir 100 m, commencé à 10 m de la cardinale
 - [Phase 07]: 07-06 : seuil « mer dégagée » de Brest gardé à 1 500 m (3 103 cellules, médiane de l’eau 0,95-1,00 ; 4 000 m ne garde que 90 cellules de l’Iroise)
 - [Phase 07]: 07-06 : marques de Brest à clés courtes non numériques (36), conseils de Brest { t, o } avec origine affichée et hypothèses « à confirmer sur l’eau »
+- [Phase 07]: Marée de Brest : 68 harmoniques ajustées sur REFMAR 2019-2024 (utide), facteurs f et V0+u par année 2026-2031 ; contrôle 2025-2026 14,2 cm et 3,7 min ; null hors des années
+- [Phase 07]: Courant : atlas 560 du Shom relu au nœud le plus proche pour les contrôles, dosé par le marnage entre les champs 45 et 95 (borné à [−0,4 ; 1,4]), liaison linéaire entre PM+6 h et la PM−6 h suivante
+- [Phase 07]: Fonds EMODnet ramenés au zéro des cartes par +0,25 m (PBMA de Brest, RAM) au lieu d’assimiler les deux niveaux
+- [Phase 07]: Paquets des outils netCDF4 1.7.5.1.post1, utide 0.4.0, scipy 1.18.1, py7zr 1.1.4 acceptés par Romain, environnement hors du dépôt
 
 ### Pending Todos
 
@@ -221,6 +226,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-11-19T09:00:43.620Z
-Stopped at: Completed 07-06-PLAN.md
+Last session: 2026-11-19T09:25:05.700Z
+Stopped at: Completed 07-07-PLAN.md
 Resume file: None

@@ -89,7 +89,7 @@ Ajoutés le 2026-11-19 à la demande de Romain (« permets le changement de plan
 - [x] **BREST-03**: La rade de Brest se télécharge une fois à la demande, vérifiée par empreinte, reste disponible après les mises à jour de l'app et s'ouvre hors réseau ; sans téléchargement, un message clair
 - [x] **BREST-04**: Carte et relief de la rade de Brest (rade, goulet, Camaret), lieux, marques, dangers et zones interdites (Île Longue, Pen ar Vir) évitées par le routage, positions en longitude Ouest justes, sources et licences citées
 - [x] **BREST-05**: Vents de Brest : régimes et vents prédéfinis propres, réglage « mer dégagée » du champ de vent, conseils marqués selon leur origine et présentés comme à confirmer sur l'eau
-- [ ] **BREST-06**: Heure et hauteur de la marée de Brest (pleines et basses mers, marnage, coefficient approché) calculées hors réseau et contrôlées contre les observations
+- [x] **BREST-06**: Heure et hauteur de la marée de Brest (pleines et basses mers, marnage, coefficient approché) calculées hors réseau et contrôlées contre les observations
 - [ ] **BREST-07**: Courant de l'atlas du Shom par heure de marée utilisé par le routage (vitesse fond, marge sur les fonds), les conseils (renverses, côté favorable) et l'affichage (briefing, carte, Départ, En course), absent à Toulon
 - [ ] **BREST-08**: GPEN 2027 J80 : fiche semée, zone A sur la carte, parcours 1 et 2 construits au vent avec arrivée à droite du comité, variante Virginie Hériot, IC du GPEN pour l'arbitre, le débrief et la dictée à Brest
 
@@ -149,8 +149,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | BREST-03 | Phase 7 | Complete |
 | BREST-04 | Phase 7 | Complete |
 | BREST-05 | Phase 7 | Complete |
-| BREST-06 | Phase 7 | Pending |
-| BREST-07 | Phase 7 | Pending |
+| BREST-06 | Phase 7 | Complete |
+| BREST-07 | Phase 7 | In Progress (données et calcul faits en 07-07 ; routage, conseils et affichage en 07-08) |
 | BREST-08 | Phase 7 | Pending |
 
 **Coverage:**
