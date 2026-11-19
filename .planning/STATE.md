@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 07
 current_phase_name: "Plans d'eau : Toulon et rade de Brest (GPEN)"
 status: executing
-stopped_at: Completed 07-07-PLAN.md
-last_updated: "2026-11-19T09:25:05.857Z"
+stopped_at: Completed 07-08-PLAN.md
+last_updated: "2026-11-19T10:06:54.015Z"
 last_activity: 2026-11-19
-last_activity_desc: Plan 07-07 — marée de Brest calculée hors réseau et affichée au briefing, atlas 560 du Shom et fonds dans le pack, js/courant.js contrôlé contre l’étude, Toulon identique
-state_head: 7975f7a9601b502cfadd1b68ef000e1a6a0a9ab5
+last_activity_desc: Plan 07-08 — courant de marée dans le routage, les conseils et l’affichage de Brest (option current jamais passée à Toulon), hauteur d’eau avec marge de 1 m, Toulon identique
+state_head: 8540d09eb06fa89778821af9121e1f7f401a63e2
 progress:
   total_phases: 7
   completed_phases: 5
   total_plans: 38
-  completed_plans: 35
+  completed_plans: 36
   percent: 71
 ---
 
@@ -28,9 +28,9 @@ See: .planning/PROJECT.md (updated 2026-10-19)
 ## Current Position
 
 Phase: 07 (Plans d'eau : Toulon et rade de Brest (GPEN)) — EXECUTING
-Plan: 8 of 10
-Status: Ready to execute 07-08
-Last activity: 2026-11-19 — Plan 07-07 : marée de Brest par 68 harmoniques du marégraphe (Shom – REFMAR), contrôle 2025-2026 14,2 cm et 3,7 min, carte « Marée à Brest » au briefing ; atlas 560 du Shom compacté (13 heures × coefficients 45 et 95, 0,91 Mo) et fonds EMODnet au zéro des cartes ; js/courant.js redonne les valeurs de contrôle de l’étude (goulet, zone A, zone F) ; pack de Brest 4,67 Mo ; version e76325c20b ; 794 tests (793 verts, 1 sauté), scénarios plan-eau, toulon-vue, brest-avion, regate-brest verts, gardes Toulon vertes ; BREST-06 fait, BREST-07 données et calcul faits (routage et affichage en 07-08)
+Plan: 9 of 10
+Status: Ready to execute 07-09
+Last activity: 2026-11-19 — Plan 07-08 : route() avec options current, t0 et depth (branche à côté du pas de la v42 : vent sur l’eau, vitesse fond, dérive pendant les manœuvres, hauteur d’eau ≥ 1,5 + 1 m) ; courant uniforme 12,31 / 15,24 / 10,37 min (étude 12,1 / 14,9 / 10,2) ; banane de la zone A le 6 mai 2027 à 14 h : 41,7 → 44,1 min ; conseils de courant { t, o: 'C' } (temps gagné ou perdu, côté favorable, renverses 05:45, 12:10 et 18:00, vent contre courant, réserve Shom) ; cartes du briefing et de l’onglet Départ, flèches de courant, « Courant ici » et lay-lines corrigées en course ; js/startmode.js inchangé ; ouverture Brest 459 ms, Toulon 403 ms ; 811 tests (810 verts, 1 sauté), scénarios brest-courant, plan-eau, toulon-vue, jour-j, retour-port, banane verts ; gardes Toulon vertes ; BREST-07 fait
 
 Progress: [███████░░░] 71%
 
@@ -93,6 +93,7 @@ Progress: [███████░░░] 71%
 | Phase 07 P05 | 45min | 3 tasks | 18 files |
 | Phase 07 P06 | 35min | 3 tasks | 10 files |
 | Phase 07 P07 | 20min | 3 tasks | 20 files |
+| Phase 07 P08 | 38min | 3 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -189,6 +190,11 @@ Décisions récentes qui orientent le travail en cours :
 - [Phase 07]: Courant : atlas 560 du Shom relu au nœud le plus proche pour les contrôles, dosé par le marnage entre les champs 45 et 95 (borné à [−0,4 ; 1,4]), liaison linéaire entre PM+6 h et la PM−6 h suivante
 - [Phase 07]: Fonds EMODnet ramenés au zéro des cartes par +0,25 m (PBMA de Brest, RAM) au lieu d’assimiler les deux niveaux
 - [Phase 07]: Paquets des outils netCDF4 1.7.5.1.post1, utide 0.4.0, scipy 1.18.1, py7zr 1.1.4 acceptés par Romain, environnement hors du dépôt
+- [Phase 07]: Temps de l’étude contrôlés à vent sur l’eau constant de 8 nd (14,95 et 10,19 min recalculés sur la polaire) ; la baisse du vent sur l’eau est testée à part
+- [Phase 07]: Élagage des isochrones propre à la branche avec courant (rem − vm × 5 s) ; élagage de la v42 intact
+- [Phase 07]: Hauteur d’eau : hauteur − fond ≥ 1,5 + 1 m ; hors grille des fonds ou marée inconnue : navigable
+- [Phase 07]: Réserve « (estimation d’après l’atlas du Shom) » une fois par bord ; renverses dans un cercle de 0,6 Nq autour de la zone du GPEN
+- [Phase 07]: js/startmode.js inchangé ; pas de correction du débrief par le courant dans cette phase (question pour Romain)
 
 ### Pending Todos
 
@@ -226,6 +232,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-11-19T09:25:05.700Z
-Stopped at: Completed 07-07-PLAN.md
+Last session: 2026-11-19T10:06:53.861Z
+Stopped at: Completed 07-08-PLAN.md
 Resume file: None
