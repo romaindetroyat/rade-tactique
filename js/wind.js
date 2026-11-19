@@ -13,13 +13,14 @@
 
 import { rad, deg, norm360, norm180 } from './geo.js';
 
-const CELL = 150; // m
-
+// Maille (m) et seuil « mer dégagée » (m d’une terre, cellules de référence de l’accélération) : réglages du plan d’eau,
+// 150 m et 4 000 m à Toulon (v42) ; Brest n’a aucune eau à plus de 4 000 m d’une terre (D-14)
 export class WindField {
-  constructor(terrain) {
+  constructor(terrain, { cell = 150, openSea = 4000 } = {}) {
     this.t = terrain;
-    this.nx = Math.round((terrain.x1 - terrain.x0) / CELL);
-    this.ny = Math.round((terrain.y1 - terrain.y0) / CELL);
+    this.cell = cell; this.openSea = openSea;
+    this.nx = Math.round((terrain.x1 - terrain.x0) / this.cell);
+    this.ny = Math.round((terrain.y1 - terrain.y0) / this.cell);
     this.x0 = terrain.x0; this.y1 = terrain.y1;
     this.dx = (terrain.x1 - terrain.x0) / this.nx; this.dy = (terrain.y1 - terrain.y0) / this.ny;
     const n = this.nx * this.ny;
@@ -51,7 +52,7 @@ export class WindField {
         const ii = i + di, jj = j + dj;
         if (ii < 0 || jj < 0 || ii >= nx || jj >= ny) continue;
         const k = jj * nx + ii;
-        if (d[k] > d[id] + CELL) { d[k] = d[id] + CELL; q.push(k); }
+        if (d[k] > d[id] + this.cell) { d[k] = d[id] + this.cell; q.push(k); }
       }
     }
     return d;
@@ -104,7 +105,7 @@ export class WindField {
       const sp = Math.hypot(vx, vy);
       fac[id] = sp;
       dev[id] = norm180(deg(Math.atan2(vx, vy)) - (key + 180));
-      if (!this.land[id] && this.distLand[id] > 4000) speeds.push(sp);
+      if (!this.land[id] && this.distLand[id] > this.openSea) speeds.push(sp);
     }
     speeds.sort((a, b) => a - b);
     const ref = speeds.length ? speeds[Math.floor(speeds.length / 2)] : 1;

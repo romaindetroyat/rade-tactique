@@ -15,7 +15,7 @@ import { listHTML, noRegattaHTML, newRegattaFormHTML, sheetHTML } from './regvie
 import { applyRegattaMarks, pendingMarks, confirmMark, moveMark, ignoreMark, allowedCourses, courseFallback, courseMismatch } from './regmarks.js';
 import { trackDay, matchRegattas, raceOfTrack, sameTrack, attachTrace, detachTrace, traceSummary, setTraceSummary, setTraceReport } from './attach.js';
 import { breaksOf } from './segments.js';
-import { fetchAll, cached, snapshot, consensus, gridPoints, marineAt, fetchLive, coversDay, MODELS, WMO, CENTER } from './weather.js';
+import { fetchAll, cached, snapshot, consensus, gridPoints, marineAt, fetchLive, coversDay, MODELS, WMO, CENTER, configureWeather } from './weather.js';
 import { buildLegs, analyzeLeg, markAdvice, analyzeStart, trendOf, rankCourses, regimeOf, sideName, summarizeTime, prepareLeg, gateText, routeOf } from './tactics.js';
 import { BANANE_ID, BANANE, addBanane, banOf, banToState, cleanBan, courseMarkUse, legReached, banHorsEau } from './banane.js';
 import { optimalAngles, boatSpeed, trimAdvice, spiMinTwa, getPolar, setPolar, resetPolar, parsePolar } from './polar.js';
@@ -57,6 +57,7 @@ const dayName = (s) => new Date(s + 'T12:00:00').toLocaleDateString('fr-FR', { w
 // Plan d’eau de la session (D-03, D-05) : lu dans rade.state (liste blanche, sinon Toulon) et fixé AVANT tout toXY et avant addBanane ;
 // changer de plan d’eau recharge l’app
 setVenue(bootVenue(store.get('rade.state', {})));
+configureWeather(VENUE.weather);                     // prévisions, cache et instantané du plan d’eau (Toulon : requêtes de la v42)
 
 // Banane construite (D-01) : ajoutée à la liste des parcours hors du cahier js/courses.js, AVANT toute lecture de S.courseId et avant
 // syncRegMarks (sinon un parcours choisi à 90 serait ramené au parcours 3) ; applyRegattaMarks ne retire que les parcours d’une régate
@@ -177,8 +178,8 @@ async function init() {
   renderStatic();                                      // onglets Prévisions, Vent, J80 et IC : sans la carte
   const { Scene3D } = await import('./scene3d.js');
   T = await new Terrain().load(VENUE.files.base);
-  F = new WindField(T);
-  scene = new Scene3D($('#view'), T);
+  F = new WindField(T, VENUE.wind);
+  scene = new Scene3D($('#view'), T, { home: VENUE.scene?.home, files: VENUE.files });
   scene.upAngle = (tws) => optimalAngles(Math.max(1, tws)).up.twa;
   scene.setDangers(forbidden, DANGERS);
   scene.onPick = onPick;
@@ -287,7 +288,7 @@ function obsPosition() {
   if (gps?.pos) return { lat: gps.pos.lat, lon: gps.pos.lon, label: 'ma position GPS' };
   if (obsPos) return { ...obsPos, label: 'point choisi sur la carte' };
   if (analysis) { const ll = toLL(analysis.line.c.x, analysis.line.c.y); return { ...ll, label: 'zone de départ (activez le GPS ou touchez la carte pour préciser)' }; }
-  return { lat: CENTER.lat, lon: CENTER.lon, label: 'centre de la rade' };
+  return { lat: CENTER.lat, lon: CENTER.lon, label: VENUE.texts?.centre ?? 'centre de la rade' };
 }
 function nowHour() { const d = new Date(); return d.getHours() + d.getMinutes() / 60; }
 function renderObs(el) {
@@ -429,7 +430,7 @@ function updateDisplayField() {
   if (!F || !scene) return;
   computeField(S.day, S.hour);
   scene.setField(F);
-  const c = F.sample(toXY(43.088, 5.962).x, toXY(43.088, 5.962).y);
+  const wr = toXY(VENUE.windRef.lat, VENUE.windRef.lon), c = F.sample(wr.x, wr.y);     // point de référence du plan d’eau (Toulon : 43,088 / 5,962)
   const b = S.src === 'forecast' ? baseModel(S.day, S.hour) : null;
   const src = S.src === 'manual' ? ' · manuel' : !b ? ' · <b>manuel, sans prévision</b>' : ' · ' + esc(modelLabel(b.id)) + (S.nowcast && resid.length && b.id === selectedModel() ? ' + relevés' : '');
   $('#windBadge').innerHTML = `${arrow(c.dir)} <b>${c.spd.toFixed(0)}</b> nd · ${cardinal(c.dir)} ${fmtBrg(c.dir)}<br><span class="small">rafales ${c.gust.toFixed(0)} nd · ${hhmm(S.hour)}${src}</span>`;
@@ -679,7 +680,7 @@ function renderBrief() {
     ${reg ? `<span class="chip">${esc(reg.name)}</span>` : ''}${rs ? `<span class="chip ${rs.confidence > 70 ? 'good' : rs.confidence > 45 ? 'mid' : 'low'}">Confiance ${rs.confidence} %</span>` : ''}
     ${isRace && (IC.firstWarning || IC.lastFinishSignal || IC.vhf != null) ? `<div class="small muted" style="margin-top:6px">${[IC.firstWarning && `1er avertissement ${esc(IC.firstWarning)}`, IC.lastFinishSignal && `arrivée limite ${esc(IC.lastFinishSignal)}`, IC.vhf != null && `VHF ${esc(IC.vhf)}`].filter(Boolean).join(' · ')}</div>` : ''}
   </div>`;
-  if (rows.length) html += `<div class="card"><h3><span>Vent sur la journée ${tip('Trait plein : vent moyen AROME HD au centre de la rade. Pointillés : rafales. Bande bleue : écart entre les 6 modèles (plus elle est large, moins la prévision est sûre). Zone orange : fenêtre de course.')}</span><small>point central rade</small></h3>${chartSVG(rows, isRace)}<div class="small muted">Trait plein : AROME HD · pointillé : rafales · bande : écart entre les ${MODELS.length} modèles · flèches : direction (vers où souffle le vent).</div></div>`;
+  if (rows.length) html += `<div class="card"><h3><span>Vent sur la journée ${tip(`Trait plein : vent moyen AROME HD au ${VENUE.texts?.centre ?? 'centre de la rade'}. Pointillés : rafales. Bande bleue : écart entre les 6 modèles (plus elle est large, moins la prévision est sûre). Zone orange : fenêtre de course.`)}</span><small>${esc(VENUE.texts?.point ?? 'point central rade')}</small></h3>${chartSVG(rows, isRace)}<div class="small muted">Trait plein : AROME HD · pointillé : rafales · bande : écart entre les ${MODELS.length} modèles · flèches : direction (vers où souffle le vent).</div></div>`;
   // stratégie
   if (analysis) {
     const tips = [];
@@ -714,7 +715,7 @@ function renderBrief() {
   const ih = seriesIndex(S.day, S.hour);
   if (ih >= 0) {
     const r = series[ih];
-    html += `<div class="card"><h3>Modèles à ${hhmm(Math.floor(S.hour))} <small>au centre de la rade</small></h3><table class="t"><tr><th>Modèle</th><th>Dir.</th><th>Vent</th><th>Raf.</th><th>Écart relevés</th></tr>${r.per.map((p) => { const rk = ranking.find((x) => x.id === p.id); const sel = S.src === 'forecast' && p.id === selectedModel(); return `<tr${sel ? ' class="sel"' : ''}><td>${sel ? '✔ ' : ''}${esc(p.label)}</td><td>${arrow(p.dir)} ${fmtBrg(p.dir)}</td><td>${p.spd.toFixed(0)} nd</td><td>${p.gust != null ? p.gust.toFixed(0) : '—'}</td><td>${rk ? `${Math.round(rk.ddir)}° · ${rk.dspd > 0 ? '+' : ''}${rk.dspd.toFixed(1)} nd` : '—'}</td></tr>`; }).join('')}</table>
+    html += `<div class="card"><h3>Modèles à ${hhmm(Math.floor(S.hour))} <small>au ${esc(VENUE.texts?.centre ?? 'centre de la rade')}</small></h3><table class="t"><tr><th>Modèle</th><th>Dir.</th><th>Vent</th><th>Raf.</th><th>Écart relevés</th></tr>${r.per.map((p) => { const rk = ranking.find((x) => x.id === p.id); const sel = S.src === 'forecast' && p.id === selectedModel(); return `<tr${sel ? ' class="sel"' : ''}><td>${sel ? '✔ ' : ''}${esc(p.label)}</td><td>${arrow(p.dir)} ${fmtBrg(p.dir)}</td><td>${p.spd.toFixed(0)} nd</td><td>${p.gust != null ? p.gust.toFixed(0) : '—'}</td><td>${rk ? `${Math.round(rk.ddir)}° · ${rk.dspd > 0 ? '+' : ''}${rk.dspd.toFixed(1)} nd` : '—'}</td></tr>`; }).join('')}</table>
     <div class="small muted" style="margin-top:4px">✔ = modèle utilisé pour la carte et l’analyse${S.modelSel === 'auto' ? (ranking.length ? ' (le plus proche de vos relevés)' : ' (AROME HD par défaut, en attendant un relevé)') : ' (choisi manuellement)'}.</div>
     <div class="small muted" style="margin-top:6px">${r.temp != null ? `${r.temp.toFixed(0)} °C · ` : ''}${WMO[r.code] ?? ''}${r.cloud != null ? ` · nuages ${r.cloud} %` : ''}${r.rain ? ` · pluie ${r.rain} mm` : ''}${r.pmsl ? ` · ${r.pmsl.toFixed(0)} hPa` : ''}</div></div>`;
     const m = marineAt(data, r.time);
@@ -725,7 +726,7 @@ function renderBrief() {
     const rk = rankCourses(S.cls, w.dir, w.spd, proposes()).slice(0, 4);
     html += `<div class="card"><h3><span>Parcours probables ${tip('Parcours dont le premier bord est au près avec le vent prévu : le Comité choisit souvent ce type de parcours. Simple aide à la préparation.')}</span><small>1er bord au près</small></h3>${rk.map((r) => `<div class="row" style="display:flex;justify-content:space-between;margin:4px 0"><span><b>${esc(r.c.title)}</b> → ${esc(MARKS[r.c.seq[S.cls][0][0]].name)}</span><span class="small">${fmtBrg(r.brg)} · TWA ${Math.round(r.twa)}° <button class="btn small alt" data-pick="${r.c.id}">Voir</button></span></div>`).join('')}<div class="small muted">Le comité cherche en général un premier bord de près : simple aide pour se préparer, le parcours est annoncé avant la procédure.</div></div>`;
   }
-  if (live.length) html += `<div class="card"><h3>Balises en direct <small>OpenWindMap</small></h3>${live.map((s) => `<div class="small">📡 <b>${esc(s.name)}</b> : ${s.dir != null ? fmtBrg(s.dir) + ' ' : ''}${s.spd.toFixed(0)} nd (max ${s.gust.toFixed(0)}) <span class="muted">il y a ${Math.round(s.ageMin)} min</span></div>`).join('')}<div class="small muted" style="margin-top:4px">Autres sources : <a href="https://www.windguru.cz/48529" target="_blank" rel="noopener">Windguru Toulon</a> · <a href="https://meteofrance.com/previsions-meteo-marine/bulletin/cotier" target="_blank" rel="noopener">Bulletin côtier Météo-France</a> · <a href="https://www.windy.com/43.08/5.96?43.03,5.96,11" target="_blank" rel="noopener">Windy</a></div></div>`;
+  if (live.length) html += `<div class="card"><h3>Balises en direct <small>OpenWindMap</small></h3>${live.map((s) => `<div class="small">📡 <b>${esc(s.name)}</b> : ${s.dir != null ? fmtBrg(s.dir) + ' ' : ''}${s.spd.toFixed(0)} nd (max ${s.gust.toFixed(0)}) <span class="muted">il y a ${Math.round(s.ageMin)} min</span></div>`).join('')}<div class="small muted" style="margin-top:4px">Autres sources : ${VENUE.links ? VENUE.links.map(([t, u]) => `<a href="${esc(u)}" target="_blank" rel="noopener">${esc(t)}</a>`).join(' · ') : '<a href="https://www.windguru.cz/48529" target="_blank" rel="noopener">Windguru Toulon</a> · <a href="https://meteofrance.com/previsions-meteo-marine/bulletin/cotier" target="_blank" rel="noopener">Bulletin côtier Météo-France</a> · <a href="https://www.windy.com/43.08/5.96?43.03,5.96,11" target="_blank" rel="noopener">Windy</a>'}</div></div>`;
   el.innerHTML = html;
   $('#goObs2')?.addEventListener('click', () => openTab('course'));
   $$('[data-pick]', el).forEach((b) => b.addEventListener('click', () => { S.courseId = +b.dataset.pick; preselect = null; autoReplay = true; persist(); scheduleAnalysis(); openTab('course'); }));
@@ -1551,7 +1552,7 @@ async function runDebrief(tr) {
   // parcours proposés : ceux de la régate de la trace quand c’est la régate ouverte (seuls ses parcours sont chargés), sinon le cahier CVAT
   const courses = allowedCourses(COURSES, reg && reg.id === openReg()?.id ? reg.id : null);
   const api = {
-    F, ctx: { terrain: T, forbidden, perf: S.perf ?? 1 }, localFx: S.localFx ?? 1, forecastAt: (t) => forecastIn(src.ser, t), toast, meta: T.meta, eventName: reg?.name || IC?.event || '', courseHint: manche?.courseId ?? null, courses,
+    F, ctx: { terrain: T, forbidden, perf: S.perf ?? 1 }, localFx: S.localFx ?? 1, forecastAt: (t) => forecastIn(src.ser, t), toast, meta: T.meta, files: VENUE.files, eventName: reg?.name || IC?.event || '', courseHint: manche?.courseId ?? null, courses,
     // relevé saisi ce jour-là le plus proche du départ (figé, si le jour l'est), sinon la prévision (figée de même)
     windGuess: (t) => {
       const near = src.obs.filter((o) => o.t && Math.abs(o.t - t) < 3 * 3600e3).sort((a, b) => Math.abs(a.t - t) - Math.abs(b.t - t))[0];
@@ -1804,7 +1805,7 @@ function renderWind() {
   const el = $('section[data-tab=wind]');
   const m = S.manual;
   el.innerHTML = `<div class="card"><h3>Vent manuel <small>toute situation météo</small></h3>
-    <div class="btns" style="margin-top:0">${PRESETS.map((p, i) => `<button class="btn small alt" data-p="${i}">${p[0]}</button>`).join('')}</div>
+    <div class="btns" style="margin-top:0">${(VENUE.presets ?? PRESETS).map((p, i) => `<button class="btn small alt" data-p="${i}">${p[0]}</button>`).join('')}</div>
     <label class="f">Direction (d’où vient le vent) : <b id="mDirL">${fmtBrg(m.dir)} ${cardinal(m.dir)}</b></label><input id="mDir" type="range" min="0" max="355" step="5" value="${m.dir}">
     <label class="f">Vent moyen : <b id="mSpdL">${m.spd} nd</b></label><input id="mSpd" type="range" min="1" max="40" step="1" value="${m.spd}">
     <label class="f">Rafales : <b id="mGL">${m.gust} nd</b></label><input id="mG" type="range" min="1" max="50" step="1" value="${m.gust}">
@@ -1821,7 +1822,7 @@ function renderWind() {
     <div class="small muted">0 % = vent prévu seul ; 100 % = corrections normales ; au-delà = effets accentués (situation stable, vent de terre).</div></div>
   <div class="card"><h3>Comment est calculé le vent ?</h3><ul class="tips small">
     <li><b>Prévisions</b> : AROME HD 1,3 km de Météo-France sur 24 points de la zone (interpolés), comparé à AROME 2,5 km, ARPEGE, ECMWF, ICON-EU et GFS (écart = confiance). Données Open-Meteo, mises en cache pour l’usage hors réseau.</li>
-    <li><b>Contournement du relief</b> : écoulement 2D où la terre haute fait obstacle — accélérations aux caps (Cépet, Sicié, Cap Brun) et dans les passes, déviations le long des côtes.</li>
+    <li><b>Contournement du relief</b> : écoulement 2D où la terre haute fait obstacle — ${VENUE.texts?.relief ?? 'accélérations aux caps (Cépet, Sicié, Cap Brun) et dans les passes'}, déviations le long des côtes.</li>
     <li><b>Dévent</b> : sous le vent d’un relief (falaises, collines, ville), perte de vitesse et rafales plus marquées ; d’autant plus que le relief est haut et proche.</li>
     <li><b>Frottement côtier</b> : près d’une côte au vent, le vent est légèrement « reculé » (tourné à gauche) puis adonne en s’éloignant au large.</li>
     <li>Modèle heuristique pour la tactique : il indique les tendances (où est la pression, de quel côté le vent tourne) ; il ne remplace pas l’observation sur l’eau.</li></ul>
@@ -1830,7 +1831,7 @@ function renderWind() {
   $('#mDir').oninput = (e) => { S.manual.dir = +e.target.value; upd(); };
   $('#mSpd').oninput = (e) => { S.manual.spd = +e.target.value; if (S.manual.gust < S.manual.spd) { S.manual.gust = S.manual.spd; $('#mG').value = S.manual.gust; } upd(); };
   $('#mG').oninput = (e) => { S.manual.gust = Math.max(+e.target.value, S.manual.spd); upd(); };
-  $$('[data-p]', el).forEach((b) => b.onclick = () => { const p = PRESETS[+b.dataset.p]; S.manual = { dir: p[1], spd: p[2], gust: p[3] }; S.src = 'manual'; persist(); updateAll(); });
+  $$('[data-p]', el).forEach((b) => b.onclick = () => { const p = (VENUE.presets ?? PRESETS)[+b.dataset.p]; S.manual = { dir: p[1], spd: p[2], gust: p[3] }; S.src = 'manual'; persist(); updateAll(); });
   $('#mUse').onclick = () => { S.src = S.src === 'manual' ? 'forecast' : 'manual'; persist(); updateAll(); };
   $('#fx').oninput = (e) => { S.localFx = +e.target.value; $('#fxL').textContent = `${Math.round(S.localFx * 100)} %`; };
   $('#fx').onchange = () => { persist(); refreshObs(); updateDisplayField(); scheduleAnalysis(); };
@@ -2192,6 +2193,7 @@ function renderIC() {
   const cur = openReg(), now = Date.now();
   IC = icOf(cur);
   const tel = /(0[1-9](?:[ .-]?\d{2}){4})/.exec(IC.committee || '')?.[1];
+  const toulon = VENUE.id === 'toulon';
   let html = `<div class="card" id="rgList"><h3><span>Régates ${tip('Chaque régate a sa fiche : jours, manches, Instructions de Course. À l’ouverture, l’app est en Entraînement libre : Ouvrir ouvre une régate (sa fiche, ses manches, ses IC, son vent figé et ses traces), Fermer la régate revient à l’entraînement. Le jour d’une régate, l’app l’ouvre seule. La régate ouverte fixe le jour 🏁, l’heure de départ par défaut et les points clés affichés. Classées En préparation, En cours, Terminées. Ouvrir ou fermer ne change rien chez les autres.')}</span><button type="button" class="btn acc small" id="rgNew">＋ Nouvelle régate</button></h3>
     ${listHTML(groupByStatus(REG.list, now), { openId: cur?.id ?? null, now })}
     <div class="small muted" id="rgWho" style="margin-top:6px">${who() ? `Vous : ${esc(who())}` : 'Vous : — (prénom donné à la prochaine connexion)'}</div>
@@ -2210,13 +2212,14 @@ function renderIC() {
     ${IC.firstWarning && IC.date ? `<button class="btn small alt" id="evUse">Caler le départ sur ces IC (${esc(dayName(IC.date))}, ${esc(IC.firstWarning)} + 5 min)</button>` : ''}</div>`;
   html += `<div class="card"><h3>Règles de course <small>RCV / RRS 2025-2028</small></h3><p class="small">Départs (P, I, U, Z, noir), priorités, bouées, arrivée et pénalités, en langage simple avec schémas et textes officiels FR / EN.</p>
     <div class="btns" style="margin:0"><a class="btn acc small" href="regles.html" target="_blank" rel="noopener">📘 Ouvrir les règles</a><a class="btn alt small" href="regles.html#depart" target="_blank" rel="noopener">Pavillons de départ</a><a class="btn alt small" href="regles.html#bouees" target="_blank" rel="noopener">Bouées</a><a class="btn alt small" href="regles.html#arbitre" target="_blank" rel="noopener">💬 Demander à l’arbitre</a></div></div>
-  <div class="card"><h3>Pavillons de classe <small>habituels CVAT</small></h3><table class="t">${IC.classes.map((c) => `<tr><td>${esc(c[0])}</td><td>${esc(c[1])}</td></tr>`).join('')}</table></div>`;
+  <div class="card"><h3>Pavillons de classe${toulon ? ' <small>habituels CVAT</small>' : ''}</h3><table class="t">${IC.classes.map((c) => `<tr><td>${esc(c[0])}</td><td>${esc(c[1])}</td></tr>`).join('')}</table></div>`;
   if (cur) html += `<div class="card"><h3>Points clés</h3><ul class="tips small">${(IC.keyRules || []).map((r) => `<li>${esc(r)}</li>`).join('') || '<li>Aucun point clé enregistré.</li>'}</ul>
     ${IC.text ? `<details><summary class="small">Texte complet des IC</summary><pre class="ictext">${esc(IC.text)}</pre></details>` : ''}
     <button class="btn small alt" id="evDel" style="margin-top:8px">Supprimer cette régate</button></div>`;
-  html += `<div class="card"><h3>Marques <small>cahier de parcours CVAT</small></h3><table class="t"><tr><th>N°</th><th>Marque</th><th>Position</th></tr>${Object.entries(MARKS).filter(([k]) => cvatKey(k)).map(([k, m]) => marksRow(k, m)).join('')}</table>
-    <div class="small muted" style="margin-top:6px">« à confirmer » = position approximative (cartes du cahier ou OpenStreetMap) : à vérifier sur zone, le Comité fait foi. Un recalage est partagé avec l’équipage à la synchronisation suivante, hors course.</div></div>
-  <div class="card"><h3>Dangers</h3><ul class="tips small"><li><b>Zone interdite</b> de la presqu’île de Saint-Mandrier (zone Marine nationale, rouge sur la carte).</li>${DANGERS.map((d) => `<li><b>${esc(d.name)}</b> (${fmtLat(d.lat)} ${fmtLon(d.lon)}) : ${esc(d.note)}</li>`).join('')}</ul></div>`;
+  // cahier CVAT, recalages et zone de Saint-Mandrier : Toulon seulement (D-12) ; ailleurs, les dangers du plan d’eau
+  if (toulon) html += `<div class="card"><h3>Marques <small>cahier de parcours CVAT</small></h3><table class="t"><tr><th>N°</th><th>Marque</th><th>Position</th></tr>${Object.entries(MARKS).filter(([k]) => cvatKey(k)).map(([k, m]) => marksRow(k, m)).join('')}</table>
+    <div class="small muted" style="margin-top:6px">« à confirmer » = position approximative (cartes du cahier ou OpenStreetMap) : à vérifier sur zone, le Comité fait foi. Un recalage est partagé avec l’équipage à la synchronisation suivante, hors course.</div></div>`;
+  html += `<div class="card"><h3>Dangers</h3><ul class="tips small">${toulon ? '<li><b>Zone interdite</b> de la presqu’île de Saint-Mandrier (zone Marine nationale, rouge sur la carte).</li>' : ''}${DANGERS.map((d) => `<li><b>${esc(d.name)}</b> (${fmtLat(d.lat)} ${fmtLon(d.lon)}) : ${esc(d.note)}</li>`).join('') || (toulon ? '' : '<li>Aucun danger enregistré pour ce plan d’eau : suivez la carte marine.</li>')}</ul></div>`;
   el.innerHTML = html;
   bindMarksEdit(el);
   $('#rgSyncBtn').onclick = () => syncNow('manuel');

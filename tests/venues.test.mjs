@@ -11,6 +11,9 @@ import { BREST } from '../js/venue-brest.js';
 import { buildLegs } from '../js/tactics.js';
 import { parseLatLon } from '../js/marks.js';
 import { checkPos } from '../js/icplaus.js';
+import * as weather from '../js/weather.js';
+import { WindField } from '../js/wind.js';
+import { fixture } from './helpers/setup.mjs';
 import { BANANE } from '../js/banane.js';
 
 // ───────── Toulon (défaut)
@@ -149,6 +152,80 @@ test('checkPos : bornes du plan d’eau en paramètre ; Toulon par défaut (v42)
   for (const m of GPEN) assert.equal(checkPos(m.lat, m.lon, { bounds: BREST.bounds }).level, 'ok', m.name);
 });
 
+// ───────── Météo et champ de vent par plan d’eau (D-13, D-14, D-14b)
+
+// Cale réseau et stockage : enregistre les URL demandées, rend des réponses factices ; tout est rendu à la fin (try/finally de l’appelant)
+function cales() {
+  const urls = [], store = new Map(), avant = { fetch: globalThis.fetch, ls: globalThis.localStorage };
+  globalThis.localStorage = { getItem: (k) => (store.has(k) ? store.get(k) : null), setItem: (k, v) => store.set(k, String(v)), removeItem: (k) => store.delete(k) };
+  globalThis.fetch = async (url) => {
+    const u = String(url);
+    urls.push(u);
+    if (!/^https?:/.test(u)) return avant.fetch(url);
+    const body = /pioupiou/.test(u) ? { data: [] } : { hourly: { time: [] } };
+    return { ok: true, status: 200, json: async () => body };
+  };
+  return { urls, store, rendre: () => { globalThis.fetch = avant.fetch; if (avant.ls === undefined) delete globalThis.localStorage; else globalThis.localStorage = avant.ls; } };
+}
+
+test('météo de Toulon (défaut) : requête marine et balises de la v42, clé rade.wx.v1, instantané data/wx-snapshot.json', async () => {
+  const c = cales();
+  try {
+    const d = await weather.fetchAll();
+    assert.equal(c.urls.length, 3);
+    assert.ok(c.urls.some((u) => u.startsWith('https://marine-api.open-meteo.com/v1/marine?latitude=43.06&longitude=5.96&hourly=')));
+    assert.ok(c.urls.every((u) => !u.includes('cell_selection')), 'pas de cell_selection à Toulon');
+    assert.ok(c.urls[0].includes('latitude=43.085&longitude=5.958&'));
+    assert.deepEqual([...c.store.keys()], ['rade.wx.v1']);
+    assert.deepEqual(weather.cached(), JSON.parse(JSON.stringify(d)));
+    c.urls.length = 0;
+    assert.deepEqual(await weather.fetchLive(), []);
+    assert.deepEqual(c.urls, ['https://api.pioupiou.fr/v1/live/all']);
+    c.urls.length = 0;
+    assert.deepEqual(await weather.snapshot(), JSON.parse(fixture('../../data/wx-snapshot.json')));
+    assert.deepEqual(c.urls, ['data/wx-snapshot.json']);
+  } finally { c.rendre(); }
+  assert.equal(weather.GRID.length, 24);
+  assert.deepEqual(weather.CENTER, { lat: 43.085, lon: 5.958 });
+});
+
+test('configureWeather avec le descripteur de Toulon : GRID et CENTER identiques à la v42', () => {
+  const g = JSON.stringify(weather.GRID), ce = JSON.stringify(weather.CENTER);
+  weather.configureWeather(VENUES.toulon.weather);
+  assert.equal(JSON.stringify(weather.GRID), g);
+  assert.equal(JSON.stringify(weather.CENTER), ce);
+});
+
+// Terrain factice de 5 × 6 km : une côte haute à l’Ouest (x < 1 500 m), la mer ailleurs (au plus 3,5 km d’une terre)
+const FAUX = { x0: 0, x1: 5000, y0: 0, y1: 6000, height: (x) => (x < 1500 ? 200 : -10), coverAt: (x) => (x < 1500 ? 1 : 0) };
+const memes = (a, b) => a.length === b.length && a.every((v, i) => Object.is(v, b[i]));
+
+test('WindField : défauts = maille 150 m et seuil 4 000 m (v42) ; { cell: 300 } a quatre fois moins de cellules', async () => {
+  const T = await new geo.Terrain().load('data/');
+  const a = new WindField(T), b = new WindField(T, {}), c = new WindField(T, { cell: 150, openSea: 4000 });
+  assert.equal(a.cell, 150); assert.equal(a.openSea, 4000);
+  for (const f of [b, c]) {
+    assert.equal(f.nx, a.nx); assert.equal(f.ny, a.ny);
+    assert.ok(memes(f.distLand, a.distLand) && memes(f.k, a.k) && memes(f.land, a.land));
+  }
+  assert.deepEqual([a.nx, a.ny], [163, 133]);
+  const d = new WindField(T, { cell: 300 });
+  const r = (a.nx * a.ny) / (d.nx * d.ny);
+  assert.ok(r > 3.9 && r < 4.1, `rapport ${r}`);
+  assert.ok(Math.abs(d.dx - 300) < 5 && Math.abs(d.dy - 300) < 5);
+});
+
+test('WindField : seul `openSea` choisit les cellules de référence (mer à plus de openSea m d’une terre)', () => {
+  const kit = (o) => new WindField(FAUX, o).kit(270);
+  const loin = new WindField(FAUX).distLand.reduce((m, v) => (v < 1e8 ? Math.max(m, v) : m), 0);   // la cellule de mer la plus éloignée
+  assert.ok(loin > 3000 && loin < 4000, `distance maximale ${loin}`);
+  const aucune = kit({}), aucune2 = kit({ openSea: loin + 1 });          // aucune cellule au-delà : référence 1 dans les deux cas
+  assert.ok(memes(aucune.fac, aucune2.fac));
+  const proche = kit({ openSea: 1500 }), proche2 = kit({ openSea: 1501 }); // mêmes cellules (maille de 150 m) : même référence
+  assert.ok(memes(proche.fac, proche2.fac));
+  assert.ok(!memes(aucune.fac, proche.fac), 'un autre jeu de cellules change la référence');
+});
+
 // ───────── Passage à Brest (une fois pour toute la suite du fichier)
 
 test('setVenue(\'brest\') : origine de Brest, exports vivants du catalogue de Brest', () => {
@@ -192,4 +269,41 @@ test('moteur de bout en bout à Brest (sans terrain) : banane sur la ligne de la
   assert.ok(Math.abs(geo.norm180(geo.bearingXY(r.line.c, B) - 270)) < 1e-6);
   const ll = geo.toLL(B.x, B.y);
   assert.equal(venueAt(ll.lat, ll.lon), 'brest');
+});
+
+test('météo de Brest : zone A en cell_selection=sea, 20 points, aucune requête marine ni Pioupiou, clé rade.wx.brest.v1', async () => {
+  weather.configureWeather(BREST.weather);
+  assert.equal(weather.GRID.length, 20);
+  assert.deepEqual(weather.CENTER, { lat: 48.298, lon: -4.3605 });
+  const c = cales();
+  try {
+    const d = await weather.fetchAll();
+    assert.equal(c.urls.length, 2, 'prévisions multi-modèles et grille seulement');
+    assert.ok(c.urls.every((u) => u.startsWith('https://api.open-meteo.com/v1/forecast?') && u.endsWith('&cell_selection=sea')));
+    assert.ok(c.urls[0].includes('latitude=48.298&longitude=-4.3605&'));
+    const lats = new URL(c.urls[1]).searchParams.get('latitude').split(','), lons = new URL(c.urls[1]).searchParams.get('longitude').split(',');
+    assert.equal(lats.length, 20); assert.equal(lons.length, 20);
+    assert.deepEqual([...new Set(lats)], ['48.275', '48.295', '48.315', '48.335']);
+    assert.deepEqual([...new Set(lons)], ['-4.46', '-4.42', '-4.38', '-4.34', '-4.3']);
+    assert.ok(!c.urls.some((u) => /marine-api|pioupiou/.test(u)));
+    assert.equal(d.marine, null);
+    assert.deepEqual([...c.store.keys()], ['rade.wx.brest.v1']);
+    assert.deepEqual(weather.cached(), JSON.parse(JSON.stringify(d)));
+    c.store.delete('rade.wx.brest.v1'); c.store.set('rade.wx.v1', '{"de":"Toulon"}');
+    assert.equal(weather.cached(), null, 'le cache de Toulon n’est jamais lu à Brest');
+  } finally { c.rendre(); }
+});
+
+test('météo de Brest : aucune balise (fetchLive rend [] sans requête), instantané data/brest.wx-snapshot.json (null s’il manque)', async () => {
+  const c = cales();
+  try {
+    assert.deepEqual(await weather.fetchLive(), []);
+    assert.deepEqual(c.urls, []);
+    assert.equal(await weather.snapshot(), null);
+    assert.deepEqual(c.urls, ['data/brest.wx-snapshot.json']);
+  } finally { c.rendre(); }
+});
+
+test('météo de Brest : marineAt sans réponse marine rend null (pas de carte « État de la mer »)', () => {
+  assert.equal(weather.marineAt({ marine: null }, '2026-12-05T10:00'), null);
 });

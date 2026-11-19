@@ -491,13 +491,13 @@ export async function narrative(an, ans) {
 }
 
 // ───────────────────────── rapport HTML autonome
-async function mapImage(an, P, meta) {
+async function mapImage(an, P, meta, base = 'data/') {
   const pts = P.filter((p) => p.t >= an.tStart - 5 * 60000 && p.t <= an.tFin + 2 * 60000);
   const lats = pts.map((p) => p.lat), lons = pts.map((p) => p.lon);
   an.legs.forEach((L) => { const m = (an.table || MARKS)[L.mk]; lats.push(m.lat); lons.push(m.lon); });
   let S = Math.min(...lats), N = Math.max(...lats), Wl = Math.min(...lons), E = Math.max(...lons);
   const padY = (N - S) * 0.12 + 0.002, padX = (E - Wl) * 0.12 + 0.003; S -= padY; N += padY; Wl -= padX; E += padX;
-  const img = new Image(); img.src = 'data/basemap.jpg';
+  const img = new Image(); img.src = base + 'basemap.jpg';
   try { await img.decode(); } catch { return { bbox: [Wl, E, S, N], url: null, w: 1000, h: 800 }; }
   const px = (lon) => (lon - meta.west) / (meta.east - meta.west) * img.naturalWidth, py = (lat) => (meta.north - lat) / (meta.north - meta.south) * img.naturalHeight;
   const sw = px(E) - px(Wl), sh = py(S) - py(N), w = 1000, h = Math.round(w * sh / sw);
@@ -518,7 +518,7 @@ ${ang ? `<ul class="list">${ang}</ul>` : ''}
 }
 
 export async function buildReport(an, ans, nar, det, api) {
-  const P = det.P, map = await mapImage(an, P, api.meta);
+  const P = det.P, map = await mapImage(an, P, api.meta, api.files?.base);
   const [Wl, E, S, N] = map.bbox, X = (lon) => ((lon - Wl) / (E - Wl) * map.w).toFixed(1), Y = (lat) => ((N - lat) / (N - S) * map.h).toFixed(1);
   const col = (v) => v < 2 ? '#c92a2a' : v < 3.5 ? '#c27c0e' : v < 5 ? '#0d6e8a' : '#2b8a3e';
   const race = P.filter((p, i) => p.t >= an.tStart && p.t <= an.tFin && i % 3 === 0);

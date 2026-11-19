@@ -46,5 +46,10 @@ export const BREST = Object.freeze({
   DANGERS: [],
   regimes: [],             // rempli en 07-06 (étude § 3.6)
   presets: null,
-  texts: { centre: 'centre de la zone A' },
+  texts: { centre: 'centre de la zone A', point: 'centre de la zone A', relief: 'accélérations aux pointes et dans le goulet' },
+  // autres sources (onglet Vent) : liens neutres, sans balise de Toulon
+  links: [
+    ['Bulletin côtier Météo-France', 'https://meteofrance.com/previsions-meteo-marine/bulletin/cotier'],
+    ['Windy', 'https://www.windy.com/48.30/-4.36?48.30,-4.36,11'],
+  ],
 });

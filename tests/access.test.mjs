@@ -349,6 +349,12 @@ test('toute adresse de même origine demandée par l’app est servie par la lis
   const base = /base\s*=\s*'([^']+)'/.exec(geo)?.[1];
   assert.ok(base, 'js/geo.js doit nommer le dossier des données');
   for (const m of geo.matchAll(/fetch\(\s*base\s*\+\s*'([^']+)'/g)) noter(base + m[1], '/', 'js/geo.js');
+  // plans d’eau (phase 7) : instantané météo et préfixe des fichiers lus dans les descripteurs (js/venues.js, js/venue-brest.js, js/weather.js)
+  for (const f of jsFiles) {
+    const src = lu('js/' + f);
+    for (const m of src.matchAll(/\bsnapshot:\s*'([^']+)'/g)) noter(m[1], '/', f + ' plan d’eau');
+    for (const m of src.matchAll(/\bbase:\s*'([^']+)'/g)) for (const g of geo.matchAll(/fetch\(\s*base\s*\+\s*'([^']+)'/g)) noter(m[1] + g[1], '/', f + ' plan d’eau');
+  }
   for (const f of ['index.html', 'guide.html', 'regles.html', 'acces.html']) {
     for (const m of lu(f).matchAll(/(?<![-\w])(?:src|href)=["']([^"']+)["']/g)) noter(m[1], '/', f);
   }

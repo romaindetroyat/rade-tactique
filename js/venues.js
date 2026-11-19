@@ -35,6 +35,7 @@ const TOULON = Object.freeze({
   regimes: null,          // null = REGIMES de js/tactics.js
   presets: null,
   texts: null,
+  links: null,             // liens « Autres sources » de la v42
 });
 
 export const VENUES = Object.freeze({ toulon: TOULON, brest: BREST });

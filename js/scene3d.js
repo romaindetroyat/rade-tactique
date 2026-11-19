@@ -39,8 +39,11 @@ function makeLabel(text, opts = {}, px = 22) {
 }
 
 export class Scene3D {
-  constructor(el, terrain) {
+  // opts (plan d’eau) : home = cadrage initial { target, dist, tilt, portrait: { target, dist, tilt } } en mètres depuis l’origine,
+  // files.base = préfixe des textures ; absents : cadrage et fichiers de Toulon (v42)
+  constructor(el, terrain, { home = null, files = null } = {}) {
     this.el = el; this.t = terrain;
+    this.homeCfg = home; this.base = files?.base ?? 'data/';
     this.exag = 1.6;
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -69,7 +72,10 @@ export class Scene3D {
     this.resize();
     window.addEventListener('resize', () => this.resize());
     const pn = document.getElementById('panel'); if (pn && 'ResizeObserver' in window) new ResizeObserver(() => this.updateInsets()).observe(pn);
-    if (this.camera.aspect < 1) this.home({ x: 900, y: -5200 }, 30000, 0.5); else this.home();
+    const hc = this.homeCfg;
+    if (!hc) { if (this.camera.aspect < 1) this.home({ x: 900, y: -5200 }, 30000, 0.5); else this.home(); }
+    else if (this.camera.aspect < 1 && hc.portrait) this.home(hc.portrait.target, hc.portrait.dist, hc.portrait.tilt ?? 0.5);
+    else this.home(hc.target, hc.dist, hc.tilt ?? 0.85);
     this.clock = new THREE.Clock();
     this.controls.addEventListener('change', () => { this.needRibbons = true; this.onCamera?.(); });
     this.#bindPick();
@@ -159,7 +165,7 @@ export class Scene3D {
     if (!this.terrainMat) {
       // fond de carte HD (≈ 6 m/pixel) : côte OSM nette, ombrage du relief, fonds marins
       this.terrainMat = new THREE.MeshLambertMaterial({ color: '#b9b49a' });
-      new THREE.TextureLoader().load('data/basemap.jpg', (tex) => {
+      new THREE.TextureLoader().load(this.base + 'basemap.jpg', (tex) => {
         tex.colorSpace = THREE.SRGBColorSpace;
         tex.anisotropy = Math.min(8, this.renderer.capabilities.getMaxAnisotropy());
         this.terrainMat.map = tex; this.terrainMat.color.set('#ffffff'); this.terrainMat.needsUpdate = true;
@@ -192,7 +198,7 @@ export class Scene3D {
     this.waterTex.colorSpace = THREE.SRGBColorSpace; this.waterTex.magFilter = THREE.LinearFilter;
     const g = new THREE.PlaneGeometry(T.x1 - T.x0, T.y1 - T.y0);
     g.rotateX(-Math.PI / 2);
-    this.seaMask = new THREE.TextureLoader().load('data/seamask.png', () => { this.waterMat.needsUpdate = true; this.plainMat.needsUpdate = true; });
+    this.seaMask = new THREE.TextureLoader().load(this.base + 'seamask.png', () => { this.waterMat.needsUpdate = true; this.plainMat.needsUpdate = true; });
     this.waterMat = new THREE.MeshBasicMaterial({ map: this.waterTex, alphaMap: this.seaMask, transparent: true, opacity: 0.9, depthWrite: false });
     const m = new THREE.Mesh(g, this.waterMat);
     m.position.set((T.x0 + T.x1) / 2, 0, -(T.y0 + T.y1) / 2);
