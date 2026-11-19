@@ -154,6 +154,26 @@ test('à terre, hors de la grille, hors des années de marée : null, jamais NaN
   }
 });
 
+test('conseils de Brest d’origine « courant » (07-06) recoupés avec l’atlas : zone A, 0,75 nd, flot vers l’est, jusant vers l’ouest', () => {
+  // moyenne vectorielle des nœuds en mer du cercle de 0,6 mille de la zone A, vive-eau (étude § 4.3 : 0,75 nd vers 092° à PM−4 h, 0,76 nd vers 270° à PM+4 h)
+  const kx = Math.cos(48.3 * Math.PI / 180) * 111320, moy = (hm) => {
+    let su = 0, sv = 0, n = 0;
+    for (let j = 0; j < g.nj; j++) for (let i = 0; i < g.ni; i++) {
+      const la = g.lat0 + j * g.dlat, lo = g.lon0 + i * g.dlon;
+      if (Math.hypot((lo + 4.3605) * kx, (la - 48.29817) * 110574) > 1111) continue;
+      const c = courantEn(A, maree(hm, 5.90), la, lo);
+      if (c) { su += c.u; sv += c.v; n++; }
+    }
+    return { u: su / n, v: sv / n, n };
+  };
+  const flot = moy(-4), jusant = moy(4);
+  assert.ok(flot.n > 350);
+  assert.ok(Math.abs(nd(flot) - 0.75) <= 0.05 && ecartCap(cap(flot), 92) <= 5, `flot ${nd(flot).toFixed(2)} nd vers ${cap(flot).toFixed(0)}°`);
+  assert.ok(Math.abs(nd(jusant) - 0.76) <= 0.05 && ecartCap(cap(jusant), 270) <= 5, `jusant ${nd(jusant).toFixed(2)} nd vers ${cap(jusant).toFixed(0)}°`);
+  const tips = BREST.regimes.flatMap((r) => r.tips).filter((t) => t.o === 'C').map((t) => t.t).join(' ');
+  assert.match(tips, /0,75 nd/); assert.match(tips, /le jusant porte à l’ouest/); assert.match(tips, /le flot porte à l’est/);
+});
+
 test('fonds vrais (EMODnet, zéro des cartes) : zone A vers −8,7 m, goulet au Portzic plus profond que −25 m', () => {
   const a = fondEn(A, 48.29817, -4.3605);
   assert.ok(Math.abs(a - -8.7) <= 1.5, `zone A ${a} m`);

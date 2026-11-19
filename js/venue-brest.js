@@ -213,6 +213,8 @@ export const BREST = Object.freeze({
   files: { base: 'data/brest.' },
   // marée calculée dans l’app (D-13) : harmoniques du marégraphe de Brest (tools/build_maree.py, js/maree.js), fichier du pack
   maree: 'data/brest.maree.json',
+  // courant de l’atlas 560 du Shom et fonds vrais (D-13, D-14c) : tools/build_courants.py, js/courant.js ; utilisés par le routage en 07-08
+  courant: { header: 'data/brest.courants.json', bin: 'data/brest.courants.bin', fonds: 'data/brest.fonds.bin' },
   weather: {
     center: { lat: 48.298, lon: -4.3605 },
     grid: GRID,

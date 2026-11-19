@@ -2,8 +2,8 @@
  "v": 1,
  "venues": {
   "brest": {
-   "pack": "4b0d009afc",
-   "bytes": 3660465,
+   "pack": "fc8e2a0d85",
+   "bytes": 4673496,
    "files": [
     {
      "path": "data/brest.basemap.jpg",
@@ -16,9 +16,24 @@
      "sha256": "8e522cd04296d2b3784b160bb20cfc22104fc1398f7a1dee7a5fd56092f57736"
     },
     {
+     "path": "data/brest.courants.bin",
+     "bytes": 910946,
+     "sha256": "7ee0f96e105f3aeb7d3359971107a3db77c2d98bdca2041e6f5b8cb986e5c27b"
+    },
+    {
+     "path": "data/brest.courants.json",
+     "bytes": 1257,
+     "sha256": "b7e8461d8e5ae86eefae01e7bd5f9a3b5cdc884e7173313269376a17598b7f2d"
+    },
+    {
      "path": "data/brest.cover.bin",
      "bytes": 840564,
      "sha256": "014a9bf67a4ccebb556fbb3e5429e7d91323b23d466929ac3cafacc4e8dc479a"
+    },
+    {
+     "path": "data/brest.fonds.bin",
+     "bytes": 100828,
+     "sha256": "c99853c022638b4b3acc3bbbb62ec87699de060dc3ac87a358fce3c2ba21aed1"
     },
     {
      "path": "data/brest.maree.json",
