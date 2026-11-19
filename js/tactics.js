@@ -235,15 +235,26 @@ export function legSamples(leg, routePath = []) {
 // points, dans le même état du champ (field.gen, +1 à chaque WindField.compute) et avec les mêmes options n’est pas recalculée : c’est le
 // même résultat (le même objet), donc les mêmes bords, temps et conseils. Sert au bord de porte retenu (déjà routé par adviseGate), au bord
 // qui en part, et aux bords identiques d’un tour à l’autre. Sans ctx.memo : route() à chaque appel, comme avant.
+// Avec courant (Brest, opts.current) : la clé ajoute l’heure de départ arrondie à 5 min (le courant change avec l’heure) ; sans courant,
+// clé et comparaison de la v42.
 export function routeOf(from, to, field, opts, ctx) {
   const memo = ctx?.memo;
   if (!memo) return route(from, to, field, opts);
-  const k = `${field.gen ?? 0}|${from.x},${from.y}|${to.x},${to.y}|${opts.perf}|${opts.tackLoss}|${opts.gybeLoss}`;
+  let k = `${field.gen ?? 0}|${from.x},${from.y}|${to.x},${to.y}|${opts.perf}|${opts.tackLoss}|${opts.gybeLoss}`;
+  if (opts.current) k += `|${Math.round((opts.t0 ?? 0) / 300000)}`;
   const m = memo.get(k);
-  if (m && m.field === field && m.terrain === opts.terrain && m.forbidden === opts.forbidden) return m.r;
+  if (m && m.field === field && m.terrain === opts.terrain && m.forbidden === opts.forbidden && m.current === opts.current && m.depth === opts.depth) return m.r;
   const r = route(from, to, field, opts);
-  memo.set(k, { field, terrain: opts.terrain, forbidden: opts.forbidden, r });
+  memo.set(k, { field, terrain: opts.terrain, forbidden: opts.forbidden, current: opts.current, depth: opts.depth, r });
   return r;
+}
+
+// Options de routage d’une analyse : celles de la v42 ; à Brest seulement (ctx.current, ctx.depth), le courant, la hauteur d’eau et
+// l’instant de départ du bord (ms UTC, ctx.t0 sauf t0 donné)
+export function routeOpts(ctx, t0 = ctx?.t0) {
+  const o = { terrain: ctx.terrain, forbidden: ctx.forbidden, perf: ctx.perf ?? 1 };
+  if (ctx.current || ctx.depth) { o.current = ctx.current ?? null; o.depth = ctx.depth ?? null; o.t0 = t0 ?? 0; }
+  return o;
 }
 
 // ───────────────────────── Analyse d’un bord
@@ -282,7 +293,7 @@ export function analyzeLeg(leg, field, ctx) {
   const spd = Math.hypot(su, sv) / (N + 1), dir = norm360(Math.atan2(-su, -sv) * 180 / Math.PI), gust = sg / (N + 1), shelter = ssh / (N + 1);
   const twa = norm180(leg.brg - dir);
   const type = legType(twa, spd);
-  const r = routeOf(leg.from, leg.to, field, { terrain: ctx.terrain, forbidden: ctx.forbidden, perf: ctx.perf ?? 1 }, ctx);
+  const r = routeOf(leg.from, leg.to, field, routeOpts(ctx), ctx);
   const time = r ? r.time : leg.dist / (Math.max(1, boatSpeed(spd, twa)) * 0.5144);
   const sides = sideSample(field, leg);
   const dP = sides.right.spd - sides.left.spd; // >0 : plus de vent à droite
@@ -340,17 +351,19 @@ const FALLBACK_KN = 4;              // repli quand le routage n’aboutit pas : 
 // Gauche et droite sont vues par les bateaux qui arrivent ; tendance > 0 (rotation à droite) → au près suivant le côté droit du plan d’eau,
 // c’est la bouée gauche en regardant sous le vent.
 export function adviseGate(leg, nextTo, field, ctx = {}) {
-  const opts = { terrain: ctx.terrain, forbidden: ctx.forbidden, perf: ctx.perf ?? 1 };
+  const opts = routeOpts(ctx);
   const rf = ctx.routeFn ?? ((a, b, f, o) => routeOf(a, b, f, o, ctx));
-  const trip = (a, b) => {
+  const trip = (a, b, o = opts) => {
     const d = distXY(a, b);
     if (d < 20) return 0;
-    const t = rf(a, b, field, opts)?.time;
+    const t = rf(a, b, field, o)?.time;
     return Number.isFinite(t) ? t : d / (FALLBACK_KN * 0.5144);
   };
+  // bord suivant : avec courant, il part à l’arrivée du premier (même objet d’options sans courant, comme en v42)
+  const then = (a, b, t1) => (opts.current ? trip(a, b, { ...opts, t0: opts.t0 + t1 * 1000 }) : trip(a, b));
   const { g, d } = leg.gate;
-  const tg = trip(leg.from, g) + (nextTo ? trip(g, nextTo) : 0);
-  const td = trip(leg.from, d) + (nextTo ? trip(d, nextTo) : 0);
+  const t1g = trip(leg.from, g), tg = t1g + (nextTo ? then(g, nextTo, t1g) : 0);
+  const t1d = trip(leg.from, d), td = t1d + (nextTo ? then(d, nextTo, t1d) : 0);
   const gain = Math.abs(tg - td), equal = gain < GATE_EQUAL_S, trend = ctx.trend || 0;
   let pick, why;
   if (!equal) { pick = tg <= td ? 'g' : 'd'; why = 'routage'; }

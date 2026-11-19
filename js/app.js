@@ -11,14 +11,15 @@ import { IA_IC, iaOffer, iaErrorMessage, reviewFromParse, reviewFromRegatta, rev
 import { stampState, markDirty, canon, legacyStamp } from './archmerge.js';
 import { migrate, seedNorm, KEY as REG_KEY, saveRegattas, createRegatta, upsertRegatta, removeRegatta, openRegatta, openAtBoot, openOnNewDay, regattaStatus, STATUS_LABEL, todayRegatta, icOf, groupByStatus, lockDates, daysOf, addRace, updateRace, removeRace, raceSettings, membre, saveMembre, backfillAuthor } from './regates.js';
 import { THROTTLE_MS, slotKey, freezeAction, obsNeedsCopy, stratNeedsCopy, sliceDays, freezeSummary, strategySummary, compactStrategy, windSourceKind, frozenLabel, parisInstant, clockOf } from './gel.js';
-import { extremes, coefApproche } from './maree.js';
+import { extremes, coefApproche, hauteur } from './maree.js';
+import { chargeAtlas, courantXY, profondeurOk } from './courant.js';
 import { putSlot, getSlot } from './regstore.js';
 import { listHTML, noRegattaHTML, newRegattaFormHTML, sheetHTML, venueCardHTML } from './regview.js';
 import { applyRegattaMarks, pendingMarks, confirmMark, moveMark, ignoreMark, allowedCourses, courseFallback, courseMismatch } from './regmarks.js';
 import { trackDay, matchRegattas, raceOfTrack, sameTrack, attachTrace, detachTrace, traceSummary, setTraceSummary, setTraceReport } from './attach.js';
 import { breaksOf } from './segments.js';
 import { fetchAll, cached, snapshot, consensus, gridPoints, marineAt, fetchLive, coversDay, MODELS, WMO, CENTER, configureWeather } from './weather.js';
-import { buildLegs, analyzeLeg, markAdvice, analyzeStart, trendOf, rankCourses, regimeOf, tipText, ORIGINES, sideName, summarizeTime, prepareLeg, gateText, routeOf } from './tactics.js';
+import { buildLegs, analyzeLeg, markAdvice, analyzeStart, trendOf, rankCourses, regimeOf, tipText, ORIGINES, sideName, summarizeTime, prepareLeg, gateText, routeOf, routeOpts } from './tactics.js';
 import { BANANE_ID, BANANE, addBanane, banOf, banToState, cleanBan, courseMarkUse, legReached, banHorsEau } from './banane.js';
 import { optimalAngles, boatSpeed, trimAdvice, spiMinTwa, getPolar, setPolar, resetPolar, parsePolar } from './polar.js';
 import { renderJ80 } from './j80.js';
@@ -195,6 +196,7 @@ async function init() {
   renderStatic();                                      // onglets Prévisions, Vent, J80 et IC : sans la carte
   if (VENUE.id !== 'toulon' && !(await venueReady())) { venueMissing(); return; }   // pack du plan d’eau absent et pas téléchargeable : pas de carte (D-04)
   if (VENUE.maree) { MAREE = await loadMaree(VENUE.maree); renderBrief(); }          // marée du plan d’eau (Brest, D-13), lue dans le pack ; Toulon n’en a pas
+  if (VENUE.courant) ATLAS = loadAtlas(VENUE.courant);                               // atlas de courant (Brest) : lu en tâche de fond, attendu par l’analyse
   const { Scene3D } = await import('./scene3d.js');
   T = await new Terrain().load(VENUE.files.base);
   F = new WindField(T, VENUE.wind);
@@ -234,6 +236,26 @@ async function loadMaree(path) {
     return ok ? P : null;
   } catch (e) { report('maree', e); return null; }
 }
+// Atlas de courant du plan d’eau (D-13) : promesse de l’atlas décodé, ou de null si un fichier manque ou est illisible (routage sans courant)
+let ATLAS = null, CUR = null;
+async function loadAtlas(f) {
+  try {
+    const [h, b, d] = await Promise.all([fetch(f.header), fetch(f.bin), fetch(f.fonds)]);
+    if (!h.ok || !b.ok || !d.ok) return null;
+    return chargeAtlas(await h.json(), await b.arrayBuffer(), await d.arrayBuffer());
+  } catch (e) { report('courant', e); return null; }
+}
+// Courant pour l’analyse (Brest seulement) : { A, current, depth } ou { raison } quand il manque ; Toulon : null (jamais d’option de courant)
+async function courantCtx(day, h) {
+  if (!VENUE.courant) return null;
+  const A = await ATLAS;
+  if (!A || !MAREE) return { raison: 'Courant de marée indisponible (fichier du plan d’eau manquant ou illisible) : temps calculés sans courant.' };
+  if (hauteur(MAREE, parisAt(day, h)) == null) return { raison: 'Pas de marée calculée pour ce jour (2026 à 2031) : temps calculés sans courant.' };
+  if (!CUR || CUR.A !== A) CUR = { A, current: courantXY(A, MAREE), depth: profondeurOk(A, MAREE) };
+  return CUR;
+}
+// Instant (ms UTC) du jour `day` à l’heure décimale `h` de Paris
+const parisAt = (day, h) => parisInstant(day, Math.floor(h), 0) + (h - Math.floor(h)) * 3600e3;
 const fmtM = (h, d = 2) => `${h.toFixed(d).replace('.', ',')} m`;
 // Carte « Marée à Brest » du jour choisi : pleines et basses mers (heure de Paris, hauteur au-dessus du zéro des cartes), marnage et
 // coefficient approché de chaque pleine mer (pleine mer moins la moyenne des basses mers qui l’encadrent, étude § 4.2), source
@@ -510,12 +532,16 @@ async function runAnalysis() {
   const horsEau = course.built === 'BAN' ? banHorsEau(B, (p) => !T.inside(p.x, p.y) || T.isLand(p.x, p.y) || forbidden.some((poly) => pointInPolygon(p, poly))) : [];
   const trend = S.src === 'forecast' && data ? trendOf(series, Math.max(0, seriesIndex(S.day, S.startTime)), Math.max(0, seriesIndex(S.day, S.startTime + 4))) : 0;
   const ctx = { terrain: T, forbidden, perf: S.perf, trend, memo: new Map() };          // memo : routes de cette analyse (routeOf), jamais recalculées
+  // Brest : courant de l’atlas et hauteur d’eau dans le routage, à l’heure de chaque bord (D-13, D-14c) ; Toulon : contexte de la v42
+  const cur = VENUE.courant ? await courantCtx(S.day, S.startTime) : null;
+  if (token !== anaToken) return;
+  if (cur?.current) Object.assign(ctx, { current: cur.current, depth: cur.depth, t0: parisAt(S.day, S.startTime) });
   const start = analyzeStart(B.line, F, { ...B.legs[0] }, ctx);
   // le premier bord part du point de la ligne qui mène le plus vite à la 1re marque
   const L0 = B.line, first = B.legs[0], cands = [];
   for (const f of [0, 0.25, 0.5, 0.75, 1]) {
     const p = { x: L0.pin.x + (L0.cb.x - L0.pin.x) * f, y: L0.pin.y + (L0.cb.y - L0.pin.y) * f };
-    const r = routeOf(p, first.to, F, { terrain: T, forbidden, perf: ctx.perf ?? 1 }, ctx);          // la route du point retenu resservira au 1er bord
+    const r = routeOf(p, first.to, F, routeOpts(ctx), ctx);          // la route du point retenu resservira au 1er bord
     if (r) cands.push({ f, p, time: r.time });
   }
   if (cands.length) {
@@ -531,6 +557,7 @@ async function runAnalysis() {
   for (const [k, leg] of B.legs.entries()) {
     if (token !== anaToken) return;
     if (S.src === 'forecast' && Math.abs(t - lastH) >= 0.25) { computeField(S.day, t); lastH = t; }
+    if (ctx.current) ctx.t0 = parisAt(S.day, t);          // courant à l’heure du départ du bord
     // porte conseillée avec le vent de l’heure du bord (D-05) ; après une porte, le bord part de la bouée retenue
     prepareLeg(leg, legs[legs.length - 1], B.legs[k + 1], F, ctx);
     const a = analyzeLeg(leg, F, ctx);
@@ -542,6 +569,7 @@ async function runAnalysis() {
   let ord = 0;
   legs.forEach((l) => { if (l.mark !== 'GATE' && l.mark !== 'FINISH') l.order = ++ord; });
   analysis = { course, cls, legs, line: B.line, points: B.points, start, total: t - S.startTime, dist: legs.reduce((s, l) => s + l.dist, 0), trend, day: S.day, cfg: stratSettings(cls), finishLine: B.finishLine ?? null, horsEau };
+  if (cur) analysis.courant = cur.current ? { ok: true } : { ok: false, raison: cur.raison };     // Brest seulement : Toulon garde l’objet de la v42
   freezeTick('analyse');
   applyPendingEnds();
   updateDisplayField();
@@ -755,6 +783,7 @@ function renderBrief() {
         : 'Faites un relevé dès l’arrivée sur zone (onglet Parcours) : l’app retiendra le modèle qui colle.'));
     }
     tips.push(`Parcours ${analysis.course.id} estimé à <b>${summarizeTime(analysis.total * 3600)}</b> pour un J80 (${(analysis.dist / NM).toFixed(1)} Nq route directe).`);
+    if (analysis.courant) tips.push(analysis.courant.ok ? 'Temps de parcours avec le courant de marée (atlas du Shom).' : `<b>${esc(analysis.courant.raison)}</b>`);
     if (analysis.horsEau?.length) tips.push(`<b>⚠ ${esc(horsEauText(analysis.horsEau))}</b>`);
     for (const l of analysis.legs) if (l.gate) tips.push(`Tour ${esc(l.lap ?? 1)} · ${esc(gateText(l.gate))}`);         // porte conseillée à chaque passage (D-06)
     html += `<div class="card"><h3>Stratégie du jour ${tip('Synthèse automatique : rotation du vent attendue pendant la course, zones les plus ventées, désaccord entre modèles et temps estimé du parcours.')}</h3><ul class="tips">${tips.map((t) => `<li>${t}</li>`).join('')}</ul></div>`;
@@ -1434,12 +1463,15 @@ async function planRest() {
   if (!pos) { toast('Activez le GPS (ou touchez la carte → « Relevé de vent ici ») pour situer le bateau.'); return; }
   const t0 = S.day === today() ? nowHour() : analysis.legs[nextIdx].eta0;
   const ctx = { terrain: T, forbidden, perf: S.perf, trend: analysis.trend, memo: new Map() };
+  const cur = VENUE.courant ? await courantCtx(S.day, t0) : null;          // Brest : courant à l’heure de chaque bord ; Toulon : v42
+  if (cur?.current) Object.assign(ctx, { current: cur.current, depth: cur.depth });
   const legs = []; let t = t0, lastH = -1;
   for (let i = nextIdx; i < analysis.legs.length; i++) {
     const src = analysis.legs[i];
     const leg = { from: i === nextIdx ? { x: pos.x, y: pos.y, name: 'Bateau' } : legs[legs.length - 1].to, to: src.to, side: src.side, mark: src.mark, lap: src.lap, gate: src.gate ? { g: src.gate.g, d: src.gate.d } : undefined };
     leg.brg = bearingXY(leg.from, leg.to); leg.dist = distXY(leg.from, leg.to);
     if (S.src === 'forecast' && Math.abs(t - lastH) >= 0.25) { computeField(S.day, t); lastH = t; }
+    if (ctx.current) ctx.t0 = parisAt(S.day, t);
     // porte reconseillée depuis la position du bateau et le vent de l’heure ; le bord suivant part de la bouée retenue
     prepareLeg(leg, legs[legs.length - 1], analysis.legs[i + 1], F, ctx);
     const a = analyzeLeg(leg, F, ctx); a.order = src.order; a.eta0 = t; t += a.time / 3600; a.eta1 = t;

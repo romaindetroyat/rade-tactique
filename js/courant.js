@@ -3,6 +3,10 @@
 // Fonctions pures : ni horloge ni réseau ; la marée en cours vient de js/maree.js (mareeEn). Le courant est rendu en m/s, U vers l’est,
 // V vers le nord (jamais de direction stockée : atan2(U, V) donne la direction VERS laquelle il porte). Source : Shom, Licence Ouverte 2.0,
 // doi 10.17183/ATLASCOURANTS2D_NETCDF ; à n’utiliser qu’en complément des cartes et ouvrages nautiques officiels.
+// courantXY et profondeurOk (07-08) : les fonctions en XY de l’app attendues par le routage (js/router.js, options current et depth).
+
+import { toLL } from './geo.js';
+import { hauteur, mareeEn } from './maree.js';
 
 const H = 3600000;
 
@@ -103,4 +107,52 @@ export function fondEn(A, lat, lon) {
   const { ni } = A.grid, f = A.fonds, n = p.j * ni + p.i;
   const z = f[n] * (1 - p.tx) * (1 - p.ty) + f[n + 1] * p.tx * (1 - p.ty) + f[n + ni] * (1 - p.tx) * p.ty + f[n + ni + 1] * p.tx * p.ty;
   return Number.isFinite(z) ? z / 10 : null;
+}
+
+// ───────────────────────── Pour le routage (07-08)
+// Marée en cours avec mémoire : mareeEn balaie 28 h (≈ 2 ms) ; entre deux pleines mers (avant ≤ ms < après), avant, apres et entre ne
+// changent pas, seul t change : courantEn n’a besoin que de ces quatre champs. Instants sans marée (hors 2026-2031) retenus par tranche de 10 min.
+export function mareeMemo(P) {
+  let M = null;
+  const sans = new Set();
+  return (ms) => {
+    if (!Number.isFinite(ms)) return null;
+    if (M && M.avant.t <= ms && ms < M.apres.t) return { t: ms, avant: M.avant, apres: M.apres, entre: M.entre };
+    const k = Math.floor(ms / 600000);
+    if (sans.has(k)) return null;
+    const m = mareeEn(P, ms);
+    if (!m) { sans.add(k); return null; }
+    M = m;
+    return m;
+  };
+}
+
+// Courant en XY pour le routage : (x, y, ms) → { u, v } m/s ou null (à terre, hors de l’atlas, marée inconnue)
+export function courantXY(A, P) {
+  const maree = mareeMemo(P);
+  return (x, y, ms) => {
+    const M = maree(ms);
+    if (!M) return null;
+    const { lat, lon } = toLL(x, y);
+    return courantEn(A, M, lat, lon);
+  };
+}
+
+// Hauteur d’eau suffisante en XY (D-14c) : (x, y, ms) → vrai si hauteur de la marée − fond ≥ tirant d’eau + marge (J80 : 1,5 m, marge 1 m
+// tant que les fonds viennent d’EMODnet). Point hors de la grille des fonds ou marée inconnue : vrai (aucune donnée, règle de la terre seule).
+// Les hauteurs d’un même instant (tous les candidats d’un pas du routage) sont calculées une fois.
+export function profondeurOk(A, P, tirant = 1.5, marge = 1.0) {
+  const memo = new Map();
+  const haut = (ms) => {
+    let h = memo.get(ms);
+    if (h === undefined) { h = hauteur(P, ms); if (memo.size > 64) memo.clear(); memo.set(ms, h); }
+    return h;
+  };
+  return (x, y, ms) => {
+    const { lat, lon } = toLL(x, y);
+    const f = fondEn(A, lat, lon);
+    if (f == null) return true;
+    const h = haut(ms);
+    return h == null || h - f >= tirant + marge;
+  };
 }
