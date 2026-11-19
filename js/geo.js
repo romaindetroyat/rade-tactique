@@ -26,8 +26,15 @@ export const bearingXY = (a, b) => norm360(deg(Math.atan2(b.x - a.x, b.y - a.y))
 export const distXY = (a, b) => Math.hypot(b.x - a.x, b.y - a.y);
 export const fromBearing = (p, brg, dist) => ({ x: p.x + Math.sin(rad(brg)) * dist, y: p.y + Math.cos(rad(brg)) * dist });
 
-export const fmtLat = (lat) => { const d = Math.floor(lat); return `${d}°${((lat - d) * 60).toFixed(3).padStart(6, '0')}N`; };
-export const fmtLon = (lon) => { const d = Math.floor(lon); return `${String(d).padStart(3, '0')}°${((lon - d) * 60).toFixed(3).padStart(6, '0')}E`; };
+// Sud et Ouest (D-07) : degrés et minutes de la valeur absolue ; Nord et Est : expressions de la v42 inchangées
+export const fmtLat = (lat) => {
+  if (lat < 0) { const a = -lat, d = Math.floor(a); return `${d}°${((a - d) * 60).toFixed(3).padStart(6, '0')}S`; }
+  const d = Math.floor(lat); return `${d}°${((lat - d) * 60).toFixed(3).padStart(6, '0')}N`;
+};
+export const fmtLon = (lon) => {
+  if (lon < 0) { const a = -lon, d = Math.floor(a); return `${String(d).padStart(3, '0')}°${((a - d) * 60).toFixed(3).padStart(6, '0')}W`; }
+  const d = Math.floor(lon); return `${String(d).padStart(3, '0')}°${((lon - d) * 60).toFixed(3).padStart(6, '0')}E`;
+};
 export const fmtBrg = (b) => `${String(Math.round(norm360(b)) % 360).padStart(3, '0')}°`;
 export const fmtNm = (m) => `${(m / NM).toFixed(m < 2 * NM ? 2 : 1)} Nq`;
 export const cardinal = (d) => ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSO', 'SO', 'OSO', 'O', 'ONO', 'NO', 'NNO'][Math.round(norm360(d) / 22.5) % 16];

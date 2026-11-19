@@ -18,6 +18,7 @@ import { isDate, seasonOf, addRace, MAX_NAME, MAX_NOTE, MAX_IC_TEXT } from './re
 import { parisClock } from './racelock.js';
 import { checkDate, checkDateEnd, checkTime, checkSeq, checkVhf, checkPos } from './icplaus.js';
 import { parseLatLon } from './marks.js';
+import { VENUE } from './lieu.js';
 import { marksFromReview, coursesFromReview, normName, isLineName, fmtPos, sideTxt } from './regmarks.js';
 
 export const FIELDS = Object.freeze([
@@ -88,8 +89,8 @@ export function reviewFromApi(a, { source = '', text, regatta = null } = {}) {
   // Bouées : la position est du TEXTE recopié du PDF, convertie ici par la page (parseLatLon, bornée à la rade) ; illisible → lat/lon nuls, jamais devinée.
   // Cochée au départ seulement si vérifiée, lisible et sans puce rouge (positions hors carte).
   const marks = list(a?.marks).map((m) => {
-    const p = parseLatLon(str(m?.position)), lat = p.error ? null : p.lat, lon = p.error ? null : p.lon, verified = !!m?.verified;
-    return { name: str(m?.name), position: str(m?.position), lat, lon, excerpt: verified ? str(m?.excerpt) : null, verified, keep: verified && lat != null && str(m?.name) !== '' && checkPos(lat, lon).level !== 'bad' };
+    const p = parseLatLon(str(m?.position), VENUE.inputBounds), lat = p.error ? null : p.lat, lon = p.error ? null : p.lon, verified = !!m?.verified;
+    return { name: str(m?.name), position: str(m?.position), lat, lon, excerpt: verified ? str(m?.excerpt) : null, verified, keep: verified && lat != null && str(m?.name) !== '' && checkPos(lat, lon, { bounds: VENUE.bounds }).level !== 'bad' };
   });
   // Porte (gate) et arrivée (finish) : seulement prouvées par api/ic.js ; une arrivée non prouvée n’est jamais gardée, sa raison est montrée (finishFlag)
   const courses = list(a?.courses).map((c) => {
@@ -274,7 +275,7 @@ export function reviewHTML(review, checks = {}, opts = {}) {
   const isLand = opts.isLand;
   const marks = (review.marks || []).length
     ? `<div class="icblock icmarks"><h4>Bouées lues <small>elles resteront « à confirmer » sur la carte jusqu’à votre confirmation</small></h4>${review.marks.map((m, i) => {
-      const c = m.lat != null ? chipOf(checkPos(m.lat, m.lon, { isLand })) : { cls: 'chip mid', text: '⚠ position à saisir : illisible dans le texte' };
+      const c = m.lat != null ? chipOf(checkPos(m.lat, m.lon, { isLand, bounds: VENUE.bounds })) : { cls: 'chip mid', text: '⚠ position à saisir : illisible dans le texte' };
       const pos = m.lat != null ? `${escHTML(fmtPos(m.lat, m.lon))}` : 'position à saisir';
       return `<label class="small icrule icmark${m.verified ? '' : ' icoff'}"><input type="checkbox" data-mk="${i}"${m.keep ? ' checked' : ''}${m.verified ? '' : ' disabled'}> <span class="icmn">${escHTML(m.name || 'sans nom')}</span> · ${pos}`
         + `${m.verified ? ` <span class="${c.cls}">${escHTML(c.text)}</span><span class="icex" style="display:block">Texte : « ${escHTML(m.position)} » · Extrait : « ${escHTML(String(m.excerpt || '').replace(/\s+/g, ' '))} »</span>` : '<em> (extrait introuvable dans le texte : non retenue)</em>'}</label>`;

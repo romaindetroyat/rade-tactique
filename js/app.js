@@ -1528,7 +1528,8 @@ function bananeOfTrace(tr, src) {
   const from = set.ban ? 'de la manche' : recBan ? 'enregistrés avec la trace' : 'de l’app';
   const ban = set.ban || recBan || banOf(S);
   const cls = [set.cls, rec.cls, S.cls].find((x) => x === 'G' || x === 'P') || 'G';
-  const lig = rec.ligne, okLL = lig && Number.isFinite(lig.lat) && Number.isFinite(lig.lon) && lig.lat > 43 && lig.lat < 43.18 && lig.lon > 5.8 && lig.lon < 6.1;
+  const VB = VENUE.bounds;                                  // emprise du plan d’eau (Toulon : 43-43,18 N, 5,8-6,1 E, inégalités strictes de la v42)
+  const lig = rec.ligne, okLL = lig && Number.isFinite(lig.lat) && Number.isFinite(lig.lon) && lig.lat > VB.south && lig.lat < VB.north && lig.lon > VB.west && lig.lon < VB.east;
   // trace enregistrée avec cette même banane : sa ligne et son axe tels quels
   if (Number(rec.id) === BANANE_ID && okLL && Number.isFinite(rec.axe) && recBan && JSON.stringify(recBan) === JSON.stringify(ban)) return { ban, cls, c: { lat: lig.lat, lon: lig.lon }, dir: norm360(rec.axe), fit: false, prefer: true, from };
   // ligne de l’app, comme runAnalysis pour la banane (ligne pinguée comprise)
@@ -1862,7 +1863,7 @@ function marksRow(k, m) {
   if (ed) {
     const ask = ed.ask ? `Confirmer : déplacement de ${esc(fmtNm(ed.ask.d))}` : 'Valider';
     html += `<tr><td colspan="3"><label class="f" for="mkTxt">Nouvelle position de la bouée ${esc(k)} ${esc(m.name)}</label>
-      <input id="mkTxt" type="text" inputmode="text" autocomplete="off" placeholder="43°05.845N 005°56.049E" value="${esc(ed.txt)}">
+      <input id="mkTxt" type="text" inputmode="text" autocomplete="off" placeholder="${esc(VENUE.exemple ?? '43°05.845N 005°56.049E')}" value="${esc(ed.txt)}">
       <div class="small" id="mkErr" style="color:var(--bad)">${esc(ed.err || '')}</div>
       <div class="btns" style="margin:6px 0 0"><button class="btn small acc" id="mkOk">${ask}</button><button class="btn small alt" id="mkNo">Annuler</button></div></td></tr>`;
   }
@@ -1907,7 +1908,7 @@ function applyRemoteMarks(fusion) {
 function refreshMarks() { markEdit = null; renderIC(); drawCourse(); scheduleAnalysis(); if (traceView) renderTraceDetail(); renderLive(); }
 function submitMark() {
   const ed = markEdit; if (!ed) return;
-  const r = parseLatLon(ed.txt);
+  const r = parseLatLon(ed.txt, VENUE.inputBounds);
   if (r.error) { ed.err = r.error; ed.ask = null; renderIC(); return; }
   const m = MARKS[ed.k], d = distXY(toXY(m.lat, m.lon), toXY(r.lat, r.lon));
   if (d > MAX_MOVE_M && !(ed.ask && ed.ask.lat === r.lat && ed.ask.lon === r.lon)) { ed.err = ''; ed.ask = { lat: r.lat, lon: r.lon, d }; renderIC(); return; }

@@ -32,14 +32,15 @@ export function parseCoord(txt) {
 }
 
 // Bornes = data/meta.json (5,8-6,1 E ; 43,00-43,18 N) avec une marge de 0,1°
+// Un autre plan d’eau passe ses bornes de saisie (D-07), avec `nom` et `exemple` pour les messages ; sans eux, textes de Toulon
 export const RADE = { south: 42.9, north: 43.28, west: 5.7, east: 6.2 };
 export function parseLatLon(txt, bounds = RADE) {
   const t = parseCoord(txt);
-  if (t.length !== 2) return { error: 'Deux coordonnées attendues, par exemple 43°05.845N 005°56.049E' };
+  if (t.length !== 2) return { error: `Deux coordonnées attendues, par exemple ${bounds.exemple || '43°05.845N 005°56.049E'}` };
   let [a, b] = t;
   if (['E', 'W', 'O'].includes(a.hemi) || ['N', 'S'].includes(b.hemi)) [a, b] = [b, a];
   if (!isFinite(a.v) || !isFinite(b.v) || a.v < bounds.south || a.v > bounds.north || b.v < bounds.west || b.v > bounds.east)
-    return { error: 'Position hors de la rade de Toulon : vérifiez les degrés et l’hémisphère' };
+    return { error: `Position hors de ${bounds.nom || 'la rade de Toulon'} : vérifiez les degrés et l’hémisphère` };
   return { lat: +a.v.toFixed(6), lon: +b.v.toFixed(6) };
 }
 

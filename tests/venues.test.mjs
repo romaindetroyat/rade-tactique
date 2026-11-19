@@ -9,6 +9,8 @@ import * as lieu from '../js/lieu.js';
 import { VENUES, VENUE_IDS, bootVenue, inBounds, venueAt } from '../js/venues.js';
 import { BREST } from '../js/venue-brest.js';
 import { buildLegs } from '../js/tactics.js';
+import { parseLatLon } from '../js/marks.js';
+import { checkPos } from '../js/icplaus.js';
 import { BANANE } from '../js/banane.js';
 
 // ───────── Toulon (défaut)
@@ -88,6 +90,63 @@ test('Brest : descripteur léger (emprise, bornes de saisie à ± 0,1°, fichier
   assert.ok(Object.isFrozen(BREST));
   assert.ok(!Object.isFrozen(BREST.MARKS) && !Object.isFrozen(BREST.COURSES), 'applyRegattaMarks et addBanane écrivent sur place');
   assert.deepEqual(BREST.LINE_PRESETS.zoneA, { label: 'Zone A du GPEN (centre)', lat: 48.29817, lon: -4.3605 });
+});
+
+// ───────── Positions Ouest et bornes du plan d’eau (D-07)
+
+const MSG_TOULON = 'Position hors de la rade de Toulon : vérifiez les degrés et l’hémisphère';
+// Marques de la rade relevées dans les IC du GPEN 2026, annexe 3.4 (07-RESEARCH-PLAN-EAU.md § 2.2) : [nom, lat °, lat ′, lon °, lon ′] (N, W)
+const GPEN = [
+  ['Plateau des Fillettes', 48, 19.752, 4, 35.654], ['Roche Mengam', 48, 20.330, 4, 34.560], ['Kerviniou', 48, 19.779, 4, 35.240],
+  ['La Cormorandière', 48, 20.609, 4, 31.780], ['Pénoupèle', 48, 21.444, 4, 30.520], ['Basse du Renard', 48, 19.760, 4, 29.070],
+  ['Duc d’Albe de Lanvéoc', 48, 17.840, 4, 27.150], ['Aulne n° 6', 48, 18.505, 4, 20.719], ['Océanopolis', 48, 22.520, 4, 26.730],
+].map(([name, la, lam, lo, lom]) => ({ name, lat: la + lam / 60, lon: -(lo + lom / 60) }));
+// distance en mètres entre deux positions (projection locale, indépendante de l’origine courante)
+const metres = (a, b) => Math.hypot((b.lon - a.lon) * Math.cos((a.lat * Math.PI) / 180) * 111320, (b.lat - a.lat) * 110574);
+
+test('fmtLon et fmtLat : Ouest et Sud écrits juste ; Est et Nord comme en v42', () => {
+  assert.equal(geo.fmtLon(-4.3605), '004°21.630W');
+  assert.equal(geo.fmtLon(-0.5), '000°30.000W');
+  assert.equal(geo.fmtLon(-4.6), '004°36.000W');
+  assert.equal(geo.fmtLat(-12.5), '12°30.000S');
+  assert.equal(geo.fmtLat(48.29817), '48°17.890N');
+  // v42 (figé aussi par la fixture `positions`)
+  assert.equal(geo.fmtLon(5.934), '005°56.040E');
+  assert.equal(geo.fmtLon(5.93415), '005°56.049E');
+  assert.equal(geo.fmtLat(43.0975), '43°05.850N');
+  assert.equal(geo.fmtLat(43.097417), '43°05.845N');
+});
+
+test('parseLatLon : position de Brest lue avec les bornes de Brest, refusée avec celles de Toulon (message de la v42)', () => {
+  assert.deepEqual(parseLatLon('48°17,890 N 004°21,630 W', BREST.inputBounds), { lat: 48.298167, lon: -4.3605 });
+  assert.deepEqual(parseLatLon('48°17,890 N 004°21,630 W'), { error: MSG_TOULON });
+  assert.deepEqual(parseLatLon('43°05.845N 005°56.049E', BREST.inputBounds), { error: 'Position hors de la rade de Brest : vérifiez les degrés et l’hémisphère' });
+  assert.deepEqual(parseLatLon('43°05.845N 005°56.049E'), { lat: 43.097417, lon: 5.93415 });
+});
+
+test('parseLatLon : exemple du plan d’eau dans le message « deux coordonnées attendues »', () => {
+  assert.deepEqual(parseLatLon('48°17,890 N', BREST.inputBounds), { error: 'Deux coordonnées attendues, par exemple 48°17.890N 004°21.630W' });
+  assert.deepEqual(parseLatLon('43°05.845N'), { error: 'Deux coordonnées attendues, par exemple 43°05.845N 005°56.049E' });
+});
+
+test('aller-retour à Brest : fmtLat / fmtLon puis parseLatLon rendent chaque marque du GPEN à moins de 1 m', () => {
+  for (const m of GPEN) {
+    const txt = geo.fmtLat(m.lat) + ' ' + geo.fmtLon(m.lon);
+    assert.match(txt, /^48°\d\d\.\d{3}N 004°\d\d\.\d{3}W$/, m.name);
+    const r = parseLatLon(txt, BREST.inputBounds);
+    assert.ok(!r.error, `${m.name} : ${r.error}`);
+    assert.ok(metres(m, r) < 1, `${m.name} : ${metres(m, r)} m`);
+    assert.ok(inBounds(BREST.bounds, r.lat, r.lon), `${m.name} dans l’emprise`);
+  }
+});
+
+test('checkPos : bornes du plan d’eau en paramètre ; Toulon par défaut (v42)', () => {
+  assert.deepEqual(checkPos(48.29817, -4.3605, { bounds: BREST.bounds }), { level: 'ok', msg: '' });
+  assert.deepEqual(checkPos(48.29817, -4.3605), { level: 'bad', msg: 'position hors de la carte' });
+  assert.deepEqual(checkPos(43.0974, 5.9341, { bounds: BREST.bounds }), { level: 'bad', msg: 'position hors de la carte' });
+  assert.deepEqual(checkPos(43.0974, 5.9341), { level: 'ok', msg: '' });
+  assert.deepEqual(checkPos(43.0974, 5.9341, { bounds: VENUES.toulon.bounds }), { level: 'ok', msg: '' });
+  for (const m of GPEN) assert.equal(checkPos(m.lat, m.lon, { bounds: BREST.bounds }).level, 'ok', m.name);
 });
 
 // ───────── Passage à Brest (une fois pour toute la suite du fichier)
