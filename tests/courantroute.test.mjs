@@ -223,7 +223,7 @@ test('courant contre le bord (0,75 nd vers 180°) : « Courant 0,8 nd vers 180°
   for (const c of cs) { assert.equal(c.o, 'C'); assert.ok(!/'/.test(c.t), 'apostrophe typographique'); }
   assert.ok(cs[0].t.startsWith('Courant 0,8 nd vers 180° : contre vous sur ce bord (≈ +2 min 50 s)'), cs[0].t);
   // courant avec : gain annoncé en moins
-  const av = tactics.currentAdvice(bordNord({ time: 10.19 * 60 }), { current: uni(0.75, 0), t0: 0 });
+  const av = tactics.currentAdvice(bordNord({ time: 10.3 * 60 }), { current: uni(0.75, 0), t0: 0 });
   assert.ok(av[0].t.startsWith('Courant 0,8 nd vers 000° : avec vous sur ce bord (≈ −1 min 50 s)'), av[0].t);
   // de travers : dérive annoncée
   const tr = tactics.currentAdvice(bordNord({ time: 12.3 * 60 }), { current: uni(0.6, 90), t0: 0 });

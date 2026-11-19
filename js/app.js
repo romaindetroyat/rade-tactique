@@ -19,7 +19,7 @@ import { applyRegattaMarks, pendingMarks, confirmMark, moveMark, ignoreMark, all
 import { trackDay, matchRegattas, raceOfTrack, sameTrack, attachTrace, detachTrace, traceSummary, setTraceSummary, setTraceReport } from './attach.js';
 import { breaksOf } from './segments.js';
 import { fetchAll, cached, snapshot, consensus, gridPoints, marineAt, fetchLive, coversDay, MODELS, WMO, CENTER, configureWeather } from './weather.js';
-import { buildLegs, analyzeLeg, markAdvice, analyzeStart, trendOf, rankCourses, regimeOf, tipText, ORIGINES, sideName, summarizeTime, prepareLeg, gateText, routeOf, routeOpts } from './tactics.js';
+import { buildLegs, analyzeLeg, markAdvice, analyzeStart, trendOf, rankCourses, regimeOf, tipText, ORIGINES, sideName, summarizeTime, prepareLeg, gateText, routeOf, routeOpts, renverses, renverseText } from './tactics.js';
 import { BANANE_ID, BANANE, addBanane, banOf, banToState, cleanBan, courseMarkUse, legReached, banHorsEau } from './banane.js';
 import { optimalAngles, boatSpeed, trimAdvice, spiMinTwa, getPolar, setPolar, resetPolar, parsePolar } from './polar.js';
 import { renderJ80 } from './j80.js';
@@ -535,8 +535,18 @@ async function runAnalysis() {
   // Brest : courant de l’atlas et hauteur d’eau dans le routage, à l’heure de chaque bord (D-13, D-14c) ; Toulon : contexte de la v42
   const cur = VENUE.courant ? await courantCtx(S.day, S.startTime) : null;
   if (token !== anaToken) return;
-  if (cur?.current) Object.assign(ctx, { current: cur.current, depth: cur.depth, t0: parisAt(S.day, S.startTime) });
+  if (cur?.current) {
+    // renverses de la journée dans la zone du parcours (cercle de la zone du GPEN, sinon le centre du parcours), une fois par analyse
+    const zp = /^zone/.test(S.linePreset) ? ctr : B.legs.reduce((a, l) => ({ x: a.x + l.to.x / B.legs.length, y: a.y + l.to.y / B.legs.length }), { x: 0, y: 0 });
+    const zone = { x: zp.x, y: zp.y, r: 0.6 * NM };
+    Object.assign(ctx, { current: cur.current, depth: cur.depth, t0: parisAt(S.day, S.startTime), zone });
+    ctx.renverses = renverses(ctx, parisAt(S.day, 0), parisAt(S.day, 23.99), zone);
+  }
   const start = analyzeStart(B.line, F, { ...B.legs[0] }, ctx);
+  if (ctx.renverses) {
+    const avant = ctx.renverses.filter((r) => r.t < ctx.t0 && r.t >= ctx.t0 - 3600e3).pop();
+    if (avant) start.advice.push(`${renverseText(avant.t)}, avant le départ : le courant porte déjà dans l’autre sens sur la ligne (estimation d’après l’atlas du Shom).`);
+  }
   // le premier bord part du point de la ligne qui mène le plus vite à la 1re marque
   const L0 = B.line, first = B.legs[0], cands = [];
   for (const f of [0, 0.25, 0.5, 0.75, 1]) {
@@ -569,7 +579,7 @@ async function runAnalysis() {
   let ord = 0;
   legs.forEach((l) => { if (l.mark !== 'GATE' && l.mark !== 'FINISH') l.order = ++ord; });
   analysis = { course, cls, legs, line: B.line, points: B.points, start, total: t - S.startTime, dist: legs.reduce((s, l) => s + l.dist, 0), trend, day: S.day, cfg: stratSettings(cls), finishLine: B.finishLine ?? null, horsEau };
-  if (cur) analysis.courant = cur.current ? { ok: true } : { ok: false, raison: cur.raison };     // Brest seulement : Toulon garde l’objet de la v42
+  if (cur) analysis.courant = cur.current ? { ok: true, renverses: ctx.renverses, zone: ctx.zone, t0: ctx.t0 } : { ok: false, raison: cur.raison };     // Brest seulement : Toulon garde l’objet de la v42
   freezeTick('analyse');
   applyPendingEnds();
   updateDisplayField();
@@ -784,6 +794,8 @@ function renderBrief() {
     }
     tips.push(`Parcours ${analysis.course.id} estimé à <b>${summarizeTime(analysis.total * 3600)}</b> pour un J80 (${(analysis.dist / NM).toFixed(1)} Nq route directe).`);
     if (analysis.courant) tips.push(analysis.courant.ok ? 'Temps de parcours avec le courant de marée (atlas du Shom).' : `<b>${esc(analysis.courant.raison)}</b>`);
+    const rv = analysis.courant?.ok ? analysis.courant.renverses.find((r) => r.t >= analysis.courant.t0 - 3600e3) : null;
+    if (rv) tips.push(esc(`Prochaine ${renverseText(rv.t).toLowerCase()} dans la zone du parcours : le courant portait vers ${fmtBrg(rv.de)}, il portera vers ${fmtBrg(rv.vers)} (estimation d’après l’atlas du Shom).`));
     if (analysis.horsEau?.length) tips.push(`<b>⚠ ${esc(horsEauText(analysis.horsEau))}</b>`);
     for (const l of analysis.legs) if (l.gate) tips.push(`Tour ${esc(l.lap ?? 1)} · ${esc(gateText(l.gate))}`);         // porte conseillée à chaque passage (D-06)
     html += `<div class="card"><h3>Stratégie du jour ${tip('Synthèse automatique : rotation du vent attendue pendant la course, zones les plus ventées, désaccord entre modèles et temps estimé du parcours.')}</h3><ul class="tips">${tips.map((t) => `<li>${t}</li>`).join('')}</ul></div>`;
