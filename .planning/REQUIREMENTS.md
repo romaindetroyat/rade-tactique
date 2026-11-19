@@ -84,7 +84,7 @@ Reportés après cette version. Suivis mais hors de la feuille de route actuelle
 
 Ajoutés le 2026-11-19 à la demande de Romain (« permets le changement de plan d'eau en intégrant la rade de Brest et surtout la zone de course habituelle du GPEN »), livrés en v43 avant la régate de Toulon du 13/12/2026.
 
-- [ ] **BREST-01**: Toulon reste identique à la v42 : bords, conseils, champ de vent, routes, positions, météo, vues, données et liste hors réseau gardés par des tests capturés sur la v42 avant toute modification ; garde SNPM intacte ; ouverture hors réseau en moins de 2 s
+- [x] **BREST-01**: Toulon reste identique à la v42 : bords, conseils, champ de vent, routes, positions, météo, vues, données et liste hors réseau gardés par des tests capturés sur la v42 avant toute modification ; garde SNPM intacte ; ouverture hors réseau en moins de 2 s
 - [x] **BREST-02**: L'équipier choisit son plan d'eau (Toulon ou rade de Brest) en entraînement libre et pour une régate ; une régate porte son plan d'eau, partagé par l'archive et lu sans erreur par un téléphone resté en v42 ; changer de plan d'eau recharge l'app, jamais pendant une course
 - [x] **BREST-03**: La rade de Brest se télécharge une fois à la demande, vérifiée par empreinte, reste disponible après les mises à jour de l'app et s'ouvre hors réseau ; sans téléchargement, un message clair
 - [x] **BREST-04**: Carte et relief de la rade de Brest (rade, goulet, Camaret), lieux, marques, dangers et zones interdites (Île Longue, Pen ar Vir) évitées par le routage, positions en longitude Ouest justes, sources et licences citées
@@ -143,8 +143,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | PARC-02 | Phase 6 | Complete |
 | PARC-03 | Phase 6 | Complete |
 | PARC-04 | Phase 6 | Complete |
-| VENUE-01 | Phase 7 | Pending |
-| BREST-01 | Phase 7 | Pending |
+| VENUE-01 | Phase 7 | Complete |
+| BREST-01 | Phase 7 | Complete |
 | BREST-02 | Phase 7 | Complete |
 | BREST-03 | Phase 7 | Complete |
 | BREST-04 | Phase 7 | Complete |

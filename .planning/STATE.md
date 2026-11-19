@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 07
 current_phase_name: "Plans d'eau : Toulon et rade de Brest (GPEN)"
 status: executing
-stopped_at: Completed 07-09-PLAN.md
-last_updated: "2026-11-19T11:03:11.524Z"
+stopped_at: "07-10 tâche 1 faite (v43 locale, 6e4b0e3) — point de décision : « publie » de Romain"
+last_updated: "2026-11-19T11:34:55.929Z"
 last_activity: 2026-11-19
-last_activity_desc: Plan 07-09 — GPEN 2027 à Brest (parcours 91, 92, 93 de la zone A, arrivée à droite du comité, fiche semée, IA par plan d’eau), Toulon identique
-state_head: 508e9b8a394eba0ce2ae570be0d216dabe74e9e6
+last_activity_desc: Plan 07-10 tâche 1 — v43 prête en local (débrief GPEN, briefing titré, guide et aide), toutes les gardes vertes ; point de décision « publie »
+state_head: 6e4b0e3e157dd80497394dd93e009fc8c2c7e642
 progress:
   total_phases: 7
   completed_phases: 5
   total_plans: 38
-  completed_plans: 37
+  completed_plans: 38
   percent: 71
 ---
 
@@ -29,8 +29,8 @@ See: .planning/PROJECT.md (updated 2026-10-19)
 
 Phase: 07 (Plans d'eau : Toulon et rade de Brest (GPEN)) — EXECUTING
 Plan: 10 of 10
-Status: Ready to execute 07-10
-Last activity: 2026-11-19 — Plan 07-09 : parcours du GPEN construits par la banane (fin « comite » à droite du comité, 3P seule au dernier tour, noms 1 / 2 (dégagement) / 3S / 3P), 91 (2 tours), 92 (3 tours), 93 Virginie Hériot (chapelle relevée sur OpenStreetMap, arrivée à confirmer) ; ligne recentrée dans la zone A ; cercle « Zone A » sur la carte ; avertissements hors zone A et fonds trop faibles ; fiche gpen-2027 semée (instant fixe, sans auteur, pierre tombale et marqueur) ; consignes de Brest pour l’arbitre, le débrief et la dictée, consignes de Toulon identiques (empreintes v42) ; 844 tests (843 verts, 1 sauté), 36/36 scénarios, compat-v42 8/8 ; gardes Toulon vertes ; BREST-08 fait
+Status: 07-10 tâche 1 faite (v43 locale, tête 6e4b0e3, rien poussé) — en attente de « publie » de Romain (tâche 2, au plus tard le 10/12)
+Last activity: 2026-11-19 — Plan 07-10 tâche 1 : débrief des parcours du GPEN (reconstruits comme une banane, noms 1/2/3S/3P), titre du parcours au briefing de Brest, guide/aide/règles/description pour les plans d’eau ; 849 tests (848 verts, 1 sauté : instantané de Brest absent, limite Open-Meteo), 36/36 scénarios, compat-v42 8/8, compat-v41 7/7, ouvertures 418 ms Toulon / 403 ms Brest, horloge audio 3,4 ms ; v43 (5b9ef2068c), porte de production verte ; main inchangée (56f6625)
 
 Progress: [███████░░░] 71%
 
@@ -95,6 +95,7 @@ Progress: [███████░░░] 71%
 | Phase 07 P07 | 20min | 3 tasks | 20 files |
 | Phase 07 P08 | 38min | 3 tasks | 8 files |
 | Phase 07 P09 | 55min | 3 tasks | 24 files |
+| Phase 07 P10 | 75min | 1 tasks | 12 files |
 
 ## Accumulated Context
 
@@ -200,6 +201,7 @@ Décisions récentes qui orientent le travail en cours :
 - [Phase 07]: Chapelle de l’École navale trouvée dans OpenStreetMap (Chapelle maritime, 48,283165 N 4,415900 W) : parcours 93 Virginie Hériot, mât et bouée de l’arrivée supposés, position à confirmer
 - [Phase 07]: Fiche gpen-2027 semée en local sur chaque téléphone, instant fixe et sans auteur, jamais envoyée ; pierre tombale et marqueur rade.seed.gpen.v1 empêchent tout nouveau semis
 - [Phase 07]: Consignes d’IA choisies dans une table fermée { toulon, brest } (api/_gpen.js) ; consignes de Toulon figées par leurs empreintes v42 capturées sur 56f6625
+- [Phase 07]: 07-10 : trace d’un parcours du GPEN débriefée comme une banane (courseBan, noms 1/2/3S/3P, ligne recentrée) ; briefing de Brest titré ; instantané météo de Brest absent (limite Open-Meteo), v43 publiée sans
 
 ### Pending Todos
 
@@ -237,6 +239,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-11-19T11:03:11.368Z
-Stopped at: Completed 07-09-PLAN.md
-Resume file: None
+Last session: 2026-11-19T11:34:55.747Z
+Stopped at: 07-10 tâche 1 faite (v43 locale, 6e4b0e3) — point de décision : « publie » de Romain
+Resume file: .planning/phases/07-plans-d-eau/07-10-PLAN.md
