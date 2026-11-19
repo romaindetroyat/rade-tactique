@@ -7,6 +7,7 @@ import { clockOf } from './gel.js';
 import { MODELS } from './weather.js';
 import { STATUS, waitingFor, fmtPos, sideTxt } from './regmarks.js';
 import { MAX_HIST, slug } from './archmerge.js';
+import { fmtMo } from './pack.js';
 
 // Échappe & < > " ' (le esc() d’app.js laisse passer l’apostrophe)
 export const escHTML = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', '\'': '&#39;' }[c]));
@@ -52,6 +53,33 @@ export function noRegattaHTML() {
     <div class="btns" style="margin:0 0 6px"><label class="btn acc small" for="icFile" style="cursor:pointer">＋ Importer des IC (PDF)</label></div>
     <input type="file" id="icFile" accept="application/pdf,.pdf,.txt,text/plain" hidden>
     <div class="small muted" id="icMsg">L’app lit le PDF des IC et montre, pour chaque valeur (date, heures, VHF, Comité, zone), la phrase d’où elle vient : relisez, corrigez, puis « Valider les IC ».</div></div>`;
+}
+
+// Carte « Plan d’eau » (en tête de l’onglet Régates, D-04, D-05, D-06 pour l’entraînement libre) : plan d’eau de ce téléphone, état du pack
+// téléchargeable (`packId`), boutons « Télécharger le plan d’eau » (#pkDl) et « Passer à … » / « Revenir à la rade de Toulon » (#pkGo).
+// status : { state: 'ready' | 'stale' | 'absent', bytes } ou null (pas encore lu) ; busy : { done, total } pendant un téléchargement ;
+// error : message du dernier échec ; locked : course en cours (chrono, mode départ, trace, GPS) : le changement est refusé.
+export const PACK_STATE = { ready: 'Prêt hors réseau', stale: 'Mise à jour à télécharger', absent: 'À télécharger' };
+export const BREST_SOURCES = 'Rade de Brest : © contributeurs OpenStreetMap (ODbL), EMODnet Bathymetry, AWS Terrain Tiles (Terrarium). Ne remplace pas les cartes et ouvrages nautiques officiels.';
+export function venueCardHTML({ venueId = 'toulon', venues = {}, status = null, busy = null, error = null, locked = false, packId = 'brest' } = {}) {
+  const nom = (id) => venues[id]?.nom || id;
+  const ici = venueId === packId;
+  const target = ici ? 'toulon' : packId;
+  const st = status?.state && Object.hasOwn(PACK_STATE, status.state) ? status.state : null;
+  const taille = status?.bytes ? ` (${fmtMo(status.bytes)})` : '';
+  const etat = st ? `${PACK_STATE[st]}${st === 'ready' ? '' : taille}` : 'état en cours de lecture…';
+  const pct = busy && busy.total ? Math.min(100, Math.round((busy.done / busy.total) * 100)) : 0;
+  const dans = (id) => nom(id).replace(/^Rade /, 'rade ');                      // « Passer à la rade de Brest »
+  const go = ici ? `Revenir à la ${dans('toulon')}` : `Passer à la ${dans(packId)}`;
+  const dl = st !== 'ready'
+    ? `<button type="button" class="btn small alt" id="pkDl"${busy ? ' disabled' : ''}>${busy ? `Téléchargement… ${pct} %` : 'Télécharger le plan d’eau'}</button>` : '';
+  return `<div class="card" id="pkCard" data-venue="${escHTML(venueId)}" data-state="${escHTML(st || '')}"${busy ? ' data-busy="1"' : ''}><h3>Plan d’eau <small>de ce téléphone</small></h3>
+    <p class="small" id="pkHere">Ce téléphone : <b>${escHTML(nom(venueId))}</b>${venueId === 'toulon' ? '' : ' · entraînement libre sur ce plan d’eau'}</p>
+    <p class="small" id="pkState">${escHTML(nom(packId))} : <b>${escHTML(etat)}</b>${st === 'stale' ? ' · l’ancienne version reste utilisable hors réseau' : ''}</p>
+    ${error ? `<div class="notice small" id="pkErr">Téléchargement impossible : ${escHTML(error)}. Rien n’a été enregistré ; l’ancienne version, s’il y en a une, reste utilisable.</div>` : ''}
+    <div class="btns" style="margin:6px 0 0">${dl}<button type="button" class="btn small ${ici ? 'alt' : 'acc'}" id="pkGo" data-to="${escHTML(target)}"${locked || busy ? ' disabled' : ''}>${escHTML(go)}</button></div>
+    ${locked ? '<div class="small muted" id="pkLock">Pas pendant une course : changer de plan d’eau recharge l’app.</div>' : '<div class="small muted">Changer de plan d’eau recharge l’app ; parcours, ligne, relevés et vent manuel sont gardés par plan d’eau, la polaire et les réglages du bateau sont communs.</div>'}
+    <div class="small muted" style="margin-top:4px">${escHTML(BREST_SOURCES)}</div></div>`;
 }
 
 // Formulaire de création : nom, premier jour, club ; dernier jour facultatif. draft garde la saisie quand l’écran est redessiné.

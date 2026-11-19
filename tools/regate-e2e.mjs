@@ -2998,7 +2998,105 @@ async function toulonVue({ browser, base }) {
   }
 }
 
-const SCENARIOS = { accueil, 'jour-j': jourJ, 'deux-telephones': deuxTelephones, reprise, equipage, archive, 'archive-bouees': archiveBouees, archivehors: archiveHors, creer, manche, auteur, ic, 'depuis-ic': depuisIC, vraisemblance, gel, 'debrief-tardif': debriefTardif, gpx, 'gpx-choix': gpxChoix, ia, 'ia-erreurs': iaErreurs, arbitre, bouees, guide, entetes, 'retour-port': retourPort, banane, 'banane-manche': bananeManche, 'banane-debrief': bananeDebrief, 'porte-ic': porteIC, 'modifier-manche': modifierManche, 'toulon-vue': toulonVue };
+// ───────────────────────── plans d’eau (07-04)
+
+const MANIFESTE = JSON.parse(readFileSync(join(ROOT, 'data/venues.json'), 'utf8'));
+const PACK_BREST = MANIFESTE.venues.brest;
+const CACHE_BREST = 'rade-venue-brest-' + PACK_BREST.pack;
+const MO_BREST = `${(PACK_BREST.bytes / 1e6).toFixed(1).replace('.', ',')} Mo`;
+const texte = (page, sel) => page.locator(sel).first().textContent();
+// Entrées du cache du pack de Brest vues par la page (chemins), ou null si le cache n’existe pas
+const cacheBrest = (page) => page.evaluate(async (nom) => {
+  if (!(await caches.keys()).includes(nom)) return null;
+  return (await (await caches.open(nom)).keys()).map((r) => new URL(r.url).pathname).sort();
+}, CACHE_BREST);
+const etatApp = (page) => page.evaluate(() => JSON.parse(localStorage.getItem('rade.state') || '{}'));
+// Un geste qui recharge l’app : attend la nouvelle page puis la carte prête
+async function rechargePar(page, geste, delai = 90000) {
+  const charge = page.waitForEvent('load', { timeout: delai });
+  await geste();
+  await charge;
+  await pret(page);
+}
+// Onglet Régates ouvert et carte « Plan d’eau » repeinte avec l’état du pack lu dans les caches
+async function cartePlanEau(page, etat) {
+  await page.click('#tabs button[data-tab=ic]');
+  await page.waitForSelector(`#pkCard[data-state="${etat}"]`, { timeout: 20000 });
+}
+
+// D-04, D-05, D-06 (entraînement libre) : carte « Plan d’eau » à Toulon, refus pendant un chrono, « Passer à la rade de Brest » → téléchargement
+// vérifié écrit dans le cache rade-venue-brest-<pack> par la page (worker bloqué ici) → rechargement → carte de Brest (data/brest.*) ;
+// « Revenir à la rade de Toulon » → réglages de Toulon retrouvés (parcours choisi avant le passage)
+async function planEau({ browser, base }) {
+  const ctx = await ouvreContexte(browser, { heure: '2026-12-05T09:00:00Z' });        // samedi 05/12/2026, 10 h 00 à Paris
+  const { page, erreurs } = await ouvrePage(ctx);
+  const brest = [];
+  page.on('request', (r) => { const u = new URL(r.url()); if (u.pathname.startsWith('/data/brest.')) brest.push(u.pathname + u.search); });
+  await ouvreApp(page, base);
+  assert.equal(await texte(page, '#regBar .regname'), 'Entraînement libre', 'Toulon : bandeau de la v42');
+  assert.deepEqual(brest, [], 'Toulon ne demande aucun fichier de Brest');
+  // parcours choisi à Toulon avant le passage
+  await page.click('#tabs button[data-tab=course]');
+  await page.waitForFunction(() => document.querySelectorAll('#cSel option').length > 2, null, { timeout: 60000 });
+  const valeurs = await page.locator('#cSel option').evaluateAll((os) => os.map((o) => o.value));
+  const choisi = valeurs.find((v) => !['3', '90'].includes(v));
+  assert.ok(choisi, 'un parcours du cahier autre que le 3');
+  await page.selectOption('#cSel', choisi);
+  assert.equal(String((await etatApp(page)).courseId), choisi);
+  // carte « Plan d’eau »
+  await cartePlanEau(page, 'absent');
+  assert.match(await texte(page, '#pkHere'), /Ce téléphone : Rade de Toulon/);
+  assert.equal(await texte(page, '#pkState'), `Rade de Brest : À télécharger (${MO_BREST})`);
+  assert.equal(await texte(page, '#pkGo'), 'Passer à la rade de Brest');
+  assert.match(await texte(page, '#pkCard'), /OpenStreetMap \(ODbL\)[\s\S]*EMODnet[\s\S]*Ne remplace pas les cartes et ouvrages nautiques officiels/);
+  // pendant un chrono : changement refusé (bouton désactivé, « Pas pendant une course »)
+  await page.click('#tabs button[data-tab=start]');
+  await page.click('#t5');
+  await page.waitForFunction(() => document.querySelector('#tPhase').textContent !== 'Prêt', null, { timeout: 10000 });
+  await cartePlanEau(page, 'absent');
+  assert.equal(await page.locator('#pkGo').isDisabled(), true, 'chrono lancé : #pkGo désactivé');
+  assert.match(await texte(page, '#pkLock'), /^Pas pendant une course/);
+  await page.click('#tabs button[data-tab=start]');
+  await page.click('#tstop');
+  await page.waitForFunction(() => document.querySelector('#tPhase').textContent === 'Prêt', null, { timeout: 10000 });
+  await cartePlanEau(page, 'absent');
+  assert.equal(await page.locator('#pkGo').isDisabled(), false, 'chrono arrêté : changement possible');
+  assert.equal(await cacheBrest(page), null, 'rien d’écrit avant le geste');
+  // « Passer à la rade de Brest » : téléchargement vérifié puis rechargement
+  await rechargePar(page, () => page.click('#pkGo'));
+  const fichiers = PACK_BREST.files.map((f) => f.path);
+  for (const f of fichiers) assert.ok(brest.includes(`/${f}?pack=${PACK_BREST.pack}`), `téléchargé : ${f}`);
+  assert.deepEqual(await cacheBrest(page), fichiers.map((f) => '/' + f).sort(), 'pack écrit dans son cache, chemins sans paramètre');
+  assert.equal(await texte(page, '#regBar .regname'), 'Entraînement libre · Brest');
+  for (const f of ['meta.json', 'terrain.bin', 'cover.bin', 'coast.json', 'basemap.jpg', 'seamask.png']) assert.ok(brest.includes(`/data/brest.${f}`), `carte de Brest : data/brest.${f} chargé`);
+  const st = await etatApp(page);
+  assert.equal(st.venue, 'brest');
+  assert.equal(st.courseId, 90, 'premier passage : banane (catalogue du GPEN à venir)');
+  assert.equal(st.linePreset, 'zoneA');
+  assert.equal(String(st.byVenue?.toulon?.courseId), choisi, 'réglages de Toulon rangés');
+  await cartePlanEau(page, 'ready');
+  assert.match(await texte(page, '#pkHere'), /Ce téléphone : Rade de Brest/);
+  assert.equal(await texte(page, '#pkState'), 'Rade de Brest : Prêt hors réseau');
+  assert.equal(await page.locator('#pkDl').count(), 0);
+  assert.equal(await texte(page, '#pkGo'), 'Revenir à la rade de Toulon');
+  sansErreur(erreurs, 'à Brest');
+  // « Revenir à la rade de Toulon » : rechargement, réglages de Toulon retrouvés, pack gardé
+  await rechargePar(page, () => page.click('#pkGo'));
+  assert.equal(await texte(page, '#regBar .regname'), 'Entraînement libre');
+  const t = await etatApp(page);
+  assert.equal(t.venue, 'toulon');
+  assert.equal(String(t.courseId), choisi, 'parcours de Toulon retrouvé');
+  assert.equal(t.linePreset, 'vignettes');
+  assert.equal(t.byVenue?.brest?.courseId, 90, 'réglages de Brest rangés à leur tour');
+  await page.click('#tabs button[data-tab=course]');
+  assert.equal(await page.locator('#cSel').inputValue(), choisi);
+  await cartePlanEau(page, 'ready');
+  assert.equal(await texte(page, '#pkGo'), 'Passer à la rade de Brest');
+  sansErreur(erreurs, 'au retour à Toulon');
+  await ctx.close();
+}
+
+const SCENARIOS = { accueil, 'jour-j': jourJ, 'deux-telephones': deuxTelephones, reprise, equipage, archive, 'archive-bouees': archiveBouees, archivehors: archiveHors, creer, manche, auteur, ic, 'depuis-ic': depuisIC, vraisemblance, gel, 'debrief-tardif': debriefTardif, gpx, 'gpx-choix': gpxChoix, ia, 'ia-erreurs': iaErreurs, arbitre, bouees, guide, entetes, 'retour-port': retourPort, banane, 'banane-manche': bananeManche, 'banane-debrief': bananeDebrief, 'porte-ic': porteIC, 'modifier-manche': modifierManche, 'toulon-vue': toulonVue, 'plan-eau': planEau };
 
 // ───────────────────────── lancement
 

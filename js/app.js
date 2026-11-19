@@ -4,14 +4,15 @@ import { report, note, setContext } from './journal.js';
 import { Terrain, toXY, toLL, NM, bearingXY, distXY, norm360, norm180, fmtBrg, fmtNm, fmtLat, fmtLon, cardinal, pointInPolygon } from './geo.js';
 import { WindField, speedColor } from './wind.js';
 import { VENUE, MARKS, COURSES, LINE_PRESETS, FORBIDDEN_ZONES, DANGERS, setVenue } from './lieu.js';
-import { bootVenue } from './venues.js';
+import { bootVenue, VENUES } from './venues.js';
+import { packStatus, downloadPack, prunePacks, fmtMo } from './pack.js';
 import { pdfText, parseIC, cleanText } from './events.js';
 import { IA_IC, iaOffer, iaErrorMessage, reviewFromParse, reviewFromRegatta, reviewFromApi, setValue, setKeep, setKeepRace, setKeepMark, setKeepCourse, courseReady, canValidate, checksFor, applyReview, reviewHTML, chipOf, validatedHTML } from './icread.js';
 import { stampState, markDirty, canon, legacyStamp } from './archmerge.js';
 import { migrate, seedNorm, KEY as REG_KEY, saveRegattas, createRegatta, upsertRegatta, removeRegatta, openRegatta, openAtBoot, openOnNewDay, regattaStatus, STATUS_LABEL, todayRegatta, icOf, groupByStatus, lockDates, daysOf, addRace, updateRace, removeRace, raceSettings, membre, saveMembre, backfillAuthor } from './regates.js';
 import { THROTTLE_MS, slotKey, freezeAction, obsNeedsCopy, stratNeedsCopy, sliceDays, freezeSummary, strategySummary, compactStrategy, windSourceKind, frozenLabel, parisInstant } from './gel.js';
 import { putSlot, getSlot } from './regstore.js';
-import { listHTML, noRegattaHTML, newRegattaFormHTML, sheetHTML } from './regview.js';
+import { listHTML, noRegattaHTML, newRegattaFormHTML, sheetHTML, venueCardHTML } from './regview.js';
 import { applyRegattaMarks, pendingMarks, confirmMark, moveMark, ignoreMark, allowedCourses, courseFallback, courseMismatch } from './regmarks.js';
 import { trackDay, matchRegattas, raceOfTrack, sameTrack, attachTrace, detachTrace, traceSummary, setTraceSummary, setTraceReport } from './attach.js';
 import { breaksOf } from './segments.js';
@@ -69,9 +70,11 @@ const DEF = {
   perf: 1, polar: null, obsOpen: true, startFlash: true,
   banNm: 0.8, banOff: true, banSide: 'b', banGate: true, banFin: 'depart',          // réglages de la banane (D-04), lus par banOf(S) qui les borne
   venue: 'toulon',                                                                     // plan d’eau (lu au démarrage par bootVenue)
+  byVenue: {},                                                                         // réglages propres à chaque plan d’eau quitté (VENUE_KEYS), retrouvés au retour
 };
 const S = { ...DEF, ...store.get('rade.state', {}) };
 S.venue = VENUE.id;                                   // valeur inconnue ou hostile ramenée au plan d’eau retenu par bootVenue
+if (!S.byVenue || typeof S.byVenue !== 'object' || Array.isArray(S.byVenue)) S.byVenue = {};
 // Régates : l’index (petit) se lit de façon synchrone au chargement ; IC garde la forme d’avant (icOf)
 let REG = migrate({ storage: localStore(), now: Date.now(), by: who() });
 // la Coupe SNPM semée est la même fiche sur les trois téléphones (instant commun) : une graine d'avant ramenée à cet instant, index réécrit seulement si l'objet change
@@ -176,6 +179,7 @@ async function init() {
   if (snap && (!data || snap.fetched > data.fetched)) data = snap;
   if (data) series = consensus(data);
   renderStatic();                                      // onglets Prévisions, Vent, J80 et IC : sans la carte
+  if (VENUE.id !== 'toulon' && !(await venueReady())) { venueMissing(); return; }   // pack du plan d’eau absent et pas téléchargeable : pas de carte (D-04)
   const { Scene3D } = await import('./scene3d.js');
   T = await new Terrain().load(VENUE.files.base);
   F = new WindField(T, VENUE.wind);
@@ -197,13 +201,16 @@ async function init() {
   refreshWeather(true);
   refreshLive();
   setInterval(refreshLive, 5 * 60000);
+  if (VENUE.id !== 'toulon') setTimeout(packUpdate, 8000);   // ancienne version du pack : la nouvelle est téléchargée hors course, avec du réseau
 }
 
 // auto : téléchargement lancé sans geste (ouverture de l’app) ; son calcul est reporté pendant la séquence de départ. Le bouton ⟳ est un geste : tout de suite.
+let wxOff = false;                                   // dernier téléchargement des prévisions en échec : le briefing dit « hors ligne », pas « en cours »
 async function refreshWeather(auto = false) {
   const b = $('#refresh'); b.classList.add('spin');
   try {
     data = await fetchAll(); series = consensus(data);
+    wxOff = false;
     status();
     freezeTick('prévisions');
     await (auto ? autoHeavy(prepareField) : runHeavy(prepareField));
@@ -211,6 +218,7 @@ async function refreshWeather(auto = false) {
     note('meteo', 'prévisions indisponibles : ' + (e?.message || e));      // hors réseau : l’instantané embarqué prend le relais
     if (!data) { data = await snapshot(); if (data) { series = consensus(data); await (auto ? autoHeavy(prepareField) : runHeavy(prepareField)); } }
     status(data ? `Hors ligne — prévisions du ${new Date(data.fetched).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })}` : 'Prévisions indisponibles (réseau)');
+    if (!data) { wxOff = true; renderBrief(); }
   } finally { b.classList.remove('spin'); }
 }
 async function refreshLive() {
@@ -520,6 +528,7 @@ function bindShell() {
     $$('#tabs button').forEach((x) => x.classList.toggle('on', x === b));
     $$('#content section').forEach((s) => s.classList.toggle('on', s.dataset.tab === b.dataset.tab));
     if (b.dataset.tab === 'ic' && icStale && !icBusy()) { icStale = false; renderIC(); }
+    if (b.dataset.tab === 'ic') refreshPack();          // état du pack du plan d’eau lu à l’ouverture de l’onglet (jamais au démarrage à Toulon)
     if (sheet === 'min') setSheet('half');
   });
   bindSheet();
@@ -667,7 +676,7 @@ function renderBrief() {
   const iStart = seriesIndex(S.day, S.startTime);
   const rs = series[iStart];
   let html = '';
-  if (!data) html += `<div class="notice">Pas encore de prévision chargée${navigator.onLine ? ' — téléchargement en cours…' : ' (hors ligne). Le mode « Manuel » reste disponible.'}</div>`;
+  if (!data) html += `<div class="notice" id="wxNone">Pas encore de prévision chargée${navigator.onLine && !wxOff ? ' — téléchargement en cours…' : ' (hors ligne). Le mode « Manuel » reste disponible.'}</div>`;
   html += pickHTML();
   if (S.src === 'forecast' && data && !coversDay(data, S.day)) html += `<div class="notice" id="noWx"><b>Aucune prévision pour ce jour.</b> Les prévisions chargées sont ${data.snapshot ? 'celles embarquées dans l’app' : 'celles téléchargées'} le ${esc(new Date(data.fetched).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' }))} : elles ne couvrent pas le ${esc(dayName(S.day))}. La carte, le briefing et les calculs montrent le <b>vent manuel</b> (${fmtBrg(S.manual.dir)} ${S.manual.spd} nd), pas une prévision. Touchez ⟳ dès que le réseau revient.</div>`;
   if (S.src === 'manual') html += `<div class="notice">Mode <b>vent manuel</b> : ${fmtBrg(S.manual.dir)} ${S.manual.spd} nd. Les prévisions sont ignorées pour la carte et l’analyse.</div>`;
@@ -2127,9 +2136,122 @@ function paintRegBar() {
   } else {
     const go = mk('button', 'btn small acc', 'Ouvrir une régate'); go.type = 'button'; go.id = 'regGo';
     go.addEventListener('click', () => { openTab('ic'); $('#rgList')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); });
-    el.replaceChildren(mk('span', 'regname', 'Entraînement libre'), go);
+    el.replaceChildren(mk('span', 'regname', VENUE.id === 'toulon' ? 'Entraînement libre' : `Entraînement libre · ${VENUE.nom.replace(/^Rade de /, '')}`), go);
   }
   el.dataset.open = r?.id ?? '';
+}
+// ───────────────────────── PLAN D’EAU (D-04, D-05, D-06 en entraînement libre)
+// Carte « Plan d’eau » en tête de l’onglet Régates. Le pack de Brest (data/brest.*, hors de la liste hors réseau) est téléchargé par la page,
+// vérifié par empreinte et rangé dans un cache rade-venue-brest-<pack> (js/pack.js) ; changer de plan d’eau enregistre le choix et recharge
+// l’app, jamais pendant une course. À Toulon, le démarrage ne lit ni le manifeste ni les caches : l’état est lu à l’ouverture de l’onglet.
+const PACK_ID = 'brest';                                   // plan d’eau téléchargeable (Toulon est dans le cache de l’app)
+const PACK = { man: null, status: null, busy: null, error: null };
+const cacheStore = () => (typeof caches === 'undefined' ? null : caches);
+const venueIn = (id) => VENUES[id].nom.replace(/^Rade /, 'rade ');      // « la rade de Brest »
+// réglages propres à un plan d’eau, rangés dans S.byVenue[<id>] quand on le quitte ; la polaire et les réglages du bateau sont communs
+const VENUE_KEYS = ['courseId', 'cls', 'laps', 'linePreset', 'lineLen', 'lineMode', 'lineBrg', 'lineOverride', 'obs', 'manual', 'src', 'modelSel'];
+// premier passage : défauts du plan d’eau (Brest : banane tant que le catalogue du GPEN n’existe pas, ligne au centre de la zone A, vent d’ouest)
+const VENUE_DEF = { brest: { courseId: BANANE_ID, linePreset: 'zoneA', lineOverride: null, obs: [], manual: { dir: 270, spd: 12, gust: 17 } } };
+const pickVenueKeys = (o) => Object.fromEntries(VENUE_KEYS.filter((k) => o && typeof o === 'object' && Object.hasOwn(o, k)).map((k) => [k, structuredClone(o[k])]));
+const packView = () => ({ venueId: VENUE.id, venues: VENUES, status: PACK.status, busy: PACK.busy, error: PACK.error, locked: raceActive(Date.now()), packId: PACK_ID });
+async function loadManifest() {
+  if (PACK.man) return PACK.man;
+  try { const r = await fetch('data/venues.json'); if (r.ok) PACK.man = await r.json(); } catch (e) { report('pack', e); }
+  return PACK.man;
+}
+// Lit l’état du pack (présence de chaque fichier du manifeste dans un cache rade-venue-brest-*, sans recalcul d’empreinte) et repeint la carte
+async function refreshPack() {
+  const man = await loadManifest();
+  try { PACK.status = await packStatus(man, PACK_ID, { caches: cacheStore() }); } catch (e) { report('pack', e); PACK.status = { state: 'absent', cache: null, bytes: man?.venues?.[PACK_ID]?.bytes ?? 0, others: [] }; }
+  paintPack();
+  return PACK.status;
+}
+function paintPack() {
+  const el = $('#pkCard'); if (!el) return;
+  el.outerHTML = venueCardHTML(packView());
+  bindPack();
+}
+function bindPack() {
+  const dl = $('#pkDl'), go = $('#pkGo');
+  if (dl) dl.onclick = () => packDownload();
+  if (go) go.onclick = () => packGo(go.dataset.to);
+}
+// Téléchargement vérifié (geste, ou démarrage à Brest sans pack, ou mise à jour d’une ancienne version) : vrai si le pack est écrit
+async function packDownload() {
+  if (PACK.busy) return false;
+  const man = await loadManifest();
+  PACK.busy = { done: 0, total: PACK.status?.bytes || 0 }; PACK.error = null; paintPack();
+  let ok = false;
+  try {
+    await downloadPack(man, PACK_ID, { fetch: (u, o) => fetch(u, o), caches: cacheStore(), subtle: globalThis.crypto?.subtle, onProgress: (done, total) => { PACK.busy = { done, total }; paintPack(); } });
+    ok = true;
+    note('pack', 'plan d’eau téléchargé et vérifié');
+    try { if (navigator.storage?.persist && !(await navigator.storage.persisted?.())) await navigator.storage.persist(); } catch { /* stockage persistant refusé : le pack reste en cache, le système peut l’effacer */ }
+  } catch (e) { PACK.error = e?.message || String(e); note('pack', 'téléchargement impossible : ' + PACK.error); }
+  finally { PACK.busy = null; }
+  await refreshPack();
+  if (ok) toast(`${VENUES[PACK_ID].nom} : prête hors réseau`);
+  return ok;
+}
+// « Passer à la rade de Brest » télécharge d’abord le pack s’il n’est pas sur ce téléphone ; « Revenir à la rade de Toulon » bascule tout de suite
+async function packGo(id) {
+  if (!Object.hasOwn(VENUES, id) || id === VENUE.id) return;
+  if (raceActive(Date.now())) { toast('Pas pendant une course : terminez-la d’abord'); paintPack(); return; }
+  if (id !== 'toulon') {
+    const st = (await refreshPack())?.state;
+    if (st !== 'ready' && st !== 'stale' && !(await packDownload())) { toast(`${VENUES[id].nom} non téléchargée : ${PACK.error || 'réessayez avec du réseau'}`); return; }
+  }
+  switchVenue(id);
+}
+// Change de plan d’eau : range les réglages du plan d’eau quitté, reprend ceux du nouveau (ou ses défauts), enregistre et recharge (D-05)
+function switchVenue(id) {
+  if (!Object.hasOwn(VENUES, id) || id === VENUE.id) return false;
+  if (raceActive(Date.now())) { toast('Pas pendant une course : terminez-la d’abord'); return false; }
+  const by = { ...S.byVenue, [VENUE.id]: pickVenueKeys(S) };
+  Object.assign(S, pickVenueKeys(DEF), pickVenueKeys(VENUE_DEF[id]), pickVenueKeys(S.byVenue[id]), { venue: id, byVenue: by });
+  persist();
+  note('plan-eau', 'passage à ' + id);
+  location.reload();
+  return true;
+}
+// Démarrage hors de Toulon (D-04), avant le terrain : pack prêt ou ancienne version → la suite normale ; absent → téléchargé tout de suite
+// si le réseau répond et hors course, sinon faux (venueMissing)
+async function venueReady() {
+  const st = await refreshPack();
+  if (st?.state === 'ready') { try { await prunePacks(PACK_ID, st.cache, { caches: cacheStore() }); } catch (e) { report('pack', e); } return true; }
+  if (st?.state === 'stale') return true;
+  if (racing() || !PACK.man) return false;
+  status(`Téléchargement de la ${venueIn(VENUE.id)}…`);
+  await probeNet();
+  if (!net.online) return false;
+  return packDownload();
+}
+// Pas de pack et pas de réseau : la carte le dit, avec « Revenir à la rade de Toulon » ; onglets, chrono et mode départ restent utilisables
+function venueMissing() {
+  note('pack', 'plan d’eau absent de ce téléphone');
+  const mk = (tag, txt, id) => { const e = document.createElement(tag); if (txt) e.textContent = txt; if (id) e.id = id; return e; };
+  const box = mk('div', '', 'pkMissing'); box.className = 'card';
+  box.style.cssText = 'position:absolute;left:12px;right:12px;top:72px;max-width:460px;margin:0 auto;z-index:5';
+  const p = mk('p', `La ${venueIn(VENUE.id)} n’est pas encore sur ce téléphone : connectez-vous pour la télécharger (${fmtMo(PACK.status?.bytes)}), ou revenez à Toulon.`);
+  p.className = 'small';
+  const btns = mk('div'); btns.className = 'btns';
+  const back = mk('button', 'Revenir à la rade de Toulon', 'pkBack'); back.type = 'button'; back.className = 'btn acc';
+  back.addEventListener('click', () => packGo('toulon'));
+  const retry = mk('button', 'Télécharger le plan d’eau', 'pkRetry'); retry.type = 'button'; retry.className = 'btn alt';
+  retry.addEventListener('click', async () => { if (await packDownload()) location.reload(); });
+  btns.append(back, retry);
+  box.append(p, btns);
+  $('#view').replaceChildren(box);
+  status(`${VENUES[VENUE.id].nom} absente de ce téléphone`);
+  if (!data) { wxOff = true; renderBrief(); }
+}
+// Ancienne version du pack utilisée au démarrage : la nouvelle est téléchargée hors course quand le réseau répond (essai toutes les 5 min)
+async function packUpdate() {
+  if (PACK.status?.state !== 'stale' || PACK.busy) return;
+  if (racing()) { setTimeout(packUpdate, 60000); return; }
+  await probeNet();
+  if (!net.online) { setTimeout(packUpdate, 5 * 60000); return; }
+  await packDownload();
 }
 // Passage de jour sans relance (P-02) : hors course et hors saisie seulement ; sinon le jour n’avance pas et l’essai revient au tic suivant
 function dayOpenTick(now, active) {
@@ -2194,7 +2316,7 @@ function renderIC() {
   IC = icOf(cur);
   const tel = /(0[1-9](?:[ .-]?\d{2}){4})/.exec(IC.committee || '')?.[1];
   const toulon = VENUE.id === 'toulon';
-  let html = `<div class="card" id="rgList"><h3><span>Régates ${tip('Chaque régate a sa fiche : jours, manches, Instructions de Course. À l’ouverture, l’app est en Entraînement libre : Ouvrir ouvre une régate (sa fiche, ses manches, ses IC, son vent figé et ses traces), Fermer la régate revient à l’entraînement. Le jour d’une régate, l’app l’ouvre seule. La régate ouverte fixe le jour 🏁, l’heure de départ par défaut et les points clés affichés. Classées En préparation, En cours, Terminées. Ouvrir ou fermer ne change rien chez les autres.')}</span><button type="button" class="btn acc small" id="rgNew">＋ Nouvelle régate</button></h3>
+  let html = venueCardHTML(packView()) + `<div class="card" id="rgList"><h3><span>Régates ${tip('Chaque régate a sa fiche : jours, manches, Instructions de Course. À l’ouverture, l’app est en Entraînement libre : Ouvrir ouvre une régate (sa fiche, ses manches, ses IC, son vent figé et ses traces), Fermer la régate revient à l’entraînement. Le jour d’une régate, l’app l’ouvre seule. La régate ouverte fixe le jour 🏁, l’heure de départ par défaut et les points clés affichés. Classées En préparation, En cours, Terminées. Ouvrir ou fermer ne change rien chez les autres.')}</span><button type="button" class="btn acc small" id="rgNew">＋ Nouvelle régate</button></h3>
     ${listHTML(groupByStatus(REG.list, now), { openId: cur?.id ?? null, now })}
     <div class="small muted" id="rgWho" style="margin-top:6px">${who() ? `Vous : ${esc(who())}` : 'Vous : — (prénom donné à la prochaine connexion)'}</div>
     <div class="small muted" id="rgSync" hidden></div>
@@ -2221,6 +2343,7 @@ function renderIC() {
     <div class="small muted" style="margin-top:6px">« à confirmer » = position approximative (cartes du cahier ou OpenStreetMap) : à vérifier sur zone, le Comité fait foi. Un recalage est partagé avec l’équipage à la synchronisation suivante, hors course.</div></div>`;
   html += `<div class="card"><h3>Dangers</h3><ul class="tips small">${toulon ? '<li><b>Zone interdite</b> de la presqu’île de Saint-Mandrier (zone Marine nationale, rouge sur la carte).</li>' : ''}${DANGERS.map((d) => `<li><b>${esc(d.name)}</b> (${fmtLat(d.lat)} ${fmtLon(d.lon)}) : ${esc(d.note)}</li>`).join('') || (toulon ? '' : '<li>Aucun danger enregistré pour ce plan d’eau : suivez la carte marine.</li>')}</ul></div>`;
   el.innerHTML = html;
+  bindPack();
   bindMarksEdit(el);
   $('#rgSyncBtn').onclick = () => syncNow('manuel');
   $('#rgSyncOff').onclick = (e) => toggleSync(e.currentTarget);

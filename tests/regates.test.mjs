@@ -12,7 +12,7 @@ import {
   upsertRegatta, removeRegatta, icOf, groupByStatus, SEED_AT, seedNorm, backfillAuthor,
 } from '../js/regates.js';
 import { parisClock, isRaceDay } from '../js/racelock.js';
-import { escHTML, byLine, listHTML, noRegattaHTML, newRegattaFormHTML, sheetHTML, historySectionHTML, tracesSectionHTML } from '../js/regview.js';
+import { escHTML, byLine, listHTML, noRegattaHTML, newRegattaFormHTML, sheetHTML, historySectionHTML, tracesSectionHTML, venueCardHTML } from '../js/regview.js';
 import { IC as SNPM } from '../js/courses.js';
 import { verdict } from '../tools/regate-e2e.mjs';
 import { stamp } from '../js/archmerge.js';
@@ -819,4 +819,48 @@ test('garde : un gel tombé fiche fermée est montré à la prochaine ouverture 
   const ecrit = bodyOf(app, 'freezeWrite');
   assert.match(ecrit, /renderIC\(\);[^\n]*\n\s*else icStale = true;/, 'fiche fermée ou occupée : marquée à redessiner');
   assert.match(app, /if \(b\.dataset\.tab === 'ic' && icStale && !icBusy\(\)\) \{ icStale = false; renderIC\(\); \}/, 'redessinée une seule fois, à l’ouverture de l’onglet');
+});
+
+// D-04, D-05, D-06 (entraînement libre) : carte « Plan d’eau » en tête de l’onglet Régates
+const NOMS = { toulon: { nom: 'Rade de Toulon' }, brest: { nom: 'Rade de Brest' } };
+const carteVenue = (o) => parseHTML(`<html><body>${venueCardHTML({ venues: NOMS, ...o })}</body></html>`).document;
+test('venueCardHTML : plan d’eau de ce téléphone, trois états du pack de Brest, boutons #pkDl et #pkGo, sources et avertissement', () => {
+  const a = carteVenue({ venueId: 'toulon', status: { state: 'absent', bytes: 3652390 } });
+  assert.equal(a.querySelector('#pkCard h3').firstChild.textContent.trim(), 'Plan d’eau');
+  assert.match(a.querySelector('#pkHere').textContent, /Ce téléphone : Rade de Toulon/);
+  assert.match(a.querySelector('#pkState').textContent, /Rade de Brest : À télécharger \(3,7 Mo\)/);
+  assert.equal(a.querySelector('#pkDl').textContent, 'Télécharger le plan d’eau');
+  assert.equal(a.querySelector('#pkGo').textContent, 'Passer à la rade de Brest');
+  assert.equal(a.querySelector('#pkGo').getAttribute('data-to'), 'brest');
+  assert.equal(a.querySelector('#pkGo').hasAttribute('disabled'), false);
+  const txt = a.querySelector('#pkCard').textContent;
+  for (const m of ['OpenStreetMap (ODbL)', 'EMODnet', 'Ne remplace pas les cartes et ouvrages nautiques officiels']) assert.ok(txt.includes(m), m);
+  const r = carteVenue({ venueId: 'toulon', status: { state: 'ready', bytes: 3652390 } });
+  assert.match(r.querySelector('#pkState').textContent, /Rade de Brest : Prêt hors réseau$/);
+  assert.equal(r.querySelector('#pkDl'), null, 'pack prêt : pas de bouton de téléchargement');
+  const s = carteVenue({ venueId: 'brest', status: { state: 'stale', bytes: 3652390 } });
+  assert.match(s.querySelector('#pkState').textContent, /Mise à jour à télécharger \(3,7 Mo\)/);
+  assert.match(s.querySelector('#pkHere').textContent, /Ce téléphone : Rade de Brest/);
+  assert.equal(s.querySelector('#pkGo').textContent, 'Revenir à la rade de Toulon');
+  assert.equal(s.querySelector('#pkGo').getAttribute('data-to'), 'toulon');
+  assert.ok(s.querySelector('#pkDl'));
+  const n = carteVenue({ venueId: 'toulon', status: null });
+  assert.match(n.querySelector('#pkState').textContent, /état en cours de lecture/);
+});
+
+test('venueCardHTML : course en cours → #pkGo désactivé « Pas pendant une course » ; téléchargement en cours → progression ; erreur et noms échappés', () => {
+  const l = carteVenue({ venueId: 'toulon', status: { state: 'ready', bytes: 1 }, locked: true });
+  assert.ok(l.querySelector('#pkGo').hasAttribute('disabled'));
+  assert.match(l.querySelector('#pkLock').textContent, /^Pas pendant une course/);
+  const b = carteVenue({ venueId: 'toulon', status: { state: 'absent', bytes: 1000 }, busy: { done: 450, total: 1000 } });
+  assert.equal(b.querySelector('#pkDl').textContent, 'Téléchargement… 45 %');
+  assert.ok(b.querySelector('#pkDl').hasAttribute('disabled') && b.querySelector('#pkGo').hasAttribute('disabled'));
+  const piege = '<img src=x onerror="window.__xss=1">';
+  const html = venueCardHTML({ venueId: 'toulon', venues: { toulon: { nom: piege }, brest: { nom: 'Rade de Brest' } }, status: { state: 'absent', bytes: 1 }, error: `fichier altéré ou incomplet : ${piege}` });
+  const d = parseHTML(`<html><body>${html}</body></html>`).document;
+  assert.equal(d.querySelector('img'), null, 'aucune balise injectée');
+  assert.match(d.querySelector('#pkErr').textContent, /Téléchargement impossible : fichier altéré ou incomplet/);
+  assert.ok(!html.includes('<img'));
+  const inconnu = carteVenue({ venueId: 'toulon', status: { state: '<b>x</b>', bytes: 1 } });
+  assert.match(inconnu.querySelector('#pkState').textContent, /état en cours de lecture/, 'état inconnu jamais affiché tel quel');
 });
