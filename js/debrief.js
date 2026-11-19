@@ -77,16 +77,25 @@ export function matchCourse(pass, courses = COURSES, marks = MARKS) {
 // le centre de la ligne de départ et l’axe du vent. Ses bouées vont dans une table à part (clés B, C, PG, PD, S, A) : les passages et la
 // suite attendue se lisent comme ceux d’un parcours du cahier, sans jamais toucher à MARKS.
 export const BAN_KEYS = { B: 'B', C: 'C', PG: 'Porte G', PD: 'Porte D', S: 'S', A: 'Arrivée' };
-// Bords d’une banane : réglages bornés (cleanBan), centre de ligne c en { lat, lon }, axe dir (d’où vient le vent), nombre de tours
-export function bananeLegs({ ban, cls = 'G', c, dir, laps }) {
-  return buildLegs(BANANE, cls, { laps, windDir: dir, ban: cleanBan(ban), line: { center: c, lengthNm: 0.12, mode: 'wind' } });
+// Bords d’une banane : réglages bornés (cleanBan), centre de ligne c en { lat, lon }, axe dir (d’où vient le vent), nombre de tours.
+// course (facultatif) : parcours construit par la banane (GPEN 91, 92, 93 : noms 1 / 2 / 3S / 3P, 3P seule au dernier tour, arrivée à droite
+// du comité ou devant la chapelle) ; c est alors déjà le centre de la ligne courue : le recentrage dans la zone A n’est pas refait
+export function bananeLegs({ ban, cls = 'G', c, dir, laps, course = null }) {
+  return buildLegs(course ? { ...course, centre: false } : BANANE, cls, { laps, windDir: dir, ban: cleanBan(ban), line: { center: c, lengthNm: 0.12, mode: 'wind' } });
 }
-// Table des bouées d’une banane construite (sortie de buildLegs), au format de MARKS ({ lat, lon, name }) plus x, y et un nom court
-export function bananeTable(B) {
-  const t = {};
-  const put = (k, p, name) => { if (p) t[k] = { ...toLL(p.x, p.y), x: p.x, y: p.y, name, short: BAN_KEYS[k] }; };
+// Noms courts des bouées d’un parcours construit (GPEN : 1, 2, 3P, 3S), tirés de ses noms ; banane : ceux de BAN_KEYS
+const shortsOf = (course) => {
+  const N = course?.names; if (!N) return BAN_KEYS;
+  const court = (k) => (typeof N[k] === 'string' ? N[k].split(' (')[0] : BAN_KEYS[k]);
+  return { ...BAN_KEYS, B: court('B'), C: court('C'), PG: court('PG'), PD: court('PD') };
+};
+// Table des bouées d’une banane construite (sortie de buildLegs), au format de MARKS ({ lat, lon, name }) plus x, y et un nom court ;
+// un parcours du GPEN garde ses noms (3P, 3S), la banane ceux d’avant (Porte gauche, Porte droite)
+export function bananeTable(B, course = null) {
+  const t = {}, K = shortsOf(course);
+  const put = (k, p, name) => { if (p) t[k] = { ...toLL(p.x, p.y), x: p.x, y: p.y, name, short: K[k] }; };
   put('B', B.points.B, B.points.B?.name); put('C', B.points.C, B.points.C?.name);
-  put('PG', B.points.PG, 'Porte gauche'); put('PD', B.points.PD, 'Porte droite'); put('S', B.points.S, B.points.S?.name);
+  put('PG', B.points.PG, course ? B.points.PG?.name : 'Porte gauche'); put('PD', B.points.PD, course ? B.points.PD?.name : 'Porte droite'); put('S', B.points.S, B.points.S?.name);
   const fin = B.legs.at(-1)?.to; put('A', fin, fin?.name);
   return t;
 }
@@ -96,17 +105,19 @@ const BAN_LAPS = [1, 2, 3, 4, 5];
 // Banane la mieux suivie par la trace. Axe connu (trace enregistrée avec la banane) : tel quel. Sinon (fit) : axe cherché à ±45° du vent
 // du moment (dir), de 3° en 3° puis au degré, pour le plus de bouées passées, puis les passages les plus proches, puis l’axe le plus près
 // du vent du moment ; le nombre de tours est cherché de 1 à 5. Rend { dir, laps, B, table, pass, mc } (mc au format de matchCourse, ou null).
-export function detectBanane(P, { ban, cls = 'G', c, dir, fit = false }) {
+// course (facultatif) : parcours du GPEN couru (bananeLegs) ; il est rendu avec le résultat et nomme le parcours dans mc.c.
+export function detectBanane(P, { ban, cls = 'G', c, dir, fit = false, course = null }) {
+  const K = course || BANANE;
   const evalDir = (d) => {
     d = norm360(d);
-    const table = bananeTable(bananeLegs({ ban, cls, c, dir: d, laps: 5 }));
+    const table = bananeTable(bananeLegs({ ban, cls, c, dir: d, laps: 5, course }), course);
     const pass = passages(P, table);
     let best = { dir: d, table, pass, mc: null, score: -Infinity, err: Infinity };
     for (const laps of BAN_LAPS) {
-      const B = bananeLegs({ ban, cls, c, dir: d, laps }), exp = bananeSeq(B), { j, hit } = matchExp(pass, exp);
+      const B = bananeLegs({ ban, cls, c, dir: d, laps, course }), exp = bananeSeq(B), { j, hit } = matchExp(pass, exp);
       if (!j) continue;
       const score = j * 10 - (exp.length - j) * 0.5 - laps * 0.1, err = hit.reduce((s, h) => s + h.d, 0);
-      if (score > best.score || (score === best.score && err < best.err)) best = { dir: d, laps, B, table, pass, score, err, mc: { c: BANANE, cls, laps, exp, hit, score, reduced: j < exp.length } };
+      if (score > best.score || (score === best.score && err < best.err)) best = { dir: d, laps, B, table, pass, score, err, mc: { c: K, cls, laps, exp, hit, score, reduced: j < exp.length } };
     }
     return best;
   };
@@ -114,8 +125,8 @@ export function detectBanane(P, { ban, cls = 'G', c, dir, fit = false }) {
   const scan = (center, step, n) => { let best = null; for (let k = 0; k <= n; k++) for (const s of k ? [1, -1] : [1]) { const r = evalDir(center + s * k * step); if (!best || better(r, best)) best = r; } return best; };
   let best = fit ? scan(dir, 3, 15) : evalDir(dir);
   if (fit) { const fine = scan(best.dir, 1, 2); if (better(fine, best)) best = fine; }
-  if (!best.B) best.B = bananeLegs({ ban, cls, c, dir: best.dir, laps: BAN_LAPS.includes(best.laps) ? best.laps : 2 });
-  return { dir: best.dir, laps: best.laps ?? null, B: best.B, table: best.table, pass: best.pass, mc: best.mc, fitted: !!fit };
+  if (!best.B) best.B = bananeLegs({ ban, cls, c, dir: best.dir, laps: BAN_LAPS.includes(best.laps) ? best.laps : (course?.fixedLaps ?? 2), course });
+  return { dir: best.dir, laps: best.laps ?? null, B: best.B, table: best.table, pass: best.pass, mc: best.mc, fitted: !!fit, ...(course ? { course } : {}) };
 }
 
 // Banane retrouvée sur une trace (tableau bord par bord de l’onglet Traces) : null si la trace est trop courte, si aucune bouée n’est
@@ -357,18 +368,21 @@ export function ask(det, tr, api) {
     if (det.ban) views.ban = { pass: det.ban.pass, mc: det.ban.mc, table: det.ban.table };
     let kind = det.ban ? det.kind : 'cahier';
     const mc = views.cahier.mc;
+    // parcours construit proposé : la banane, ou le parcours du GPEN désigné par la manche ou la trace (noms 1, 2, 3S, 3P)
+    const banC = det.ban?.course || BANANE, gpen = banC !== BANANE;
     // la trace ne révèle aucun parcours : celui de la manche de la régate (api.courseHint) est pré-sélectionné, l'équipier le confirme ou le change
     const isCourse = (c) => (mc ? mc.c.id === c.id : api.courseHint != null && String(c.id) === String(api.courseHint));
     const courseOpts = (api.courses || COURSES).filter((c) => !c.built).map((c) => `<option value="${c.id}" ${kind === 'cahier' && isCourse(c) ? 'selected' : ''}>${esc(c.title)}</option>`).join('')
-      + (det.ban ? `<option value="${BANANE.id}" ${kind === 'ban' ? 'selected' : ''}>${esc(BANANE.title)}</option>` : '');
+      + (det.ban ? `<option value="${banC.id}" ${kind === 'ban' ? 'selected' : ''}>${esc(banC.title)}</option>` : '');
     const html = (k) => {
       const v = views[k], m2 = v.mc;
       if (k === 'ban') {
         // bouées voisines (porte à 90 m, arrivée près de la porte) : un même instant peut être le plus proche de deux bouées, d’où la clé
         const b = det.ban, nom = (key) => v.table[key]?.name || key;
         const passOpts = v.pass.map((p, i) => `<label class="dq-pass"><input type="checkbox" data-p="${i}" ${m2?.hit.some((h) => h.t === p.t && h.k === p.k) ? 'checked' : ''}> ${hms(p.t)} · ${esc(nom(p.k))}${p.k === 'PG' || p.k === 'PD' ? ' (porte)' : ''} <span class="muted">(${Math.round(p.d)} m)</span></label>`).join('');
-        const lu = `Banane reconstruite : B à ${String(cleanBan(b.ban).nm).replace('.', ',')} Nq, axe ${fmtBrg(b.dir)}${b.fitted ? ' (ajusté sur la trace)' : ' (enregistré avec la trace)'}, réglages ${esc(b.from || 'de l’app')}.`;
-        return { passOpts, found: m2 ? `<p class="small">${lu} Détecté : ${m2.hit.map((h) => esc(BAN_KEYS[h.k] || h.k)).join(' → ')}${m2.reduced ? ' (parcours réduit ou trace arrêtée avant la fin)' : ''}.</p>` : `<p class="small">${lu} Aucune bouée de la banane retrouvée à moins de 200 m : vérifiez les réglages de la banane et la ligne de départ.</p>` };
+        const nmTxt = String(cleanBan(b.ban).nm).replace('.', ','), axe = `axe ${fmtBrg(b.dir)}${b.fitted ? ' (ajusté sur la trace)' : ' (enregistré avec la trace)'}, réglages ${esc(b.from || 'de l’app')}.`;
+        const lu = gpen ? `Parcours reconstruit (${esc(banC.title)}) : marque ${esc(v.table.B?.short || 'B')} à ${nmTxt} Nq, ${axe}` : `Banane reconstruite : B à ${nmTxt} Nq, ${axe}`;
+        return { passOpts, found: m2 ? `<p class="small">${lu} Détecté : ${m2.hit.map((h) => esc(v.table[h.k]?.short || BAN_KEYS[h.k] || h.k)).join(' → ')}${m2.reduced ? ' (parcours réduit ou trace arrêtée avant la fin)' : ''}.</p>` : `<p class="small">${lu} ${gpen ? 'Aucune bouée du parcours retrouvée à moins de 200 m : vérifiez la distance de la marque 1 et la ligne de départ.' : 'Aucune bouée de la banane retrouvée à moins de 200 m : vérifiez les réglages de la banane et la ligne de départ.'}</p>` };
       }
       // une bouée de porte du parcours détecté se lit « marque X3 4p (porte X2/X3) » : l’équipier voit laquelle a été prise
       const gateOf = (key) => m2?.exp.find((e) => e.gate && (e.k === key || e.gate === key));
@@ -376,7 +390,7 @@ export function ask(det, tr, api) {
       return { passOpts, found: m2 ? `<p class="small">Détecté : <b>${esc(m2.c.title)}</b>, marques ${m2.hit.map((h) => esc(h.k)).join(' → ')}${m2.reduced ? ' (parcours réduit ou trace arrêtée avant la fin)' : ''}.</p>` : '<p class="small">Aucune marque du cahier détectée à moins de 200 m.</p>' };
     };
     const h0 = html(kind);
-    const guess = kind === 'ban' && det.ban.mc ? { dir: Math.round(norm360(det.ban.dir)), src: 'l’axe de la banane retrouvé sur la trace' } : api.windGuess(det.tStart);
+    const guess = kind === 'ban' && det.ban.mc ? { dir: Math.round(norm360(det.ban.dir)), src: gpen ? 'l’axe du parcours retrouvé sur la trace' : 'l’axe de la banane retrouvé sur la trace' } : api.windGuess(det.tStart);
     const m = overlay(`
       <h2>Débrief de course</h2>
       <p class="small muted">L’app a lu la trace. Vérifiez et complétez, puis lancez l’analyse.</p>
@@ -397,7 +411,7 @@ export function ask(det, tr, api) {
       <div class="btns"><button class="btn acc" id="dqGo">Analyser</button><button class="btn alt" id="dqCancel">Annuler</button></div>`);
     // banane ↔ parcours du cahier : la liste des passages et la détection suivent le parcours choisi
     if (det.ban) m.querySelector('#dqCourse').onchange = (e) => {
-      const k = +e.target.value === BANANE.id ? 'ban' : 'cahier';
+      const k = +e.target.value === banC.id ? 'ban' : 'cahier';
       if (k === kind) return;
       kind = k; const h = html(kind);
       m.querySelector('#dqFound').innerHTML = h.found;
@@ -410,12 +424,13 @@ export function ask(det, tr, api) {
       const picked = [...m.querySelectorAll('[data-p]')].filter((x) => x.checked).map((x) => v.pass[+x.dataset.p]);
       if (!picked.length) { api.toast('Cochez au moins une marque'); return; }
       const wv = m.querySelector('#dqWind').value; if (wv === '') { api.toast('Indiquez le vent au départ'); return; }
-      const c = kind === 'ban' ? BANANE : COURSES.find((x) => x.id === +m.querySelector('#dqCourse').value);
+      const c = kind === 'ban' ? banC : COURSES.find((x) => x.id === +m.querySelector('#dqCourse').value);
       let marks;
       if (kind === 'ban') {
         // côtés de la banane : B, C et la bouée sous le vent du côté réglé ; une bouée de porte = porte (bouée prise), l’arrivée sans côté
-        const sd = cleanBan(det.ban.ban).side;
-        marks = picked.map((p) => ({ k: p.k, t: p.t, side: p.k === 'B' || p.k === 'C' || p.k === 'S' ? sd : null, ...(p.k === 'PG' || p.k === 'PD' ? { gate: true } : {}) }));
+        // GPEN : 3P seule au dernier tour (passage retenu sans porte) se laisse à bâbord, comme une marque
+        const sd = cleanBan(det.ban.ban).side, seule = (p) => p.k === 'PG' && v.mc?.hit.some((h) => h.t === p.t && h.k === p.k && !h.gate);
+        marks = picked.map((p) => (seule(p) ? { k: p.k, t: p.t, side: 'b' } : { k: p.k, t: p.t, side: p.k === 'B' || p.k === 'C' || p.k === 'S' ? sd : null, ...(p.k === 'PG' || p.k === 'PD' ? { gate: true } : {}) }));
       } else {
         const seq = (c.seq[mc?.cls || 'G'] || c.seq.G);
         marks = picked.map((p) => { const el = seq.find(([k, , g]) => k === p.k || g === p.k); return { k: p.k, t: p.t, side: el?.[1] ?? null, ...(el?.[2] != null ? { gate: true } : {}) }; });
@@ -584,7 +599,7 @@ td.n{font-family:ui-monospace,Menlo,monospace;font-size:13px;white-space:nowrap}
 .lg{display:flex;flex-wrap:wrap;gap:6px 16px;padding:10px 14px;font-size:13px;color:var(--muted);border-top:1px solid var(--line)}.lg i{display:inline-block;width:22px;height:4px;border-radius:2px;vertical-align:middle;margin-right:6px}
 </style></head><body><div class="wrap">
 <header style="display:grid;gap:8px"><div class="eyebrow">Débrief · J80 · Rade Tactique</div>${ans.place === '1' ? '<div class="win">Victoire</div>' : ''}<h1>${esc(title)}, ${esc(date)}</h1>
-<div class="meta"><span class="chip">${esc(ans.course.title)}${ans.ban ? ` : B à ${String(ans.ban.nm).replace('.', ',')} Nq, axe ${fmtBrg(ans.ban.dir)}` : ''}${ans.reduced ? ', réduit' : ''}</span><span class="chip">Départ ${hm(an.tStart)}${ans.falseStarts ? ` après ${ans.falseStarts} rappel${ans.falseStarts > 1 ? 's' : ''}` : ''}</span><span class="chip">Arrivée ${hms(an.tFin)}</span><span class="chip">Course ${mins(total)}</span><span class="chip">${nm(dist)} parcourus pour ${nm(direct)} de route directe</span>${ans.place ? `<span class="chip">Classement ${esc(ans.place)}${ans.fleet ? ' / ' + esc(ans.fleet) : ''}</span>` : ''}</div></header>
+<div class="meta"><span class="chip">${esc(ans.course.title)}${ans.ban ? ` : ${esc(ans.table?.B?.short || 'B')} à ${String(ans.ban.nm).replace('.', ',')} Nq, axe ${fmtBrg(ans.ban.dir)}` : ''}${ans.reduced ? ', réduit' : ''}</span><span class="chip">Départ ${hm(an.tStart)}${ans.falseStarts ? ` après ${ans.falseStarts} rappel${ans.falseStarts > 1 ? 's' : ''}` : ''}</span><span class="chip">Arrivée ${hms(an.tFin)}</span><span class="chip">Course ${mins(total)}</span><span class="chip">${nm(dist)} parcourus pour ${nm(direct)} de route directe</span>${ans.place ? `<span class="chip">Classement ${esc(ans.place)}${ans.fleet ? ' / ' + esc(ans.fleet) : ''}</span>` : ''}</div></header>
 <div class="keys"><div class="key good"><span class="k">Ce qui a marché</span><p>${esc(nar.resume.bien)}</p></div><div class="key warn"><span class="k">Ce qui a coûté</span><p>${esc(nar.resume.coute)}</p></div><div class="key bad"><span class="k">La météo</span><p>${esc(nar.resume.meteo)}</p></div></div>
 <section><h2>1 · Le parcours</h2><div class="tbl"><table><tr><th>Bord</th><th>Passage</th><th>Allure</th><th>Route directe</th><th>Parcouru</th><th>Vent</th></tr>${legRows}</table></div>
 <div class="fig">${svg}<div class="lg"><span><i style="background:#2b8a3e"></i>&gt; 5 nd</span><span><i style="background:#0d6e8a"></i>3,5–5 nd</span><span><i style="background:#c27c0e"></i>2–3,5 nd</span><span><i style="background:#c92a2a"></i>&lt; 2 nd</span><span><i style="background:#00a6c8"></i>route conseillée</span></div></div></section>

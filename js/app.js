@@ -1,7 +1,7 @@
 // Rade Tactique — application principale.
 
 import { report, note, setContext } from './journal.js';
-import { Terrain, toXY, toLL, NM, bearingXY, distXY, norm360, norm180, fmtBrg, fmtNm, fmtLat, fmtLon, cardinal, pointInPolygon } from './geo.js';
+import { Terrain, toXY, toLL, NM, bearingXY, distXY, fromBearing, norm360, norm180, fmtBrg, fmtNm, fmtLat, fmtLon, cardinal, pointInPolygon } from './geo.js';
 import { WindField, speedColor } from './wind.js';
 import { VENUE, MARKS, COURSES, LINE_PRESETS, FORBIDDEN_ZONES, DANGERS, setVenue, venueBody } from './lieu.js';
 import { bootVenue, VENUES, venueOf, needsVenueRepair, venueAt, zonesXY } from './venues.js';
@@ -1519,9 +1519,11 @@ function renderLiveNav() {
   $('#recStart')?.addEventListener('click', () => {
     if (!gps) startGps('auto');
     const c = COURSES.find((x) => x.id === S.courseId);
-    // banane : ses réglages, et la ligne et l’axe du vent de l’analyse en cours, pour la reconstruire telle quelle au débrief
-    const banGeo = S.courseId === BANANE_ID && analysis?.course.id === BANANE_ID ? { axe: +norm360(analysis.line.face).toFixed(2), ligne: (({ lat, lon }) => ({ lat: +lat.toFixed(6), lon: +lon.toFixed(6) }))(toLL(analysis.line.c.x, analysis.line.c.y)) } : {};
-    recorder.start({ name: `${dayName(today())} — ${c.title}`, course: { id: S.courseId, cls: S.cls, laps: courseLaps(c, S), day: S.day, startTime: S.startTime, ...(S.courseId === BANANE_ID ? { ban: banOf(S), ...banGeo } : {}) } });
+    // banane ou parcours du GPEN (construit par la banane) : ses réglages, et la ligne et l’axe du vent de l’analyse en cours, pour le
+    // reconstruire tel quel au débrief ; les parcours de Toulon autres que la banane n’enregistrent rien de plus (forme v42)
+    const construit = S.courseId === BANANE_ID || c.built === 'BAN';
+    const banGeo = construit && analysis?.course.id === S.courseId ? { axe: +norm360(analysis.line.face).toFixed(2), ligne: (({ lat, lon }) => ({ lat: +lat.toFixed(6), lon: +lon.toFixed(6) }))(toLL(analysis.line.c.x, analysis.line.c.y)) } : {};
+    recorder.start({ name: `${dayName(today())} — ${c.title}`, course: { id: S.courseId, cls: S.cls, laps: courseLaps(c, S), day: S.day, startTime: S.startTime, ...(S.courseId === BANANE_ID ? { ban: banOf(S), ...banGeo } : construit ? { ban: courseBan(c, S), ...banGeo } : {}) } });
     toast('Enregistrement lancé : gardez l’app ouverte, écran allumé.'); renderLiveNav(); raceTick();
   });
   $('#recStop')?.addEventListener('click', async () => {
@@ -1716,29 +1718,37 @@ function busy(msg) {
 }
 // Banane d’une trace (débrief et bord par bord) : réglages de la manche de la régate, sinon ceux enregistrés avec la trace, sinon ceux de
 // l’app ; ligne et axe du vent enregistrés avec la trace (tels quels), sinon la ligne choisie dans l’app et le vent du moment de la course,
-// axe alors ajusté sur la trace. null quand la manche ou la trace désigne un autre parcours : le débrief reste celui du cahier.
-// La trace peut venir d’un autre téléphone (archive partagée) : chaque champ est vérifié, les réglages bornés par cleanBan.
+// axe alors ajusté sur la trace. Un parcours du GPEN (91, 92, 93 : construit par la banane, réglages imposés par courseBan, noms 1 / 2 / 3S / 3P)
+// se reconstruit de même, ligne recentrée dans la zone A comme runAnalysis. null quand la manche ou la trace désigne un autre parcours : le
+// débrief reste celui du cahier. La trace peut venir d’un autre téléphone (archive partagée) : chaque champ est vérifié, les réglages bornés par cleanBan.
 function bananeOfTrace(tr, src) {
   const reg = regOfTrace(tr.id), w = trackDay(tr.pts, breaksOf(tr));
   const manche = reg ? (raceOfTrack(reg, w) || reg.races?.find((m) => m.n === reg.sel) || null) : null;
   const set = manche ? raceSettings(manche) : {}, rec = tr.course && typeof tr.course === 'object' ? tr.course : {};
   const designe = set.courseId ?? rec.id ?? null;
-  if (designe != null && Number(designe) !== BANANE_ID) return null;
+  const K = designe == null || Number(designe) === BANANE_ID ? BANANE : COURSES.find((c) => c.id === Number(designe) && c.built === 'BAN' && c.ban);
+  if (!K) return null;
+  const gpen = K !== BANANE;
   const recBan = rec.ban && typeof rec.ban === 'object' ? cleanBan(rec.ban) : null;
   const from = set.ban ? 'de la manche' : recBan ? 'enregistrés avec la trace' : 'de l’app';
-  const ban = set.ban || recBan || banOf(S);
+  const ban0 = set.ban || recBan || (gpen ? courseBan(K, S) : banOf(S));
+  const ban = gpen ? cleanBan({ ...ban0, ...K.ban }) : ban0;           // GPEN : dégagement, porte et arrivée imposés par le parcours
   const cls = [set.cls, rec.cls, S.cls].find((x) => x === 'G' || x === 'P') || 'G';
   const VB = VENUE.bounds;                                  // emprise du plan d’eau (Toulon : 43-43,18 N, 5,8-6,1 E, inégalités strictes de la v42)
   const lig = rec.ligne, okLL = lig && Number.isFinite(lig.lat) && Number.isFinite(lig.lon) && lig.lat > VB.south && lig.lat < VB.north && lig.lon > VB.west && lig.lon < VB.east;
   // trace enregistrée avec cette même banane : sa ligne et son axe tels quels
-  if (Number(rec.id) === BANANE_ID && okLL && Number.isFinite(rec.axe) && recBan && JSON.stringify(recBan) === JSON.stringify(ban)) return { ban, cls, c: { lat: lig.lat, lon: lig.lon }, dir: norm360(rec.axe), fit: false, prefer: true, from };
+  const course = gpen ? { course: K } : {};
+  if (Number(rec.id) === K.id && okLL && Number.isFinite(rec.axe) && recBan && JSON.stringify(recBan) === JSON.stringify(ban)) return { ban, cls, c: { lat: lig.lat, lon: lig.lon }, dir: norm360(rec.axe), fit: false, prefer: true, from, ...course };
   // ligne de l’app, comme runAnalysis pour la banane (ligne pinguée comprise)
-  const preset = LINE_PRESETS[BANANE.line && S.linePreset === 'vignettes' ? BANANE.line : S.linePreset] || LINE_PRESETS.vignettes;
-  const ov = S.lineOverride, c = ov ? toLL(...(({ cb, pin }) => [(cb.x + pin.x) / 2, (cb.y + pin.y) / 2])({ cb: toXY(ov.cb.lat, ov.cb.lon), pin: toXY(ov.pin.lat, ov.pin.lon) })) : { lat: preset.lat, lon: preset.lon };
+  const preset = LINE_PRESETS[K.line && S.linePreset === 'vignettes' ? K.line : S.linePreset] || LINE_PRESETS.vignettes;
+  const ov = S.lineOverride;
+  let c = ov ? toLL(...(({ cb, pin }) => [(cb.x + pin.x) / 2, (cb.y + pin.y) / 2])({ cb: toXY(ov.cb.lat, ov.cb.lon), pin: toXY(ov.pin.lat, ov.pin.lon) })) : { lat: preset.lat, lon: preset.lon };
   // vent du moment : au signal de la manche s’il tombe ce jour-là, sinon au début de la trace
   const t0 = set.day === w.day && Number.isFinite(set.startTime) ? parisInstant(w.day, Math.floor(set.startTime), Math.round((set.startTime % 1) * 60)) : w.from;
   const cxy = toXY(c.lat, c.lon), vent = trackWindAt(w.day, src)(cxy.x, cxy.y, t0);
-  return { ban, cls, c, dir: norm360(vent.dir), fit: true, prefer: designe != null, from };
+  // GPEN sans ligne pinguée : ligne reculée sous le vent de la moitié de Dist. 1 depuis le centre de la zone A (buildLegs, course.centre)
+  if (gpen && K.centre && !ov) c = ((p) => toLL(p.x, p.y))(fromBearing(cxy, vent.dir + 180, (ban.nm / 2) * NM));
+  return { ban, cls, c, dir: norm360(vent.dir), fit: true, prefer: designe != null, from, ...course };
 }
 async function runDebrief(tr) {
   { const v = traceElsewhere(tr); if (v) { toast(`Cette trace a été faite en ${venueIn(v)} : passez sur ce plan d’eau pour la débriefer.`); openTab('tracks'); await mapReady; traceAilleurs(tr, v); return; } }
@@ -1984,7 +1994,7 @@ function renderTraceDetail() {
     <p class="small" id="trReg" style="margin:4px 0 0">${regOfTrace(tr.id) ? `Rangée dans <b>${esc(regOfTrace(tr.id).name)}</b> · <button type="button" class="btn small alt" id="trDetach">Détacher</button>` : 'Sans régate · <button type="button" class="btn small alt" id="trPlace">Ranger…</button>'}</p>
     <button class="btn acc" id="trDebrief" style="width:100%;margin-top:8px">📝 ${tr.report ? 'Refaire le débrief de course' : 'Débrief de course'}</button>${tr.report ? '<button class="btn" id="trReport" style="width:100%;margin-top:6px">📄 Voir le débrief</button>' : ''}
     <div class="btns"><button class="btn alt" id="trPlay">▶ Rejouer la trace</button><button class="btn alt" id="trGpx">Exporter GPX</button><button class="btn alt" id="trHide">Masquer</button></div>
-    ${ban ? `<p class="small" id="trBan" style="margin:8px 0 0">Banane reconstruite : B à ${esc(String(ban.ban.nm).replace('.', ','))} Nq, axe ${esc(fmtBrg(ban.dir))} ${ban.fitted ? '(ajusté sur la trace)' : '(enregistré avec la trace)'}, ${esc(String(ban.laps))} ${ban.laps > 1 ? 'tours' : 'tour'}, réglages ${esc(ban.from || 'de l’app')}.</p>` : ''}
+    ${ban ? `<p class="small" id="trBan" style="margin:8px 0 0">${ban.course ? `Parcours reconstruit (${esc(ban.course.title)}) : marque 1` : 'Banane reconstruite : B'} à ${esc(String(ban.ban.nm).replace('.', ','))} Nq, axe ${esc(fmtBrg(ban.dir))} ${ban.fitted ? '(ajusté sur la trace)' : '(enregistré avec la trace)'}, ${esc(String(ban.laps))} ${ban.laps > 1 ? 'tours' : 'tour'}, réglages ${esc(ban.from || 'de l’app')}.</p>` : ''}
     ${sameCourse ? (sp.length ? `<h3 style="margin-top:12px">Bord par bord ${tip(ban ? 'Temps réel entre deux bouées de la banane comparé au temps du routage optimal, avec le vent de l’axe de la banane et la force prévue. Porte : la bouée réellement prise est nommée. Un écart positif = temps perdu.' : 'Temps réel entre deux marques comparé au temps du routage optimal (même vent modèle). Un écart positif = temps perdu.')}</h3><table class="t"><tr><th>Marque</th><th>Réel</th><th>Optimal</th><th>Écart</th><th>Polaire</th></tr>${res.split.map((s) => s.missed ? `<tr><td>${s.leg.order} · ${esc(s.leg.to.name)}</td><td colspan="4" class="muted">non détectée</td></tr>` : `<tr><td>${s.leg.order} · ${esc(s.took ? `${s.leg.gate[s.took].name} (porte : bouée prise)` : s.leg.to.name)}</td><td>${summarizeTime(s.t)}</td><td>${summarizeTime(s.plan)}</td><td style="color:${s.t > s.plan ? 'var(--bad)' : 'var(--ok)'}">${s.t > s.plan ? '+' : '−'}${summarizeTime(Math.abs(s.t - s.plan))}</td><td>${s.pct ? Math.round(s.pct * 100) + ' %' : '—'}</td></tr>`).join('')}</table>${worst ? `<p class="small">Bord le plus coûteux : vers <b>${esc(worst.leg.to.name)}</b> (${summarizeTime(worst.t - worst.plan)} de plus que l’optimal). Rejouez-le en comparant à la route bleue.</p>` : ''}` : '<p class="small muted">Aucune marque du parcours détectée sur cette trace (passage à plus de 250 m).</p>')
       : '<p class="small muted">Pour le découpage bord par bord, sélectionnez dans l’onglet Parcours le parcours couru (même numéro et même classe).</p>'}
     <p class="small muted">Couleur de la trace : du bleu (lent) au rouge (rapide). V = virement, E = empannage.</p></div>${fitCard}`;

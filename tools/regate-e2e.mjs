@@ -3309,6 +3309,51 @@ async function gpen({ browser, base }) {
   assert.match(ia.appels.at(-1).instructions, /rade de Brest/); assert.ok(!/CVAT/.test(ia.appels.at(-1).instructions));
   assert.equal(await texte(page, '#chatLog .msg.bot .verdict'), 'Un seul tour suffit');
   assert.match(await texte(page, '#chatLog .msg.bot .note'), /^IC du GPEN : Pénalité d’un tour/);
+
+  // débrief d’une trace courue sur le parcours 1 du GPEN (07-10) : trace du 6 mai 2027 au matin, parcours 91 noté par l’enregistreur
+  // (sans ligne ni axe) ; le parcours se reconstruit comme une banane (ligne recentrée dans la zone A, axe ajusté sur la trace).
+  // Modules lus dans l’app ouverte à Brest (même instance que l’app : plan d’eau et origine de Brest)
+  await ouvreApp(page, base);
+  const trId = await page.evaluate(async () => {
+    const [{ toXY, toLL, distXY, fromBearing }, { COURSES, LINE_PRESETS }, { buildLegs }, { courseBan, courseLaps }, { saveTrack }] = await Promise.all(
+      ['/js/geo.js', '/js/lieu.js', '/js/tactics.js', '/js/banane.js', '/js/track.js'].map((u) => import(u)));
+    const c = COURSES.find((x) => x.id === 91), S = { laps: 5, banNm: 0.8 };
+    const B = buildLegs(c, 'G', { laps: courseLaps(c, S), windDir: 270, ban: courseBan(c, S), line: { center: LINE_PRESETS.zoneA, lengthNm: 0.12, mode: 'wind', bearing: 0, override: null } });
+    const L = B.line.c, wps = [fromBearing(L, 120, 400), fromBearing(L, 200, 150), fromBearing(L, 20, 150), fromBearing(L, 120, 250), L];
+    for (const l of B.legs) wps.push(l.gate ? l.gate.d : l.to);
+    wps.push(fromBearing(wps.at(-1), 180, 600));
+    const pts = []; let t = Date.parse('2027-05-06T04:30:00Z');
+    for (let k = 1; k < wps.length; k++) {
+      const a = wps[k - 1], b = wps[k], n = Math.max(1, Math.round(distXY(a, b) / 10));
+      for (let i = k === 1 ? 0 : 1; i <= n; i++) { const ll = toLL(a.x + (b.x - a.x) * i / n, a.y + (b.y - a.y) * i / n); pts.push([t, +ll.lat.toFixed(6), +ll.lon.toFixed(6), 6, null]); t += 3000; }
+    }
+    const tr = { id: 'tr' + pts[0][0], name: 'Jeudi — GPEN — parcours 1 (2 tours)', start: pts[0][0], course: { id: 91, cls: 'G', laps: 2, day: '2027-05-06', startTime: 7 }, pts };
+    await saveTrack(tr);
+    return tr.id;
+  });
+  await ouvreApp(page, base);
+  await ongletTraces(page);
+  await page.click(`[data-tv="${trId}"]`);
+  await page.waitForSelector('#trBan', { timeout: 90000 });
+  const dT = (await texte(page, '#traceDetail')).replace(/\s+/g, ' ');
+  assert.match(dT, /Parcours reconstruit \(GPEN — parcours 1 \(2 tours\)\) : marque 1 à 0,8 Nq, axe (26[89]|27[012])° \(ajusté sur la trace\), 2 tours, réglages de l’app\./, `détail : ${dT.slice(0, 500)}`);
+  assert.match(dT, /Bord par bord/);
+  assert.match(dT, /3 · 3S \(porte : bouée prise\)/); assert.match(dT, /6 · 3P/); assert.match(dT, /7 · Arrivée \(à droite du comité\)/);
+  assert.doesNotMatch(dT, /non détectée/, `toutes les bouées retrouvées : ${dT.slice(0, 600)}`);
+  await page.click('#trDebrief');
+  await page.waitForSelector('#dqCourse', { timeout: 90000 });
+  assert.equal(await page.locator('#dqCourse').inputValue(), '91', 'le parcours du GPEN est proposé');
+  const qG = (await page.locator('#modal').textContent()).replace(/\s+/g, ' ');
+  assert.match(qG, /Parcours reconstruit \(GPEN — parcours 1 \(2 tours\)\) : marque 1 à 0,8 Nq/);
+  assert.match(qG, /Détecté : 1 → 2 → 3S → 1 → 2 → 3P → Arrivée\./);
+  await page.click('#dqGo');
+  await page.waitForSelector('#rpFrame, #dmGo', { state: 'attached', timeout: 120000 });
+  if (await page.locator('#dmGo').isVisible()) { await page.click('#dmGo'); await page.waitForSelector('#rpFrame', { state: 'attached', timeout: 120000 }); }
+  await page.waitForFunction(() => document.querySelector('#rpFrame')?.srcdoc?.length > 500, null, { timeout: 120000 });
+  const rpG = await page.evaluate(() => document.querySelector('#rpFrame').srcdoc);
+  assert.match(rpG, /GPEN — parcours 1 \(2 tours\) : 1 à 0,8 Nq, axe/, 'le rapport nomme le parcours du GPEN');
+  assert.match(rpG, /2 → 3S \(porte : bouée prise\)/); assert.match(rpG, /3P → Arrivée \(à droite du comité\)/);
+  await page.click('#rpClose');
   sansErreur(erreurs, 'GPEN à Brest');
   await ctx.close();
 
