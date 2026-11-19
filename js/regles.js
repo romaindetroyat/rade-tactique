@@ -6,18 +6,21 @@
   const para = (t) => esc(t).split(/\n+/).filter(Boolean).map((l) => `<p>${l}</p>`).join('');
   const log = $('#chatLog'), input = $('#chatIn'), go = $('#chatGo');
   const history = [];
+  // plan d’eau choisi dans l’app (rade.state, liste fermée) : ajouté à la requête seulement hors de Toulon (07-09, D-11 ; corps de la v42 à Toulon)
+  const brest = (() => { try { return JSON.parse(localStorage.getItem('rade.state') || '{}')?.venue === 'brest'; } catch { return false; /* stockage illisible : Toulon */ } })();
+  const venueBody = () => (brest ? { venue: 'brest' } : {});
   const add = (cls, html) => { const d = document.createElement('div'); d.className = 'msg ' + cls; d.innerHTML = html; log.appendChild(d); d.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); return d; };
   const render = (a) => `<button type="button" class="say-btn" aria-label="Lire la réponse à voix haute" title="Lire à voix haute">🔊</button><div class="verdict">${esc(a.verdict)}</div>${para(a.explication)}
     ${(a.regles || []).map((r) => `<div class="rn">Règle ${esc(r.numero)} · ${esc(r.titre)}</div><div class="ref">
       <blockquote><span class="lg">FR</span>« ${esc(r.fr)} » (traduction)</blockquote>
       <blockquote class="en"><span class="lg">EN</span>« ${esc(String(r.en).replace(/\s+/g, ' ').trim())} »${r.verifie ? '' : ' <b style="font-style:normal;color:var(--accent)">à vérifier</b>'}</blockquote></div>`).join('')}
-    ${a.ic ? `<div class="note"><b>IC CVAT :</b> ${esc(a.ic)}</div>` : ''}${a.attention ? `<div class="note"><b>Attention :</b> ${esc(a.attention)}</div>` : ''}`;
+    ${a.ic ? `<div class="note"><b>${brest ? 'IC du GPEN' : 'IC CVAT'} :</b> ${esc(a.ic)}</div>` : ''}${a.attention ? `<div class="note"><b>Attention :</b> ${esc(a.attention)}</div>` : ''}`;
   async function ask(q) {
     q = q.trim(); if (!q || go.disabled) return;
     add('me', esc(q)); input.value = ''; go.disabled = true; $('#chatChips').hidden = true;
     const wait = add('bot', '<span class="dots">L’arbitre consulte les règles</span>');
     try {
-      const r = await fetch('api/rules', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ question: q, history }) });
+      const r = await fetch('api/rules', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ question: q, history, ...venueBody() }) });
       const a = await r.json().catch(() => ({}));
       // 429 : quota du jour ou budget du mois, le serveur donne le message en français (affiché par textContent, borné)
       if (!r.ok) throw new Error(a.error === 'no_key' ? 'L’arbitre n’est pas configuré (clé OpenAI absente).' : r.status === 429 && typeof a.message === 'string' && a.message.trim() ? a.message.trim().slice(0, 300) : 'L’arbitre n’a pas pu répondre. Réessayez dans un instant.');

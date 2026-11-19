@@ -6,7 +6,7 @@ import { toXY, toLL, bearingXY, distXY, norm180, norm360, fmtBrg, cardinal } fro
 import { boatSpeed, optimalAngles } from './polar.js';
 import { analyzeTrack } from './track.js';
 import { analyzeLeg, buildLegs, prepareLeg } from './tactics.js';
-import { MARKS, COURSES } from './lieu.js';
+import { MARKS, COURSES, venueBody } from './lieu.js';
 import { BANANE, cleanBan } from './banane.js';
 
 const KN = 0.5144;
@@ -462,7 +462,7 @@ export async function narrative(an, ans) {
   if (navigator.onLine) {
     try {
       const ctl = new AbortController(), to = setTimeout(() => ctl.abort(), 45000);
-      const r = await fetch('api/debrief', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(facts), signal: ctl.signal });
+      const r = await fetch('api/debrief', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...facts, ...venueBody() }), signal: ctl.signal });
       clearTimeout(to);
       if (r.ok) { const j = await r.json(); if (j?.resume) return { ...j, ai: true }; }
       else if (r.status === 429) {

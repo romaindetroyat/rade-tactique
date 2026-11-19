@@ -3,7 +3,7 @@
 import { report, note, setContext } from './journal.js';
 import { Terrain, toXY, toLL, NM, bearingXY, distXY, norm360, norm180, fmtBrg, fmtNm, fmtLat, fmtLon, cardinal, pointInPolygon } from './geo.js';
 import { WindField, speedColor } from './wind.js';
-import { VENUE, MARKS, COURSES, LINE_PRESETS, FORBIDDEN_ZONES, DANGERS, setVenue } from './lieu.js';
+import { VENUE, MARKS, COURSES, LINE_PRESETS, FORBIDDEN_ZONES, DANGERS, setVenue, venueBody } from './lieu.js';
 import { bootVenue, VENUES, venueOf, needsVenueRepair, venueAt, zonesXY } from './venues.js';
 import { packStatus, downloadPack, prunePacks, fmtMo } from './pack.js';
 import { pdfText, parseIC, cleanText } from './events.js';
@@ -468,7 +468,7 @@ async function understand(alts, last, tack) {
   if (navigator.onLine) {
     try {
       const ctl = new AbortController(), to = setTimeout(() => ctl.abort(), 9000);
-      const r = await fetch('api/voice', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ alts, last, tack }), signal: ctl.signal });
+      const r = await fetch('api/voice', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ alts, last, tack, ...venueBody() }), signal: ctl.signal });
       clearTimeout(to);
       if (r.ok) {
         const j = await r.json();

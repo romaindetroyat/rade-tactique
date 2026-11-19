@@ -9,6 +9,9 @@ export let VENUE = VENUES.toulon;
 export let MARKS = VENUE.MARKS, COURSES = VENUE.COURSES, LINE_PRESETS = VENUE.LINE_PRESETS, PLACES = VENUE.PLACES,
   FORBIDDEN_ZONES = VENUE.FORBIDDEN_ZONES, DANGERS = VENUE.DANGERS;
 
+// Corps des requêtes aux fonctions d’IA (07-09, D-11) : plan d’eau ajouté seulement hors de Toulon (à Toulon, corps identique à la v42)
+export const venueBody = () => (VENUE.id === 'toulon' ? {} : { venue: VENUE.id });
+
 let change = false;          // vrai dès que l’origine a quitté Toulon : un autre changement est refusé
 
 export function setVenue(id) {

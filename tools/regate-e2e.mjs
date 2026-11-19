@@ -3224,8 +3224,31 @@ async function brestCourant({ browser, base }) {
 // ───────────────────────── GPEN 2027 en rade de Brest (07-09 : D-08, D-09, D-11)
 // À Brest, parcours 1 du GPEN par défaut, vent 270° / 10 nd le 6 mai 2027 à 14 h : bords 1, 2 (dégagement), porte 3S / 3P, 1, 2, 3P seule, arrivée
 // à droite du comité ; conseil de porte, courant au briefing ; seule Dist. 1 se règle ; marque 1 à 1,5 Nq hors de la zone A, signalée.
+// Arbitre simulé pour le scénario gpen : la vraie fonction api/rules.js avec un faux client (aucun appel réel), corps et consignes relevés
+async function arbitreSimule(ctx) {
+  const { createHandler } = await import('../api/rules.js');
+  const { createFakeBlob, invoke } = await import('../tests/helpers/fakeblob.mjs');
+  process.env.OPENAI_API_KEY ||= 'cle-de-test';
+  const appels = [], corps = [];
+  const client = { responses: { create: async (args) => { appels.push(args); return { status: 'completed', output_text: JSON.stringify({ verdict: 'Un seul tour suffit', explication: 'Au GPEN, la pénalité est d’un tour.', regles: [], ic: 'Pénalité d’un tour (IC 15.1).', attention: '' }) }; } } };
+  const handler = createHandler({ openai: client, blob: createFakeBlob(), now: () => Date.now() });
+  await ctx.route('**/api/rules', async (route) => {
+    const req = route.request(), body = JSON.parse(req.postData() || 'null');
+    corps.push(body);
+    const r = await invoke(handler, { method: req.method(), url: '/api/rules', body, headers: { 'x-rt-membre': encodeURIComponent(PRENOM_IA) } });
+    await route.fulfill({ status: r.status, contentType: 'application/json', body: JSON.stringify(r.body ?? null) });
+  });
+  return { appels, corps };
+}
+const questionArbitre = async (page, base, q) => {
+  await page.goto(base + 'regles.html', { waitUntil: 'load' });
+  await page.fill('#chatIn', q); await page.click('#chatGo');
+  await page.waitForSelector('#chatLog .msg.bot .verdict', { timeout: 15000 });
+};
+
 async function gpen({ browser, base }) {
   const ctx = await ouvreContexte(browser, { heure: '2027-05-06T07:00:00Z' });          // jeudi 6 mai 2027, 9 h 00 à Paris
+  const ia = await arbitreSimule(ctx);
   const { page, erreurs } = await ouvrePage(ctx);
   await ouvreApp(page, base);
   await cartePlanEau(page, 'absent');
@@ -3280,11 +3303,18 @@ async function gpen({ browser, base }) {
   const ic = (await texte(page, 'section[data-tab=ic]')).replace(/\s+/g, ' ');
   for (const re of [/VHF 14/, /Pénalité d’un tour au lieu de deux \(RCV 44\.1 modifiée/, /Jugement semi-direct possible en zone A/, /DNS sans instruction au-delà de 4 min/, /90 min pour le premier, 20 min après le premier/, /D’après les IC 2026 : à mettre à jour avec les IC 2027/, /Sigle J80/]) assert.match(ic, re);
   assert.ok(!/G1 : C et D1|canal 72/.test(ic), 'aucune règle du CVAT');
+  // arbitre à Brest : la requête porte venue « brest », la consigne parle du GPEN (client simulé, aucun appel réel)
+  await questionArbitre(page, base, 'Combien de tours de pénalité ?');
+  assert.deepEqual(ia.corps.at(-1), { question: 'Combien de tours de pénalité ?', history: [], venue: 'brest' });
+  assert.match(ia.appels.at(-1).instructions, /rade de Brest/); assert.ok(!/CVAT/.test(ia.appels.at(-1).instructions));
+  assert.equal(await texte(page, '#chatLog .msg.bot .verdict'), 'Un seul tour suffit');
+  assert.match(await texte(page, '#chatLog .msg.bot .note'), /^IC du GPEN : Pénalité d’un tour/);
   sansErreur(erreurs, 'GPEN à Brest');
   await ctx.close();
 
   // Toulon, samedi 5 décembre 2026 : la fiche semée est « En préparation » avec la puce « Rade de Brest » ; l’ouvrir propose de passer à Brest
   const ctxT = await ouvreContexte(browser, { heure: '2026-12-05T09:00:00Z' });
+  const iaT = await arbitreSimule(ctxT);
   const T = await ouvrePage(ctxT);
   await ouvreApp(T.page, base);
   assert.equal(await T.page.evaluate(() => localStorage.getItem('rade.seed.gpen.v1')), '1', 'marqueur du semis posé');
@@ -3303,6 +3333,11 @@ async function gpen({ browser, base }) {
   // relancée : toujours une seule fiche (jamais ressemée)
   await ouvreApp(T.page, base);
   assert.equal(await T.page.evaluate(() => JSON.parse(localStorage.getItem('rade.regates.v1')).list.filter((r) => r.id === 'gpen-2027').length), 1);
+  // arbitre à Toulon : corps de la v42 (aucun champ venue), consigne du CVAT
+  await questionArbitre(T.page, base, 'Bâbord ou tribord ?');
+  assert.deepEqual(iaT.corps.at(-1), { question: 'Bâbord ou tribord ?', history: [] });
+  assert.match(iaT.appels.at(-1).instructions, /rade de Toulon/);
+  assert.match(await texte(T.page, '#chatLog .msg.bot .note'), /^IC CVAT : /);
   sansErreur(T.erreurs, 'fiche du GPEN à Toulon');
   await ctxT.close();
 }
