@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 07
 current_phase_name: "Plans d'eau : Toulon et rade de Brest (GPEN)"
 status: executing
-stopped_at: Completed 07-01-PLAN.md
-last_updated: "2026-11-19T06:16:09.250Z"
+stopped_at: Completed 07-02-PLAN.md
+last_updated: "2026-11-19T06:39:40.555Z"
 last_activity: 2026-11-19
-last_activity_desc: Plan 07-01 — gel de Toulon v42 (calculs, données, vues) et gardes en une commande
-state_head: 0558f2ebb2158dcb7555676dedbc81addf873d3c
+last_activity_desc: Plan 07-02 — plan d’eau courant dans le moteur (registre, lieu.js, origine, positions Ouest, météo et vent par plan d’eau), Toulon identique
+state_head: e2f70b0a3011cd790554e2195b2690e878e85224
 progress:
   total_phases: 7
   completed_phases: 5
   total_plans: 38
-  completed_plans: 29
+  completed_plans: 30
   percent: 71
 ---
 
@@ -28,9 +28,9 @@ See: .planning/PROJECT.md (updated 2026-10-19)
 ## Current Position
 
 Phase: 07 (Plans d'eau : Toulon et rade de Brest (GPEN)) — EXECUTING
-Plan: 2 of 10
-Status: Ready to execute 07-02
-Last activity: 2026-11-19 — Plan 07-01 : Toulon v42 figé sur 56f6625 (tests/toulon.test.mjs, 9 tests ; scénario toulon-vue ; tools/gardes-toulon.mjs), 684 tests verts ; js/ et data/ inchangés ; branche apercu-phase-07 non poussée
+Plan: 3 of 10
+Status: Ready to execute 07-03
+Last activity: 2026-11-19 — Plan 07-02 : js/venues.js, js/venue-brest.js, js/lieu.js, setOrigin, fmtLon Ouest, bornes par plan d’eau, configureWeather, WindField(T, { cell, openSea }) ; 708 tests verts, gardes Toulon et toulon-vue verts ; branche apercu-phase-07 non poussée
 
 Progress: [███████░░░] 71%
 
@@ -87,6 +87,7 @@ Progress: [███████░░░] 71%
 | Phase 06 P03 | 15 min | 3 tasks | 15 files |
 | Phase 06 P04 | 19 min | 1 tasks | 6 files |
 | Phase 07 P01 | 18min | 3 tasks | 7 files |
+| Phase 07 P02 | 25min | 3 tasks | 17 files |
 
 ## Accumulated Context
 
@@ -163,6 +164,8 @@ Décisions récentes qui orientent le travail en cours :
 - [Phase 06]: 06-03 : au débrief, une porte compte un seul passage, la bouée approchée de plus près dans les 180 s ; un téléphone v37 voit la porte comme sa première bouée et l’arrivée sur la ligne de départ, ses fusions gardent porte, arrivée et ban (tools/compat-v37.mjs)
 - [Phase 06]: 06-04 : aide intégrée — textes construits par le code (conseil de porte, « Arrivée : entre le Comité et F ») en gras, jamais entre « » ; le guide nomme la v38 pour la mise à jour des trois téléphones avant la CVAT
 - [Phase 07]: 07-01 : Toulon v42 figé sur 56f6625 (tests/toulon.test.mjs dans npm test, scénario toulon-vue) ; tools/gardes-toulon.mjs avant tout commit qui touche js/ ou data/
+- [Phase 07]: 07-02 : plan d’eau lu dans un registre (js/venues.js) par exports vivants (js/lieu.js), setVenue une fois au démarrage avant tout toXY ; Toulon par référence aux objets de js/courses.js
+- [Phase 07]: 07-02 : descripteur null/absent = défauts de la v42 dans le module consommateur (météo, vent, 3D, textes, liens) ; Brest : cell_selection=sea, ni marine ni Pioupiou, clé rade.wx.brest.v1
 
 ### Pending Todos
 
@@ -200,6 +203,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-11-19T06:16:09.113Z
-Stopped at: Completed 07-01-PLAN.md
+Last session: 2026-11-19T06:39:40.423Z
+Stopped at: Completed 07-02-PLAN.md
 Resume file: None
