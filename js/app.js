@@ -4,7 +4,7 @@ import { report, note, setContext } from './journal.js';
 import { Terrain, toXY, toLL, NM, bearingXY, distXY, norm360, norm180, fmtBrg, fmtNm, fmtLat, fmtLon, cardinal, pointInPolygon } from './geo.js';
 import { WindField, speedColor } from './wind.js';
 import { VENUE, MARKS, COURSES, LINE_PRESETS, FORBIDDEN_ZONES, DANGERS, setVenue } from './lieu.js';
-import { bootVenue, VENUES } from './venues.js';
+import { bootVenue, VENUES, venueOf } from './venues.js';
 import { packStatus, downloadPack, prunePacks, fmtMo } from './pack.js';
 import { pdfText, parseIC, cleanText } from './events.js';
 import { IA_IC, iaOffer, iaErrorMessage, reviewFromParse, reviewFromRegatta, reviewFromApi, setValue, setKeep, setKeepRace, setKeepMark, setKeepCourse, courseReady, canValidate, checksFor, applyReview, reviewHTML, chipOf, validatedHTML } from './icread.js';
@@ -80,7 +80,15 @@ let REG = migrate({ storage: localStore(), now: Date.now(), by: who() });
 // la Coupe SNPM semée est la même fiche sur les trois téléphones (instant commun) : une graine d'avant ramenée à cet instant, index réécrit seulement si l'objet change
 { const seeded = seedNorm(REG); if (seeded !== REG) { REG = seeded; saveRegattas(localStore(), REG); } }
 // D-A3, D-A4 : régate du jour, sinon entraînement libre ; jamais lue dans l’index, jamais écrite, jamais partagée. `OPEN` ne change que dans setOpen.
-let OPEN = openAtBoot({ now: Date.now(), list: REG.list });
+// Plan d’eau d’une régate (D-05, D-06) : la régate du jour d’un autre plan d’eau n’est jamais ouverte ici en silence (bandeau « Régate du jour en … ») ;
+// après « Passer » sur une régate d’un autre plan d’eau, `rade.venue.reopen` (lue une seule fois, effacée tout de suite) la rouvre au rechargement.
+const REOPEN_KEY = 'rade.venue.reopen';
+const REOPEN = (() => {
+  const id = store.get(REOPEN_KEY, null);
+  if (id != null) { try { localStorage.removeItem(REOPEN_KEY); } catch { /* stockage indisponible : la clé ne sert qu’une fois de toute façon */ } }
+  return typeof id === 'string' ? id : null;
+})();
+let OPEN = openAtBoot({ now: Date.now(), list: REG.list, here: (r) => venueOf(r) === VENUE.id, reopen: REOPEN });
 let openDay = parisClock(Date.now()).date;          // jour de Paris pour lequel la règle d’ouverture a joué (passage de jour sans relance : dayOpenTick)
 const openReg = () => openRegatta(REG.list, OPEN);
 let IC = icOf(openReg());
@@ -1663,7 +1671,7 @@ function attachTo(reg, tr) {
   return REG.list.find((r) => r.id === reg.id);
 }
 function createFor(m, tr) {
-  const r = createRegatta({ name: `Régate du ${dmj(m.day)}`, dateStart: m.day }, { now: Date.now(), by: who() });
+  const r = createRegatta({ name: `Régate du ${dmj(m.day)}`, dateStart: m.day, venue: VENUE.id }, { now: Date.now(), by: who() });
   return r.ok ? attachTo(r.regatta, tr) : null;
 }
 // Range la trace dans la régate de son jour. Une seule régate ce jour-là, ou une seule manche à l'heure de la trace : sans question.
@@ -2117,6 +2125,8 @@ function setOpen(id) {
 }
 // Gestes « Ouvrir » (id) et « Fermer la régate » (null) : une relecture des IC ou une saisie en cours est abandonnée, comme par « Annuler »
 function openGesture(id) {
+  const autre = id != null ? openRegatta(REG.list, id) : null;
+  if (autre && venueOf(autre) !== VENUE.id) { askVenue(autre); return; }        // régate d’un autre plan d’eau : jamais ouverte sur la mauvaise carte (D-05)
   iaCtl?.abort(); iaBusy = false; iaMsg = '';
   icDraft = null; raceDraft = null; markFix = null;
   setOpen(id);
@@ -2125,10 +2135,48 @@ function openGesture(id) {
   afterRegChange();                                                // si le parcours choisi disparaît, son message (plus important) passe en dernier
   if (r) $('#rgSheet')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
+// Ouvrir une régate d’un autre plan d’eau (D-05, D-06) : fenêtre « Cette régate se court en rade de Brest. Passer sur ce plan d’eau ? L’app se recharge. »
+// « Passer » : pack téléchargé s’il manque, refus pendant une course, régate rouverte après le rechargement (REOPEN_KEY) ; « Annuler » : rien ne change.
+function askVenue(r) {
+  const v = venueOf(r);
+  $('#vnAsk')?.remove();
+  const mk = (tag, txt, id) => { const e = document.createElement(tag); if (txt) e.textContent = txt; if (id) e.id = id; return e; };
+  const box = mk('div', '', 'vnAsk'); box.className = 'card'; box.dataset.venue = v; box.dataset.rg = r.id;
+  box.setAttribute('role', 'dialog'); box.setAttribute('aria-modal', 'true');
+  box.style.cssText = 'position:fixed;left:12px;right:12px;top:72px;max-width:460px;margin:0 auto;z-index:50;box-shadow:0 6px 24px rgba(0,0,0,.35)';
+  const p = mk('p', `Cette régate se court en ${venueIn(v)}. Passer sur ce plan d’eau ? L’app se recharge.`); p.className = 'small';
+  const btns = mk('div'); btns.className = 'btns';
+  const go = mk('button', 'Passer', 'vnGo'); go.type = 'button'; go.className = 'btn acc';
+  const no = mk('button', 'Annuler', 'vnNo'); no.type = 'button'; no.className = 'btn alt';
+  const lock = raceActive(Date.now());
+  if (lock) { go.disabled = true; }
+  go.addEventListener('click', async () => { go.disabled = true; no.disabled = true; await packGo(v, { reopen: r.id }); box.remove(); });
+  no.addEventListener('click', () => box.remove());
+  btns.append(go, no);
+  box.append(p, btns);
+  if (lock) { const l = mk('div', 'Pas pendant une course : changer de plan d’eau recharge l’app.', 'vnLock'); l.className = 'small muted'; box.append(l); }
+  document.body.append(box);
+  go.focus();
+}
+// Régate du jour d’un autre plan d’eau (jamais ouverte ici) : la première d’aujourd’hui, si aucune régate n’est ouverte
+function dayElsewhere() {
+  if (OPEN) return null;
+  const now = Date.now();
+  return REG.list.find((r) => regattaStatus(r, now) === 'aujourdhui' && venueOf(r) !== VENUE.id) || null;
+}
 // Bandeau du panneau, sur tous les onglets : textContent seulement (un nom de régate peut venir d’un autre téléphone)
 function paintRegBar() {
   const el = $('#regBar'); if (!el) return;
   const r = openReg(), mk = (tag, cls, txt) => { const e = document.createElement(tag); if (cls) e.className = cls; e.textContent = txt; return e; };
+  const ailleurs = r ? null : dayElsewhere();
+  if (ailleurs) {
+    const v = venueOf(ailleurs), go = mk('button', 'btn small acc', `Passer à la ${venueIn(v)}`); go.type = 'button'; go.id = 'regVenue';
+    go.addEventListener('click', () => packGo(v, { reopen: ailleurs.id }));
+    el.replaceChildren(mk('span', 'regname', `Régate du jour en ${venueIn(v)}`), go);
+    el.dataset.open = ''; el.dataset.elsewhere = ailleurs.id;
+    return;
+  }
+  delete el.dataset.elsewhere;
   if (r) {
     const close = mk('button', 'btn small alt', 'Fermer la régate'); close.type = 'button'; close.id = 'regClose';
     close.addEventListener('click', () => openGesture(null));
@@ -2194,14 +2242,16 @@ async function packDownload() {
   return ok;
 }
 // « Passer à la rade de Brest » télécharge d’abord le pack s’il n’est pas sur ce téléphone ; « Revenir à la rade de Toulon » bascule tout de suite
-async function packGo(id) {
+// reopen : identifiant d’une régate de ce plan d’eau à rouvrir après le rechargement (ouverture d’une régate d’un autre plan d’eau, D-06)
+async function packGo(id, { reopen = null } = {}) {
   if (!Object.hasOwn(VENUES, id) || id === VENUE.id) return;
   if (raceActive(Date.now())) { toast('Pas pendant une course : terminez-la d’abord'); paintPack(); return; }
   if (id !== 'toulon') {
     const st = (await refreshPack())?.state;
     if (st !== 'ready' && st !== 'stale' && !(await packDownload())) { toast(`${VENUES[id].nom} non téléchargée : ${PACK.error || 'réessayez avec du réseau'}`); return; }
   }
-  switchVenue(id);
+  if (reopen != null) store.set(REOPEN_KEY, String(reopen));
+  if (!switchVenue(id) && reopen != null) { try { localStorage.removeItem(REOPEN_KEY); } catch { /* stockage indisponible : rien n’a été écrit */ } }
 }
 // Change de plan d’eau : range les réglages du plan d’eau quitté, reprend ceux du nouveau (ou ses défauts), enregistre et recharge (D-05)
 function switchVenue(id) {
@@ -2259,6 +2309,12 @@ function dayOpenTick(now, active) {
   const r = openOnNewDay({ now, list: REG.list, openId: OPEN, day: openDay });
   openDay = r.day;
   if (r.openId === OPEN) return;
+  const autre = openRegatta(REG.list, r.openId);
+  if (autre && venueOf(autre) !== VENUE.id) {                      // régate du jour d’un autre plan d’eau : bandeau, jamais de bascule silencieuse (D-05)
+    paintRegBar();
+    toast(`Régate du jour en ${venueIn(venueOf(autre))} : ${autre.name}`);
+    return;
+  }
   setOpen(r.openId);
   toast(`Jour de régate : ${openReg()?.name || ''} ouverte`);
   afterRegChange();
@@ -2351,18 +2407,21 @@ function renderIC() {
   // liste : « Ouvrir » ouvre la régate (état local de la page, rien n’est écrit ni échangé)
   $$('[data-rg]', el).forEach((b) => b.addEventListener('click', () => openGesture(b.dataset.rg)));
   // « Nouvelle régate » : trois champs (le premier jour vaut aujourd’hui, jour de Paris, tant qu’on ne le change pas)
-  $('#rgNew').onclick = () => { rgDraft = { name: '', dateStart: parisClock(Date.now()).date, dateEnd: '', club: '' }; rgErr = {}; renderIC(); $('#rgName')?.focus(); };
+  $('#rgNew').onclick = () => { rgDraft = { name: '', dateStart: parisClock(Date.now()).date, dateEnd: '', club: '', venue: VENUE.id }; rgErr = {}; renderIC(); $('#rgName')?.focus(); };
   if (rgDraft) {
-    const sync = () => { rgDraft = { name: $('#rgName').value, dateStart: $('#rgStart').value, dateEnd: $('#rgEnd').value, club: $('#rgClub').value }; };
+    const sync = () => { rgDraft = { name: $('#rgName').value, dateStart: $('#rgStart').value, dateEnd: $('#rgEnd').value, club: $('#rgClub').value, venue: $('#rgVenue').value }; };
     const create = () => {
       sync();
       const r = createRegatta(rgDraft, { now: Date.now(), by: who() });
       if (!r.ok) { rgErr = r.errors; renderIC(); return; }
       rgDraft = null; rgErr = {}; icDraft = null;
-      saveReg(upsertRegatta(REG, r.regatta)); setOpen(r.regatta.id);
+      saveReg(upsertRegatta(REG, r.regatta));
+      // régate d’un autre plan d’eau : enregistrée, puis la bascule est proposée (jamais ouverte sur cette carte)
+      if (r.regatta.venue !== VENUE.id) { renderIC(); paintRegBar(); toast(`Régate créée : ${r.regatta.name}`); askVenue(r.regatta); return; }
+      setOpen(r.regatta.id);
       toast(`Régate créée : ${r.regatta.name}`); afterRegChange();                  // si le parcours choisi disparaît, son message (plus important) passe en dernier
     };
-    for (const id of ['#rgName', '#rgStart', '#rgEnd', '#rgClub']) {
+    for (const id of ['#rgName', '#rgStart', '#rgEnd', '#rgClub', '#rgVenue']) {
       $(id).addEventListener('input', sync); $(id).addEventListener('change', sync);
       $(id).addEventListener('keydown', (e) => { if (e.key === 'Enter') create(); });
     }
@@ -2566,7 +2625,7 @@ function validateIC() {
   const at = Date.now(), by = who(), read = (k) => String(icDraft.fields.find((f) => f.key === k)?.value ?? '').trim();
   let reg = openReg();
   if (!reg) {
-    const r = createRegatta({ name: read('event'), dateStart: read('dateStart'), dateEnd: read('dateEnd'), club: '' }, { now: at, by });
+    const r = createRegatta({ name: read('event'), dateStart: read('dateStart'), dateEnd: read('dateEnd'), club: '', venue: VENUE.id }, { now: at, by });
     if (!r.ok) { toast(r.errors.dateStart || r.errors.name || 'Régate incomplète'); return; }
     reg = r.regatta;
   }

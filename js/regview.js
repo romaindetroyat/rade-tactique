@@ -8,6 +8,7 @@ import { MODELS } from './weather.js';
 import { STATUS, waitingFor, fmtPos, sideTxt } from './regmarks.js';
 import { MAX_HIST, slug } from './archmerge.js';
 import { fmtMo } from './pack.js';
+import { VENUES, VENUE_IDS, venueOf } from './venues.js';
 
 // Échappe & < > " ' (le esc() d’app.js laisse passer l’apostrophe)
 export const escHTML = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', '\'': '&#39;' }[c]));
@@ -29,6 +30,11 @@ export function datesLabel(r) {
 }
 const CHIP = { avenir: 'chip pres', aujourdhui: 'chip good', passee: 'chip' };
 const statusChip = (r, now) => { const st = regattaStatus(r, now); return `<span class="${CHIP[st]}">${escHTML(STATUS_LABEL[st])}</span>`; };
+// Plan d’eau d’une régate (D-06) : une puce « Rade de Brest » hors de Toulon, rien pour Toulon (vue de la v42)
+export function venueChip(r) {
+  const v = venueOf(r);
+  return v === 'toulon' ? '' : ` <span class="chip pres rgv" data-venue="${escHTML(v)}">${escHTML(VENUES[v].nom)}</span>`;
+}
 
 // groups : sortie de groupByStatus (En préparation, En cours, Terminées) ; une ligne par régate avec son bouton « Ouvrir » ; la régate ouverte est marquée
 // et n’a plus de bouton (la fermer se fait par le bandeau du panneau)
@@ -39,7 +45,7 @@ export function listHTML(groups, { openId = null, now = Date.now() } = {}) {
     return `<div class="rg${open ? ' on' : ''}" data-rg-row="${escHTML(r.id)}"><div class="rgt">`
       + `<span class="rgn">${escHTML(r.name)}</span>`
       + `<span class="rgm">${escHTML(datesLabel(r))}${r.club ? ` · ${escHTML(r.club)}` : ''}</span>`
-      + `<span class="rgb">${statusChip(r, now)}<span class="small muted">${byLine(r.by, r.at)}</span></span></div>`
+      + `<span class="rgb">${statusChip(r, now)}${venueChip(r)}<span class="small muted">${byLine(r.by, r.at)}</span></span></div>`
       + `${open ? '<span class="chip good rgopen">Ouverte</span>' : `<button type="button" class="btn small acc" data-rg="${escHTML(r.id)}" aria-label="Ouvrir ${escHTML(r.name)}">Ouvrir</button>`}</div>`;
   }).join('')}</div>`).join('');
 }
@@ -82,14 +88,18 @@ export function venueCardHTML({ venueId = 'toulon', venues = {}, status = null, 
     <div class="small muted" style="margin-top:4px">${escHTML(BREST_SOURCES)}</div></div>`;
 }
 
-// Formulaire de création : nom, premier jour, club ; dernier jour facultatif. draft garde la saisie quand l’écran est redessiné.
+// Formulaire de création : nom, premier jour, club ; dernier jour facultatif ; plan d’eau (D-06, défaut : celui du téléphone, `draft.venue`).
+// draft garde la saisie quand l’écran est redessiné.
 export function newRegattaFormHTML(draft = {}, errors = {}) {
   const err = (k) => (errors[k] ? `<div class="rgerr" data-err="${k}">${escHTML(errors[k])}</div>` : '');
+  const ici = VENUE_IDS.includes(draft.venue) ? draft.venue : 'toulon';
+  const lieux = VENUE_IDS.map((id) => `<option value="${escHTML(id)}"${id === ici ? ' selected' : ''}>${escHTML(VENUES[id].nom)}</option>`).join('');
   return `<div class="card" id="rgForm"><h3>Nouvelle régate <small>trois champs</small></h3>
     <label class="f" for="rgName">Nom</label><input id="rgName" type="text" maxlength="${MAX_NAME}" autocomplete="off" placeholder="Coupe de…" value="${escHTML(draft.name)}">${err('name')}
     <label class="f" for="rgStart">Premier jour</label><input id="rgStart" type="date" value="${escHTML(draft.dateStart)}">${err('dateStart')}
     <label class="f" for="rgClub">Club</label><input id="rgClub" type="text" list="rgClubs" maxlength="${MAX_CLUB}" autocomplete="off" placeholder="CVAT" value="${escHTML(draft.club)}"><datalist id="rgClubs"><option value="CVAT"></option></datalist>${err('club')}
     <label class="f" for="rgEnd">Dernier jour <small>facultatif, si la régate dure plusieurs jours</small></label><input id="rgEnd" type="date" value="${escHTML(draft.dateEnd)}">${err('dateEnd')}
+    <label class="f" for="rgVenue">Plan d’eau</label><select id="rgVenue">${lieux}</select>
     <div class="btns"><button type="button" class="btn acc" id="rgCreate">Créer la régate</button><button type="button" class="btn alt" id="rgCancel">Annuler</button></div></div>`;
 }
 
@@ -227,7 +237,7 @@ export function downloadHTML(r, opts) {
 // markFix : saisie de correction en cours { id, txt, err, ask } (état de la page) ; tout texte venu des IC passe par escHTML.
 const MK_STATE = { a_confirmer: 'chip mid', confirmee: 'chip good', ignoree: 'chip' };
 const MK_LABEL = { a_confirmer: 'à confirmer', confirmee: 'confirmée', ignoree: 'ignorée' };
-function markRowHTML(m, markFix, { nmOf }) {
+function markRowHTML(m, markFix, { nmOf, exemple }) {
   const id = escHTML(m.id), fix = markFix?.id === m.id ? markFix : null, hasPos = Number.isFinite(m.lat) && Number.isFinite(m.lon);
   const pend = m.status === STATUS.A_CONFIRMER;
   const who = m.status === STATUS.CONFIRMEE && m.confirmed ? `Confirmée ${byLine(m.confirmed.by, m.confirmed.at)}`
@@ -238,7 +248,7 @@ function markRowHTML(m, markFix, { nmOf }) {
     + `${m.excerpt ? `<div class="small muted">Extrait : « ${escHTML(m.excerpt)} »</div>` : ''}<div class="small muted">${who}${moved}</div>`;
   if (fix) {
     const ask = fix.ask ? `Confirmer : déplacement de ${escHTML(nmOf(fix.ask.d))}` : 'Valider';
-    html += `<label class="f" for="mkxTxt">Nouvelle position de la bouée ${id} ${escHTML(m.name)}</label><input id="mkxTxt" type="text" inputmode="text" autocomplete="off" placeholder="43°05.845N 005°56.049E" value="${escHTML(fix.txt)}">`
+    html += `<label class="f" for="mkxTxt">Nouvelle position de la bouée ${id} ${escHTML(m.name)}</label><input id="mkxTxt" type="text" inputmode="text" autocomplete="off" placeholder="${escHTML(exemple)}" value="${escHTML(fix.txt)}">`
       + `<div class="small rgerr" id="mkxErr">${escHTML(fix.err || '')}</div><div class="btns" style="margin:6px 0 0"><button type="button" class="btn small acc" id="mkxOk">${ask}</button><button type="button" class="btn small alt" id="mkxNo">Annuler</button></div>`;
   } else if (m.status !== STATUS.IGNOREE) {
     html += `<div class="btns" style="margin-top:6px">${hasPos ? `<button type="button" class="btn small alt" data-mk-voir="${id}">Voir sur la carte</button>` : ''}`
@@ -265,9 +275,10 @@ export function marksSectionHTML(r, { markFix = null, nmOf = (d) => `${(d / 1852
   const ms = r?.marks || [], cs = r?.courses || [];
   if (!ms.length && !cs.length) return '';
   const pend = ms.filter((m) => m.status === STATUS.A_CONFIRMER).length;
+  const exemple = VENUES[venueOf(r)].exemple || '43°05.845N 005°56.049E';          // exemple de saisie du plan d’eau de la régate (Toulon : celui de la v42)
   return `<div class="rgmarks"><h4>Bouées <small>lues dans les IC${pend ? ` · ${pend} à confirmer` : ''}</small></h4>`
     + `<p class="small muted">Une bouée « à confirmer » n’est ni dans le routage, ni dans le mode départ, ni dans le débrief. Vérifiez-la sur zone : le Comité fait foi.</p>`
-    + `${ms.map((m) => markRowHTML(m, markFix, { nmOf })).join('')}${cs.length ? `<h4>Parcours lus</h4>${cs.map((c) => courseRowHTML(r, c)).join('')}` : ''}</div>`;
+    + `${ms.map((m) => markRowHTML(m, markFix, { nmOf, exemple })).join('')}${cs.length ? `<h4>Parcours lus</h4>${cs.map((c) => courseRowHTML(r, c)).join('')}` : ''}</div>`;
 }
 
 // ───────────────────────── historique des valeurs écrasées (D-04)
@@ -307,7 +318,7 @@ export function sheetHTML(r, { now = Date.now(), courses = [], choices = courses
   if (!r) return '';
   const races = r.races || [];
   return `<div class="card" id="rgSheet"><h3><span>${escHTML(r.name)}</span><small>${escHTML(r.club || 'club à préciser')}</small></h3>
-    <div class="small">${escHTML(datesLabel(r))} ${statusChip(r, now)}</div>
+    <div class="small">${escHTML(datesLabel(r))} ${statusChip(r, now)}${venueChip(r)}</div>
     <div class="small muted" style="margin-top:4px">Créée ${byLine(r.by, r.at)}</div>
     <div class="rgraces"><h4>Manches</h4>${races.length ? races.map((m) => raceRowHTML(m, { courses, chosen: r.sel === m.n, editing: Number.isInteger(raceDraft?.edit) && (raceDraft.id != null ? raceDraft.id === m.id : raceDraft.edit === m.n) })).join('') : '<p class="small muted">Aucune manche : ajoutez-en une avec son heure de signal et son parcours.</p>'}
     ${raceDraft ? raceFormHTML(r, raceDraft, raceErrors, choices) : '<div class="btns"><button type="button" class="btn small acc" id="rcNew">＋ Ajouter une manche</button></div>'}</div>

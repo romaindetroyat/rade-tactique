@@ -6,7 +6,7 @@
 import { parisClock } from './racelock.js';
 import { IC as SNPM } from './courses.js';
 import { cleanBan } from './banane.js';
-import { raceId } from './archmerge.js';
+import { raceId, VENUE_IDS } from './archmerge.js';
 
 export const KEY = 'rade.regates.v1';
 export const VERSION = 1;
@@ -57,8 +57,13 @@ export function openRegatta(list, id) {
   return (list || []).find((r) => r.id === id) || null;
 }
 // D-A3, D-A4 : au lancement, la régate d’aujourd’hui (jour de Paris), sinon aucune (entraînement libre). Aucune mémoire d’un lancement à l’autre.
-export function openAtBoot({ now, list }) {
-  return todayRegatta({ now, list })?.id ?? null;
+// Plan d’eau (07-05, D-05) : `here(r)` dit si la régate se court sur le plan d’eau chargé ; la régate du jour d’un autre plan d’eau n’est pas ouverte.
+// `reopen` : régate demandée par « Passer » juste avant le rechargement (lue une seule fois par l’appelant), ouverte si elle est ici.
+export function openAtBoot({ now, list, here = () => true, reopen = null }) {
+  const again = reopen != null ? openRegatta(list, reopen) : null;
+  if (again && here(again)) return again.id;
+  const r = todayRegatta({ now, list });
+  return r && here(r) ? r.id : null;
 }
 // Passage de jour sans relance (iOS reprend l’app installée sans la relancer) : au premier jour de Paris nouveau qui porte une régate, elle est ouverte
 // (celle déjà ouverte si elle en fait partie) ; un nouveau jour sans régate garde l’état ouvert, l’écran n’est jamais retiré sous les doigts.
@@ -134,8 +139,9 @@ export function migrate({ storage, now = Date.now(), by = null }) {
 
 export function newId(now = Date.now(), rnd = Math.random) { return 'rg' + Number(now).toString(36) + rnd().toString(36).slice(2, 6); }
 
-// Trois champs (nom, premier jour, club) ; dernier jour facultatif, gardé seulement s’il est postérieur au premier (D-15)
-export function createRegatta({ name, dateStart, dateEnd, club } = {}, { now = Date.now(), by = null, rnd } = {}) {
+// Trois champs (nom, premier jour, club) ; dernier jour facultatif, gardé seulement s’il est postérieur au premier (D-15).
+// Plan d’eau (D-06) : écrit explicitement, liste blanche, sinon Toulon
+export function createRegatta({ name, dateStart, dateEnd, club, venue } = {}, { now = Date.now(), by = null, rnd } = {}) {
   const errors = {};
   const nom = String(name ?? '').trim(), cl = String(club ?? '').trim(), d1 = String(dateStart ?? '').trim(), d2 = String(dateEnd ?? '').trim();
   if (!nom) errors.name = 'Donnez un nom à la régate.';
@@ -148,7 +154,7 @@ export function createRegatta({ name, dateStart, dateEnd, club } = {}, { now = D
     ok: true, errors,
     regatta: {
       id: newId(now, rnd), name: nom, club: cl, dateStart: d1, dateEnd: isDate(d2) && d2 > d1 ? d2 : '', season: seasonOf(d1),
-      races: [], ic: null, marks: [], courses: [], frozen: {}, traces: [], by, at: now,
+      races: [], ic: null, marks: [], courses: [], frozen: {}, traces: [], by, at: now, venue: VENUE_IDS.includes(venue) ? venue : 'toulon',
     },
   };
 }

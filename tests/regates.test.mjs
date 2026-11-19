@@ -92,6 +92,14 @@ test('ouverture au lancement : la régate d’aujourd’hui (jour de Paris), sin
   assert.equal(openAtBoot({ now: t('2026-11-08T10:00:00Z'), list: [] }), null);
   assert.equal(openAtBoot({ now: t('2026-11-08T10:00:00Z') }), null, 'liste absente');
   assert.equal(openAtBoot({ now: t('2026-11-08T10:00:00Z'), list: [regate({ id: 'p' }), regate({ id: 'q' })] }), 'p', 'deux régates aujourd’hui : la première de la liste');
+  // plan d’eau (07-05) : la régate du jour d’un autre plan d’eau n’est pas ouverte ; « Passer » (reopen) rouvre la régate demandée si elle est ici
+  const ici = (r) => (r.venue || 'toulon') === 'brest', jour = t('2026-11-08T10:00:00Z');
+  const mixte = [regate({ id: 'tln' }), regate({ id: 'bst', venue: 'brest', dateStart: '2026-12-01', dateEnd: '' })];
+  assert.equal(openAtBoot({ now: jour, list: mixte, here: ici }), null, 'régate du jour à Toulon, téléphone à Brest : rien d’ouvert');
+  assert.equal(openAtBoot({ now: jour, list: mixte, here: ici, reopen: 'bst' }), 'bst', 'régate demandée par « Passer » (même hors de ses jours)');
+  assert.equal(openAtBoot({ now: jour, list: mixte, here: ici, reopen: 'tln' }), null, 'régate demandée d’un autre plan d’eau : refusée');
+  assert.equal(openAtBoot({ now: jour, list: mixte, here: ici, reopen: 'inconnue' }), null);
+  assert.equal(openAtBoot({ now: jour, list: mixte, reopen: null }), 'tln', 'sans plan d’eau : la règle de la v42');
 });
 
 test('openRegatta : la régate ou null, jamais la première par défaut', () => {
@@ -176,7 +184,10 @@ test('création : champs manquants, date impossible, dernier jour antérieur ign
   assert.ok(createRegatta({ name: 'R', dateStart: '2026-11-07', club: 'c'.repeat(41) }, { now }).errors.club);
   const ok = createRegatta({ name: '  Trophée  ', dateStart: '2026-11-07', dateEnd: '2026-11-09', club: ' CVAT ' }, { now, by: 'Thibaud' });
   assert.equal(ok.ok, true);
-  assert.deepEqual({ ...ok.regatta, id: 'x' }, { id: 'x', name: 'Trophée', club: 'CVAT', dateStart: '2026-11-07', dateEnd: '2026-11-09', season: '2026', races: [], ic: null, marks: [], courses: [], frozen: {}, traces: [], by: 'Thibaud', at: now });
+  assert.deepEqual({ ...ok.regatta, id: 'x' }, { id: 'x', name: 'Trophée', club: 'CVAT', dateStart: '2026-11-07', dateEnd: '2026-11-09', season: '2026', races: [], ic: null, marks: [], courses: [], frozen: {}, traces: [], by: 'Thibaud', at: now, venue: 'toulon' });
+  // plan d’eau (D-06) : écrit explicitement ; liste blanche, sinon Toulon
+  assert.equal(createRegatta({ name: 'R', dateStart: '2026-11-07', venue: 'brest' }, { now }).regatta.venue, 'brest');
+  for (const v of [undefined, 'lorient', '__proto__', {}, 'Brest']) assert.equal(createRegatta({ name: 'R', dateStart: '2026-11-07', venue: v }, { now }).regatta.venue, 'toulon', String(v));
   assert.equal(createRegatta({ name: 'R', dateStart: '2026-11-07', dateEnd: '2026-11-06' }, { now }).regatta.dateEnd, '', 'dernier jour antérieur ignoré');
   assert.equal(createRegatta({ name: 'R', dateStart: '2026-11-07', dateEnd: '2026-11-07' }, { now }).regatta.dateEnd, '', 'même jour : une régate d’un jour');
   assert.equal(createRegatta({ name: 'R', dateStart: '2026-11-07', dateEnd: '2026-02-30' }, { now }).regatta.dateEnd, '', 'dernier jour impossible ignoré');
@@ -242,6 +253,23 @@ test('vues : un nom ou un club piégé ne produit ni img ni script (liste, fiche
   assert.equal(escHTML('l\'été "oui" <&>'), 'l&#39;été &quot;oui&quot; &lt;&amp;&gt;');
   assert.ok(!listHTML(groupByStatus([regate({ name: 'L\'Aber' })], now), { now }).includes('\'Aber'), 'apostrophe échappée');
   assert.ok(!noRegattaHTML().includes('<script'), 'carte sans donnée de régate');
+});
+
+test('plan d’eau (D-06) : formulaire « Plan d’eau » (défaut fourni), puce « Rade de Brest » dans la liste et la fiche, rien pour Toulon', () => {
+  const now = t('2026-11-08T10:00:00Z');
+  const form = (d) => parseHTML(`<html><body>${newRegattaFormHTML(d)}</body></html>`).document;
+  const f = form({ name: '', dateStart: '2026-11-07', venue: 'brest' });
+  assert.deepEqual([...f.querySelectorAll('#rgVenue option')].map((o) => [o.value, o.textContent, o.hasAttribute('selected')]), [['toulon', 'Rade de Toulon', false], ['brest', 'Rade de Brest', true]]);
+  for (const v of [undefined, 'lorient', '"><img>']) assert.equal(form({ venue: v }).querySelector('#rgVenue option[selected]').value, 'toulon', String(v));
+  assert.equal(f.querySelector('label[for=rgVenue]').textContent, 'Plan d’eau');
+  const brest = regate({ id: 'b', name: 'Entraînement Brest', venue: 'brest' }), toulon = regate({ id: 't', name: 'CVAT', venue: 'toulon' }), ancienne = regate({ id: 'v', name: 'v42' });
+  const { document } = parseHTML(`<html><body>${listHTML(groupByStatus([brest, toulon, ancienne], now), { now })}</body></html>`);
+  const puce = (id) => [...document.querySelectorAll(`.rg[data-rg-row="${id}"] .rgv`)].map((x) => [x.textContent, x.getAttribute('data-venue')]);
+  assert.deepEqual(puce('b'), [['Rade de Brest', 'brest']]);
+  assert.deepEqual(puce('t'), []); assert.deepEqual(puce('v'), [], 'régate sans venue : Toulon, rien de plus');
+  assert.match(sheetHTML(brest, { now }), /class="chip pres rgv" data-venue="brest">Rade de Brest</);
+  assert.doesNotMatch(sheetHTML(toulon, { now }), /rgv/);
+  assert.equal(sheetHTML(toulon, { now }), sheetHTML(ancienne.id === 't' ? ancienne : { ...toulon, venue: undefined }, { now }), 'fiche de Toulon : même vue avec ou sans venue');
 });
 
 test('vues : liste par statut, bouton « Ouvrir » par régate, régate ouverte marquée « Ouverte » sans bouton, attribut data-rg entre guillemets, auteur « — » sans auteur', () => {
@@ -557,7 +585,8 @@ test('garde : le verrou lit les dates de la régate d’aujourd’hui de la list
 });
 
 test('garde : la régate ouverte est un état de la page (OPEN), posé au chargement par la règle d’ouverture et changé par setOpen seulement, sans écriture ni échange', () => {
-  assert.match(app, /^let OPEN = openAtBoot\(\{ now: Date\.now\(\), list: REG\.list \}\);$/m);
+  // règle d’ouverture du lancement ; depuis 07-05, avec le plan d’eau chargé (`here`) et la régate demandée par « Passer » (`reopen`)
+  assert.match(app, /^let OPEN = openAtBoot\(\{ now: Date\.now\(\), list: REG\.list, here: \(r\) => venueOf\(r\) === VENUE\.id, reopen: REOPEN \}\);$/m);
   const lignes = app.split('\n');
   const iMigrate = lignes.findIndex((l) => /^let REG = migrate\(/.test(l)), iSeed = lignes.findIndex((l) => /seedNorm\(REG\)/.test(l)), iOpen = lignes.findIndex((l) => /^let OPEN = /.test(l)), iIC = lignes.findIndex((l) => /^let IC = /.test(l));
   assert.ok(iMigrate >= 0 && iSeed > iMigrate && iOpen > iSeed && iIC > iOpen, 'ordre : migrate, seedNorm, OPEN, puis IC');

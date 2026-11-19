@@ -471,6 +471,40 @@ const RP = (id = 'tr1', t = 123) => `/api/archive?k=report&id=${id}&t=${t}`;
 const DY = (extra = '') => `/api/archive?k=day&r=rgA&d=2026-11-07${extra}`;
 const jour = { wx: { multi: { hourly: { time: ['2026-11-07T00:00'] } } }, strat: { legs: [] }, obs: { day: '2026-11-07', obs: [] } };
 
+// ───────────────────────── plan d’eau d’une régate (07-05, D-06, T-07-14)
+
+test('plan d’eau : « brest » gardé avec sa date ; valeur inconnue, objet ou __proto__ retirés sans refuser la régate ; date future ramenée', () => {
+  const c = (over) => cleanDoc(doc(regatta(over)), T).regattas.rgA;
+  assert.deepEqual([c({ venue: 'brest', vu: 1500 }).venue, c({ venue: 'brest', vu: 1500 }).vu], ['brest', 1500]);
+  assert.equal(c({ venue: 'toulon', vu: 1500 }).venue, 'toulon');
+  for (const v of ['lorient', {}, ['brest'], 'Brest', '__proto__', 'constructor', 42, null]) {
+    const r = c({ venue: v, vu: 1500 });
+    assert.ok(!('venue' in r) && !('vu' in r), `retiré : ${JSON.stringify(v)}`);
+    assert.equal(r.name, 'Coupe test', 'la régate reste acceptée');
+  }
+  assert.ok(!('vu' in c({ venue: 'brest', vu: 'demain' })), 'date illisible retirée, le plan d’eau reste');
+  assert.equal(c({ venue: 'brest', vu: 'demain' }).venue, 'brest');
+  assert.equal(c({ venue: 'brest', vu: T + 3600e3 }).vu, T, 'date future ramenée à l’heure du serveur');
+  const proto = cleanDoc(JSON.parse(`{"v":1,"regattas":{"rgA":${JSON.stringify(regatta())}},"tomb":{},"marks":{}}`.replace('"name"', '"__proto__":{"venue":"brest"},"name"')), T);
+  assert.equal({}.venue, undefined, 'aucune pollution du prototype');
+  assert.ok(!('venue' in proto.regattas.rgA) || proto.regattas.rgA.venue === undefined);
+});
+
+test('plan d’eau : un téléphone v42 renvoie la fiche sans venue (renommée) — le serveur garde « brest » ; l’auteur de la fiche suit la fiche', async () => {
+  const { teiva, thibaud } = installe();
+  await teiva('PUT', PUT, { doc: doc(regatta({ venue: 'brest', vu: 1000 })) });
+  const r = await thibaud('PUT', PUT, { doc: doc(regatta({ name: 'Renommée en v42', u: 1600 })) });
+  const g = r.body.doc.regattas.rgA;
+  assert.deepEqual([g.name, g.ub, g.venue, g.vu], ['Renommée en v42', 'Thibaud', 'brest', 1000]);
+  // renvoi v42 sans aucune modification : rien ne change, l’auteur de la fiche non plus
+  const avant = r.body.doc;
+  const rien = await thibaud('PUT', PUT, { doc: doc(regatta({ name: 'Renommée en v42', u: 1600, ub: 'Thibaud', by: 'Teiva' })) });
+  assert.equal(rien.body.changed, false); assert.deepEqual(rien.body.doc, avant);
+  // seul le plan d’eau change (v43, « toulon » explicite) : l’auteur de la fiche reste Thibaud
+  const t = await teiva('PUT', PUT, { doc: doc({ ...avant.regattas.rgA, venue: 'toulon', vu: 1700 }) });
+  assert.deepEqual([t.body.doc.regattas.rgA.venue, t.body.doc.regattas.rgA.ub], ['toulon', 'Thibaud']);
+});
+
 test('trace : PUT puis GET rendent le même JSON en flux, privé, nosniff, sans rapport ; déjà en ligne → exists, aucune réécriture', async () => {
   const { blob, teiva, thibaud } = installe();
   const t = trace('tr1', 5, { report: { html: '<p>x</p>', t: 5, name: 'R' } });

@@ -49,3 +49,9 @@ export const inBounds = (b, lat, lon) => !!b && Number.isFinite(lat) && Number.i
 
 // Identifiant du premier plan d’eau dont l’emprise contient le point, sinon null
 export const venueAt = (lat, lon) => VENUE_IDS.find((id) => inBounds(VENUES[id].bounds, lat, lon)) ?? null;
+
+// Plan d’eau d’une régate (D-06) : son champ `venue` s’il est dans la liste blanche, sinon Toulon (régates d’avant la v43)
+export function venueOf(r) {
+  if (typeof r?.venue === 'string' && Object.hasOwn(VENUES, r.venue)) return r.venue;
+  return 'toulon';
+}

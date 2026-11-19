@@ -6,7 +6,8 @@ import assert from 'node:assert/strict';
 import * as geo from '../js/geo.js';
 import * as courses from '../js/courses.js';
 import * as lieu from '../js/lieu.js';
-import { VENUES, VENUE_IDS, bootVenue, inBounds, venueAt } from '../js/venues.js';
+import { VENUES, VENUE_IDS, bootVenue, inBounds, venueAt, venueOf } from '../js/venues.js';
+import { VENUE_IDS as ARCHIVE_VENUE_IDS } from '../js/archmerge.js';
 import { BREST } from '../js/venue-brest.js';
 import { buildLegs } from '../js/tactics.js';
 import { parseLatLon } from '../js/marks.js';
@@ -306,4 +307,17 @@ test('météo de Brest : aucune balise (fetchLive rend [] sans requête), instan
 
 test('météo de Brest : marineAt sans réponse marine rend null (pas de carte « État de la mer »)', () => {
   assert.equal(weather.marineAt({ marine: null }, '2026-12-05T10:00'), null);
+});
+
+// ───────────────────────── plan d’eau d’une régate (07-05, D-06)
+
+test('liste blanche de l’archive (js/archmerge.js) = plans d’eau du registre, dans le même ordre', () => {
+  assert.deepEqual([...ARCHIVE_VENUE_IDS], Object.keys(VENUES));
+  assert.deepEqual([...ARCHIVE_VENUE_IDS], VENUE_IDS);
+});
+
+test('venueOf : champ `venue` en liste blanche, sinon Toulon (régates d’avant la v43)', () => {
+  assert.equal(venueOf({ venue: 'brest' }), 'brest');
+  assert.equal(venueOf({ venue: 'toulon' }), 'toulon');
+  for (const r of [{}, null, undefined, { venue: 'lorient' }, { venue: '__proto__' }, { venue: 'constructor' }, { venue: {} }, { venue: 'Brest' }]) assert.equal(venueOf(r), 'toulon', JSON.stringify(r));
 });

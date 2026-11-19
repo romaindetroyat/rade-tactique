@@ -118,13 +118,14 @@ async function fermeRegate(page) {
 }
 
 // Crée une régate par l’interface : « ＋ Nouvelle régate », trois champs (et le dernier jour), « Créer la régate »
-async function creeRegate(page, { nom, debut, fin = '', club = '' }) {
+async function creeRegate(page, { nom, debut, fin = '', club = '', lieu = '' }) {
   await page.click('#tabs button[data-tab=ic]');
   await page.click('#rgNew');
   await page.fill('#rgName', nom);
   await page.fill('#rgStart', debut);
   if (club) await page.fill('#rgClub', club);
   if (fin) await page.fill('#rgEnd', fin);
+  if (lieu) await page.selectOption('#rgVenue', lieu);
   await page.click('#rgCreate');
   await page.waitForSelector('#rgForm', { state: 'detached', timeout: 10000 });
 }
@@ -3179,7 +3180,62 @@ async function brestAvion({ browser }) {
   }
 }
 
-const SCENARIOS = { accueil, 'jour-j': jourJ, 'deux-telephones': deuxTelephones, reprise, equipage, archive, 'archive-bouees': archiveBouees, archivehors: archiveHors, creer, manche, auteur, ic, 'depuis-ic': depuisIC, vraisemblance, gel, 'debrief-tardif': debriefTardif, gpx, 'gpx-choix': gpxChoix, ia, 'ia-erreurs': iaErreurs, arbitre, bouees, guide, entetes, 'retour-port': retourPort, banane, 'banane-manche': bananeManche, 'banane-debrief': bananeDebrief, 'porte-ic': porteIC, 'modifier-manche': modifierManche, 'toulon-vue': toulonVue, 'plan-eau': planEau, 'brest-avion': brestAvion };
+// ───────────────────────── plan d’eau d’une régate (07-05 : D-05, D-06, D-04)
+
+// D-06 : A (Toulon) crée « Entraînement Brest » en rade de Brest (choix du formulaire) : elle n’est pas ouverte sur la carte de Toulon, la bascule est
+// proposée (Annuler), le bandeau dit « Régate du jour en rade de Brest ». Synchronisation : B (Toulon) la voit avec la puce « Rade de Brest », l’ouvre,
+// reçoit la proposition, « Passer » → pack téléchargé (absent), rechargement à Brest avec la régate ouverte ; relancée, l’app la rouvre (régate du jour, ici).
+async function regateBrest({ browser, base }) {
+  const m = await mondeArchive('2026-12-05T08:30:00Z');                                   // samedi 05/12/2026, 9 h 30 à Paris
+  const A = await telephoneArchive(browser, base, m, 'Teiva'), B = await telephoneArchive(browser, base, m, 'Thibaud');
+  const brest = [];
+  B.page.on('request', (r) => { const u = new URL(r.url()); if (u.pathname.startsWith('/data/brest.')) brest.push(u.pathname + u.search); });
+  // formulaire : « Plan d’eau », défaut = celui du téléphone
+  await A.page.click('#tabs button[data-tab=ic]'); await A.page.click('#rgNew');
+  assert.equal(await A.page.locator('#rgVenue').inputValue(), 'toulon', 'défaut : le plan d’eau du téléphone');
+  assert.deepEqual(await A.page.locator('#rgVenue option').allTextContents(), ['Rade de Toulon', 'Rade de Brest']);
+  await A.page.click('#rgCancel');
+  await creeRegate(A.page, { nom: 'Entraînement Brest', debut: '2026-12-05', club: 'GPEN', lieu: 'brest' });
+  await A.page.waitForSelector('#vnAsk', { timeout: 10000 });
+  assert.equal(await texte(A.page, '#vnAsk p'), 'Cette régate se court en rade de Brest. Passer sur ce plan d’eau ? L’app se recharge.');
+  assert.deepEqual(await A.page.locator('#vnAsk button').allTextContents(), ['Passer', 'Annuler']);
+  await A.page.click('#vnNo');
+  await A.page.waitForSelector('#vnAsk', { state: 'detached', timeout: 5000 });
+  assert.equal(await idOuverte(A.page), '', 'pas ouverte sur la carte de Toulon');
+  assert.equal(await texte(A.page, '#regBar .regname'), 'Régate du jour en rade de Brest', 'bandeau : régate du jour ailleurs');
+  assert.equal(await texte(A.page, '#regVenue'), 'Passer à la rade de Brest');
+  const enA = await A.page.evaluate(() => JSON.parse(localStorage.getItem('rade.regates.v1')).list.find((r) => r.name === 'Entraînement Brest'));
+  assert.equal(enA.venue, 'brest'); assert.ok(Number.isFinite(enA.vu), 'plan d’eau daté');
+  const id = enA.id;
+  await avanceHeure(m, 60e3); await synchronise(m, A);
+  assert.equal((await m.invoke(m.handler, { method: 'GET', url: '/api/archive?k=light', headers: { 'x-rt-membre': 'Romain' } })).body.doc.regattas[id].venue, 'brest', 'le serveur garde le plan d’eau');
+  await avanceHeure(m, 60e3); await synchronise(m, B);
+  // B (Toulon) : puce dans la liste, rien d’ouvert en silence
+  await B.page.click('#tabs button[data-tab=ic]');
+  const ligne = B.page.locator(`#rgList .rg[data-rg-row="${id}"]`);
+  assert.equal(await ligne.locator('.rgv').textContent(), 'Rade de Brest');
+  assert.equal(await idOuverte(B.page), '');
+  assert.deepEqual(brest, [], 'B à Toulon : aucun fichier de Brest demandé');
+  // B ouvre : proposition, « Passer » → téléchargement du pack (absent), rechargement à Brest, régate ouverte
+  await B.page.click(`#rgList [data-rg="${id}"]`);
+  await B.page.waitForSelector('#vnAsk', { timeout: 10000 });
+  assert.equal(await idOuverte(B.page), '', 'proposée, pas encore ouverte');
+  await rechargePar(B.page, () => B.page.click('#vnGo'));
+  for (const f of PACK_BREST.files.map((x) => x.path)) assert.ok(brest.includes(`/${f}?pack=${PACK_BREST.pack}`), `pack téléchargé à l’ouverture : ${f}`);
+  assert.equal((await etatApp(B.page)).venue, 'brest');
+  assert.equal(await idOuverte(B.page), id, 'régate rouverte après le rechargement');
+  assert.equal(await texte(B.page, '#regBar .regname'), 'Entraînement Brest');
+  assert.equal(await B.page.evaluate(() => localStorage.getItem('rade.venue.reopen')), null, 'passage lu une fois et effacé');
+  await B.page.click('#tabs button[data-tab=ic]');
+  assert.match(await texte(B.page, '#rgSheet'), /Rade de Brest/, 'la fiche montre le plan d’eau');
+  // relancée à Brest : la régate du jour est ici, elle s’ouvre comme d’habitude
+  await ouvreApp(B.page, base);
+  assert.equal(await idOuverte(B.page), id, 'régate du jour à Brest, ouverte au lancement');
+  sansErreur(A.erreurs, 'sur A'); sansErreur(B.erreurs, 'sur B');
+  await A.ctx.close(); await B.ctx.close();
+}
+
+const SCENARIOS = { accueil, 'jour-j': jourJ, 'deux-telephones': deuxTelephones, reprise, equipage, archive, 'archive-bouees': archiveBouees, archivehors: archiveHors, creer, manche, auteur, ic, 'depuis-ic': depuisIC, vraisemblance, gel, 'debrief-tardif': debriefTardif, gpx, 'gpx-choix': gpxChoix, ia, 'ia-erreurs': iaErreurs, arbitre, bouees, guide, entetes, 'retour-port': retourPort, banane, 'banane-manche': bananeManche, 'banane-debrief': bananeDebrief, 'porte-ic': porteIC, 'modifier-manche': modifierManche, 'toulon-vue': toulonVue, 'plan-eau': planEau, 'brest-avion': brestAvion, 'regate-brest': regateBrest };
 
 // ───────────────────────── lancement
 
