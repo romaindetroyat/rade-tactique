@@ -6,6 +6,8 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, rmSyn
 import { tmpdir } from 'node:os';
 import { join, posix } from 'node:path';
 import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
+import { statSync } from 'node:fs';
 import { listShell, build, check, validateNote, venuesManifest, venueIds } from '../tools/stamp.mjs';
 import { ROOT } from './helpers/setup.mjs';
 
@@ -134,6 +136,23 @@ test('dépôt : aucun fichier data/brest.* dans la liste hors réseau, data/venu
   const sw = readFileSync(join(ROOT, 'sw.js'), 'utf8');
   assert.ok(!sw.includes('"data/brest.'), 'sw.js ne précache aucun fichier de Brest');
   assert.ok(sw.includes('"data/venues.json"'));
+});
+
+// Liste hors réseau de Toulon (D-01, D-04) : par rapport à la v42 (56f6625), seuls des modules js/*.js et data/venues.json s’ajoutent,
+// rien ne disparaît, aucun fichier de data/ de plus de 50 ko n’arrive (le pack de Brest est téléchargé à part).
+let shellV42 = null, raisonV42 = false;
+try {
+  const sw = execFileSync('git', ['show', '56f6625:sw.js'], { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+  shellV42 = JSON.parse(/const SHELL = (\[.*\]);/.exec(sw)[1]);
+} catch { raisonV42 = 'git ou le commit 56f6625 indisponible (déploiement sans historique) : comparaison sautée'; }
+
+test('liste hors réseau de Toulon : seuls des modules js/ et data/venues.json s’ajoutent à celle de la v42', { skip: raisonV42 }, () => {
+  const now = listShell(ROOT);
+  assert.deepEqual(shellV42.filter((f) => !now.includes(f)), [], 'aucune entrée de la v42 retirée');
+  const ajouts = now.filter((f) => !shellV42.includes(f));
+  assert.deepEqual(ajouts.filter((f) => !/^js\/[\w-]+\.js$/.test(f) && f !== 'data/venues.json'), [], 'ajouts autres que des modules js/ et le manifeste');
+  for (const f of ajouts.filter((x) => x.startsWith('data/'))) assert.ok(statSync(join(ROOT, f)).size <= 50 * 1024, `${f} dépasse 50 ko`);
+  assert.ok(ajouts.includes('data/venues.json'));
 });
 
 test('validateNote : refuse les chevrons, le vide et plus de 80 caractères', () => {
