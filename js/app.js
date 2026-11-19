@@ -9,7 +9,7 @@ import { packStatus, downloadPack, prunePacks, fmtMo } from './pack.js';
 import { pdfText, parseIC, cleanText } from './events.js';
 import { IA_IC, iaOffer, iaErrorMessage, reviewFromParse, reviewFromRegatta, reviewFromApi, setValue, setKeep, setKeepRace, setKeepMark, setKeepCourse, courseReady, canValidate, checksFor, applyReview, reviewHTML, chipOf, validatedHTML } from './icread.js';
 import { stampState, markDirty, canon, legacyStamp } from './archmerge.js';
-import { migrate, seedNorm, KEY as REG_KEY, saveRegattas, createRegatta, upsertRegatta, removeRegatta, openRegatta, openAtBoot, openOnNewDay, regattaStatus, STATUS_LABEL, todayRegatta, icOf, groupByStatus, lockDates, daysOf, addRace, updateRace, removeRace, raceSettings, membre, saveMembre, backfillAuthor } from './regates.js';
+import { migrate, seedNorm, seedGpen, KEY as REG_KEY, saveRegattas, createRegatta, upsertRegatta, removeRegatta, openRegatta, openAtBoot, openOnNewDay, regattaStatus, STATUS_LABEL, todayRegatta, icOf, groupByStatus, lockDates, daysOf, addRace, updateRace, removeRace, raceSettings, membre, saveMembre, backfillAuthor } from './regates.js';
 import { THROTTLE_MS, slotKey, freezeAction, obsNeedsCopy, stratNeedsCopy, sliceDays, freezeSummary, strategySummary, compactStrategy, windSourceKind, frozenLabel, parisInstant, clockOf } from './gel.js';
 import { extremes, coefApproche, hauteur } from './maree.js';
 import { chargeAtlas, courantXY, profondeurOk } from './courant.js';
@@ -81,6 +81,8 @@ if (!S.byVenue || typeof S.byVenue !== 'object' || Array.isArray(S.byVenue)) S.b
 let REG = migrate({ storage: localStore(), now: Date.now(), by: who() });
 // la Coupe SNPM semée est la même fiche sur les trois téléphones (instant commun) : une graine d'avant ramenée à cet instant, index réécrit seulement si l'objet change
 { const seeded = seedNorm(REG); if (seeded !== REG) { REG = seeded; saveRegattas(localStore(), REG); } }
+// fiche « GPEN 2027 — J80 » semée une seule fois (07-09, D-08) : même fiche partout, jamais ressemée après une suppression (pierre tombale, marqueur)
+{ const g = seedGpen(REG, { storage: localStore() }); if (g !== REG) { REG = g; saveRegattas(localStore(), REG); } }
 // D-A3, D-A4 : régate du jour, sinon entraînement libre ; jamais lue dans l’index, jamais écrite, jamais partagée. `OPEN` ne change que dans setOpen.
 // Plan d’eau d’une régate (D-05, D-06) : la régate du jour d’un autre plan d’eau n’est jamais ouverte ici en silence (bandeau « Régate du jour en … ») ;
 // après « Passer » sur une régate d’un autre plan d’eau, `rade.venue.reopen` (lue une seule fois, effacée tout de suite) la rouvre au rechargement.

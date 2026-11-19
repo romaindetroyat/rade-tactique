@@ -211,3 +211,10 @@ test('Brest, fonds : à la basse mer du 6 mai 2027 (11 h 54), vent 045°, la por
   const pm = construit(91, { dir: 270 }), t14 = parisInstant('2027-05-06', 14, 0);
   assert.deepEqual(banHorsEau(pm, (p) => !ok(p.x, p.y, t14)), []);
 });
+
+test('fiche GPEN semée : la variante Virginie Hériot renvoie au parcours 93 du catalogue (arrivée à confirmer)', async () => {
+  const { GPEN_IC } = await import('../js/regates.js');
+  const vh = GPEN_IC.keyRules.find((r) => /Virginie Hériot/.test(r));
+  assert.ok(vh && vh.includes(`« ${cours(93).title} »`) && /à confirmer/.test(vh));
+  assert.equal(GPEN_IC.vhf, 14);
+});

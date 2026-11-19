@@ -202,6 +202,35 @@ await controle('(g) copie v42 d’une régate de Brest avec bouées confirmées 
   return 'brest par les bouées X1, X2';
 });
 
+// 07-09 (D-08) : fiche « GPEN 2027 — J80 » semée par la v43. Elle n’est pas une modification (rien à envoyer) ; on la marque ici à envoyer pour le
+// cas le plus dur : la v42 la reçoit, la liste et ouvre sa fiche ; les deux téléphones gardent la même ; supprimée par la v42, elle n’est jamais ressemée.
+await controle('(h) fiche du GPEN semée par la v43 : la v42 la reçoit, la liste et l’ouvre sans exception, mêmes données des deux côtés ; supprimée par la v42, jamais ressemée', async () => {
+  const marque = memoire();
+  const semee = V43.rg.seedGpen(A.st, { storage: marque });
+  exige(semee !== A.st && semee.list.some((r) => r.id === 'gpen-2027'), 'v43 : fiche semée');
+  A.st = semee; V43.arch.markDirty(A.meta, ['gpen-2027']);
+  await tour(A, B);
+  exige(B.reg('gpen-2027'), 'la v42 n’a pas reçu la fiche du GPEN');
+  exige((await enLigne('gpen-2027')).venue === 'brest', 'le serveur a perdu le plan d’eau');
+  // mêmes données hors auteur : le serveur signe une fiche qu’il ne connaît pas du nom de l’équipier qui l’envoie (règle de api/archive.js) ; la
+  // v42, qui ne sème rien, garde cette signature, la v43 garde sa graine sans auteur (limite consignée : seul l’envoi forcé de ce contrôle la montre,
+  // l’app n’envoie pas la graine)
+  const sansAuteur = (p) => { const { by, ub, ...r } = JSON.parse(partage(p, 'gpen-2027')); return V43.arch.canon(r); };
+  exige(sansAuteur(A) === sansAuteur(B), `données différentes hors auteur (${ecart(sansAuteur(A), sansAuteur(B))})`);
+  const liste = vue(V42, V42.view.listHTML(V42.rg.groupByStatus(B.st.list, clock.t), { now: clock.t }));
+  exige(liste.balises === 0 && liste.document.querySelector('.rg[data-rg-row="gpen-2027"]'), 'liste v42');
+  const f = vue(V42, V42.view.sheetHTML(B.reg('gpen-2027'), { now: clock.t, courses: PARCOURS.map((c) => ({ id: c.id, title: `Parcours ${c.id}` })) }));
+  exige(f.balises === 0 && /GPEN 2027/.test(f.document.querySelector('#rgSheet').textContent), 'fiche v42');
+  exige(V43.rg.seedGpen(A.st, { storage: memoire() }) === A.st, 'déjà présente : rien de plus');
+  // la v42 la supprime : la pierre tombale arrive à la v43, qui ne la ressème pas (même sans marqueur)
+  avance();
+  B.save(V42.rg.removeRegatta(B.st, 'gpen-2027'));
+  await tour(B, A);
+  exige(!A.reg('gpen-2027'), 'v43 : fiche supprimée par la v42 encore là');
+  exige(V43.rg.seedGpen(A.st, { storage: memoire() }) === A.st, 'v43 : fiche ressemée après suppression');
+  return `${f.document.querySelector('#rgSheet').textContent.length} caractères de fiche v42, pierre tombale respectée`;
+});
+
 const total = ok.length + echecs.length;
 if (echecs.length) {
   console.log(`ÉCHEC : ${echecs.length} contrôle(s) sur ${total} — ${echecs.join(' ; ')}`);

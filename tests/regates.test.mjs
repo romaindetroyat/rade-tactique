@@ -977,5 +977,5 @@ test('fiche GPEN : « En préparation » le 5 décembre 2026, puce « Rade de Br
 
 test('câblage : seedGpen appelé juste après seedNorm, l’index réécrit seulement si l’objet change', () => {
   const app = readFileSync(ROOT + 'js/app.js', 'utf8');
-  assert.match(app, /\{ const seeded = seedNorm\(REG\); if \(seeded !== REG\) \{ REG = seeded; saveRegattas\(localStore\(\), REG\); \} \}\n\{ const g = seedGpen\(REG, \{ storage: localStore\(\) \}\); if \(g !== REG\) \{ REG = g; saveRegattas\(localStore\(\), REG\); \} \}/);
+  assert.match(app, /\{ const seeded = seedNorm\(REG\); if \(seeded !== REG\) \{ REG = seeded; saveRegattas\(localStore\(\), REG\); \} \}\n\/\/ [^\n]*\n\{ const g = seedGpen\(REG, \{ storage: localStore\(\) \}\); if \(g !== REG\) \{ REG = g; saveRegattas\(localStore\(\), REG\); \} \}/);
 });

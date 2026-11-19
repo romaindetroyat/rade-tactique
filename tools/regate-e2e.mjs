@@ -92,6 +92,8 @@ const ouvreApp = async (page, base) => {
 const sansErreur = (erreurs, quand) => assert.deepEqual(erreurs, [], `erreur de page ${quand} : ${erreurs.join(' ; ')}`);
 
 // Liste des régates affichée : [{ status: titre du groupe, rows: [{ id, name, text, open }] }] (En préparation, En cours, Terminées)
+// liste sans la fiche semée du GPEN (07-09) : pour les scénarios d’avant le GPEN qui comptent les régates de Toulon
+const sansGpen = (liste) => liste.map((g) => ({ ...g, rows: g.rows.filter((r) => r.id !== 'gpen-2027') })).filter((g) => g.rows.length);
 const lireListe = (page) => page.evaluate(() => [...document.querySelectorAll('section[data-tab=ic] .rggroup')].map((g) => ({
   status: g.querySelector('h4').textContent.trim(),
   rows: [...g.querySelectorAll('.rg[data-rg-row]')].map((el) => ({ id: el.dataset.rgRow, name: el.querySelector('.rgn').textContent, text: el.textContent, open: el.classList.contains('on') })),
@@ -147,13 +149,12 @@ async function creer({ browser, base }) {
   await ouvreApp(page, base);
   const repris = await page.evaluate(() => ({ idx: JSON.parse(localStorage.getItem('rade.regates.v1')), ev: localStorage.getItem('rade.events.v1') }));
   assert.equal(repris.ev, ancien, 'rade.events.v1 modifiée par la nouvelle version');
-  assert.equal(repris.idx.list.length, 1, 'la fiche existante devient une régate');
-  assert.equal(repris.idx.list[0].id, 'snpm-2026');
+  assert.deepEqual(repris.idx.list.map((r) => r.id), ['snpm-2026', 'gpen-2027'], 'la fiche existante devient une régate ; la fiche du GPEN est semée (07-09)');
   assert.equal(repris.idx.list[0].club, 'CVAT');
   assert.equal(repris.idx.list[0].ic.fields.vhf, 72, 'les champs de la fiche sont repris');
 
   await creeRegate(page, { nom: NOM_PIEGE, debut: '2026-11-07', fin: '2026-11-09', club: 'CVAT' });
-  let liste = await lireListe(page);
+  let liste = sansGpen(await lireListe(page));
   assert.deepEqual(liste.map((g) => g.status), ['En cours', 'Terminées'], 'statuts : En cours puis Terminées');
   assert.equal(liste[0].rows[0].name, NOM_PIEGE, 'le nom s’affiche en texte');
   assert.match(liste[0].rows[0].text, /2026/, 'l’année reste lisible dans la ligne');
@@ -167,7 +168,7 @@ async function creer({ browser, base }) {
 
   // elle survit à un rechargement
   await ouvreApp(page, base);
-  liste = await lireListe(page);
+  liste = sansGpen(await lireListe(page));
   assert.equal(liste[0].rows[0].name, NOM_PIEGE, 'la régate a disparu au rechargement');
   assert.equal(await idOuverte(page), liste[0].rows[0].id, 'le jour de la régate, elle est ouverte au lancement sans aucun geste');
   assert.equal(await page.evaluate(() => localStorage.getItem('rade.events.v1')), ancien, 'rade.events.v1 modifiée au rechargement');
@@ -179,7 +180,7 @@ async function creer({ browser, base }) {
   assert.equal(await page.locator('#raceDone').count(), 1, 'dernier jour à 23 h 30 : la carte doit rester');
   await ctx.clock.setFixedTime(new Date('2026-11-10T08:30:00Z'));
   await ouvreApp(page, base);
-  liste = await lireListe(page);
+  liste = sansGpen(await lireListe(page));
   assert.deepEqual(liste.map((g) => g.status), ['Terminées'], 'le 10/11 la régate est terminée, comme la Coupe SNPM');
   assert.equal(liste[0].rows.length, 2); assert.equal(await idOuverte(page), '', 'le 10/11 : entraînement libre');
   await page.click('#tabs button[data-tab=live]');
@@ -717,9 +718,10 @@ async function gpx({ browser, base }) {
 
 // Index de régates posé avant le premier chargement de l'app (page de même origine sans l'app), puis app ouverte
 const regateSemee = (id, name, debut, fin = '') => ({ id, name, club: 'CVAT', dateStart: debut, dateEnd: fin, season: debut.slice(0, 4), races: [], ic: null, marks: [], courses: [], frozen: {}, traces: [], by: null, at: 0 });
+// Index déposé tel quel ; le marqueur de la fiche du GPEN (07-09) est posé : ce téléphone l’a déjà vue passer, l’index reste celui du scénario
 async function sème(page, base, regates) {
   await page.goto(base + 'data/meta.json');
-  await page.evaluate((v) => localStorage.setItem('rade.regates.v1', v), JSON.stringify({ v: 1, list: regates }));
+  await page.evaluate((v) => { localStorage.setItem('rade.regates.v1', v); localStorage.setItem('rade.seed.gpen.v1', '1'); }, JSON.stringify({ v: 1, list: regates }));
   await ouvreApp(page, base);
 }
 const indexRegates = (page) => page.evaluate(() => JSON.parse(localStorage.getItem('rade.regates.v1')));
@@ -1907,7 +1909,7 @@ async function reprise({ browser, base }) {
   assert.equal(snpm.traces.length, 1, 'la Coupe SNPM porte une seule référence');
   assert.equal(snpm.traces[0].id, idSnpm); assert.equal(snpm.traces[0].by, NOM); assert.equal(snpm.traces[0].n, 9538);
   assert.ok(idx.list.every((r) => !r.traces.some((t) => t.id === idOrph)), 'l’orpheline n’est dans aucune régate');
-  assert.equal(idx.list.length, 1, 'aucune fiche créée (D-02)');
+  assert.equal(idx.list.filter((r) => r.id !== 'gpen-2027').length, 1, 'aucune fiche créée (D-02) ; la fiche du GPEN est semée (07-09)');
   assert.ok((await lireTraces(page)).some((t) => t.id === idOrph), 'l’orpheline reste dans « Traces »');
   assert.ok((await lireTraces(page)).some((t) => t.id === idSnpm), 'la trace rangée reste aussi sur le téléphone');
   assert.match(await journalDe(page), /reprise/, 'une ligne reprise au journal');
@@ -2194,13 +2196,14 @@ async function accueil({ browser, base }) {
   assert.equal(b.ouverte, '', 'aucune régate ouverte au lancement'); assert.match(b.texte, /Entraînement libre/);
   assert.equal(await page.locator('#regGo').textContent(), 'Ouvrir une régate');
   let idx = await indexRegates(page);
-  assert.deepEqual(idx.list.map((r) => r.id), ['snpm-2026']); assert.ok(!('current' in idx), 'aucune clé current dans l’index');
+  assert.deepEqual(idx.list.map((r) => r.id), ['snpm-2026', 'gpen-2027'], 'Coupe SNPM et fiche du GPEN semées (07-09)'); assert.ok(!('current' in idx), 'aucune clé current dans l’index');
   await page.click('#tabs button[data-tab=ic]');
   assert.match(await page.locator('#rgNone').textContent(), /Aucune régate ouverte/);
   assert.equal(await page.locator('#rgSheet').count(), 0, 'pas de fiche sans régate ouverte');
-  assert.equal(await page.locator('#rgList [data-rg]').count(), 1);
+  assert.equal(await page.locator('#rgList [data-rg]').count(), 2, 'Coupe SNPM et fiche semée du GPEN (07-09)');
   let liste = await lireListe(page);
-  assert.deepEqual(liste.map((g) => g.status), ['Terminées']); assert.equal(liste[0].rows[0].id, 'snpm-2026'); assert.ok(!liste[0].rows[0].open);
+  const snpmRow = (l) => l.find((g) => g.status === 'Terminées').rows.find((r) => r.id === 'snpm-2026');
+  assert.deepEqual(liste.map((g) => g.status), ['En préparation', 'Terminées']); assert.deepEqual(liste[0].rows.map((r) => r.id), ['gpen-2027']); assert.ok(snpmRow(liste) && !snpmRow(liste).open);
   assert.equal(await page.locator('#rgList [data-rg="snpm-2026"]').textContent(), 'Ouvrir');
   assert.equal(await page.locator('#rgNone label[for=icFile]').textContent(), '＋ Importer des IC (PDF)');
   for (const id of ['#evDel', '#evEdit', '#evUse']) assert.equal(await page.locator(id).count(), 0, `${id} n’a de sens que dans une régate`);
@@ -2254,7 +2257,7 @@ async function accueil({ browser, base }) {
   assert.match(await page.locator('section[data-tab=ic]').textContent(), /Instructions de course/);
   assert.equal(await page.locator('#rgNone').count(), 0);
   liste = await lireListe(page);
-  assert.ok(liste[0].rows[0].open, 'la liste marque la régate ouverte'); assert.equal(await page.locator('#rgList [data-rg="snpm-2026"]').count(), 0, 'plus de bouton « Ouvrir » sur la régate ouverte');
+  assert.ok(snpmRow(liste).open, 'la liste marque la régate ouverte'); assert.equal(await page.locator('#rgList [data-rg="snpm-2026"]').count(), 0, 'plus de bouton « Ouvrir » sur la régate ouverte');
   assert.doesNotMatch(await page.locator('#daySeg').textContent(), /🏁/, 'le 18/10 est passé : il n’est pas parmi les trois jours affichés');
   idx = await indexRegates(page); assert.ok(!('current' in idx), 'ouvrir n’écrit rien dans l’index');
   // v41 : Coupe de la SNPM (régate CVAT, sans parcours lus) : le cahier CVAT et la banane, parcours choisi inchangé, rien à présélectionner
@@ -2302,7 +2305,7 @@ async function accueil({ browser, base }) {
   assert.deepEqual(apres.list, v36.list, 'la Coupe SNPM est intacte : mêmes champs');
   await p2.click('#tabs button[data-tab=ic]');
   liste = await lireListe(p2);
-  assert.deepEqual(liste.map((g) => [g.status, g.rows.map((r) => r.id)]), [['Terminées', ['snpm-2026']]]);
+  assert.deepEqual(liste.map((g) => [g.status, g.rows.map((r) => r.id)]), [['En préparation', ['gpen-2027']], ['Terminées', ['snpm-2026']]]);
   sansErreur(e2, 'avec un index v36');
   await ctx2.close();
 }
@@ -3238,7 +3241,9 @@ async function gpen({ browser, base }) {
   await page.waitForFunction(() => document.querySelectorAll('section[data-tab=course] .leg').length > 0, null, { timeout: 90000 });
   const sel = await page.evaluate(() => [...document.querySelectorAll('#cSel option')].map((o) => o.textContent));
   assert.deepEqual(sel, ['GPEN — parcours 1 (2 tours)', 'GPEN — parcours 2 (3 tours)', 'GPEN — Virginie Hériot', 'Banane (construite)']);
-  assert.equal(await page.evaluate(() => document.querySelector('#cSel').previousElementSibling.textContent), 'Parcours (Rade de Brest)');
+  // le 6 mai 2027, la fiche semée du GPEN est la régate du jour, ici : ouverte au lancement ; ses IC n’ont pas de parcours, le catalogue reste proposé
+  assert.equal(await idOuverte(page), 'gpen-2027'); assert.equal(await texte(page, '#regBar .regname'), 'GPEN 2027 — J80');
+  assert.equal(await page.evaluate(() => document.querySelector('#cSel').previousElementSibling.textContent), 'Parcours — GPEN 2027 — J80');
   const bords = await page.evaluate(() => [...document.querySelectorAll('section[data-tab=course] .leg .hd > span:first-child')].map((e) => e.textContent.replace(/\s+/g, ' ').trim()));
   assert.equal(bords.length, 7, `bords : ${bords.join(' | ')}`);
   assert.match(bords[0], /^1 n°1 tour 1$/); assert.match(bords[1], /^2 n°2 \(dégagement\) tour 1$/); assert.match(bords[2], /^3 n°3[SP] tour 1$/);
@@ -3268,8 +3273,38 @@ async function gpen({ browser, base }) {
   await page.click('#tabs button[data-tab=course]');
   await page.fill('#cBanNm', '0.8'); await page.locator('#cBanNm').dispatchEvent('change');
   await page.waitForFunction(() => !document.querySelector('#banZone') && document.querySelectorAll('section[data-tab=course] .leg').length === 7, null, { timeout: 90000 });
+  // fiche du GPEN (onglet Régates) : mention de la fiche semée, règles des IC 2026
+  await page.click('#tabs button[data-tab=ic]');
+  await page.waitForSelector('#rgSheet', { timeout: 20000 });
+  assert.match(await texte(page, '#rgSemee'), /^Fiche semée par l’app \(IC 2026\) — à vérifier avec les IC 2027\.$/);
+  const ic = (await texte(page, 'section[data-tab=ic]')).replace(/\s+/g, ' ');
+  for (const re of [/VHF 14/, /Pénalité d’un tour au lieu de deux \(RCV 44\.1 modifiée/, /Jugement semi-direct possible en zone A/, /DNS sans instruction au-delà de 4 min/, /90 min pour le premier, 20 min après le premier/, /D’après les IC 2026 : à mettre à jour avec les IC 2027/, /Sigle J80/]) assert.match(ic, re);
+  assert.ok(!/G1 : C et D1|canal 72/.test(ic), 'aucune règle du CVAT');
   sansErreur(erreurs, 'GPEN à Brest');
   await ctx.close();
+
+  // Toulon, samedi 5 décembre 2026 : la fiche semée est « En préparation » avec la puce « Rade de Brest » ; l’ouvrir propose de passer à Brest
+  const ctxT = await ouvreContexte(browser, { heure: '2026-12-05T09:00:00Z' });
+  const T = await ouvrePage(ctxT);
+  await ouvreApp(T.page, base);
+  assert.equal(await T.page.evaluate(() => localStorage.getItem('rade.seed.gpen.v1')), '1', 'marqueur du semis posé');
+  const idx = await T.page.evaluate(() => JSON.parse(localStorage.getItem('rade.regates.v1')).list.filter((r) => r.id === 'gpen-2027'));
+  assert.equal(idx.length, 1); assert.equal(idx[0].venue, 'brest'); assert.equal(idx[0].at, Date.UTC(2026, 10, 19));
+  await T.page.click('#tabs button[data-tab=ic]');
+  const groupes = await lireListe(T.page), prep = groupes.find((g) => g.rows.some((r) => r.id === 'gpen-2027'));
+  assert.match(prep.status, /^En préparation/);
+  assert.equal(await T.page.locator('#rgList .rg[data-rg-row="gpen-2027"] .rgv').textContent(), 'Rade de Brest');
+  assert.equal(await idOuverte(T.page), '');
+  await T.page.click('#rgList [data-rg="gpen-2027"]');
+  await T.page.waitForSelector('#vnAsk', { timeout: 10000 });
+  assert.match(await texte(T.page, '#vnAsk p'), /Cette régate se court en rade de Brest/);
+  await T.page.click('#vnNo');
+  assert.equal(await idOuverte(T.page), '', 'Annuler : rien d’ouvert');
+  // relancée : toujours une seule fiche (jamais ressemée)
+  await ouvreApp(T.page, base);
+  assert.equal(await T.page.evaluate(() => JSON.parse(localStorage.getItem('rade.regates.v1')).list.filter((r) => r.id === 'gpen-2027').length), 1);
+  sansErreur(T.erreurs, 'fiche du GPEN à Toulon');
+  await ctxT.close();
 }
 
 async function brestAvion({ browser }) {

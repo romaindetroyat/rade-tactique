@@ -33,8 +33,8 @@ export const FIELDS = Object.freeze([
   { key: 'zone', label: 'Zone de course', kind: 'text' },
 ].map(Object.freeze));
 const MAX_FIELD = 200;                                     // longueur d’une valeur saisie
-const READ_LONG = { motifs: 'par motifs (CVAT, hors réseau)', saisie: 'saisie à la main', reprise: 'reprise d’une ancienne fiche', ia: 'par l’IA (OpenAI) : vérifiez chaque valeur' };
-const READ_SHORT = { motifs: 'par motifs', saisie: 'saisie', reprise: 'reprise', ia: 'par l’IA' };
+const READ_LONG = { motifs: 'par motifs (CVAT, hors réseau)', saisie: 'saisie à la main', reprise: 'reprise d’une ancienne fiche', ia: 'par l’IA (OpenAI) : vérifiez chaque valeur', semee: 'semée par l’app d’après les IC 2026 : à vérifier avec les IC 2027' };
+const READ_SHORT = { motifs: 'par motifs', saisie: 'saisie', reprise: 'reprise', ia: 'par l’IA', semee: 'semée par l’app' };
 export const NOT_READ = 'non lu dans le texte';
 // false masque « Lire avec l’IA » sans rien changer d’autre ; décision après l’essai réel sur l’aperçu (plan 03-07)
 export const IA_IC = true;

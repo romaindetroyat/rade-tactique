@@ -109,6 +109,68 @@ export function seedNorm(st) {
   return changed ? { ...st, list } : st;
 }
 
+// ───────────────────────── fiche « GPEN 2027 — J80 » semée (07-09, D-08)
+// Même fiche sur les trois téléphones (identifiant, instant et dates de modification fixes, sans auteur), comme la Coupe SNPM : la semer ne crée
+// aucune modification à envoyer. Règles des IC 2022-2026 (07-RESEARCH § B.2-B.4), supposées identiques en 2027 et dites telles.
+export const GPEN_ID = 'gpen-2027';
+export const GPEN_AT = Date.UTC(2026, 10, 19, 0, 0, 0);
+export const GPEN_SEED_KEY = 'rade.seed.gpen.v1';
+export const GPEN_IC = Object.freeze({
+  event: 'GPEN 2027 — J80',
+  firstWarning: '',
+  lastFinishSignal: '',
+  vhf: 14,
+  committee: '',
+  zone: 'Zone A — École Navale : cercle de 1,2 NM centré 48°17,890 N 004°21,630 W',
+  classes: [['J80', 'Sigle J80']],
+  groups: ['J80'],
+  sequence: [
+    ['H−7', 'Pavillon orange + son', 'Course bientôt (au moins 2 min avant l’avertissement)'],
+    ['H−5', 'Pavillon de classe (Sigle J80) + son', 'Avertissement'],
+    ['H−4', 'P, I, Z, U ou Noir + son', 'Préparatoire'],
+    ['H−1', 'Affalé du préparatoire + son', 'Dernière minute'],
+    ['H', 'Pavillon de classe affalé + son', 'Départ'],
+  ],
+  keyRules: [
+    'D’après les IC 2026 : à mettre à jour avec les IC 2027 (fin avril 2027).',
+    'Zone A — École Navale : cercle de 1,2 NM centré 48°17,890 N 004°21,630 W. VHF 14 ; signaux à terre à l’École navale, sur le bâtiment « Albatros » (IC 5.1.1).',
+    'Pavillon orange avec un son au moins 2 min avant le signal d’avertissement (IC 6.1) ; après l’Aperçu à terre, pas d’avertissement moins d’une heure après son amené (IC 5.2).',
+    'Départ entre le mât à pavillon orange du bateau comité (à tribord) et la marque de départ blanche ou un viseur (à bâbord). DNS sans instruction au-delà de 4 min après son signal de départ (IC 12.4).',
+    'Parcours 1 (flamme numérique n° 1) : Départ – 1 – 2 – 3S/3P – 1 – 2 – 3P – Arrivée. Parcours 2 (flamme n° 2) : trois tours. Marques 1 et 2 à bâbord ; marques de parcours orange, changement de parcours vert, arrivée blanche (IC 10, annexe 3.1).',
+    'Arrivée entre le mât à pavillon bleu et la marque d’arrivée, à droite du comité (IC 14.1, annexe 3.1).',
+    'Une marque peut être déplacée de ±10° et d’environ 200 m sans signal de changement (IC 13.2). Changement signalé à la porte 3 : seule la marque 1 est remouillée ; à la marque 2 : la porte devient une seule marque 3P à bâbord (IC 13.3).',
+    'Pénalité d’un tour au lieu de deux (RCV 44.1 modifiée, IC 15.1).',
+    'Jugement semi-direct possible en zone A : héler « Protest » et montrer un pavillon rouge ; le juge répond pavillon vert et blanc (pas de pénalité) ou rouge (pénalité) (IC 15.2, annexe 2).',
+    'Temps limites J80 : 90 min pour le premier, 20 min après le premier, sinon DNF (IC 16).',
+    'Classement : 3 courses pour valider la compétition ; une course retirée dès 4 courses (IC 18).',
+    'Bout-dehors sorti seulement pour établir et porter le spi (IC 19.3) ; gilet (EIF) obligatoire du départ sur l’eau au retour à terre (IC 19.2).',
+    'Réclamations : 60 min après que le dernier bateau a fini la dernière course du jour ; jury à l’École navale, bâtiment Ailée (IC 17).',
+    'Zones interdites : autour de l’Île Longue (marques spéciales 0 à 10) et entre la cardinale de Pen ar Vir et la pointe du même nom (IC annexe 5).',
+    'Parcours Virginie Hériot (pavillon jaune + pavillon GPEN) : Départ – 1 – 2 – 3S/3P – 1 – 2 – 3S/3P – arrivée décalée entre une bouée blanche à laisser à bâbord et un mât à terre (pavillon bleu) devant la chapelle de l’École navale ; dans l’app, parcours « GPEN — Virginie Hériot », position de l’arrivée à confirmer.',
+  ],
+});
+// Fiche neuve (objet frais à chaque appel, jamais partagé entre deux états)
+export function gpenSeed() {
+  return {
+    id: GPEN_ID, name: 'GPEN 2027 — J80', club: 'AGPEN — École navale', dateStart: '2027-05-05', dateEnd: '2027-05-09', season: seasonOf('2027-05-05'),
+    races: [], ic: { fields: structuredClone({ ...GPEN_IC }), text: '', source: 'IC du GPEN 2026 (agpen.fr)', read: 'semee', excerpts: {}, validated: { by: null, at: GPEN_AT } },
+    marks: [], courses: [], frozen: {}, traces: [], by: null, at: GPEN_AT, venue: 'brest', u: GPEN_AT, ub: null, vu: GPEN_AT, tomb: {}, hist: [],
+  };
+}
+// Sème la fiche si elle manque, si l’index n’en porte pas la pierre tombale et si le marqueur local n’est pas posé (une fiche supprimée par
+// l’équipage ne revient jamais) ; pose le marqueur ensuite (et quand la fiche est déjà là ou supprimée). Rend le même objet si rien ne change.
+export function seedGpen(st, { storage = null } = {}) {
+  const list = st?.list || [];
+  const has = list.some((r) => r.id === GPEN_ID), tomb = !!(st?.tomb?.[GPEN_ID] || st?.tomb?.[`regatta:${GPEN_ID}`]);
+  let mark = null;
+  try { mark = storage?.getItem(GPEN_SEED_KEY) ?? null; } catch { mark = null; /* stockage illisible : l’index décide seul */ }
+  const pose = () => { try { storage?.setItem(GPEN_SEED_KEY, '1'); } catch { /* stockage refusé : l’index garde la fiche ou sa pierre tombale */ } };
+  if (has || tomb || mark) { if (!mark) pose(); return st; }
+  const next = { ...st, list: [...list, gpenSeed()] };
+  pose();
+  return next;
+}
+
 function readJSON(storage, key) {
   try { const v = storage.getItem(key); return v ? JSON.parse(v) : null; } catch { return null; /* absent ou illisible : on repart d’ailleurs */ }
 }

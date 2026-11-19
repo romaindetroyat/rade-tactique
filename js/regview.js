@@ -320,6 +320,7 @@ export function sheetHTML(r, { now = Date.now(), courses = [], choices = courses
   return `<div class="card" id="rgSheet"><h3><span>${escHTML(r.name)}</span><small>${escHTML(r.club || 'club à préciser')}</small></h3>
     <div class="small">${escHTML(datesLabel(r))} ${statusChip(r, now)}${venueChip(r)}</div>
     <div class="small muted" style="margin-top:4px">Créée ${byLine(r.by, r.at)}</div>
+    ${r.ic?.read === 'semee' ? '<div class="notice small" id="rgSemee" style="margin-top:6px">Fiche semée par l’app (IC 2026) — à vérifier avec les IC 2027.</div>' : ''}
     <div class="rgraces"><h4>Manches</h4>${races.length ? races.map((m) => raceRowHTML(m, { courses, chosen: r.sel === m.n, editing: Number.isInteger(raceDraft?.edit) && (raceDraft.id != null ? raceDraft.id === m.id : raceDraft.edit === m.n) })).join('') : '<p class="small muted">Aucune manche : ajoutez-en une avec son heure de signal et son parcours.</p>'}
     ${raceDraft ? raceFormHTML(r, raceDraft, raceErrors, choices) : '<div class="btns"><button type="button" class="btn small acc" id="rcNew">＋ Ajouter une manche</button></div>'}</div>
     ${marksSectionHTML(r, { markFix, nmOf })}
