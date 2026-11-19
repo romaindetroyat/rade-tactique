@@ -203,3 +203,108 @@ test('Brest, routes avec courant hors des zones interdites : un pas ne rogne une
     assert.ok(prof < 25, `${h} h : un pas rogne une zone de ${prof.toFixed(0)} m`);
   }
 });
+
+// ───────── Conseils de courant (tâche 2) : courant du bord, côté favorable, renverse, vent contre courant, hauteur d’eau
+const RESERVE = '(estimation d’après l’atlas du Shom)';
+const textes = (cs) => cs.map((c) => c.t);
+// bord synthétique vers le nord (0,8 Nq), déjà routé : temps avec et sans courant donnés
+const bordNord = (extra = {}) => ({ from: { x: 0, y: 0 }, to: { x: 0, y: 0.8 * NQ }, brg: 0, dist: 0.8 * NQ, time: 14.95 * 60, timeSans: 12.12 * 60,
+  wind: { dir: 0, spd: 8 }, route: null, ...extra });
+
+test('currentAdvice sans courant dans le contexte : aucun conseil (Toulon)', () => {
+  assert.equal(typeof tactics.currentAdvice, 'function');
+  assert.deepEqual(tactics.currentAdvice(bordNord(), { terrain: null, forbidden: [], perf: 1 }), []);
+  assert.deepEqual(tactics.currentAdvice(bordNord(), {}), []);
+});
+
+test('courant contre le bord (0,75 nd vers 180°) : « Courant 0,8 nd vers 180° : contre vous sur ce bord (≈ +2 min 50 s) », origine courant', () => {
+  const cs = tactics.currentAdvice(bordNord(), { current: uni(0.75, 180), t0: Date.UTC(2027, 4, 6, 12) });
+  assert.ok(cs.length >= 1);
+  for (const c of cs) { assert.equal(c.o, 'C'); assert.ok(!/'/.test(c.t), 'apostrophe typographique'); }
+  assert.ok(cs[0].t.startsWith('Courant 0,8 nd vers 180° : contre vous sur ce bord (≈ +2 min 50 s)'), cs[0].t);
+  // courant avec : gain annoncé en moins
+  const av = tactics.currentAdvice(bordNord({ time: 10.19 * 60 }), { current: uni(0.75, 0), t0: 0 });
+  assert.ok(av[0].t.startsWith('Courant 0,8 nd vers 000° : avec vous sur ce bord (≈ −1 min 50 s)'), av[0].t);
+  // de travers : dérive annoncée
+  const tr = tactics.currentAdvice(bordNord({ time: 12.3 * 60 }), { current: uni(0.6, 90), t0: 0 });
+  assert.match(tr[0].t, /^Courant 0,6 nd vers 090° : de travers, il vous dépose à droite de la route/);
+});
+
+test('côté favorable : 0,3 nd de mieux à droite → conseillé ; écart sous 0,15 nd → rien', () => {
+  const KNs = (nd) => nd * KN;
+  const fort = (x) => (x > 200 ? 0.5 : 0.2), faible = (x) => (x > 200 ? 0.3 : 0.2);
+  const ctx = (f) => ({ current: (x) => ({ u: 0, v: KNs(f(x)) }), t0: 0 });
+  const a = textes(tactics.currentAdvice(bordNord({ time: 11 * 60 }), ctx(fort)));
+  assert.ok(a.some((t) => t.startsWith('Courant plus favorable à droite du bord (0,3 nd de mieux)')), a.join(' | '));
+  const g = textes(tactics.currentAdvice(bordNord({ time: 11 * 60 }), ctx((x) => (x < -200 ? 0.5 : 0.2))));
+  assert.ok(g.some((t) => t.startsWith('Courant plus favorable à gauche du bord (0,3 nd de mieux)')), g.join(' | '));
+  const b = textes(tactics.currentAdvice(bordNord({ time: 11 * 60 }), ctx(faible)));
+  assert.ok(!b.some((t) => /plus favorable/.test(t)), 'écart de 0,1 nd : pas de côté annoncé');
+});
+
+test('vent contre courant : vent de 270° et courant vers 270° de plus de 0,5 nd → clapot ; sinon rien', () => {
+  const leg = bordNord({ wind: { dir: 270, spd: 12 }, time: 12 * 60 });
+  const oui = textes(tactics.currentAdvice(leg, { current: uni(0.7, 270), t0: 0 }));
+  assert.ok(oui.some((t) => t.startsWith('Vent contre courant : clapot plus dur')), oui.join(' | '));
+  for (const c of [uni(0.4, 270), uni(0.7, 90), uni(0.7, 180)]) assert.ok(!textes(tactics.currentAdvice(leg, { current: c, t0: 0 })).some((t) => /clapot/.test(t)));
+});
+
+test('réserve « (estimation d’après l’atlas du Shom) » une fois par bord, en fin du dernier conseil de courant', () => {
+  const KNs = (nd) => nd * KN;
+  for (const ctx of [{ current: uni(0.75, 180), t0: 0 }, { current: (x) => ({ u: 0, v: KNs(x > 200 ? 0.5 : 0.2) }), t0: 0 }, { current: uni(0.05, 90), t0: 0 }]) {
+    const t = textes(tactics.currentAdvice(bordNord({ wind: { dir: 0, spd: 8 } }), ctx));
+    assert.equal(t.filter((x) => x.includes(RESERVE)).length, 1, t.join(' | '));
+    assert.ok(t[t.length - 1].endsWith(RESERVE), t.join(' | '));
+  }
+});
+
+test('renverses du 6 mai 2027 en zone A : vers 12 h 10 (après la basse mer de 11 h 54) et vers la pleine mer du soir (17 h 52)', { skip: sansPack }, () => {
+  const z = xy(BREST.LINE_PRESETS.zoneA.lat, BREST.LINE_PRESETS.zoneA.lon), zone = { x: z.x, y: z.y, r: 0.6 * NQ };
+  const ctx = { current: courantXY(ATLAS, MAREE) };
+  const rv = tactics.renverses(ctx, at(0), at(24), zone);
+  const h = (ms) => (ms - at(0)) / 3600e3;
+  assert.ok(rv.some((r) => h(r.t) >= 12 && h(r.t) <= 12.5), `renverses : ${rv.map((r) => h(r.t).toFixed(2)).join(', ')}`);
+  assert.ok(rv.some((r) => Math.abs(h(r.t) - (17 + 52 / 60)) <= 0.5), `renverse du soir : ${rv.map((r) => h(r.t).toFixed(2)).join(', ')}`);
+  for (const r of rv) assert.ok(r.t >= at(0) && r.t <= at(24) && Number.isFinite(r.de) && Number.isFinite(r.vers));
+  // un bord de 11 h 50 à 12 h 30 contient la renverse de midi
+  const leg = bordNord({ wind: { dir: 270, spd: 10 }, time: 40 * 60, from: z, to: { x: z.x, y: z.y + 0.8 * NQ } });
+  const t = textes(tactics.currentAdvice(leg, { ...ctx, t0: at(11 + 50 / 60), zone }));
+  assert.ok(t.some((x) => /^Renverse vers 12 h [0-3]\d : le courant tourne pendant ce bord/.test(x)), t.join(' | '));
+  // un bord de 14 h à 14 h 40 n’en contient pas
+  assert.ok(!textes(tactics.currentAdvice(leg, { ...ctx, t0: at(14), zone })).some((x) => /^Renverse/.test(x)));
+  assert.equal(tactics.renverseText(rv[0].t), `Renverse vers ${String(new Date(rv[0].t).getHours()).padStart(2, '0')} h ${String(new Date(rv[0].t).getMinutes()).padStart(2, '0')}`);
+});
+
+test('hauteur d’eau (synthétique) : un haut-fond qui découvre à basse mer dévie la route ; à pleine mer la même route passe', () => {
+  const F = champ(10, 90), A = { x: 0, y: 0 }, B = { x: 0, y: 1500 };
+  const banc = (x, y) => Math.abs(x) < 150 && y > 500 && y < 1000;
+  const basse = 1e12, pleine = 2e12;
+  const depth = (x, y, ms) => !(banc(x, y) && ms < 1.5e12);          // banc à sec avant 1,5e12 (basse mer), couvert après
+  const rb = route(A, B, F, { current: () => ({ u: 0, v: 0 }), depth, t0: basse });
+  const rp = route(A, B, F, { current: () => ({ u: 0, v: 0 }), depth, t0: pleine });
+  assert.ok(rb && rp);
+  assert.ok(!rb.path.some((p) => banc(p.x, p.y)), 'basse mer : aucun point sur le banc');
+  assert.ok(rb.maxOff > 100, `basse mer : route déviée (${rb.maxOff.toFixed(0)} m)`);
+  assert.ok(rp.path.some((p) => banc(p.x, p.y)), 'pleine mer : la route droite passe sur le banc couvert');
+});
+
+test('hauteur d’eau à Brest (fonds de l’atlas, marée du 6 mai 2027) : haut-fond de +0,1 m au sud-est de la zone A obstacle à la basse mer, navigable à la pleine mer', { skip: sansPack }, () => {
+  const ok = profondeurOk(ATLAS, MAREE), p = xy(48.28672, -4.35428);
+  assert.equal(ok(p.x, p.y, at(11 + 54 / 60)), false, 'basse mer de 11 h 54 (1,34 m) : 1,2 m d’eau sur le fond, moins de 1,5 + 1 m');
+  assert.equal(ok(p.x, p.y, at(17 + 52 / 60)), true, 'pleine mer de 17 h 52 (7,11 m)');
+  const centre = xy(BREST.LINE_PRESETS.zoneA.lat, BREST.LINE_PRESETS.zoneA.lon);
+  assert.equal(ok(centre.x, centre.y, at(11 + 54 / 60)), true, 'centre de la zone A (−8 m) navigable à basse mer');
+  assert.equal(ok(1e7, 1e7, at(12)), true, 'hors de la grille des fonds : aucune donnée, la règle de la terre seule');
+  assert.equal(ok(centre.x, centre.y, Date.UTC(2035, 0, 1)), true, 'marée inconnue : aucune donnée');
+});
+
+test('analyse de Brest avec courant : chaque bord porte ses conseils de courant et une seule réserve Shom ; sans courant, aucun', { skip: sansPack }, async () => {
+  const avec = await banane(14, COURANT()), sans = await banane(14, null);
+  for (const l of avec.legs) {
+    assert.ok(l.advice.some((a) => /^Courant \d,\d nd/.test(a)), `bord vers ${l.to.name} : ${l.advice.join(' | ')}`);
+    assert.equal(l.advice.filter((a) => a.includes(RESERVE)).length, 1, `bord vers ${l.to.name}`);
+    assert.ok(l.courant && Array.isArray(l.courant.advice) && l.courant.advice.every((c) => c.o === 'C'));
+    assert.ok(Number.isFinite(l.timeSans));
+  }
+  for (const l of sans.legs) { assert.ok(!l.advice.some((a) => a.includes(RESERVE) || /^Courant \d/.test(a))); assert.equal(l.courant, undefined); assert.equal(l.timeSans, undefined); }
+});
