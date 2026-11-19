@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 07
 current_phase_name: "Plans d'eau : Toulon et rade de Brest (GPEN)"
 status: executing
-stopped_at: Completed 07-02-PLAN.md
-last_updated: "2026-11-19T06:39:40.555Z"
+stopped_at: Completed 07-03-PLAN.md
+last_updated: "2026-11-19T07:10:22.333Z"
 last_activity: 2026-11-19
-last_activity_desc: Plan 07-02 — plan d’eau courant dans le moteur (registre, lieu.js, origine, positions Ouest, météo et vent par plan d’eau), Toulon identique
-state_head: e2f70b0a3011cd790554e2195b2690e878e85224
+last_activity_desc: Plan 07-03 — pack physique de la rade de Brest (relief, couverture, côte, fond de carte, masque) hors de la liste hors réseau, manifeste data/venues.json, Toulon identique
+state_head: eb7886b5029f89e3e3cdf80ff71c3bbd55b731c4
 progress:
   total_phases: 7
   completed_phases: 5
   total_plans: 38
-  completed_plans: 30
+  completed_plans: 31
   percent: 71
 ---
 
@@ -28,9 +28,9 @@ See: .planning/PROJECT.md (updated 2026-10-19)
 ## Current Position
 
 Phase: 07 (Plans d'eau : Toulon et rade de Brest (GPEN)) — EXECUTING
-Plan: 3 of 10
-Status: Ready to execute 07-03
-Last activity: 2026-11-19 — Plan 07-02 : js/venues.js, js/venue-brest.js, js/lieu.js, setOrigin, fmtLon Ouest, bornes par plan d’eau, configureWeather, WindField(T, { cell, openSea }) ; 708 tests verts, gardes Toulon et toulon-vue verts ; branche apercu-phase-07 non poussée
+Plan: 4 of 10
+Status: Ready to execute 07-04
+Last activity: 2026-11-19 — Plan 07-03 : data/brest.* (3,65 Mo, pack 7aa34dd280) construits par les outils paramétrés (OSM par l’API en 151 boîtes, EMODnet, Terrarium), hors du SHELL, manifeste data/venues.json, docs/brest-sources.md ; vent de Brest ≈ 1,5 × Toulon (maille 150 m gardée) ; instantané météo de Brest non produit (Open-Meteo refusé, 07-10) ; 719 tests (718 verts, 1 sauté), gardes Toulon, toulon-vue et entetes verts ; branche apercu-phase-07 non poussée
 
 Progress: [███████░░░] 71%
 
@@ -88,6 +88,7 @@ Progress: [███████░░░] 71%
 | Phase 06 P04 | 19 min | 1 tasks | 6 files |
 | Phase 07 P01 | 18min | 3 tasks | 7 files |
 | Phase 07 P02 | 25min | 3 tasks | 17 files |
+| Phase 07 P03 | 21min | 3 tasks | 20 files |
 
 ## Accumulated Context
 
@@ -166,6 +167,10 @@ Décisions récentes qui orientent le travail en cours :
 - [Phase 07]: 07-01 : Toulon v42 figé sur 56f6625 (tests/toulon.test.mjs dans npm test, scénario toulon-vue) ; tools/gardes-toulon.mjs avant tout commit qui touche js/ ou data/
 - [Phase 07]: 07-02 : plan d’eau lu dans un registre (js/venues.js) par exports vivants (js/lieu.js), setVenue une fois au démarrage avant tout toXY ; Toulon par référence aux objets de js/courses.js
 - [Phase 07]: 07-02 : descripteur null/absent = défauts de la v42 dans le module consommateur (météo, vent, 3D, textes, liens) ; Brest : cell_selection=sea, ni marine ni Pioupiou, clé rade.wx.brest.v1
+- [Phase 07]: 07-03 : OpenStreetMap de Brest par l’API principale en 151 boîtes (Overpass injoignable)
+- [Phase 07]: 07-03 : maille du vent de Brest gardée à 150 m (coût mesuré ≈ 1,5 × Toulon) et seuil openSea 1 500 m
+- [Phase 07]: 07-03 : data/<id>.* hors du SHELL dès qu’un data/<id>.meta.json existe ; data/venues.json généré, dans le SHELL et le hachage
+- [Phase 07]: 07-03 : instantané météo de Brest non produit (Open-Meteo refusé), à produire en 07-10
 
 ### Pending Todos
 
@@ -203,6 +208,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-11-19T06:39:40.423Z
-Stopped at: Completed 07-02-PLAN.md
+Last session: 2026-11-19T07:10:22.140Z
+Stopped at: Completed 07-03-PLAN.md
 Resume file: None

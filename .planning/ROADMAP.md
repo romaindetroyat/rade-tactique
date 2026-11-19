@@ -231,7 +231,7 @@ Plans:
   6. La fiche « GPEN 2027 — J80 » est semée ; les parcours 1 et 2 de la zone A (arrivée à droite du comité) et la variante Virginie Hériot sont proposés ; l'arbitre, le débrief et la dictée suivent les IC du GPEN à Brest et celles du CVAT à Toulon, mot pour mot
   7. v43 sur l'aperçu `apercu-phase-07`, vérifiée (tous les scénarios, dont Toulon identique et Brest : choix, téléchargement, mode avion, régate partagée, courant, GPEN), puis en production sur « publie » de Romain au plus tard le 10 décembre 2026
 
-**Plans:** 2/10 plans executed (vagues séquentielles : mêmes fichiers générés `sw.js`, `js/version.js` et outil `tools/regate-e2e.mjs`)
+**Plans:** 3/10 plans executed (vagues séquentielles : mêmes fichiers générés `sw.js`, `js/version.js` et outil `tools/regate-e2e.mjs`)
 
 Plans:
 **Wave 1**
@@ -241,7 +241,7 @@ Plans:
 - [x] 07-02-PLAN.md — Le plan d'eau dans le moteur, sans effet sur Toulon : registre `js/venues.js`, `js/venue-brest.js`, `js/lieu.js` (exports vivants), `setOrigin`, longitudes Ouest, bornes et lecture des positions, météo, vent et vues par plan d'eau (vague 2)
 
 **Wave 3** *(blocked on Wave 2 completion)*
-- [ ] 07-03-PLAN.md — Données physiques de Brest : outils paramétrés par emprise, entrées téléchargées (OSM par Overpass sinon l'API par boîtes, EMODnet, tuiles), `data/brest.*` hors de la liste hors réseau, manifeste `data/venues.json` par stamp, accès privé, sources et licences (vague 3)
+- [x] 07-03-PLAN.md — Données physiques de Brest : outils paramétrés par emprise, entrées téléchargées (OSM par Overpass sinon l'API par boîtes, EMODnet, tuiles), `data/brest.*` hors de la liste hors réseau, manifeste `data/venues.json` par stamp, accès privé, sources et licences (vague 3)
 
 **Wave 4** *(blocked on Wave 3 completion)*
 - [ ] 07-04-PLAN.md — Choisir et télécharger le plan d'eau : carte « Plan d'eau », pack vérifié par SHA-256 dans un cache `rade-venue-*` épargné par le service worker, bascule par rechargement hors course, démarrage hors réseau, scénarios `plan-eau` et `brest-avion`, mesures d'ouverture ; vague du service worker vérifiée en priorité sur iPhone (vague 4)
