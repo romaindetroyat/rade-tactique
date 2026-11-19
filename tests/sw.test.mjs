@@ -156,3 +156,86 @@ test('garde : la sonde de js/app.js est ce HEAD, avec abandon à 4 s et sans cac
   assert.match(app, /fetch\('icons\/favicon-32\.png\?p=' \+ Date\.now\(\), \{ method: 'HEAD', cache: 'no-store'/);
   assert.match(app, /setTimeout\(\(\) => c\.abort\(\), 4000\)/);
 });
+
+// D-04 : plans d’eau téléchargés (js/pack.js) dans des caches rade-venue-<id>-<pack>. Le worker les épargne à l’activation, sert leurs fichiers
+// (data/<id>.* hors liste) depuis ces caches, hors réseau compris, et ne les copie jamais dans le cache de version.
+const PACK = 'rade-venue-brest-abc1234567';
+const U = (p) => ORIGIN + p;
+const avecPack = async () => {
+  const w = monde();
+  await w.attendre('install');
+  w.caches.set(PACK, new Map([[U('/data/brest.terrain.bin'), 'pack:terrain'], [U('/data/brest.meta.json'), 'pack:meta']]));
+  return w;
+};
+const partout = (w, url) => [...w.caches.entries()].filter(([, m]) => [...m.keys()].some((k) => k.split('?')[0] === url)).map(([n]) => n);
+
+test('activation : l’ancien cache de version et un cache inconnu partent, les caches rade-venue-* restent', async () => {
+  const w = await avecPack();
+  w.caches.set('rade-ancien', new Map([['x', 'y']]));
+  w.caches.set('autre-cache', new Map([['x', 'y']]));
+  w.caches.set('rade-venue-brest-0000000000', new Map());
+  await w.attendre('activate');
+  assert.deepEqual([...w.caches.keys()].sort(), ['rade-' + BUILD.id, PACK, 'rade-venue-brest-0000000000'].sort());
+  assert.equal(w.caches.get(PACK).size, 2, 'pack intact');
+  assert.equal(w.calls.claim, 1);
+});
+
+test('fichier du pack : servi depuis son cache, en ligne (sans réseau) comme hors réseau, paramètre ignoré', async () => {
+  const w = await avecPack();
+  w.net.reply = () => 'RESEAU';
+  const avant = w.calls.network.length;
+  assert.equal(await (await w.requete('/data/brest.terrain.bin')).text(), 'pack:terrain');
+  assert.equal(await (await w.requete('/data/brest.meta.json?v=2')).text(), 'pack:meta');
+  assert.equal(w.calls.network.length, avant, 'aucun appel réseau');
+  w.net.offline = true;
+  assert.equal(await (await w.requete('/data/brest.terrain.bin')).text(), 'pack:terrain', 'hors réseau');
+});
+
+test('fichier du pack absent de tout cache : en ligne, le réseau sans copie ; hors réseau, l’échec tel quel (jamais index.html)', async () => {
+  const w = await avecPack();
+  const res = await w.requete('/data/brest.basemap.jpg');
+  assert.equal(await res.text(), 'reseau:' + U('/data/brest.basemap.jpg'));
+  await new Promise((ok) => setTimeout(ok, 10));                       // une copie éventuelle (non attendue par le worker) aurait eu lieu
+  assert.deepEqual(partout(w, U('/data/brest.basemap.jpg')), [], 'copié dans aucun cache');
+  w.net.offline = true;
+  await assert.rejects(w.requete('/data/brest.wx-snapshot.json'), /hors ligne/, 'échec réseau rendu, pas la page de l’app');
+});
+
+test('téléchargement du pack (?pack=) : jamais intercepté, même si le cache a le fichier ; aucun cache ne change', async () => {
+  const w = await avecPack();
+  const avant = JSON.stringify([...w.caches.entries()].map(([n, m]) => [n, [...m.keys()]]));
+  assert.equal(w.requete('/data/brest.terrain.bin?pack=abc1234567'), null, 'au réseau, sans le worker');
+  assert.equal(w.requete('/data/brest.cover.bin?pack=abc1234567'), null);
+  assert.equal(JSON.stringify([...w.caches.entries()].map(([n, m]) => [n, [...m.keys()]])), avant);
+});
+
+test('seuls les caches du même plan d’eau servent ses fichiers ; un fichier du pack n’entre jamais dans le cache de version', async () => {
+  const w = monde();
+  await w.attendre('install');
+  w.caches.set('rade-venue-ouessant-1111111111', new Map([[U('/data/brest.coast.json'), 'MAUVAIS']]));
+  assert.equal(await (await w.requete('/data/brest.coast.json')).text(), 'reseau:' + U('/data/brest.coast.json'));
+  for (const p of ['/data/brest.terrain.bin', '/data/brest.coast.json', '/data/brest.meta.json']) await w.requete(p);
+  await new Promise((ok) => setTimeout(ok, 10));
+  assert.ok(![...w.caches.get('rade-' + BUILD.id).keys()].some((k) => /\/data\/brest\./.test(k)), 'aucun data/brest.* dans le cache de version');
+});
+
+test('comportement v42 gardé : data/meta.json (Toulon, dans la liste) par le cache de version, un rapport réseau d’abord avec copie dans la version', async () => {
+  const w = await avecPack();
+  w.net.reply = () => 'NOUVEAU';
+  const avant = w.calls.network.length;
+  assert.match(await (await w.requete('/data/meta.json')).text(), /^cache:.*\/data\/meta\.json$/);
+  assert.match(await (await w.requete('/data/venues.json')).text(), /^cache:/);
+  assert.equal(w.calls.network.length, avant, 'Toulon : aucun appel réseau');
+  assert.equal(await (await w.requete('/rapports/x.html')).text(), 'NOUVEAU');
+  await new Promise((ok) => setTimeout(ok, 10));
+  assert.equal(w.caches.get('rade-' + BUILD.id).get(U('/rapports/x.html')), 'NOUVEAU', 'rapport copié dans le cache de version');
+  assert.equal(w.requete('/api/archive'), null);
+  assert.equal(w.requete('/data/brest.terrain.bin?acces=x'), null, 'lien personnel jamais intercepté');
+});
+
+test('garde : le préfixe des caches de plan d’eau est le même dans sw.js et js/pack.js', async () => {
+  const { PACK_PREFIX } = await import('../js/pack.js');
+  assert.equal(PACK_PREFIX, 'rade-venue-');
+  assert.match(CODE, /const VENUE_PREFIX = 'rade-venue-';/);
+  assert.ok(!/stamp:begin[\s\S]*rade-venue-[\s\S]*stamp:end/.test(CODE), 'jamais dans le bloc généré');
+});

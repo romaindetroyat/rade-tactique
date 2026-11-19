@@ -73,6 +73,16 @@ const EXIGEES = [
   'Débriefer une banane, pas à pas', 'Banane reconstruite', 'ajusté sur la trace', 'réglages de la manche',
   // modifier une manche (v42)
   'Modifier la manche', 'déplace', 'sans doublon', 'modifiée par Prénom le JJ/MM',
+  // plans d’eau, rade de Brest, marée et courant, GPEN (phase 7, D-15)
+  'Télécharger le plan d’eau', 'Prêt hors réseau', 'Passer à la rade de Brest', 'Revenir à la rade de Toulon', 'Pas pendant une course', 'Rade de Brest',
+  'Mettez les trois téléphones à jour le même jour', 'un téléphone resté en v42', 'Il n’efface rien',
+  'Marée à Brest', 'coefficient approché', 'Courant à l’heure du départ', 'Courant de marée (flèches)', 'Courant à la ligne', 'Courant ici', '(estimation d’après l’atlas du Shom)',
+  'Le mode départ plein écran ne compte pas le courant', 'Toulon n’a ni marée ni courant', '1 m de marge', 'à confirmer sur l’eau', 'en complément des documents officiels',
+  'à compléter sur carte marine', 'Île Longue', 'Pen ar Vir', 'Vents de Brest',
+  'GPEN 2027 — J80', 'Fiche semée par l’app (IC 2026) — à vérifier avec les IC 2027', 'GPEN — parcours 1 (2 tours)', 'GPEN — parcours 2 (3 tours)', 'Arrivée (à droite du comité)',
+  '3P seule au dernier tour', 'annoncée par le comité', 'recentrée', 'cercle de la zone A', 'Virginie Hériot', 'position à confirmer', 'Fonds à basse mer',
+  'annuaire des marées 2027', 'relire l’Île Longue et Pen ar Vir sur une carte marine', 'régatier de la rade', 'sur l’eau, comparer la dérive mesurée',
+  'OpenStreetMap (ODbL)', 'EMODnet', 'doi 10.17183/ATLASCOURANTS2D_NETCDF', 'REFMAR', 'Licence Ouverte 2.0', 'ne remplace pas les cartes et ouvrages nautiques officiels',
 ];
 // Formules qui ne doivent jamais apparaître : [motif, raison]
 const INTERDITES = [
@@ -182,7 +192,10 @@ test('aide intégrée : plus de formule périmée, repères de la v32 présents'
   for (const p of ['Tester le son', 'Course finie', 'Mettre à jour', 'reprise demain', 'Mode départ plein écran', 'Top 5’', 'Top 4’', 'Top 1’', 'GPS, ÉCRAN, SON et RÉSEAU',
     '30 appels', 'Open GPX Tracker', '25 nœuds', 'Arrêter le GPS', 'Pas encore synchronisé', 'Synchronisation à relancer', 'Plafond du jour atteint · reprise demain',
     'Code d’accès à renouveler', 'Mettez l’app à jour pour synchroniser', 'premier jour de la régate ouverte', 'Entraînement libre', 'Fermer la régate',
-    'Banane (construite)', 'Porte sous le vent', 'bouées équivalentes', 'porte : bouée prise', 'Dist. B (Nq)', 'Choisir cette manche', '✎ Modifier', 'Enregistrer']) assert.ok(aideTexte.includes(p), `l’aide ne cite pas « ${p} »`);
+    'Banane (construite)', 'Porte sous le vent', 'bouées équivalentes', 'porte : bouée prise', 'Dist. B (Nq)', 'Choisir cette manche', '✎ Modifier', 'Enregistrer',
+    // plans d’eau (phase 7)
+    'Plan d’eau', 'Télécharger le plan d’eau', 'Prêt hors réseau', 'Pas pendant une course', 'Mettez les trois téléphones à jour le même jour', 'Marée à Brest', 'Courant à la ligne',
+    'le mode départ plein écran ne le compte pas', 'Toulon n’a ni marée ni courant', 'à confirmer sur l’eau', 'GPEN 2027 — J80', 'Arrivée (à droite du comité)', 'à compléter sur carte marine']) assert.ok(aideTexte.includes(p), `l’aide ne cite pas « ${p} »`);
   assert.ok(AIDE.includes('href="guide.html#minute"'), 'le lien du guide complet ouvre « En 1 minute »');
   assert.ok(document.getElementById('minute'), 'l’ancre #minute existe dans guide.html');
   assert.doesNotMatch(aideTexte, /blob\.vercel|vercel-storage|\?acces=|rt_acces|BLOB_READ_WRITE_TOKEN|gpt|claude|opus|sonnet|haiku/i, 'ni code, ni cookie, ni adresse, ni nom de modèle');

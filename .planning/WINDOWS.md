@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 1
+open_count: 4
 waived_count: 0
 fixed_count: 4
-total_count: 5
-last_updated: 2026-10-20T08:23:51.398Z
+total_count: 8
+last_updated: 2026-11-19T11:35:15.439Z
 ---
 
 # Broken Windows Ledger
@@ -20,6 +20,9 @@ last_updated: 2026-10-20T08:23:51.398Z
 | 3 | 04 | unrun-verify | tools/regate-e2e.mjs |  | 04-03 tâche 3 : recette de Romain sur l'aperçu v30 avec le vrai magasin Blob et deux téléphones (points 1 à 9 et 11 de la recette humaine, quotas Observability, 401 sans code sur /api/archive) ; mise en production décidée par Romain | fixed |  | 2026-10-20T05:07:57.591Z | 2026-10-20T08:23:51.236Z |
 | 4 | 04 | unrun-verify | api/archive.js |  | 04-04 : recette humaine sur l'aperçu avec le vrai magasin Blob : head() d'un objet absent doit lever BlobNotFoundError (objets immuables trace et rapport), put sans allowOverwrite sur un objet existant doit échouer (perte de course), get en flux d'une trace de 600 Ko, 401 sans code sur ?k=trace\|report\|day | open |  | 2026-10-20T05:45:27.963Z |  |
 | 5 | 04 | unrun-verify | js/archheavy.js |  | 04-04 tâche 2 : contrôle humain sur iPhone (app installée, mode avion) : fiche, vent du jour, trace, débrief et rapport d'une régate récente s'ouvrent ; espace occupé de l'ordre de 1 Mo par régate (Réglages > Safari > Données de sites) | fixed |  | 2026-10-20T05:45:28.170Z | 2026-10-20T08:23:51.398Z |
+| 6 | 07 | stub | data/brest.wx-snapshot.json |  | Instantané météo de Brest absent (Open-Meteo refusé) : l’app reçoit null ; à produire en 07-10 | open |  | 2026-11-19T07:10:38.594Z |  |
+| 7 | 07 | stub | js/app.js |  | VENUE_DEF.brest.courseId = banane (90) au premier passage, faute de catalogue du GPEN (07-09) | open |  | 2026-11-19T07:36:20.892Z |  |
+| 8 | 07 | stub | data/brest.wx-snapshot.json |  | Instantané météo de Brest absent (limite quotidienne d’Open-Meteo) : pas de prévision de secours à la première ouverture hors réseau à Brest | open |  | 2026-11-19T11:35:15.439Z |  |
 
 ````json
 [
@@ -86,6 +89,45 @@ last_updated: 2026-10-20T08:23:51.398Z
     "reason": "",
     "recorded_at": "2026-10-20T05:45:28.170Z",
     "resolved_at": "2026-10-20T08:23:51.398Z",
+    "milestone": null
+  },
+  {
+    "id": 6,
+    "kind": "stub",
+    "phase": "07",
+    "file": "data/brest.wx-snapshot.json",
+    "line": null,
+    "description": "Instantané météo de Brest absent (Open-Meteo refusé) : l’app reçoit null ; à produire en 07-10",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-11-19T07:10:38.594Z",
+    "resolved_at": null,
+    "milestone": null
+  },
+  {
+    "id": 7,
+    "kind": "stub",
+    "phase": "07",
+    "file": "js/app.js",
+    "line": null,
+    "description": "VENUE_DEF.brest.courseId = banane (90) au premier passage, faute de catalogue du GPEN (07-09)",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-11-19T07:36:20.892Z",
+    "resolved_at": null,
+    "milestone": null
+  },
+  {
+    "id": 8,
+    "kind": "stub",
+    "phase": "07",
+    "file": "data/brest.wx-snapshot.json",
+    "line": null,
+    "description": "Instantané météo de Brest absent (limite quotidienne d’Open-Meteo) : pas de prévision de secours à la première ouverture hors réseau à Brest",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-11-19T11:35:15.439Z",
+    "resolved_at": null,
     "milestone": null
   }
 ]

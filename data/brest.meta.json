@@ -1,0 +1,18 @@
+{
+ "west": -4.66,
+ "east": -4.22,
+ "south": 48.22,
+ "north": 48.43,
+ "nx": 1086,
+ "ny": 774,
+ "units": "dm",
+ "sources": [
+  "© contributeurs OpenStreetMap (ODbL)",
+  "EMODnet Bathymetry DTM (couche emodnet:mean)",
+  "AWS Terrain Tiles (Terrarium, SRTM/GMTED)"
+ ],
+ "basemap": {
+  "width": 4096,
+  "height": 2920
+ }
+}

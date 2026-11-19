@@ -1,19 +1,19 @@
 ---
 gsd_state_version: "1.0"
-current_phase: 06
-current_phase_name: "Parcours banane : dégagement, porte sous le vent, arrivée décalée"
+current_phase: 07
+current_phase_name: "Plans d'eau : Toulon et rade de Brest (GPEN)"
 status: complete
-stopped_at: "Phase 6 terminée ; v42 en production (2026-11-09)"
-last_updated: "2026-11-19T00:00:00.000Z"
+stopped_at: "07-10 tâche 1 faite (v43 locale, 6e4b0e3) — point de décision : « publie » de Romain"
+last_updated: "2026-11-19T11:34:55.929Z"
 last_activity: 2026-11-19
-last_activity_desc: Suivi GSD rattrapé (v39 à v42, phase 6 close, La Seyne Cup archivée)
-state_head: db7df7ff99dd765448df8f40106d60864b6c928c
+last_activity_desc: Plan 07-10 tâche 1 — v43 prête en local (débrief GPEN, briefing titré, guide et aide), toutes les gardes vertes ; point de décision « publie »
+state_head: 6e4b0e3e157dd80497394dd93e009fc8c2c7e642
 progress:
-  total_phases: 6
-  completed_phases: 6
-  total_plans: 28
-  completed_plans: 28
-  percent: 100
+  total_phases: 7
+  completed_phases: 5
+  total_plans: 38
+  completed_plans: 38
+  percent: 71
 ---
 
 # Project State
@@ -23,15 +23,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-10-19)
 
 **Core value:** Le jour de la régate, l'équipage peut ouvrir l'épreuve, s'en servir en mer sans que rien ne lâche, et retrouver ensuite le débrief : des conseils et des chiffres justes, fiables sur l'eau, et partagés par tout l'équipage.
-**Current focus:** Phase 06 — Parcours banane : dégagement, porte sous le vent, arrivée décalée
+**Current focus:** Phase 07 — Plans d'eau : Toulon et rade de Brest (GPEN)
 
 ## Current Position
 
-Phase: 06 (Parcours banane) — COMPLETE ; toutes les phases de la feuille de route sont terminées
-Status: Production v42 (« Modifier la manche »), 2026-11-09
-Last activity: 2026-11-19 — suivi rattrapé : v39/v40 (débrief banane, archive réparée), v41 (météo absente signalée, parcours de la régate ouverte), v42 (modifier une manche) ; La Seyne Cup 2026 archivée (Parcours 4)
+Phase: 07 (Plans d'eau : Toulon et rade de Brest (GPEN)) — COMPLETE
+Plan: 10 of 10
+Status: v43 en production le 2026-11-19 (PR #17, « publie » de Romain)
+Last activity: 2026-11-19 — Plan 07-10 tâche 1 : débrief des parcours du GPEN (reconstruits comme une banane, noms 1/2/3S/3P), titre du parcours au briefing de Brest, guide/aide/règles/description pour les plans d’eau ; 849 tests (848 verts, 1 sauté : instantané de Brest absent, limite Open-Meteo), 36/36 scénarios, compat-v42 8/8, compat-v41 7/7, ouvertures 418 ms Toulon / 403 ms Brest, horloge audio 3,4 ms ; v43 (5b9ef2068c), porte de production verte ; main inchangée (56f6625)
 
-Progress: [██████████] 100%
+Progress: [███████░░░] 71%
 
 ## Performance Metrics
 
@@ -85,6 +86,16 @@ Progress: [██████████] 100%
 | Phase 06 P02 | 13 min | 3 tasks | 8 files |
 | Phase 06 P03 | 15 min | 3 tasks | 15 files |
 | Phase 06 P04 | 19 min | 1 tasks | 6 files |
+| Phase 07 P01 | 18min | 3 tasks | 7 files |
+| Phase 07 P02 | 25min | 3 tasks | 17 files |
+| Phase 07 P03 | 21min | 3 tasks | 20 files |
+| Phase 07 P04 | 50min | 3 tasks | 10 files |
+| Phase 07 P05 | 45min | 3 tasks | 18 files |
+| Phase 07 P06 | 35min | 3 tasks | 10 files |
+| Phase 07 P07 | 20min | 3 tasks | 20 files |
+| Phase 07 P08 | 38min | 3 tasks | 8 files |
+| Phase 07 P09 | 55min | 3 tasks | 24 files |
+| Phase 07 P10 | 75min | 1 tasks | 12 files |
 
 ## Accumulated Context
 
@@ -160,6 +171,37 @@ Décisions récentes qui orientent le travail en cours :
 - [Phase 06]: 06-03 : un parcours de régate n’est injecté que lorsque toutes ses bouées (porte et arrivée comprises) sont confirmées ; une arrivée de type illisible empêche l’injection (jamais devinée)
 - [Phase 06]: 06-03 : au débrief, une porte compte un seul passage, la bouée approchée de plus près dans les 180 s ; un téléphone v37 voit la porte comme sa première bouée et l’arrivée sur la ligne de départ, ses fusions gardent porte, arrivée et ban (tools/compat-v37.mjs)
 - [Phase 06]: 06-04 : aide intégrée — textes construits par le code (conseil de porte, « Arrivée : entre le Comité et F ») en gras, jamais entre « » ; le guide nomme la v38 pour la mise à jour des trois téléphones avant la CVAT
+- [Phase 07]: 07-01 : Toulon v42 figé sur 56f6625 (tests/toulon.test.mjs dans npm test, scénario toulon-vue) ; tools/gardes-toulon.mjs avant tout commit qui touche js/ ou data/
+- [Phase 07]: 07-02 : plan d’eau lu dans un registre (js/venues.js) par exports vivants (js/lieu.js), setVenue une fois au démarrage avant tout toXY ; Toulon par référence aux objets de js/courses.js
+- [Phase 07]: 07-02 : descripteur null/absent = défauts de la v42 dans le module consommateur (météo, vent, 3D, textes, liens) ; Brest : cell_selection=sea, ni marine ni Pioupiou, clé rade.wx.brest.v1
+- [Phase 07]: 07-03 : OpenStreetMap de Brest par l’API principale en 151 boîtes (Overpass injoignable)
+- [Phase 07]: 07-03 : maille du vent de Brest gardée à 150 m (coût mesuré ≈ 1,5 × Toulon) et seuil openSea 1 500 m
+- [Phase 07]: 07-03 : data/<id>.* hors du SHELL dès qu’un data/<id>.meta.json existe ; data/venues.json généré, dans le SHELL et le hachage
+- [Phase 07]: 07-03 : instantané météo de Brest non produit (Open-Meteo refusé), à produire en 07-10
+- [Phase 07]: 07-04 : pack de Brest téléchargé par la page, vérifié par taille et SHA-256 (crypto.subtle) avant toute écriture, tout ou rien dans rade-venue-brest-<pack> ; ancien cache supprimé après succès seulement
+- [Phase 07]: 07-04 : sw.js épargne rade-venue-* à l’activation, sert data/<id>.* hors liste depuis rade-venue-<id>-* (du plus ancien au plus récent), n’intercepte pas ?pack= ; Toulon inchangé
+- [Phase 07]: 07-04 : changer de plan d’eau = réglages rangés dans S.byVenue (VENUE_KEYS) puis rechargement, refusé par isActive pendant une course ; à Toulon, init() ne lit ni manifeste ni caches
+- [Phase 07]: 07-05 : venue fusionné comme un registre daté par vu, hors du duel de la fiche (règle du plan non associative, graine 27) ; une copie v42 ne l’efface jamais
+- [Phase 07]: 07-05 : une régate de Toulon n’a pas de champ venue (absent = Toulon) ; fiches de Toulon identiques à la v42
+- [Phase 07]: 07-05 : liste blanche serveur VENUE_IDS dans js/archmerge.js (seul module embarqué par la fonction, Pitfall 15)
+- [Phase 07]: 07-05 : régate d’un autre plan d’eau jamais ouverte sur la mauvaise carte ; Passer = packGo + rade.venue.reopen { rg, tr }
+- [Phase 07]: 07-06 : polygone de l’Île Longue fermé par le rivage est et l’isthme, « D » avant 7 (sinon contour recoupé), élargi de 50 m ; couloir de Pen ar Vir 100 m, commencé à 10 m de la cardinale
+- [Phase 07]: 07-06 : seuil « mer dégagée » de Brest gardé à 1 500 m (3 103 cellules, médiane de l’eau 0,95-1,00 ; 4 000 m ne garde que 90 cellules de l’Iroise)
+- [Phase 07]: 07-06 : marques de Brest à clés courtes non numériques (36), conseils de Brest { t, o } avec origine affichée et hypothèses « à confirmer sur l’eau »
+- [Phase 07]: Marée de Brest : 68 harmoniques ajustées sur REFMAR 2019-2024 (utide), facteurs f et V0+u par année 2026-2031 ; contrôle 2025-2026 14,2 cm et 3,7 min ; null hors des années
+- [Phase 07]: Courant : atlas 560 du Shom relu au nœud le plus proche pour les contrôles, dosé par le marnage entre les champs 45 et 95 (borné à [−0,4 ; 1,4]), liaison linéaire entre PM+6 h et la PM−6 h suivante
+- [Phase 07]: Fonds EMODnet ramenés au zéro des cartes par +0,25 m (PBMA de Brest, RAM) au lieu d’assimiler les deux niveaux
+- [Phase 07]: Paquets des outils netCDF4 1.7.5.1.post1, utide 0.4.0, scipy 1.18.1, py7zr 1.1.4 acceptés par Romain, environnement hors du dépôt
+- [Phase 07]: Temps de l’étude contrôlés à vent sur l’eau constant de 8 nd (14,95 et 10,19 min recalculés sur la polaire) ; la baisse du vent sur l’eau est testée à part
+- [Phase 07]: Élagage des isochrones propre à la branche avec courant (rem − vm × 5 s) ; élagage de la v42 intact
+- [Phase 07]: Hauteur d’eau : hauteur − fond ≥ 1,5 + 1 m ; hors grille des fonds ou marée inconnue : navigable
+- [Phase 07]: Réserve « (estimation d’après l’atlas du Shom) » une fois par bord ; renverses dans un cercle de 0,6 Nq autour de la zone du GPEN
+- [Phase 07]: js/startmode.js inchangé ; pas de correction du débrief par le courant dans cette phase (question pour Romain)
+- [Phase 07]: Parcours du GPEN centrés dans la zone A : la ligne recule de Dist. 1 / 2 sous le vent (centre de la zone au milieu du bord de près), une ligne pinguée fait foi
+- [Phase 07]: Chapelle de l’École navale trouvée dans OpenStreetMap (Chapelle maritime, 48,283165 N 4,415900 W) : parcours 93 Virginie Hériot, mât et bouée de l’arrivée supposés, position à confirmer
+- [Phase 07]: Fiche gpen-2027 semée en local sur chaque téléphone, instant fixe et sans auteur, jamais envoyée ; pierre tombale et marqueur rade.seed.gpen.v1 empêchent tout nouveau semis
+- [Phase 07]: Consignes d’IA choisies dans une table fermée { toulon, brest } (api/_gpen.js) ; consignes de Toulon figées par leurs empreintes v42 capturées sur 56f6625
+- [Phase 07]: 07-10 : trace d’un parcours du GPEN débriefée comme une banane (courseBan, noms 1/2/3S/3P, ligne recentrée) ; briefing de Brest titré ; instantané météo de Brest absent (limite Open-Meteo), v43 publiée sans
 
 ### Pending Todos
 
@@ -201,6 +243,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-10-23T18:58:01.214Z
-Stopped at: 06-04 tâche 1 faite (v38 locale db7df7f) — point de décision tâche 2 : poussée, PR brouillon, « publie » de Romain
-Resume file: .planning/phases/06-parcours-banane/06-04-SUMMARY.md
+Last session: 2026-11-19T11:34:55.747Z
+Stopped at: 07-10 tâche 1 faite (v43 locale, 6e4b0e3) — point de décision : « publie » de Romain
+Resume file: .planning/phases/07-plans-d-eau/07-10-PLAN.md

@@ -4,7 +4,7 @@ import * as THREE from '../vendor/three.module.min.js';
 import { OrbitControls } from '../vendor/OrbitControls.js';
 import { toXY, toLL } from './geo.js';
 import { speedColor } from './wind.js';
-import { PLACES } from './courses.js';
+import { PLACES } from './lieu.js';
 import { lineIndex } from './segments.js';
 
 const W = (x, y, h = 0) => new THREE.Vector3(x, h, -y);
@@ -39,8 +39,11 @@ function makeLabel(text, opts = {}, px = 22) {
 }
 
 export class Scene3D {
-  constructor(el, terrain) {
+  // opts (plan d’eau) : home = cadrage initial { target, dist, tilt, portrait: { target, dist, tilt } } en mètres depuis l’origine,
+  // files.base = préfixe des textures ; absents : cadrage et fichiers de Toulon (v42)
+  constructor(el, terrain, { home = null, files = null } = {}) {
     this.el = el; this.t = terrain;
+    this.homeCfg = home; this.base = files?.base ?? 'data/';
     this.exag = 1.6;
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -69,7 +72,10 @@ export class Scene3D {
     this.resize();
     window.addEventListener('resize', () => this.resize());
     const pn = document.getElementById('panel'); if (pn && 'ResizeObserver' in window) new ResizeObserver(() => this.updateInsets()).observe(pn);
-    if (this.camera.aspect < 1) this.home({ x: 900, y: -5200 }, 30000, 0.5); else this.home();
+    const hc = this.homeCfg;
+    if (!hc) { if (this.camera.aspect < 1) this.home({ x: 900, y: -5200 }, 30000, 0.5); else this.home(); }
+    else if (this.camera.aspect < 1 && hc.portrait) this.home(hc.portrait.target, hc.portrait.dist, hc.portrait.tilt ?? 0.5);
+    else this.home(hc.target, hc.dist, hc.tilt ?? 0.85);
     this.clock = new THREE.Clock();
     this.controls.addEventListener('change', () => { this.needRibbons = true; this.onCamera?.(); });
     this.#bindPick();
@@ -159,7 +165,7 @@ export class Scene3D {
     if (!this.terrainMat) {
       // fond de carte HD (≈ 6 m/pixel) : côte OSM nette, ombrage du relief, fonds marins
       this.terrainMat = new THREE.MeshLambertMaterial({ color: '#b9b49a' });
-      new THREE.TextureLoader().load('data/basemap.jpg', (tex) => {
+      new THREE.TextureLoader().load(this.base + 'basemap.jpg', (tex) => {
         tex.colorSpace = THREE.SRGBColorSpace;
         tex.anisotropy = Math.min(8, this.renderer.capabilities.getMaxAnisotropy());
         this.terrainMat.map = tex; this.terrainMat.color.set('#ffffff'); this.terrainMat.needsUpdate = true;
@@ -192,7 +198,7 @@ export class Scene3D {
     this.waterTex.colorSpace = THREE.SRGBColorSpace; this.waterTex.magFilter = THREE.LinearFilter;
     const g = new THREE.PlaneGeometry(T.x1 - T.x0, T.y1 - T.y0);
     g.rotateX(-Math.PI / 2);
-    this.seaMask = new THREE.TextureLoader().load('data/seamask.png', () => { this.waterMat.needsUpdate = true; this.plainMat.needsUpdate = true; });
+    this.seaMask = new THREE.TextureLoader().load(this.base + 'seamask.png', () => { this.waterMat.needsUpdate = true; this.plainMat.needsUpdate = true; });
     this.waterMat = new THREE.MeshBasicMaterial({ map: this.waterTex, alphaMap: this.seaMask, transparent: true, opacity: 0.9, depthWrite: false });
     const m = new THREE.Mesh(g, this.waterMat);
     m.position.set((T.x0 + T.x1) / 2, 0, -(T.y0 + T.y1) / 2);
@@ -241,6 +247,48 @@ export class Scene3D {
     if (name === 'particles') this.groups.particles.visible = on;
     if (name === 'labels') this.groups.labels.visible = on;
     if (name === 'routes') this.groups.routes.visible = on;
+    if (name === 'current' && this.groups.current) this.groups.current.visible = on;
+  }
+
+  // ───────── courant de marée (Brest seulement, D-13) : flèches sur une grille d’environ 500 m autour du centre de la vue
+  // at(x, y) → { u, v } m/s ou null, à l’heure affichée ; null : couche vidée. Groupe créé au premier appel (jamais à Toulon).
+  setCurrent(at) {
+    if (!this.groups.current) {
+      this.groups.current = new THREE.Group(); this.groups.current.visible = this.layers.current !== false; this.scene.add(this.groups.current);
+      this.controls.addEventListener('end', () => { if (this.currentAt) this.#drawCurrent(); });
+    }
+    this.currentAt = at;
+    this.#drawCurrent();
+  }
+  #drawCurrent() {
+    const g = this.groups.current; g.clear();
+    const at = this.currentAt, T = this.t;
+    if (!at) return;
+    const tg = this.controls.target, cx = tg.x, cy = -tg.z;
+    const half = Math.max(1500, Math.min(7000, this.camera.position.distanceTo(tg) * 0.55)), STEP = 500;
+    const pos = [], col = [], KN = 1852 / 3600;
+    for (let y = Math.ceil((cy - half) / STEP) * STEP; y <= cy + half; y += STEP) for (let x = Math.ceil((cx - half) / STEP) * STEP; x <= cx + half; x += STEP) {
+      if (T.inside && !T.inside(x, y)) continue;
+      if (T.isLand(x, y)) continue;
+      const c = at(x, y);
+      if (!c) continue;
+      const nd = Math.hypot(c.u, c.v) / KN;
+      if (nd < 0.05) continue;
+      const L = 120 + Math.min(4, nd) * 160, ux = c.u / (nd * KN), uy = c.v / (nd * KN);          // longueur selon la vitesse
+      const x0 = x - ux * L / 2, y0 = y - uy * L / 2, x1 = x + ux * L / 2, y1 = y + uy * L / 2, hl = Math.min(90, L * 0.35);
+      const hx = (a) => x1 - hl * (ux * Math.cos(a) - uy * Math.sin(a)), hy = (a) => y1 - hl * (uy * Math.cos(a) + ux * Math.sin(a));
+      const segs = [[x0, y0, x1, y1], [x1, y1, hx(0.45), hy(0.45)], [x1, y1, hx(-0.45), hy(-0.45)]];
+      // couleur : bleu pâle (faible) → violet → rouge (plus de 2 nd)
+      const k = Math.min(1, nd / 2), r = 0.35 + 0.6 * k, gc = 0.75 - 0.55 * k, b = 1 - 0.6 * k;
+      for (const [a1, b1, a2, b2] of segs) { pos.push(a1, 12, -b1, a2, 12, -b2); col.push(r, gc, b, r, gc, b); }
+    }
+    if (!pos.length) return;
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+    const lines = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.9, depthWrite: false }));
+    lines.renderOrder = 6; lines.frustumCulled = false;
+    g.add(lines);
   }
 
   // ───────── particules (traînées de vent)
@@ -340,9 +388,17 @@ export class Scene3D {
     this.#sizeSprites();
   }
 
-  setDangers(zones, dangers) {
+  // zones : polygones en mètres (une à Toulon, plusieurs ailleurs) ; labels : étiquette de chaque zone (défaut « Zone interdite », celle de la v42)
+  // circles (Brest) : zones de course { x, y, r (m), label } en cercle pointillé rose (zone A du GPEN, « Rose » dans les IC) ; Toulon : aucune
+  setDangers(zones, dangers, labels = [], circles = []) {
     const g = this.groups.zones; g.clear();
-    for (const poly of zones) {
+    for (const z of circles) {
+      const pts = [];
+      for (let k = 0; k <= 96; k++) { const a = (k / 96) * 2 * Math.PI; pts.push(W(z.x + z.r * Math.sin(a), z.y + z.r * Math.cos(a), 5)); }
+      g.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineDashedMaterial({ color: '#e64980', dashSize: 80, gapSize: 50 })).computeLineDistances());
+      const s = makeLabel(z.label, { bg: 'rgba(214,51,108,.85)' }, 13); s.position.copy(W(z.x, z.y + z.r, 60)); g.add(s);
+    }
+    for (const [i, poly] of zones.entries()) {
       const shape = new THREE.Shape(poly.map((p) => new THREE.Vector2(p.x, p.y)));
       const geo = new THREE.ShapeGeometry(shape); geo.rotateX(-Math.PI / 2);
       const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: '#e03131', transparent: true, opacity: 0.28, depthWrite: false, side: THREE.DoubleSide }));
@@ -350,7 +406,7 @@ export class Scene3D {
       const pts = poly.map((p) => W(p.x, p.y, 5)); pts.push(pts[0]);
       g.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineDashedMaterial({ color: '#e03131', dashSize: 60, gapSize: 40 })).computeLineDistances());
       const c = poly.reduce((a, p) => ({ x: a.x + p.x / poly.length, y: a.y + p.y / poly.length }), { x: 0, y: 0 });
-      const s = makeLabel('Zone interdite', { bg: 'rgba(200,30,30,.85)' }, 13); s.position.copy(W(c.x + 200, c.y, 60)); g.add(s);
+      const s = makeLabel(labels[i] ?? 'Zone interdite', { bg: 'rgba(200,30,30,.85)' }, 13); s.position.copy(W(c.x + 200, c.y, 60)); g.add(s);
     }
     for (const d of dangers) {
       const p = toXY(d.lat, d.lon);

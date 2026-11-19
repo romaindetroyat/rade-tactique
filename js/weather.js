@@ -13,12 +13,25 @@ export const MODELS = [
 ];
 
 // Points de grille sur la zone de course (AROME HD), pour la variabilité spatiale
-export const GRID = [];
+export let GRID = [];
 for (const lat of [43.045, 43.065, 43.085, 43.100]) for (const lon of [5.885, 5.920, 5.955, 5.990, 6.030, 6.075]) GRID.push({ lat, lon });
 
-export const CENTER = { lat: 43.085, lon: 5.958 };
-const KEY = 'rade.wx.v1';
+export let CENTER = { lat: 43.085, lon: 5.958 };
 const OM = 'https://api.open-meteo.com/v1/forecast';
+
+// Réglages du plan d’eau (D-13, D-14b) : valeurs de Toulon (v42) par défaut ; configureWeather(VENUE.weather) les remplace au démarrage.
+//   cellSelection : option cell_selection d’Open-Meteo (null = celle d’Open-Meteo, comme en v42) ; marine : point de l’état de la mer (null = aucune requête) ;
+//   live : cadre des balises Pioupiou (null = aucune requête) ; key : clé du cache local ; snapshot : instantané de secours embarqué
+let W = {
+  cellSelection: null, marine: 'latitude=43.06&longitude=5.96', live: { south: 42.98, north: 43.22, west: 5.7, east: 6.25 },
+  key: 'rade.wx.v1', snapshot: 'data/wx-snapshot.json',
+};
+export function configureWeather(cfg) {
+  if (!cfg) return;
+  W = { cellSelection: cfg.cellSelection ?? null, marine: cfg.marine ?? null, live: cfg.live ?? null, key: cfg.key, snapshot: cfg.snapshot };
+  GRID = cfg.grid.map((p) => ({ lat: p.lat, lon: p.lon }));
+  CENTER = { lat: cfg.center.lat, lon: cfg.center.lon };
+}
 
 const save = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* stockage indisponible */ } };
 const load = (k) => { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } };
@@ -61,22 +74,23 @@ export async function fetchAll() {
   const models = MODELS.map((m) => m.id).join(',');
   const vars = 'wind_speed_10m,wind_direction_10m,wind_gusts_10m,temperature_2m,cloud_cover,precipitation,pressure_msl,weather_code';
   const lats = GRID.map((p) => p.lat).join(','), lons = GRID.map((p) => p.lon).join(',');
+  const cs = W.cellSelection ? `&cell_selection=${W.cellSelection}` : '';
   const [multi, grid, marine] = await Promise.allSettled([
-    withRetry(() => getJSON(`${OM}?latitude=${CENTER.lat}&longitude=${CENTER.lon}&hourly=${vars}&models=${models}&${common}`)),
-    withRetry(() => getJSON(`${OM}?latitude=${lats}&longitude=${lons}&hourly=wind_speed_10m,wind_direction_10m,wind_gusts_10m&models=meteofrance_arome_france_hd&${common}`)),
-    getJSON(`https://marine-api.open-meteo.com/v1/marine?latitude=43.06&longitude=5.96&hourly=wave_height,wave_direction,wave_period,wind_wave_height,swell_wave_height,swell_wave_direction,ocean_current_velocity,ocean_current_direction,sea_surface_temperature&timezone=Europe%2FParis&forecast_days=3`),
+    withRetry(() => getJSON(`${OM}?latitude=${CENTER.lat}&longitude=${CENTER.lon}&hourly=${vars}&models=${models}&${common}${cs}`)),
+    withRetry(() => getJSON(`${OM}?latitude=${lats}&longitude=${lons}&hourly=wind_speed_10m,wind_direction_10m,wind_gusts_10m&models=meteofrance_arome_france_hd&${common}${cs}`)),
+    W.marine ? getJSON(`https://marine-api.open-meteo.com/v1/marine?${W.marine}&hourly=wave_height,wave_direction,wave_period,wind_wave_height,swell_wave_height,swell_wave_direction,ocean_current_velocity,ocean_current_direction,sea_surface_temperature&timezone=Europe%2FParis&forecast_days=3`) : Promise.resolve(null),
   ]);
   if (multi.status !== 'fulfilled') throw multi.reason;
   const data = { fetched: Date.now(), multi: multi.value, grid: grid.status === 'fulfilled' ? grid.value : null, marine: marine.status === 'fulfilled' ? marine.value : null };
-  save(KEY, data);
+  save(W.key, data);
   return data;
 }
 
-export const cached = () => load(KEY);
+export const cached = () => load(W.key);
 
-// Instantané livré avec l’app (data/wx-snapshot.json) : secours sans réseau
+// Instantané livré avec l’app (data/wx-snapshot.json à Toulon) : secours sans réseau ; absent → null
 export async function snapshot() {
-  try { const r = await fetch('data/wx-snapshot.json'); return r.ok ? r.json() : null; } catch { return null; }
+  try { const r = await fetch(W.snapshot); return r.ok ? r.json() : null; } catch { return null; }
 }
 
 // Moyenne circulaire pondérée
@@ -141,12 +155,14 @@ export function marineAt(data, time) {
   };
 }
 
-// Balises de vent en direct autour de la rade (Pioupiou / OpenWindMap)
+// Balises de vent en direct autour de la rade (Pioupiou / OpenWindMap) ; aucune requête sans cadre (Brest : aucune balise, D-14b)
 export async function fetchLive() {
+  const B = W.live;
+  if (!B) return [];
   const j = await getJSON('https://api.pioupiou.fr/v1/live/all');
   return (j.data || []).filter((s) => {
     const l = s.location || {};
-    return l.latitude > 42.98 && l.latitude < 43.22 && l.longitude > 5.7 && l.longitude < 6.25 && s.measurements?.wind_speed_avg != null;
+    return l.latitude > B.south && l.latitude < B.north && l.longitude > B.west && l.longitude < B.east && s.measurements?.wind_speed_avg != null;
   }).map((s) => ({
     id: s.id, name: s.meta?.name, lat: s.location.latitude, lon: s.location.longitude,
     date: s.measurements.date, spd: s.measurements.wind_speed_avg / 1.852, gust: s.measurements.wind_speed_max / 1.852,

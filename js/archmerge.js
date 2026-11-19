@@ -5,7 +5,17 @@
 // la plus récente gagne : l’autre va dans `hist` (historique de la fiche). La fusion est commutative, associative et idempotente.
 
 export const MAX_HIST = 30, MAX_HIST_BYTES = 4000;
-export const HEAD = ['name', 'club', 'dateStart', 'dateEnd', 'season', 'ic'];      // « fiche » : modifiée d’un bloc par la validation des IC
+export const HEAD = ['name', 'club', 'dateStart', 'dateEnd', 'season', 'ic', 'venue'];   // « fiche » : modifiée d’un bloc par la validation des IC
+// Plan d’eau de la régate (`venue`, 07-05) : champ de la fiche, mais fusionné à part, comme un registre « dernier écrit gagne » daté par `vu`
+// (instant où il a été écrit). Raison : un téléphone resté en v42 ne connaît pas ce champ et renvoie la fiche sans lui ; s’il entrait dans le
+// duel de la fiche, une copie qui l’ignore pourrait l’effacer, et une valeur héritée changerait le départage suivant (fusion non associative).
+// Règle : le duel de la fiche porte sur FICHE (les champs de la v42, inchangé pour Toulon) ; `venue` vient de la copie qui en a un, la plus
+// récente par `vu` (à égalité, la plus grande valeur) : une copie sans `venue` n’efface jamais une valeur connue. Revenir à Toulon s’écrit
+// `venue: 'toulon'` explicitement.
+export const FICHE = HEAD.filter((k) => k !== 'venue');
+// Plans d’eau acceptés dans l’archive (liste blanche du serveur, api/archive.js) : les clés de VENUES de js/venues.js (test qui les compare).
+// Écrite ici et non importée de js/venues.js : la fonction du serveur n’embarque que ce module (vercel.json, includeFiles, Pitfall 15).
+export const VENUE_IDS = Object.freeze(['toulon', 'brest']);
 export const LISTS = { race: 'races', mark: 'marks', course: 'courses', trace: 'traces' };
 export const LOCAL_ONLY = ['sel'];                                                 // état d’affichage de CET appareil : jamais partagé
 const DANGER = new Set(['__proto__', 'constructor', 'prototype']);                // clés refusées partout (pollution de prototype)
@@ -59,7 +69,22 @@ const mergeTomb = (a = {}, b = {}) => {
   }
   return { ...out };
 };
-const headOf = (r) => ({ ...Object.fromEntries(HEAD.filter((k) => k in r).map((k) => [k, r[k]])), u: r.u, ub: r.ub });
+const headOf = (r) => ({ ...Object.fromEntries(FICHE.filter((k) => k in r).map((k) => [k, r[k]])), u: r.u, ub: r.ub });
+const hasVenue = (r) => typeof r?.venue === 'string';
+const vuOf = (r) => (Number.isFinite(r?.vu) ? r.vu : 0);
+// copie dont le plan d’eau l’emporte (null si aucune n’en a) : la plus récente par `vu`, à égalité la plus grande valeur
+const venueWinner = (a, b) => {
+  if (!hasVenue(a)) return hasVenue(b) ? b : null;
+  if (!hasVenue(b)) return a;
+  return (vuOf(a) - vuOf(b) || cmp(a.venue, b.venue)) >= 0 ? a : b;
+};
+const putVenue = (out, w) => {
+  delete out.venue; delete out.vu;
+  if (!w) return out;
+  out.venue = w.venue;
+  if (Number.isFinite(w.vu)) out.vu = w.vu;
+  return out;
+};
 // rang d’un gel de jour : une copie « tardive » (app ouverte après le signal) ne remplace jamais une copie prise avant ; ensuite la plus récente
 const frozenWins = (a, b) => ((a.late ? 0 : 1) - (b.late ? 0 : 1)) || wins(a, b);
 
@@ -74,6 +99,7 @@ export function mergeRegatta(a, b) {
   const first = ord <= 0 ? a : b;                                                  // le créateur : le plus ancien, à égalité celui qui a un auteur
   const out = { id: a.id, ...hw, by: first.by ?? null, at: Math.min(a.at ?? Infinity, b.at ?? Infinity) };
   if (!Number.isFinite(out.at)) out.at = 0;
+  putVenue(out, venueWinner(a, b));                                                // plan d’eau : registre à part (voir FICHE)
   for (const [kind, key] of Object.entries(LISTS)) {
     const A = new Map((a[key] || []).map((e) => [String(e.id), e])), B = new Map((b[key] || []).map((e) => [String(e.id), e])), res = [];
     for (const id of new Set([...A.keys(), ...B.keys()])) {
@@ -151,6 +177,10 @@ export function stamp(prev, next, { now, by = null, rnd } = {}) {
   const hp = prev && headOf(prev);
   const hn = headOf(n);
   if (!prev || !sameBody(hp, hn)) { out.u = now; out.ub = by; } else { out.u = prev.u; out.ub = prev.ub; }
+  // plan d’eau : daté à part ; inchangé → même date ; retiré → retiré (une copie sans venue n’efface rien chez les autres)
+  if (!hasVenue(n)) delete out.vu;
+  else if (prev && prev.venue === n.venue && Number.isFinite(prev.vu)) out.vu = prev.vu;
+  else out.vu = now;
   const tomb = { ...(prev?.tomb || {}), ...(n.tomb || {}) };
   for (const [kind, key] of Object.entries(LISTS)) {
     const P = new Map((prev?.[key] || []).map((e) => [String(e.id), e]));

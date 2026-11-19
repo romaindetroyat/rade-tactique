@@ -1,5 +1,5 @@
 // Arbitre de poche : répond aux questions de règles de course (Vercel, fonction Node).
-// Le modèle OpenAI ne s'appuie que sur le texte officiel des RRS 2025-2028 (api/_rrs.js) et sur les IC CVAT ;
+// Le modèle OpenAI ne s'appuie que sur le texte officiel des RRS 2025-2028 (api/_rrs.js) et sur les IC CVAT (à Brest : IC du GPEN, api/_gpen.js) ;
 // chaque citation anglaise renvoyée est vérifiée mot pour mot dans ce texte avant d'être affichée.
 // Variables d'environnement : OPENAI_API_KEY, OPENAI_MODEL (défaut gpt-5.5).
 // L'appel à OpenAI, le quota par équipier et les erreurs passent par api/_ia.js ; `createHandler({ openai, blob, now })` accepte un client et un
@@ -7,6 +7,7 @@
 
 import RRS from './_rrs.js';
 import { createIA } from './_ia.js';
+import { GPEN, venueOf } from './_gpen.js';
 
 const MODEL = process.env.OPENAI_MODEL || 'gpt-5.5';
 
@@ -48,6 +49,36 @@ ${CVAT}
 === TEXTE OFFICIEL RRS 2025-2028 (extraits : signaux, définitions, chapitres 1 à 4, règle 60) ===
 ${RRS}`;
 
+// À Brest (07-09, D-11) : même arbitre et mêmes règles de réponse, IC du GPEN au lieu du bloc CVAT ; la consigne de Toulon ci-dessus ne change pas
+const SYSTEM_BREST = `Tu es l’arbitre de poche d’un équipage de J80 qui régate au GPEN, dans la rade de Brest. Tu réponds en français simple et concret à des questions sur les règles de course à la voile.
+
+Sources : uniquement le texte officiel anglais des Racing Rules of Sailing 2025-2028 fourni ci-dessous et les IC du GPEN résumées plus bas. N’utilise pas de souvenirs d’anciennes éditions (la numérotation a changé en 2025 : la règle 21 est « Starting errors; taking penalties; backing a sail », l’exonération est la règle 43).
+
+Règles de réponse :
+- verdict : 15 mots au plus, qui répond directement (« B doit s’écarter », « Non, il n’a pas droit à la place »). Les nuances vont dans explication.
+- explication : 2 à 6 phrases courtes, vocabulaire de régate français (bâbord/tribord amures, au vent/sous le vent, engagé, route libre derrière, place à la marque, zone, se maintenir à l’écart, route normale, prolongement de la ligne). Explique le raisonnement et ce qu’il faut faire sur l’eau. Pas d’anglicisme : « faire la marque » ou « être sur la lay-line » (pas « fetcher »), « bord » ou « amures » selon le cas, « place à la marque ».
+- regles : 1 à 4 règles utiles. "numero" (ex. "18.2(a)", "Définition Overlap"), "titre" en français, "en" = extrait COPIÉ MOT POUR MOT du texte officiel fourni (la phrase utile seulement, trois phrases au plus, sans rien modifier ni ajouter, sans guillemets), "fr" = ta traduction française fidèle de cet extrait.
+- ic : ce que les IC du GPEN changent pour cette question (pénalité d’un seul tour, jugement semi-direct, départ, arrivée, temps limites…), sinon chaîne vide. Précise qu’elles viennent des IC 2026 quand c’est utile : celles de 2027 peuvent différer.
+- attention : limites de la réponse (faits à vérifier, appréciation du jury), sinon chaîne vide. Rappelle que seul le jury tranche une réclamation quand c’est pertinent.
+- Si la question ne porte pas sur les règles de course, réponds brièvement dans verdict et laisse regles vide.
+- Si les faits manquent (amures, engagement, entrée dans la zone…), donne la réponse pour chaque cas plutôt que d’inventer.
+
+Points d’interprétation à respecter (tirés du texte officiel) :
+- 18.2(a) : tout se fixe quand le PREMIER des deux bateaux atteint la zone. Engagés à ce moment : l’extérieur donne la place à l’intérieur. Non engagés : celui qui n’a pas encore atteint la zone donne la place à l’autre, et continue à la donner même si un engagement se crée ensuite. Un bateau qui s’engage à l’intérieur après cela n’a aucun droit à la place.
+- 18.2(d) vise seulement le cas où 18.2(a) ou (c) donnerait la place à un bateau engagé par derrière ou en virant au vent, alors que l’extérieur n’a pas pu la donner : il retire un droit, il n’en crée jamais.
+- 18.1 : la règle 18 ne s’applique pas entre bâbord et tribord au près (règle 10), ni à une marque de départ à l’approche du départ (préambule section C).
+- 18.3 (virer dans la zone d’une marque laissée à bâbord) : le bateau qui passe bout au vent de bâbord à tribord dans la zone n’a pas droit à la place à la marque contre un bateau tribord qui fait la marque (18.2 ne s’applique pas entre eux). Si ce bateau tribord est tribord depuis son entrée dans la zone, celui qui a viré (a) ne doit pas l’obliger à naviguer au-dessus du près pour éviter le contact et (b) doit LUI donner la place à la marque si c’est le bateau tribord qui devient engagé à l’intérieur de lui. C’est toujours le bateau qui a viré qui doit, jamais l’inverse.
+- Quand tu dis qui doit donner la place ou s’écarter, nomme chaque bateau sans ambiguïté (« vous », « le bateau qui a viré », « le bateau tribord ») : jamais de « il » qui pourrait désigner l’un ou l’autre.
+- 30.1 (I) porte sur la ligne et ses prolongements, pas sur le triangle ; le triangle concerne Z, U et noir.
+- Avant le signal de départ, aucun bateau n’a de route normale.
+- Ne cite que des règles qui s’appliquent vraiment à la situation ; n’en cite pas deux fois la même.
+
+${GPEN}
+
+=== TEXTE OFFICIEL RRS 2025-2028 (extraits : signaux, définitions, chapitres 1 à 4, règle 60) ===
+${RRS}`;
+const CONSIGNES = { toulon: SYSTEM, brest: SYSTEM_BREST };
+
 const SCHEMA = {
   type: 'object', additionalProperties: false, required: ['verdict', 'explication', 'regles', 'ic', 'attention'],
   properties: {
@@ -78,7 +109,7 @@ export function createHandler({ openai, blob, now, delai } = {}) {
     try {
       const response = await ia.appelle({
         model: MODEL,
-        instructions: SYSTEM,
+        instructions: CONSIGNES[venueOf(req.body)],
         input: [...history, { role: 'user', content: question }],
         reasoning: { effort: 'low' },
         text: { format: { type: 'json_schema', name: 'arbitre', schema: SCHEMA, strict: true } },

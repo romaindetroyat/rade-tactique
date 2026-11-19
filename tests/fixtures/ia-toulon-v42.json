@@ -1,0 +1,7 @@
+{
+  "from": "56f6625",
+  "note": "SHA-256 des consignes (instructions) envoyées au client simulé par api/rules.js, api/debrief.js et api/voice.js de la v42 (git archive 56f6625 api js package.json), pour une requête valide sans plan d’eau ; à Toulon, les consignes de la v43 doivent rester ces octets",
+  "rules": "45afaf3ecc44b3b5e3649a5cfb44fab1c5cd60c8c182711ea4eda8ee87102784",
+  "debrief": "36cc8b25a6106146d4124c2070beb1b873d5ce005ed7f7a4bc8b4b61519aa545",
+  "voice": "287871e464d04c5e4b9f22dcc1cc7dbbb53c0d9b2f886d8cc978a9a192e1e520"
+}

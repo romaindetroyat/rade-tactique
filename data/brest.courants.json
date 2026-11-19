@@ -1,0 +1,31 @@
+{
+ "grid": {
+  "lat0": 48.248,
+  "lon0": -4.62583163,
+  "dlat": 0.00090045442,
+  "dlon": 0.001351004939,
+  "ni": 277,
+  "nj": 182
+ },
+ "hours": 13,
+ "h0": -6,
+ "coefs": [
+  45,
+  95
+ ],
+ "scale": 0.02,
+ "sea": 17397,
+ "ordre": "masque des nœuds en mer (1 bit par nœud, n = j·ni + i, j vers le nord depuis lat0, i vers l’est depuis lon0, bit n & 7 de l’octet n >> 3), puis Int8 [coefficient 45 puis 95][heure de PM−6 h à PM+6 h][U vers l’est puis V vers le nord][points en mer dans l’ordre du masque], m/s = valeur × scale",
+ "source": "Shom – Atlas de courants de marée 2D (édition de juin 2026), rade de Brest, 100 m",
+ "licence": "Licence Ouverte 2.0",
+ "doi": "10.17183/ATLASCOURANTS2D_NETCDF",
+ "avertissement": "À n’utiliser qu’en complément des cartes et ouvrages nautiques officiels",
+ "fonds": {
+  "file": "data/brest.fonds.bin",
+  "type": "Int16LE",
+  "scale": 0.1,
+  "ordre": "tous les nœuds de la grille, n = j·ni + i",
+  "source": "EMODnet Bathymetry DTM (couche emodnet:mean), plus basse mer astronomique ramenée au zéro des cartes (+0,25 m à Brest, RAM du Shom)",
+  "note": "m au-dessus du zéro des cartes, négatif sous le zéro ; modèle à environ 115 m, lissé près des côtes : marge d’au moins 1 m"
+ }
+}

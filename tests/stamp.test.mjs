@@ -5,7 +5,10 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, posix } from 'node:path';
-import { listShell, build, check, validateNote } from '../tools/stamp.mjs';
+import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
+import { statSync } from 'node:fs';
+import { listShell, build, check, validateNote, venuesManifest, venueIds } from '../tools/stamp.mjs';
 import { ROOT } from './helpers/setup.mjs';
 
 const SW = [
@@ -72,6 +75,7 @@ test('check : contenu non releasé en erreur si strict, en avertissement sinon ;
     const b = build(d);
     writeFileSync(join(d, 'sw.js'), b.sw);
     writeFileSync(join(d, 'js/version.js'), b.versionJs);
+    writeFileSync(join(d, 'data/venues.json'), b.venuesJson);
     const strict = check(d, { strict: true });
     assert.ok(strict.errors.some((e) => /contenu modifié/.test(e)));
     const souple = check(d, { strict: false });
@@ -84,6 +88,71 @@ test('check : contenu non releasé en erreur si strict, en avertissement sinon ;
     put('js/a.js', 'export const a = 3;');
     assert.ok(check(d, { strict: false }).errors.some((e) => /sw\.js est périmé/.test(e)), 'sw.js périmé : toujours une erreur');
   } finally { rmSync(d, { recursive: true, force: true }); }
+});
+
+// D-04 : les fichiers d’un plan d’eau autre que Toulon (`data/<id>.*`, annoncés par `data/<id>.meta.json`) sont téléchargés
+// à la demande : hors de la liste hors réseau, décrits par le manifeste data/venues.json (dans la liste, et dans le hachage).
+const sha = (s) => createHash('sha256').update(s).digest('hex');
+
+test('plan d’eau téléchargeable : data/<id>.* hors du SHELL, dans le manifeste avec tailles et SHA-256', () => {
+  const { d, put } = appli();
+  try {
+    put('data/meta.json', '{"toulon":1}'); put('data/terrain.bin', 'TT');
+    put('data/test.meta.json', '{"west":1}'); put('data/test.terrain.bin', 'abcdef'); put('data/test.notes.md', 'note');
+    put('data/testeur.json', '{}');
+    assert.deepEqual(venueIds(d), ['test']);
+    const l = listShell(d);
+    for (const f of ['data/test.meta.json', 'data/test.terrain.bin']) assert.ok(!l.includes(f), f + ' ne doit pas être hors réseau');
+    for (const f of ['data/meta.json', 'data/terrain.bin', 'data/x.json', 'data/testeur.json', 'data/venues.json']) assert.ok(l.includes(f), f + ' doit rester hors réseau');
+    const m = venuesManifest(d);
+    assert.equal(m.v, 1);
+    assert.deepEqual(Object.keys(m.venues), ['test']);
+    const v = m.venues.test;
+    assert.deepEqual(v.files, [
+      { path: 'data/test.meta.json', bytes: 10, sha256: sha('{"west":1}') },
+      { path: 'data/test.terrain.bin', bytes: 6, sha256: sha('abcdef') },
+    ], 'fichiers triés, .md exclus');
+    assert.equal(v.bytes, 16);
+    assert.equal(v.pack, sha(`data/test.meta.json\0${sha('{"west":1}')}\ndata/test.terrain.bin\0${sha('abcdef')}\n`).slice(0, 10));
+    const a = build(d);
+    assert.equal(a.venuesJson, JSON.stringify(m, null, 1) + '\n');
+
+    put('data/test.terrain.bin', 'abcdeg');
+    const b = build(d);
+    assert.notEqual(venuesManifest(d).venues.test.pack, v.pack, 'un octet changé change l’empreinte du pack');
+    assert.notEqual(b.BUILD.id, a.BUILD.id, 'et la version de l’app (le manifeste est dans le hachage)');
+
+    writeFileSync(join(d, 'sw.js'), b.sw); writeFileSync(join(d, 'js/version.js'), b.versionJs);
+    assert.ok(check(d).errors.some((e) => e === 'data/venues.json est périmé : lancez npm run stamp'));
+    writeFileSync(join(d, 'data/venues.json'), b.venuesJson);
+    assert.deepEqual(check(d).errors, []);
+  } finally { rmSync(d, { recursive: true, force: true }); }
+});
+
+test('dépôt : aucun fichier data/brest.* dans la liste hors réseau, data/venues.json y est', () => {
+  const l = listShell(ROOT);
+  assert.deepEqual(l.filter((f) => f.startsWith('data/brest.')), []);
+  assert.ok(l.includes('data/venues.json'));
+  const sw = readFileSync(join(ROOT, 'sw.js'), 'utf8');
+  assert.ok(!sw.includes('"data/brest.'), 'sw.js ne précache aucun fichier de Brest');
+  assert.ok(sw.includes('"data/venues.json"'));
+});
+
+// Liste hors réseau de Toulon (D-01, D-04) : par rapport à la v42 (56f6625), seuls des modules js/*.js et data/venues.json s’ajoutent,
+// rien ne disparaît, aucun fichier de data/ de plus de 50 ko n’arrive (le pack de Brest est téléchargé à part).
+let shellV42 = null, raisonV42 = false;
+try {
+  const sw = execFileSync('git', ['show', '56f6625:sw.js'], { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+  shellV42 = JSON.parse(/const SHELL = (\[.*\]);/.exec(sw)[1]);
+} catch { raisonV42 = 'git ou le commit 56f6625 indisponible (déploiement sans historique) : comparaison sautée'; }
+
+test('liste hors réseau de Toulon : seuls des modules js/ et data/venues.json s’ajoutent à celle de la v42', { skip: raisonV42 }, () => {
+  const now = listShell(ROOT);
+  assert.deepEqual(shellV42.filter((f) => !now.includes(f)), [], 'aucune entrée de la v42 retirée');
+  const ajouts = now.filter((f) => !shellV42.includes(f));
+  assert.deepEqual(ajouts.filter((f) => !/^js\/[\w-]+\.js$/.test(f) && f !== 'data/venues.json'), [], 'ajouts autres que des modules js/ et le manifeste');
+  for (const f of ajouts.filter((x) => x.startsWith('data/'))) assert.ok(statSync(join(ROOT, f)).size <= 50 * 1024, `${f} dépasse 50 ko`);
+  assert.ok(ajouts.includes('data/venues.json'));
 });
 
 test('validateNote : refuse les chevrons, le vide et plus de 80 caractères', () => {

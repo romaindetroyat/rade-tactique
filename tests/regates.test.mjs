@@ -12,7 +12,7 @@ import {
   upsertRegatta, removeRegatta, icOf, groupByStatus, SEED_AT, seedNorm, backfillAuthor,
 } from '../js/regates.js';
 import { parisClock, isRaceDay } from '../js/racelock.js';
-import { escHTML, byLine, listHTML, noRegattaHTML, newRegattaFormHTML, sheetHTML, historySectionHTML, tracesSectionHTML } from '../js/regview.js';
+import { escHTML, byLine, listHTML, noRegattaHTML, newRegattaFormHTML, sheetHTML, historySectionHTML, tracesSectionHTML, venueCardHTML } from '../js/regview.js';
 import { IC as SNPM } from '../js/courses.js';
 import { verdict } from '../tools/regate-e2e.mjs';
 import { stamp } from '../js/archmerge.js';
@@ -92,6 +92,14 @@ test('ouverture au lancement : la régate d’aujourd’hui (jour de Paris), sin
   assert.equal(openAtBoot({ now: t('2026-11-08T10:00:00Z'), list: [] }), null);
   assert.equal(openAtBoot({ now: t('2026-11-08T10:00:00Z') }), null, 'liste absente');
   assert.equal(openAtBoot({ now: t('2026-11-08T10:00:00Z'), list: [regate({ id: 'p' }), regate({ id: 'q' })] }), 'p', 'deux régates aujourd’hui : la première de la liste');
+  // plan d’eau (07-05) : la régate du jour d’un autre plan d’eau n’est pas ouverte ; « Passer » (reopen) rouvre la régate demandée si elle est ici
+  const ici = (r) => (r.venue || 'toulon') === 'brest', jour = t('2026-11-08T10:00:00Z');
+  const mixte = [regate({ id: 'tln' }), regate({ id: 'bst', venue: 'brest', dateStart: '2026-12-01', dateEnd: '' })];
+  assert.equal(openAtBoot({ now: jour, list: mixte, here: ici }), null, 'régate du jour à Toulon, téléphone à Brest : rien d’ouvert');
+  assert.equal(openAtBoot({ now: jour, list: mixte, here: ici, reopen: 'bst' }), 'bst', 'régate demandée par « Passer » (même hors de ses jours)');
+  assert.equal(openAtBoot({ now: jour, list: mixte, here: ici, reopen: 'tln' }), null, 'régate demandée d’un autre plan d’eau : refusée');
+  assert.equal(openAtBoot({ now: jour, list: mixte, here: ici, reopen: 'inconnue' }), null);
+  assert.equal(openAtBoot({ now: jour, list: mixte, reopen: null }), 'tln', 'sans plan d’eau : la règle de la v42');
 });
 
 test('openRegatta : la régate ou null, jamais la première par défaut', () => {
@@ -177,6 +185,9 @@ test('création : champs manquants, date impossible, dernier jour antérieur ign
   const ok = createRegatta({ name: '  Trophée  ', dateStart: '2026-11-07', dateEnd: '2026-11-09', club: ' CVAT ' }, { now, by: 'Thibaud' });
   assert.equal(ok.ok, true);
   assert.deepEqual({ ...ok.regatta, id: 'x' }, { id: 'x', name: 'Trophée', club: 'CVAT', dateStart: '2026-11-07', dateEnd: '2026-11-09', season: '2026', races: [], ic: null, marks: [], courses: [], frozen: {}, traces: [], by: 'Thibaud', at: now });
+  // plan d’eau (D-06) : liste blanche ; écrit hors de Toulon seulement (une régate de Toulon a la forme de la v42 : absent = Toulon)
+  assert.equal(createRegatta({ name: 'R', dateStart: '2026-11-07', venue: 'brest' }, { now }).regatta.venue, 'brest');
+  for (const v of [undefined, 'toulon', 'lorient', '__proto__', {}, 'Brest']) assert.ok(!('venue' in createRegatta({ name: 'R', dateStart: '2026-11-07', venue: v }, { now }).regatta), String(v));
   assert.equal(createRegatta({ name: 'R', dateStart: '2026-11-07', dateEnd: '2026-11-06' }, { now }).regatta.dateEnd, '', 'dernier jour antérieur ignoré');
   assert.equal(createRegatta({ name: 'R', dateStart: '2026-11-07', dateEnd: '2026-11-07' }, { now }).regatta.dateEnd, '', 'même jour : une régate d’un jour');
   assert.equal(createRegatta({ name: 'R', dateStart: '2026-11-07', dateEnd: '2026-02-30' }, { now }).regatta.dateEnd, '', 'dernier jour impossible ignoré');
@@ -242,6 +253,23 @@ test('vues : un nom ou un club piégé ne produit ni img ni script (liste, fiche
   assert.equal(escHTML('l\'été "oui" <&>'), 'l&#39;été &quot;oui&quot; &lt;&amp;&gt;');
   assert.ok(!listHTML(groupByStatus([regate({ name: 'L\'Aber' })], now), { now }).includes('\'Aber'), 'apostrophe échappée');
   assert.ok(!noRegattaHTML().includes('<script'), 'carte sans donnée de régate');
+});
+
+test('plan d’eau (D-06) : formulaire « Plan d’eau » (défaut fourni), puce « Rade de Brest » dans la liste et la fiche, rien pour Toulon', () => {
+  const now = t('2026-11-08T10:00:00Z');
+  const form = (d) => parseHTML(`<html><body>${newRegattaFormHTML(d)}</body></html>`).document;
+  const f = form({ name: '', dateStart: '2026-11-07', venue: 'brest' });
+  assert.deepEqual([...f.querySelectorAll('#rgVenue option')].map((o) => [o.value, o.textContent, o.hasAttribute('selected')]), [['toulon', 'Rade de Toulon', false], ['brest', 'Rade de Brest', true]]);
+  for (const v of [undefined, 'lorient', '"><img>']) assert.equal(form({ venue: v }).querySelector('#rgVenue option[selected]').value, 'toulon', String(v));
+  assert.equal(f.querySelector('label[for=rgVenue]').textContent, 'Plan d’eau');
+  const brest = regate({ id: 'b', name: 'Entraînement Brest', venue: 'brest' }), toulon = regate({ id: 't', name: 'CVAT', venue: 'toulon' }), ancienne = regate({ id: 'v', name: 'v42' });
+  const { document } = parseHTML(`<html><body>${listHTML(groupByStatus([brest, toulon, ancienne], now), { now })}</body></html>`);
+  const puce = (id) => [...document.querySelectorAll(`.rg[data-rg-row="${id}"] .rgv`)].map((x) => [x.textContent, x.getAttribute('data-venue')]);
+  assert.deepEqual(puce('b'), [['Rade de Brest', 'brest']]);
+  assert.deepEqual(puce('t'), []); assert.deepEqual(puce('v'), [], 'régate sans venue : Toulon, rien de plus');
+  assert.match(sheetHTML(brest, { now }), /class="chip pres rgv" data-venue="brest">Rade de Brest</);
+  assert.doesNotMatch(sheetHTML(toulon, { now }), /rgv/);
+  assert.equal(sheetHTML(toulon, { now }), sheetHTML(ancienne.id === 't' ? ancienne : { ...toulon, venue: undefined }, { now }), 'fiche de Toulon : même vue avec ou sans venue');
 });
 
 test('vues : liste par statut, bouton « Ouvrir » par régate, régate ouverte marquée « Ouverte » sans bouton, attribut data-rg entre guillemets, auteur « — » sans auteur', () => {
@@ -557,7 +585,8 @@ test('garde : le verrou lit les dates de la régate d’aujourd’hui de la list
 });
 
 test('garde : la régate ouverte est un état de la page (OPEN), posé au chargement par la règle d’ouverture et changé par setOpen seulement, sans écriture ni échange', () => {
-  assert.match(app, /^let OPEN = openAtBoot\(\{ now: Date\.now\(\), list: REG\.list \}\);$/m);
+  // règle d’ouverture du lancement ; depuis 07-05, avec le plan d’eau chargé (`here`) et la régate demandée par « Passer » (`reopen`)
+  assert.match(app, /^let OPEN = openAtBoot\(\{ now: Date\.now\(\), list: REG\.list, here: \(r\) => venueOf\(r\) === VENUE\.id, reopen: REOPEN \}\);$/m);
   const lignes = app.split('\n');
   const iMigrate = lignes.findIndex((l) => /^let REG = migrate\(/.test(l)), iSeed = lignes.findIndex((l) => /seedNorm\(REG\)/.test(l)), iOpen = lignes.findIndex((l) => /^let OPEN = /.test(l)), iIC = lignes.findIndex((l) => /^let IC = /.test(l));
   assert.ok(iMigrate >= 0 && iSeed > iMigrate && iOpen > iSeed && iIC > iOpen, 'ordre : migrate, seedNorm, OPEN, puis IC');
@@ -819,4 +848,134 @@ test('garde : un gel tombé fiche fermée est montré à la prochaine ouverture 
   const ecrit = bodyOf(app, 'freezeWrite');
   assert.match(ecrit, /renderIC\(\);[^\n]*\n\s*else icStale = true;/, 'fiche fermée ou occupée : marquée à redessiner');
   assert.match(app, /if \(b\.dataset\.tab === 'ic' && icStale && !icBusy\(\)\) \{ icStale = false; renderIC\(\); \}/, 'redessinée une seule fois, à l’ouverture de l’onglet');
+});
+
+// D-04, D-05, D-06 (entraînement libre) : carte « Plan d’eau » en tête de l’onglet Régates
+const NOMS = { toulon: { nom: 'Rade de Toulon' }, brest: { nom: 'Rade de Brest' } };
+const carteVenue = (o) => parseHTML(`<html><body>${venueCardHTML({ venues: NOMS, ...o })}</body></html>`).document;
+test('venueCardHTML : plan d’eau de ce téléphone, trois états du pack de Brest, boutons #pkDl et #pkGo, sources et avertissement', () => {
+  const a = carteVenue({ venueId: 'toulon', status: { state: 'absent', bytes: 3652390 } });
+  assert.equal(a.querySelector('#pkCard h3').firstChild.textContent.trim(), 'Plan d’eau');
+  assert.match(a.querySelector('#pkHere').textContent, /Ce téléphone : Rade de Toulon/);
+  assert.match(a.querySelector('#pkState').textContent, /Rade de Brest : À télécharger \(3,7 Mo\)/);
+  assert.equal(a.querySelector('#pkDl').textContent, 'Télécharger le plan d’eau');
+  assert.equal(a.querySelector('#pkGo').textContent, 'Passer à la rade de Brest');
+  assert.equal(a.querySelector('#pkGo').getAttribute('data-to'), 'brest');
+  assert.equal(a.querySelector('#pkGo').hasAttribute('disabled'), false);
+  const txt = a.querySelector('#pkCard').textContent;
+  for (const m of ['OpenStreetMap (ODbL)', 'EMODnet', 'Ne remplace pas les cartes et ouvrages nautiques officiels']) assert.ok(txt.includes(m), m);
+  const r = carteVenue({ venueId: 'toulon', status: { state: 'ready', bytes: 3652390 } });
+  assert.match(r.querySelector('#pkState').textContent, /Rade de Brest : Prêt hors réseau$/);
+  assert.equal(r.querySelector('#pkDl'), null, 'pack prêt : pas de bouton de téléchargement');
+  const s = carteVenue({ venueId: 'brest', status: { state: 'stale', bytes: 3652390 } });
+  assert.match(s.querySelector('#pkState').textContent, /Mise à jour à télécharger \(3,7 Mo\)/);
+  assert.match(s.querySelector('#pkHere').textContent, /Ce téléphone : Rade de Brest/);
+  assert.equal(s.querySelector('#pkGo').textContent, 'Revenir à la rade de Toulon');
+  assert.equal(s.querySelector('#pkGo').getAttribute('data-to'), 'toulon');
+  assert.ok(s.querySelector('#pkDl'));
+  const n = carteVenue({ venueId: 'toulon', status: null });
+  assert.match(n.querySelector('#pkState').textContent, /état en cours de lecture/);
+});
+
+test('venueCardHTML : course en cours → #pkGo désactivé « Pas pendant une course » ; téléchargement en cours → progression ; erreur et noms échappés', () => {
+  const l = carteVenue({ venueId: 'toulon', status: { state: 'ready', bytes: 1 }, locked: true });
+  assert.ok(l.querySelector('#pkGo').hasAttribute('disabled'));
+  assert.match(l.querySelector('#pkLock').textContent, /^Pas pendant une course/);
+  const b = carteVenue({ venueId: 'toulon', status: { state: 'absent', bytes: 1000 }, busy: { done: 450, total: 1000 } });
+  assert.equal(b.querySelector('#pkDl').textContent, 'Téléchargement… 45 %');
+  assert.ok(b.querySelector('#pkDl').hasAttribute('disabled') && b.querySelector('#pkGo').hasAttribute('disabled'));
+  const piege = '<img src=x onerror="window.__xss=1">';
+  const html = venueCardHTML({ venueId: 'toulon', venues: { toulon: { nom: piege }, brest: { nom: 'Rade de Brest' } }, status: { state: 'absent', bytes: 1 }, error: `fichier altéré ou incomplet : ${piege}` });
+  const d = parseHTML(`<html><body>${html}</body></html>`).document;
+  assert.equal(d.querySelector('img'), null, 'aucune balise injectée');
+  assert.match(d.querySelector('#pkErr').textContent, /Téléchargement impossible : fichier altéré ou incomplet/);
+  assert.ok(!html.includes('<img'));
+  const inconnu = carteVenue({ venueId: 'toulon', status: { state: '<b>x</b>', bytes: 1 } });
+  assert.match(inconnu.querySelector('#pkState').textContent, /état en cours de lecture/, 'état inconnu jamais affiché tel quel');
+});
+
+// ───────────────────────── fiche « GPEN 2027 — J80 » semée (07-09, D-08)
+test('seedGpen : fiche gpen-2027 ajoutée une seule fois, instant fixe, sans auteur, plan d’eau Brest ; marqueur posé après le semis', async () => {
+  const R = await import('../js/regates.js');
+  assert.equal(R.GPEN_ID, 'gpen-2027');
+  assert.equal(R.GPEN_AT, Date.UTC(2026, 10, 19, 0, 0, 0));
+  const s = mem(), st = migrate({ storage: s, now: t('2026-12-01T08:00:00Z'), by: 'Teiva' });
+  const n = R.seedGpen(st, { storage: s });
+  assert.notEqual(n, st);
+  const g = n.list.find((r) => r.id === 'gpen-2027');
+  assert.ok(g);
+  assert.equal(g.name, 'GPEN 2027 — J80'); assert.equal(g.club, 'AGPEN — École navale');
+  assert.equal(g.dateStart, '2027-05-05'); assert.equal(g.dateEnd, '2027-05-09'); assert.equal(g.season, '2027');
+  assert.equal(g.venue, 'brest');
+  assert.equal(g.at, R.GPEN_AT); assert.equal(g.by, null); assert.equal(g.u, R.GPEN_AT); assert.equal(g.ub, null); assert.equal(g.vu, R.GPEN_AT);
+  assert.equal(g.ic.read, 'semee'); assert.deepEqual(g.ic.validated, { by: null, at: R.GPEN_AT });
+  assert.equal(s.getItem('rade.seed.gpen.v1'), '1', 'marqueur posé');
+  assert.equal(n.list.filter((r) => r.id === 'snpm-2026').length, 1, 'Coupe SNPM toujours là');
+  assert.equal(R.seedGpen(n, { storage: mem() }), n, 'déjà présente : même objet');
+});
+
+test('seedGpen : deux téléphones qui la sèment séparément ont la même fiche (canon) ; la fusion de l’archive n’en garde qu’une', async () => {
+  const R = await import('../js/regates.js'), M = await import('../js/archmerge.js'), Y = await import('../js/archsync.js');
+  const a = R.seedGpen(migrate({ storage: mem(), now: t('2026-12-01T08:00:00Z'), by: 'Teiva' }), { storage: mem() });
+  const b = R.seedGpen(migrate({ storage: mem(), now: t('2026-12-03T18:00:00Z'), by: 'Thibaud' }), { storage: mem() });
+  const ga = a.list.find((r) => r.id === 'gpen-2027'), gb = b.list.find((r) => r.id === 'gpen-2027');
+  assert.equal(M.canon(M.toShared(ga)), M.canon(M.toShared(gb)));
+  // première synchronisation d’un téléphone (marquage des anciens éléments) : la graine garde son instant et son absence d’auteur
+  assert.equal(M.legacyStamp(a).list.find((r) => r.id === 'gpen-2027').ub, null);
+  const m = M.mergeDoc(Y.buildDoc(a, { marks: {} }), Y.buildDoc(b, { marks: {} }));
+  assert.equal(Object.keys(m.regattas).filter((k) => k === 'gpen-2027').length, 1);
+  assert.equal(M.canon(m.regattas['gpen-2027']), M.canon(M.toShared(ga)));
+});
+
+test('seedGpen : pierre tombale dans l’index ou marqueur posé → rien n’est semé (une fiche supprimée ne revient pas)', async () => {
+  const R = await import('../js/regates.js');
+  const base = migrate({ storage: mem(), now: t('2026-12-01T08:00:00Z'), by: 'Teiva' });
+  const tombe = { ...base, tomb: { 'gpen-2027': { t: t('2026-12-02T08:00:00Z'), by: 'Teiva' } } };
+  assert.equal(R.seedGpen(tombe, { storage: mem() }), tombe);
+  const s = mem({ 'rade.seed.gpen.v1': '1' });
+  assert.equal(R.seedGpen(base, { storage: s }), base);
+  // supprimée puis relancée : stampState pose la pierre tombale, seedGpen n’y touche plus
+  const seme = R.seedGpen(base, { storage: mem() });
+  const M = await import('../js/archmerge.js');
+  const sans = M.stampState(seme, removeRegatta(seme, 'gpen-2027'), { now: t('2026-12-02T08:00:00Z'), by: 'Teiva' }).st;
+  assert.ok(sans.tomb['gpen-2027']);
+  assert.equal(R.seedGpen(sans, { storage: mem() }), sans);
+  // stockage illisible : la fiche est semée quand même (l’index la garde), sans exception
+  const casse = { getItem() { throw new Error('refus'); }, setItem() { throw new Error('refus'); } };
+  assert.ok(R.seedGpen(base, { storage: casse }).list.some((r) => r.id === 'gpen-2027'));
+});
+
+test('fiche GPEN : règles des IC 2026 (VHF 14, zone A, un tour, semi-direct, DNS 4 min, orange 2 min, temps limites, classement, bout-dehors, gilet, réclamations, zones interdites, Virginie Hériot), mention IC 2027', async () => {
+  const R = await import('../js/regates.js');
+  const g = R.seedGpen(migrate({ storage: mem(), now: t('2026-12-01T08:00:00Z') }), { storage: mem() }).list.find((r) => r.id === 'gpen-2027');
+  const f = g.ic.fields, ic = icOf(g);
+  assert.equal(f.vhf, 14); assert.equal(ic.vhf, 14);
+  assert.equal(f.zone, 'Zone A — École Navale : cercle de 1,2 NM centré 48°17,890 N 004°21,630 W');
+  assert.deepEqual(f.classes, [['J80', 'Sigle J80']]); assert.deepEqual(ic.classes, [['J80', 'Sigle J80']], 'pas les pavillons du CVAT');
+  assert.ok(!ic.groups.some((x) => /G1 : C et D1/.test(x)), 'pas les groupes du CVAT');
+  const regles = f.keyRules.join('\n');
+  for (const re of [/D’après les IC 2026 : à mettre à jour avec les IC 2027 \(fin avril 2027\)/, /pénalité d’un tour/i, /RCV 44\.1 modifiée/, /semi-direct/, /pavillon rouge/, /« Protest »/,
+    /DNS[^\n]*4 min/, /orange[^\n]*2 min avant le signal d’avertissement/, /90 min[^\n]*20 min/, /3 courses pour valider/, /retirée dès 4 courses/, /Bout-dehors[^\n]*spi/, /gilet/i,
+    /60 min après/, /Île Longue[^\n]*0 à 10/, /Pen ar Vir/, /Virginie Hériot[^\n]*chapelle/]) assert.match(regles, re);
+  assert.ok(!/'/.test(regles), 'apostrophe typographique ’');
+  assert.ok(!/CVAT|Toulon/.test(JSON.stringify(f)), 'aucune règle du CVAT');
+});
+
+test('fiche GPEN : « En préparation » le 5 décembre 2026, puce « Rade de Brest », mention « Fiche semée par l’app (IC 2026) — à vérifier avec les IC 2027 »', async () => {
+  const R = await import('../js/regates.js');
+  const g = R.seedGpen(migrate({ storage: mem(), now: t('2026-12-01T08:00:00Z') }), { storage: mem() }).list.find((r) => r.id === 'gpen-2027');
+  assert.equal(regattaStatus(g, t('2026-12-05T09:00:00Z')), 'avenir');
+  assert.equal(STATUS_LABEL[regattaStatus(g, t('2026-12-05T09:00:00Z'))], 'En préparation');
+  const { document } = parseHTML(`<div>${sheetHTML(g, { now: t('2026-12-05T09:00:00Z') })}</div>`);
+  const txt = document.querySelector('#rgSheet').textContent.replace(/\s+/g, ' ');
+  assert.match(txt, /GPEN 2027 — J80/); assert.match(txt, /Rade de Brest/);
+  assert.match(txt, /Fiche semée par l’app \(IC 2026\) — à vérifier avec les IC 2027/);
+  const liste = parseHTML(`<div>${listHTML(groupByStatus([g], t('2026-12-05T09:00:00Z')), { now: t('2026-12-05T09:00:00Z') })}</div>`).document;
+  assert.match(liste.querySelector('div').textContent, /Rade de Brest/);
+  assert.equal(document.querySelectorAll('script, img, iframe').length, 0);
+});
+
+test('câblage : seedGpen appelé juste après seedNorm, l’index réécrit seulement si l’objet change', () => {
+  const app = readFileSync(ROOT + 'js/app.js', 'utf8');
+  assert.match(app, /\{ const seeded = seedNorm\(REG\); if \(seeded !== REG\) \{ REG = seeded; saveRegattas\(localStore\(\), REG\); \} \}\n\/\/ [^\n]*\n\{ const g = seedGpen\(REG, \{ storage: localStore\(\) \}\); if \(g !== REG\) \{ REG = g; saveRegattas\(localStore\(\), REG\); \} \}/);
 });
