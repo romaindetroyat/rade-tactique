@@ -140,7 +140,7 @@ export function migrate({ storage, now = Date.now(), by = null }) {
 export function newId(now = Date.now(), rnd = Math.random) { return 'rg' + Number(now).toString(36) + rnd().toString(36).slice(2, 6); }
 
 // Trois champs (nom, premier jour, club) ; dernier jour facultatif, gardé seulement s’il est postérieur au premier (D-15).
-// Plan d’eau (D-06) : écrit explicitement, liste blanche, sinon Toulon
+// Plan d’eau (D-06) : liste blanche ; écrit seulement hors de Toulon (absent = Toulon) : une régate de Toulon reste exactement celle de la v42
 export function createRegatta({ name, dateStart, dateEnd, club, venue } = {}, { now = Date.now(), by = null, rnd } = {}) {
   const errors = {};
   const nom = String(name ?? '').trim(), cl = String(club ?? '').trim(), d1 = String(dateStart ?? '').trim(), d2 = String(dateEnd ?? '').trim();
@@ -154,7 +154,7 @@ export function createRegatta({ name, dateStart, dateEnd, club, venue } = {}, { 
     ok: true, errors,
     regatta: {
       id: newId(now, rnd), name: nom, club: cl, dateStart: d1, dateEnd: isDate(d2) && d2 > d1 ? d2 : '', season: seasonOf(d1),
-      races: [], ic: null, marks: [], courses: [], frozen: {}, traces: [], by, at: now, venue: VENUE_IDS.includes(venue) ? venue : 'toulon',
+      races: [], ic: null, marks: [], courses: [], frozen: {}, traces: [], by, at: now, ...(VENUE_IDS.includes(venue) && venue !== 'toulon' ? { venue } : {}),
     },
   };
 }

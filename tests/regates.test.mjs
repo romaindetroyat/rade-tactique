@@ -184,10 +184,10 @@ test('création : champs manquants, date impossible, dernier jour antérieur ign
   assert.ok(createRegatta({ name: 'R', dateStart: '2026-11-07', club: 'c'.repeat(41) }, { now }).errors.club);
   const ok = createRegatta({ name: '  Trophée  ', dateStart: '2026-11-07', dateEnd: '2026-11-09', club: ' CVAT ' }, { now, by: 'Thibaud' });
   assert.equal(ok.ok, true);
-  assert.deepEqual({ ...ok.regatta, id: 'x' }, { id: 'x', name: 'Trophée', club: 'CVAT', dateStart: '2026-11-07', dateEnd: '2026-11-09', season: '2026', races: [], ic: null, marks: [], courses: [], frozen: {}, traces: [], by: 'Thibaud', at: now, venue: 'toulon' });
-  // plan d’eau (D-06) : écrit explicitement ; liste blanche, sinon Toulon
+  assert.deepEqual({ ...ok.regatta, id: 'x' }, { id: 'x', name: 'Trophée', club: 'CVAT', dateStart: '2026-11-07', dateEnd: '2026-11-09', season: '2026', races: [], ic: null, marks: [], courses: [], frozen: {}, traces: [], by: 'Thibaud', at: now });
+  // plan d’eau (D-06) : liste blanche ; écrit hors de Toulon seulement (une régate de Toulon a la forme de la v42 : absent = Toulon)
   assert.equal(createRegatta({ name: 'R', dateStart: '2026-11-07', venue: 'brest' }, { now }).regatta.venue, 'brest');
-  for (const v of [undefined, 'lorient', '__proto__', {}, 'Brest']) assert.equal(createRegatta({ name: 'R', dateStart: '2026-11-07', venue: v }, { now }).regatta.venue, 'toulon', String(v));
+  for (const v of [undefined, 'toulon', 'lorient', '__proto__', {}, 'Brest']) assert.ok(!('venue' in createRegatta({ name: 'R', dateStart: '2026-11-07', venue: v }, { now }).regatta), String(v));
   assert.equal(createRegatta({ name: 'R', dateStart: '2026-11-07', dateEnd: '2026-11-06' }, { now }).regatta.dateEnd, '', 'dernier jour antérieur ignoré');
   assert.equal(createRegatta({ name: 'R', dateStart: '2026-11-07', dateEnd: '2026-11-07' }, { now }).regatta.dateEnd, '', 'même jour : une régate d’un jour');
   assert.equal(createRegatta({ name: 'R', dateStart: '2026-11-07', dateEnd: '2026-02-30' }, { now }).regatta.dateEnd, '', 'dernier jour impossible ignoré');

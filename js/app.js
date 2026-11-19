@@ -2417,7 +2417,7 @@ function renderIC() {
       rgDraft = null; rgErr = {}; icDraft = null;
       saveReg(upsertRegatta(REG, r.regatta));
       // régate d’un autre plan d’eau : enregistrée, puis la bascule est proposée (jamais ouverte sur cette carte)
-      if (r.regatta.venue !== VENUE.id) { renderIC(); paintRegBar(); toast(`Régate créée : ${r.regatta.name}`); askVenue(r.regatta); return; }
+      if (venueOf(r.regatta) !== VENUE.id) { renderIC(); paintRegBar(); toast(`Régate créée : ${r.regatta.name}`); askVenue(r.regatta); return; }
       setOpen(r.regatta.id);
       toast(`Régate créée : ${r.regatta.name}`); afterRegChange();                  // si le parcours choisi disparaît, son message (plus important) passe en dernier
     };
