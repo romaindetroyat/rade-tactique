@@ -3082,6 +3082,11 @@ async function planEau({ browser, base }) {
   assert.equal(await texte(page, '#pkState'), 'Rade de Brest : Prêt hors réseau');
   assert.equal(await page.locator('#pkDl').count(), 0);
   assert.equal(await texte(page, '#pkGo'), 'Revenir à la rade de Toulon');
+  // Dangers de Brest (07-06, D-10, D-14c) : les deux zones interdites, leur source et la mention « à compléter »
+  const dangers = (await texte(page, 'section[data-tab=ic]')).replace(/\s+/g, ' ');
+  assert.match(dangers, /Zone interdite — Île Longue [^.]*: La navigation dans la zone balisée de l’Île Longue \(marques 0 à 10\) est interdite \(IC GPEN\)[^]*?À compléter sur carte marine\./);
+  assert.match(dangers, /Zone interdite — Passage de Pen ar Vir [^]*?À compléter sur carte marine\./);
+  assert.ok(!/Saint-Mandrier/.test(dangers), 'pas de zone de Toulon à Brest');
   sansErreur(erreurs, 'à Brest');
   // « Revenir à la rade de Toulon » : rechargement, réglages de Toulon retrouvés, pack gardé
   await rechargePar(page, () => page.click('#pkGo'));

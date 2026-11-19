@@ -122,3 +122,100 @@ test('coût du champ de vent de Brest : au plus 1,7 fois celui de Toulon', { ski
   assert.ok(nb / nt <= 1.7, `cellules : ${nb} contre ${nt}`);
   assert.ok(tb / tt <= 1.7, `Brest ${tb.toFixed(0)} ms, Toulon ${tt.toFixed(0)} ms, rapport ${(tb / tt).toFixed(2)}`);
 });
+
+// ───────── Zones interdites (07-06, D-10, D-14c) : étude § 2.3, IC GPEN 2026 annexe 5
+import { pointInPolygon } from '../js/geo.js';
+import { route } from '../js/router.js';
+import { zonesXY } from '../js/venues.js';
+
+const dmn = (d, m) => d + m / 60;
+// Bouées de l’Île Longue relevées dans OpenStreetMap (étude § 2.3)
+const BOUEES_IL = { 0: [17.870, 31.430], 1: [18.027, 31.283], 2: [18.263, 31.083], '2 bis': [18.417, 30.949], 3: [18.575, 30.815], '3 bis': [18.665, 30.742],
+  4: [18.822, 30.601], 5: [18.834, 30.234], 6: [18.852, 29.848], '6 bis': [18.779, 29.651], 7: [18.549, 29.503], D: [18.685, 29.451] };
+const CARD_PAV = { lat: dmn(48, 17.754), lon: -dmn(4, 24.883) }, POINTE_PAV = { lat: 48.2944, lon: -4.4185 };
+const zone = (nom) => BREST.FORBIDDEN_ZONES.find((z) => z.name === nom);
+const segCroise = (a, b, c, d) => { const o = (p, q, r) => Math.sign((q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x)); return o(a, b, c) * o(a, b, d) < 0 && o(c, d, a) * o(c, d, b) < 0; };
+const distSeg = (p, a, b) => { const dx = b.x - a.x, dy = b.y - a.y, t = Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / (dx * dx + dy * dy))); return Math.hypot(p.x - a.x - t * dx, p.y - a.y - t * dy); };
+const bord = (poly) => poly.map((p, i) => [p, poly[(i + 1) % poly.length]]);
+// Chemin (suite de points) : aucun point dans une zone ; le routage ne contrôle que les bouts et le milieu de chaque pas, un pas peut donc
+// rogner un coin de zone : on mesure de combien il y entre (points tous les 5 m), et on rend la plus grande profondeur (m)
+function horsZones(path, polys, quoi) {
+  for (const p of path) for (const poly of polys) assert.ok(!pointInPolygon(p, poly), `${quoi} : point du chemin dans une zone interdite`);
+  let prof = 0;
+  for (let i = 1; i < path.length; i++) {
+    const a = path[i - 1], b = path[i], n = Math.ceil(Math.hypot(b.x - a.x, b.y - a.y) / 5);
+    for (let k = 1; k < n; k++) {
+      const q = { x: a.x + (b.x - a.x) * k / n, y: a.y + (b.y - a.y) * k / n };
+      for (const poly of polys) if (pointInPolygon(q, poly)) prof = Math.max(prof, Math.min(...bord(poly).map(([u, v]) => distSeg(q, u, v))));
+    }
+  }
+  return prof;
+}
+let F270 = null;
+const champ270 = async () => { if (!F270) { F270 = new WindField(await terrain(), BREST.wind); F270.compute({ points: [{ x: 0, y: 0, dir: 270, spd: 12, gust: 15.6 }] }, { localEffects: 1 }); } return F270; };
+
+test('zones interdites de Brest : Île Longue et Pen ar Vir, « à compléter sur carte marine », polygones fermés et simples dans l’emprise', () => {
+  assert.deepEqual(BREST.FORBIDDEN_ZONES.map((z) => z.name), ['Île Longue', 'Passage de Pen ar Vir']);
+  for (const z of BREST.FORBIDDEN_ZONES) {
+    assert.equal(z.note, 'à compléter sur carte marine', z.name);
+    assert.ok(z.desc && z.desc.includes('IC GPEN'), `${z.name} : source citée`);
+    assert.ok(z.pts.length >= 4, `${z.name} : au moins 4 sommets`);
+    for (const p of z.pts) assert.ok(p.lat > BREST.bounds.south && p.lat < BREST.bounds.north && p.lon > BREST.bounds.west && p.lon < BREST.bounds.east, `${z.name} : sommet hors emprise`);
+    const poly = z.pts.map((p) => xy(p.lat, p.lon)), n = poly.length;
+    for (let i = 0; i < n; i++) for (let j = i + 2; j < n; j++) {
+      if (i === 0 && j === n - 1) continue;                                       // arêtes voisines par la fermeture
+      assert.ok(!segCroise(poly[i], poly[(i + 1) % n], poly[j], poly[(j + 1) % n]), `${z.name} : arêtes ${i} et ${j} se coupent`);
+    }
+  }
+  assert.match(zone('Île Longue').desc, /marques 0 à 10/);
+});
+
+test('Île Longue : les bouées 0 à 7 et « D » sont dans la zone, à 40 m au moins du bord (tracé large de 50 m)', () => {
+  const poly = zone('Île Longue').pts.map((p) => xy(p.lat, p.lon));
+  for (const [n, [la, lo]] of Object.entries(BOUEES_IL)) {
+    const b = xy(dmn(48, la), -dmn(4, lo));
+    assert.ok(pointInPolygon(b, poly), `bouée ${n} dans la zone`);
+    const m = Math.min(...bord(poly).map(([a, c]) => distSeg(b, a, c)));
+    assert.ok(m >= 40, `bouée ${n} à ${m.toFixed(0)} m du bord`);
+  }
+});
+
+test('Pen ar Vir : le couloir couvre l’axe cardinale → pointe et touche la terre au bout de la pointe', { skip: sansPack }, async () => {
+  const t = await terrain();
+  const poly = zone('Passage de Pen ar Vir').pts.map((p) => xy(p.lat, p.lon));
+  const c = xy(CARD_PAV.lat, CARD_PAV.lon), p = xy(POINTE_PAV.lat, POINTE_PAV.lon);
+  for (let k = 0; k <= 20; k++) assert.ok(pointInPolygon({ x: c.x + (p.x - c.x) * k / 20, y: c.y + (p.y - c.y) * k / 20 }, poly), `axe à ${k * 5} %`);
+  let terre = 0;                                                    // cellules de terre dans le couloir, à moins de 100 m de la pointe
+  for (let dx = -100; dx <= 100; dx += 10) for (let dy = -100; dy <= 100; dy += 10) {
+    const q = { x: p.x + dx, y: p.y + dy };
+    if (Math.hypot(dx, dy) <= 100 && pointInPolygon(q, poly) && t.isLand(q.x, q.y)) terre++;
+  }
+  assert.ok(terre >= 5, `le couloir chevauche la terre de la pointe (${terre} points)`);
+});
+
+test('routage à Brest (270°/12 nd) : du nord de l’Île Longue à l’est, la route contourne la zone', { skip: sansPack }, async () => {
+  const t = await terrain(), F = await champ270(), polys = zonesXY(BREST.FORBIDDEN_ZONES, xy);
+  const r = route(xy(48.3200, -4.5100), xy(48.3050, -4.4800), F, { terrain: t, forbidden: polys, perf: 1 });
+  assert.ok(r && r.path.length > 2, 'route trouvée');
+  const prof = horsZones(r.path, polys, 'Île Longue');
+  assert.ok(prof < 25, `un pas rogne la zone de ${prof.toFixed(0)} m : les bouées (à 50 m du bord) restent hors de la route`);
+  // contrôle négatif : sans la zone, la route directe passe par la zone balisée
+  const libre = route(xy(48.3200, -4.5100), xy(48.3050, -4.4800), F, { terrain: t, forbidden: [], perf: 1 });
+  assert.ok(libre.path.some((q) => pointInPolygon(q, polys[0])), 'sans zone, la route entre dans la zone balisée');
+});
+
+test('routage à Brest : la route ne passe jamais entre la cardinale Pen ar Vir et la pointe', { skip: sansPack }, async () => {
+  const t = await terrain(), F = await champ270(), polys = zonesXY(BREST.FORBIDDEN_ZONES, xy);
+  const c = xy(CARD_PAV.lat, CARD_PAV.lon), p = xy(POINTE_PAV.lat, POINTE_PAV.lon);
+  // de part et d’autre du couloir (étude), puis au ras de la pointe, d’ouest en est et d’est en ouest
+  for (const [a, b] of [[[48.2930, -4.4300], [48.2990, -4.4050]], [[48.2935, -4.4230], [48.2948, -4.4110]], [[48.2948, -4.4110], [48.2935, -4.4230]]]) {
+    const r = route(xy(...a), xy(...b), F, { terrain: t, forbidden: polys, perf: 1 });
+    assert.ok(r, `route ${a} → ${b}`);
+    const prof = horsZones(r.path, polys, `${a} → ${b}`);
+    assert.ok(prof < 25, `${a} → ${b} : un pas rogne une zone de ${prof.toFixed(0)} m`);
+    for (let i = 1; i < r.path.length; i++) assert.ok(!segCroise(r.path[i - 1], r.path[i], c, p), `${a} → ${b} : passage entre la cardinale et la pointe`);
+  }
+  // contrôle négatif : sans les zones, la route au ras de la pointe (vent arrière) passe entre la cardinale et la pointe
+  const libre = route(xy(48.2935, -4.4230), xy(48.2948, -4.4110), F, { terrain: t, forbidden: [], perf: 1 });
+  assert.ok(libre.path.some((q, i) => i && segCroise(libre.path[i - 1], q, c, p)), 'sans zone, la route passe entre la cardinale et la pointe');
+});

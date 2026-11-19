@@ -4,7 +4,7 @@ import { report, note, setContext } from './journal.js';
 import { Terrain, toXY, toLL, NM, bearingXY, distXY, norm360, norm180, fmtBrg, fmtNm, fmtLat, fmtLon, cardinal, pointInPolygon } from './geo.js';
 import { WindField, speedColor } from './wind.js';
 import { VENUE, MARKS, COURSES, LINE_PRESETS, FORBIDDEN_ZONES, DANGERS, setVenue } from './lieu.js';
-import { bootVenue, VENUES, venueOf, needsVenueRepair, venueAt } from './venues.js';
+import { bootVenue, VENUES, venueOf, needsVenueRepair, venueAt, zonesXY } from './venues.js';
 import { packStatus, downloadPack, prunePacks, fmtMo } from './pack.js';
 import { pdfText, parseIC, cleanText } from './events.js';
 import { IA_IC, iaOffer, iaErrorMessage, reviewFromParse, reviewFromRegatta, reviewFromApi, setValue, setKeep, setKeepRace, setKeepMark, setKeepCourse, courseReady, canValidate, checksFor, applyReview, reviewHTML, chipOf, validatedHTML } from './icread.js';
@@ -125,7 +125,7 @@ S.obs = (S.obs || []).filter((o) => o.day >= addDays(today(), -1));
 const persist = () => store.set('rade.state', Object.fromEntries(Object.keys(DEF).map((k) => [k, S[k]])));
 
 let T, F, scene, data = null, series = [], live = [], analysis = null, selLeg = null, gps = null, follow = false, nextIdx = 0;
-const forbidden = FORBIDDEN_ZONES.map((poly) => poly.map((p) => toXY(p.lat, p.lon)));
+const forbidden = zonesXY(FORBIDDEN_ZONES, toXY);            // zones interdites du plan d’eau en mètres (Toulon : la zone de Saint-Mandrier de la v42)
 
 if (S.polar) { try { setPolar(S.polar.tws, S.polar.twa, S.polar.bsp, S.polar.source); } catch (e) { S.polar = null; report('polaire', e); } }
 
@@ -198,7 +198,7 @@ async function init() {
   F = new WindField(T, VENUE.wind);
   scene = new Scene3D($('#view'), T, { home: VENUE.scene?.home, files: VENUE.files });
   scene.upAngle = (tws) => optimalAngles(Math.max(1, tws)).up.twa;
-  scene.setDangers(forbidden, DANGERS);
+  scene.setDangers(forbidden, DANGERS, FORBIDDEN_ZONES.map((z) => (z.note ? `Zone interdite · ${z.note}` : 'Zone interdite')));        // D-14c : zone incomplète signalée sur la carte
   scene.onPick = onPick;
   scene.onCamera = () => { $('#compass .needle').style.transform = `rotate(${-scene.azimuth()}deg)`; };
   bindMap();
@@ -2441,7 +2441,7 @@ function renderIC() {
   // cahier CVAT, recalages et zone de Saint-Mandrier : Toulon seulement (D-12) ; ailleurs, les dangers du plan d’eau
   if (toulon) html += `<div class="card"><h3>Marques <small>cahier de parcours CVAT</small></h3><table class="t"><tr><th>N°</th><th>Marque</th><th>Position</th></tr>${Object.entries(MARKS).filter(([k]) => cvatKey(k)).map(([k, m]) => marksRow(k, m)).join('')}</table>
     <div class="small muted" style="margin-top:6px">« à confirmer » = position approximative (cartes du cahier ou OpenStreetMap) : à vérifier sur zone, le Comité fait foi. Un recalage est partagé avec l’équipage à la synchronisation suivante, hors course.</div></div>`;
-  html += `<div class="card"><h3>Dangers</h3><ul class="tips small">${toulon ? '<li><b>Zone interdite</b> de la presqu’île de Saint-Mandrier (zone Marine nationale, rouge sur la carte).</li>' : ''}${DANGERS.map((d) => `<li><b>${esc(d.name)}</b> (${fmtLat(d.lat)} ${fmtLon(d.lon)}) : ${esc(d.note)}</li>`).join('') || (toulon ? '' : '<li>Aucun danger enregistré pour ce plan d’eau : suivez la carte marine.</li>')}</ul></div>`;
+  html += `<div class="card"><h3>Dangers</h3><ul class="tips small">${toulon ? '<li><b>Zone interdite</b> de la presqu’île de Saint-Mandrier (zone Marine nationale, rouge sur la carte).</li>' : FORBIDDEN_ZONES.map((z) => `<li><b>Zone interdite — ${esc(z.name)}</b> (rouge sur la carte, évitée par le routage) : ${esc(z.desc ?? '')}${z.note ? ` <b>${esc(z.note[0].toUpperCase() + z.note.slice(1))}.</b>` : ''}</li>`).join('')}${DANGERS.map((d) => `<li><b>${esc(d.name)}</b> (${fmtLat(d.lat)} ${fmtLon(d.lon)}) : ${esc(d.note)}</li>`).join('') || (toulon ? '' : '<li>Aucun danger enregistré pour ce plan d’eau : suivez la carte marine.</li>')}</ul></div>`;
   el.innerHTML = html;
   bindPack();
   bindMarksEdit(el);

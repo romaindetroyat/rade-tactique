@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import * as geo from '../js/geo.js';
 import * as courses from '../js/courses.js';
 import * as lieu from '../js/lieu.js';
-import { VENUES, VENUE_IDS, bootVenue, inBounds, venueAt, venueOf, needsVenueRepair } from '../js/venues.js';
+import { VENUES, VENUE_IDS, bootVenue, inBounds, venueAt, venueOf, needsVenueRepair, zonesXY } from '../js/venues.js';
 import { VENUE_IDS as ARCHIVE_VENUE_IDS } from '../js/archmerge.js';
 import { BREST } from '../js/venue-brest.js';
 import { buildLegs } from '../js/tactics.js';
@@ -34,8 +34,17 @@ test('Toulon par référence : les exports de lieu.js sont les objets de js/cour
   assert.equal(lieu.PLACES, courses.PLACES);
   assert.equal(lieu.DANGERS, courses.DANGERS);
   assert.equal(lieu.FORBIDDEN_ZONES.length, 1);
-  assert.equal(lieu.FORBIDDEN_ZONES[0], courses.FORBIDDEN_ZONE);
+  assert.equal(lieu.FORBIDDEN_ZONES[0].pts, courses.FORBIDDEN_ZONE, 'points de la zone : l’objet de js/courses.js');
   assert.equal(VENUES.toulon.FORBIDDEN_ZONES, lieu.FORBIDDEN_ZONES, 'tableau créé une seule fois');
+});
+
+test('Toulon : polygone XY de la zone de Saint-Mandrier passé au routage identique à celui de la v42 (même points, même ordre)', () => {
+  // v42 (56f6625, js/app.js) : FORBIDDEN_ZONES.map((poly) => poly.map((p) => toXY(p.lat, p.lon))) avec FORBIDDEN_ZONES = [FORBIDDEN_ZONE]
+  const v42 = [courses.FORBIDDEN_ZONE].map((poly) => poly.map((p) => geo.toXY(p.lat, p.lon)));
+  assert.deepEqual(zonesXY(lieu.FORBIDDEN_ZONES, geo.toXY), v42);
+  assert.equal(v42[0].length, 7);
+  const z = VENUES.toulon.FORBIDDEN_ZONES[0];
+  assert.equal(z.note, null, 'aucune mention « à compléter » à Toulon (étiquette « Zone interdite » de la v42)');
 });
 
 test('Toulon sans marée ni courant : le registre ne porte aucune marée ni aucun courant à Toulon (chemin de calcul de la v42)', () => {

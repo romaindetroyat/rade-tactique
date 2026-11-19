@@ -346,9 +346,10 @@ export class Scene3D {
     this.#sizeSprites();
   }
 
-  setDangers(zones, dangers) {
+  // zones : polygones en mètres (une à Toulon, plusieurs ailleurs) ; labels : étiquette de chaque zone (défaut « Zone interdite », celle de la v42)
+  setDangers(zones, dangers, labels = []) {
     const g = this.groups.zones; g.clear();
-    for (const poly of zones) {
+    for (const [i, poly] of zones.entries()) {
       const shape = new THREE.Shape(poly.map((p) => new THREE.Vector2(p.x, p.y)));
       const geo = new THREE.ShapeGeometry(shape); geo.rotateX(-Math.PI / 2);
       const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: '#e03131', transparent: true, opacity: 0.28, depthWrite: false, side: THREE.DoubleSide }));
@@ -356,7 +357,7 @@ export class Scene3D {
       const pts = poly.map((p) => W(p.x, p.y, 5)); pts.push(pts[0]);
       g.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineDashedMaterial({ color: '#e03131', dashSize: 60, gapSize: 40 })).computeLineDistances());
       const c = poly.reduce((a, p) => ({ x: a.x + p.x / poly.length, y: a.y + p.y / poly.length }), { x: 0, y: 0 });
-      const s = makeLabel('Zone interdite', { bg: 'rgba(200,30,30,.85)' }, 13); s.position.copy(W(c.x + 200, c.y, 60)); g.add(s);
+      const s = makeLabel(labels[i] ?? 'Zone interdite', { bg: 'rgba(200,30,30,.85)' }, 13); s.position.copy(W(c.x + 200, c.y, 60)); g.add(s);
     }
     for (const d of dangers) {
       const p = toXY(d.lat, d.lon);

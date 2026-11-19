@@ -30,7 +30,8 @@ const TOULON = Object.freeze({
   scene: null,            // défauts de js/scene3d.js
   windRef: { lat: 43.088, lon: 5.962 },
   MARKS, COURSES, LINE_PRESETS, PLACES,
-  FORBIDDEN_ZONES: [FORBIDDEN_ZONE],
+  // zone de Saint-Mandrier : MÊMES points, même ordre que la v42 (pts est l’objet de js/courses.js) ; ni note ni description (textes de la v42)
+  FORBIDDEN_ZONES: [{ name: 'Presqu’île de Saint-Mandrier', note: null, desc: null, pts: FORBIDDEN_ZONE }],
   DANGERS,
   regimes: null,          // null = REGIMES de js/tactics.js
   presets: null,
@@ -43,6 +44,9 @@ export const VENUE_IDS = ['toulon', 'brest'];
 
 // Plan d’eau lu au démarrage dans rade.state : liste blanche (un identifiant inconnu ou hostile, `__proto__` compris, donne Toulon)
 export const bootVenue = (st) => (typeof st?.venue === 'string' && Object.hasOwn(VENUES, st.venue) ? st.venue : 'toulon');
+
+// Zones interdites → polygones en mètres pour le routage et la carte : { name, note, desc, pts: [{ lat, lon }] } → [[{ x, y }]]
+export const zonesXY = (zones, xy) => zones.map((z) => z.pts.map((p) => xy(p.lat, p.lon)));
 
 // Point dans des bornes { south, north, west, east } (bornes incluses, nombres finis)
 export const inBounds = (b, lat, lon) => !!b && Number.isFinite(lat) && Number.isFinite(lon) && lat >= b.south && lat <= b.north && lon >= b.west && lon <= b.east;
