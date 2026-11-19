@@ -18,6 +18,8 @@ import { isDate, seasonOf, addRace, MAX_NAME, MAX_NOTE, MAX_IC_TEXT } from './re
 import { parisClock } from './racelock.js';
 import { checkDate, checkDateEnd, checkTime, checkSeq, checkVhf, checkPos } from './icplaus.js';
 import { parseLatLon } from './marks.js';
+import { VENUE } from './lieu.js';
+import { VENUES, venueOf } from './venues.js';
 import { marksFromReview, coursesFromReview, normName, isLineName, fmtPos, sideTxt } from './regmarks.js';
 
 export const FIELDS = Object.freeze([
@@ -31,8 +33,8 @@ export const FIELDS = Object.freeze([
   { key: 'zone', label: 'Zone de course', kind: 'text' },
 ].map(Object.freeze));
 const MAX_FIELD = 200;                                     // longueur d’une valeur saisie
-const READ_LONG = { motifs: 'par motifs (CVAT, hors réseau)', saisie: 'saisie à la main', reprise: 'reprise d’une ancienne fiche', ia: 'par l’IA (OpenAI) : vérifiez chaque valeur' };
-const READ_SHORT = { motifs: 'par motifs', saisie: 'saisie', reprise: 'reprise', ia: 'par l’IA' };
+const READ_LONG = { motifs: 'par motifs (CVAT, hors réseau)', saisie: 'saisie à la main', reprise: 'reprise d’une ancienne fiche', ia: 'par l’IA (OpenAI) : vérifiez chaque valeur', semee: 'semée par l’app d’après les IC 2026 : à vérifier avec les IC 2027' };
+const READ_SHORT = { motifs: 'par motifs', saisie: 'saisie', reprise: 'reprise', ia: 'par l’IA', semee: 'semée par l’app' };
 export const NOT_READ = 'non lu dans le texte';
 // false masque « Lire avec l’IA » sans rien changer d’autre ; décision après l’essai réel sur l’aperçu (plan 03-07)
 export const IA_IC = true;
@@ -87,9 +89,10 @@ export function reviewFromApi(a, { source = '', text, regatta = null } = {}) {
   const races = list(a?.races).map((r) => ({ date: str(r?.date), time: str(r?.warning), label: str(r?.label), excerpt: r?.verified ? str(r.excerpt) : null, verified: !!r?.verified, keep: !!r?.verified }));
   // Bouées : la position est du TEXTE recopié du PDF, convertie ici par la page (parseLatLon, bornée à la rade) ; illisible → lat/lon nuls, jamais devinée.
   // Cochée au départ seulement si vérifiée, lisible et sans puce rouge (positions hors carte).
+  const lieu = regatta ? VENUES[venueOf(regatta)] : VENUE;                       // plan d’eau de la régate relue (sinon celui du téléphone : nouvelle régate)
   const marks = list(a?.marks).map((m) => {
-    const p = parseLatLon(str(m?.position)), lat = p.error ? null : p.lat, lon = p.error ? null : p.lon, verified = !!m?.verified;
-    return { name: str(m?.name), position: str(m?.position), lat, lon, excerpt: verified ? str(m?.excerpt) : null, verified, keep: verified && lat != null && str(m?.name) !== '' && checkPos(lat, lon).level !== 'bad' };
+    const p = parseLatLon(str(m?.position), lieu.inputBounds), lat = p.error ? null : p.lat, lon = p.error ? null : p.lon, verified = !!m?.verified;
+    return { name: str(m?.name), position: str(m?.position), lat, lon, excerpt: verified ? str(m?.excerpt) : null, verified, keep: verified && lat != null && str(m?.name) !== '' && checkPos(lat, lon, { bounds: lieu.bounds }).level !== 'bad' };
   });
   // Porte (gate) et arrivée (finish) : seulement prouvées par api/ic.js ; une arrivée non prouvée n’est jamais gardée, sa raison est montrée (finishFlag)
   const courses = list(a?.courses).map((c) => {
@@ -193,7 +196,7 @@ export function applyReview(r, review, { by = null, at = Date.now() } = {}) {
   // Bouées et parcours lus (autre club) : rangés « à confirmer » dans la régate. Ils ne servent à rien tant qu’un équipier ne les a pas confirmés sur la carte.
   const keptMarks = (review.marks || []).filter((m) => m.keep && m.verified);
   if (keptMarks.length) {
-    const fresh = marksFromReview(keptMarks, { by, at, club: next.club, existing: next.marks });
+    const fresh = marksFromReview(keptMarks, { by, at, club: next.club, existing: next.marks, bounds: VENUES[venueOf(next)].inputBounds });   // bornes du plan d’eau de la régate
     next = { ...next, marks: [...(next.marks || []), ...fresh] };
     const keptCourses = (review.courses || []).filter((c) => c.keep && c.verified && courseReady(review, c));
     if (keptCourses.length) next = { ...next, courses: [...(next.courses || []), ...coursesFromReview(keptCourses, next.marks, { by, at, existing: next.courses })] };
@@ -274,7 +277,7 @@ export function reviewHTML(review, checks = {}, opts = {}) {
   const isLand = opts.isLand;
   const marks = (review.marks || []).length
     ? `<div class="icblock icmarks"><h4>Bouées lues <small>elles resteront « à confirmer » sur la carte jusqu’à votre confirmation</small></h4>${review.marks.map((m, i) => {
-      const c = m.lat != null ? chipOf(checkPos(m.lat, m.lon, { isLand })) : { cls: 'chip mid', text: '⚠ position à saisir : illisible dans le texte' };
+      const c = m.lat != null ? chipOf(checkPos(m.lat, m.lon, { isLand, bounds: VENUE.bounds })) : { cls: 'chip mid', text: '⚠ position à saisir : illisible dans le texte' };
       const pos = m.lat != null ? `${escHTML(fmtPos(m.lat, m.lon))}` : 'position à saisir';
       return `<label class="small icrule icmark${m.verified ? '' : ' icoff'}"><input type="checkbox" data-mk="${i}"${m.keep ? ' checked' : ''}${m.verified ? '' : ' disabled'}> <span class="icmn">${escHTML(m.name || 'sans nom')}</span> · ${pos}`
         + `${m.verified ? ` <span class="${c.cls}">${escHTML(c.text)}</span><span class="icex" style="display:block">Texte : « ${escHTML(m.position)} » · Extrait : « ${escHTML(String(m.excerpt || '').replace(/\s+/g, ' '))} »</span>` : '<em> (extrait introuvable dans le texte : non retenue)</em>'}</label>`;

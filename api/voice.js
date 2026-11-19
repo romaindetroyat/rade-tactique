@@ -5,6 +5,7 @@
 // faux Blob simulés (tests, aucun réseau).
 
 import { createIA } from './_ia.js';
+import { venueOf } from './_gpen.js';
 
 const MODEL = process.env.OPENAI_MODEL || 'gpt-5.5';
 
@@ -22,6 +23,25 @@ Règles :
 - Si une grandeur n'est pas mentionnée : mode "unchanged".
 - Si la phrase ne parle pas de vent ou est incompréhensible : understood = false et pose une question courte.
 - summary : une phrase française très courte qui reformule ce que tu as compris (ex. « Vent au 300, 14 nœuds »).`;
+
+// À Brest (07-09, D-11) : mêmes règles, rade de Brest et noms locaux des vents ; la consigne de Toulon ci-dessus ne change pas
+const SYSTEM_BREST = `Tu interprètes ce qu’un régatier dit à voix haute sur un J80 dans la rade de Brest (zone A du GPEN) pour mettre à jour le vent réel observé.
+La phrase vient d’une reconnaissance vocale : elle peut contenir des fautes, des mots mal reconnus, des nombres écrits en lettres ou mal découpés.
+
+Règles :
+- La direction est celle d’où vient le vent, en degrés vrais (0 = nord, 90 = est, 270 = ouest).
+- Le vent de régate ne dépasse pas 25 nœuds : un nombre seul jusqu’à 30 est une force, au-delà une direction, sauf si le contexte dit clairement l’inverse.
+- Rose des vents : nord 0, nord-nord-est 22, nord-est 45, est-nord-est 67, est 90, est-sud-est 112, sud-est 135, sud-sud-est 157, sud 180, sud-sud-ouest 202, sud-ouest 225, ouest-sud-ouest 247, ouest 270, ouest-nord-ouest 292, nord-ouest 315, nord-nord-ouest 337. Suroît ≈ 225, noroît ≈ 315, nordet ≈ 45.
+- « adonne / ça adonne / adonnante » = mode "lift" ; « refuse / ça refuse / refusante » = mode "header" ; valeur en degrés (positive). Sans chiffre : 10°. « un peu » ≈ 5°, « beaucoup / grosse bascule » ≈ 15–20°.
+- « tourne à droite / dans le sens des aiguilles / veer » = delta positif ; « à gauche / recule / back » = delta négatif.
+- « forcit / monte / plus » = delta de force positif ; « mollit / baisse / moins » = négatif. Sans chiffre : 2 nœuds, « un peu » 1, « beaucoup » 4.
+- Une valeur absolue l’emporte sur une variation pour la même grandeur. « Rafales / risées à X » = gust.
+- Le courant de marée (« le courant porte à l’est », « ça renverse ») n’est pas du vent : ne le prends pas pour une direction ni une force de vent.
+- Le comité (canal VHF 14), une pénalité (un seul tour au GPEN) ou un changement de parcours ne sont pas du vent : si la phrase ne parle que de cela, understood = false.
+- Si une grandeur n’est pas mentionnée : mode "unchanged".
+- Si la phrase ne parle pas de vent ou est incompréhensible : understood = false et pose une question courte.
+- summary : une phrase française très courte qui reformule ce que tu as compris (ex. « Vent au 270, 12 nœuds »).`;
+const CONSIGNES = { toulon: SYSTEM, brest: SYSTEM_BREST };
 
 const SCHEMA = {
   type: 'object',
@@ -58,7 +78,7 @@ export function createHandler({ openai, blob, now, delai } = {}) {
     try {
       const response = await ia.appelle({
         model: MODEL,
-        instructions: SYSTEM,
+        instructions: CONSIGNES[venueOf(req.body)],
         input: user,
         reasoning: { effort: 'low' },
         text: { format: { type: 'json_schema', name: 'releve_vent', schema: SCHEMA, strict: true } },

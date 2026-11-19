@@ -15,7 +15,7 @@
 
 import { pipeline } from 'node:stream/promises';
 import { Readable } from 'node:stream';
-import { mergeDoc, emptyDoc, docEquals, canon, sameBody, slug, LOCAL_ONLY, HEAD, LISTS, MAX_HIST } from '../js/archmerge.js';
+import { mergeDoc, emptyDoc, docEquals, canon, sameBody, slug, LOCAL_ONLY, FICHE, LISTS, MAX_HIST, VENUE_IDS } from '../js/archmerge.js';
 
 export const MAX_LIGHT = 3_500_000, MAX_REGATTA = 150_000, MAX_REGATTAS = 200;
 export const MAX_HEAVY = { trace: 4_000_000, report: 3_000_000, day: 600_000 };       // octets ; la plateforme refuse de toute façon au-delà de 4,5 Mo
@@ -64,6 +64,10 @@ export function cleanDoc(doc, now) {
     c.frozen = Object.fromEntries(Object.entries(isObj(c.frozen) ? c.frozen : {}).filter(([d, f]) => DAY.test(d) && isObj(f)).map(([d, f]) => [d, clampU(f, now)]));
     c.tomb = tombs(c.tomb, now);
     c.hist = (Array.isArray(c.hist) ? c.hist : []).filter((x) => isObj(x) && Number.isFinite(x.t) && typeof x.kind === 'string').slice(0, MAX_HIST);
+    // plan d’eau (07-05) : liste blanche ; une valeur inconnue (téléphone plus récent, objet, nom hostile) est retirée sans refuser la régate
+    if (!(typeof c.venue === 'string' && VENUE_IDS.includes(c.venue))) { delete c.venue; delete c.vu; }
+    else if (!Number.isFinite(c.vu)) delete c.vu;
+    else c.vu = clampT(c.vu, now);
     out.regattas[id] = clampU(c, now);
   }
   out.tomb = tombs(doc.tomb, now);
@@ -81,11 +85,11 @@ export function attribute(incoming, stored, who) {
   const out = emptyDoc();
   for (const [id, r] of Object.entries(incoming.regattas)) {
     const s = stored.regattas?.[id], o = { ...r };
-    const head = (x) => canon(Object.fromEntries(HEAD.map((k) => [k, x?.[k]])));
+    const head = (x) => canon(Object.fromEntries(FICHE.map((k) => [k, x?.[k]])));        // le plan d’eau (registre à part) ne change pas l’auteur de la fiche
     if (!s) { o.by = who; o.ub = who; }
     else {
       o.by = s.by ?? who;
-      o.ub = head(s) === head(r) ? s.ub ?? null : (knownRegatta(s.hist, 'head', id, r, HEAD.filter((k) => k in r))?.by ?? who);
+      o.ub = head(s) === head(r) ? s.ub ?? null : (knownRegatta(s.hist, 'head', id, r, FICHE.filter((k) => k in r))?.by ?? who);
     }
     for (const key of Object.values(LISTS)) {
       const kind = Object.keys(LISTS).find((k) => LISTS[k] === key), S = new Map((s?.[key] || []).map((e) => [String(e.id), e]));

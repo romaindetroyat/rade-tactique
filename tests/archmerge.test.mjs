@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  MAX_HIST, HEAD, LISTS, LOCAL_ONLY, canon, sameBody, wins, mergeRegatta, mergeMarks, emptyDoc, mergeDoc, docEquals, raceId, stamp, stampState,
+  MAX_HIST, HEAD, FICHE, VENUE_IDS, LISTS, LOCAL_ONLY, canon, sameBody, wins, mergeRegatta, mergeMarks, emptyDoc, mergeDoc, docEquals, raceId, stamp, stampState,
   markDirty, toShared, fromShared, slug, legacyStamp,
 } from '../js/archmerge.js';
 
@@ -15,6 +15,7 @@ const reg = (over = {}) => ({
 const race = (id, over = {}) => ({ id, date: '2026-11-07', time: '10:55', courseId: 3, cls: 'J80', laps: 2, note: '', by: 'Teiva', u: 1000, ub: 'Teiva', ...over });
 const doc = (...rs) => ({ v: 1, regattas: Object.fromEntries(rs.map((r) => [r.id, r])), tomb: {}, marks: {} });
 const ids = (list) => list.map((e) => e.id);
+const sansHist = ({ hist, ...r }) => r;
 
 // ───────────────────────── règles de fusion (D-04)
 
@@ -240,11 +241,87 @@ test('wins, sameBody, slug et les constantes exportées', () => {
   assert.equal(slug('Éloïse Müller-X'), 'eloise-muller-x');
   assert.equal(slug(''), ''); assert.equal(slug(null), '');
   assert.ok(slug('a'.repeat(100)).length <= 40);
-  assert.deepEqual(HEAD, ['name', 'club', 'dateStart', 'dateEnd', 'season', 'ic']);
+  assert.deepEqual(HEAD, ['name', 'club', 'dateStart', 'dateEnd', 'season', 'ic', 'venue']);
+  assert.deepEqual(FICHE, ['name', 'club', 'dateStart', 'dateEnd', 'season', 'ic'], 'duel de la fiche : les champs de la v42');
+  assert.deepEqual([...VENUE_IDS], ['toulon', 'brest']);
   assert.deepEqual(Object.keys(LISTS), ['race', 'mark', 'course', 'trace']);
   assert.deepEqual(emptyDoc(), { v: 1, regattas: {}, tomb: {}, marks: {} });
   assert.ok(docEquals(emptyDoc(), emptyDoc()));
   assert.ok(docEquals({ a: 1, b: [1, { c: 2, d: 3 }] }, { b: [1, { d: 3, c: 2 }], a: 1 }), 'ordre des clés sans effet');
+});
+
+// ───────────────────────── plan d’eau d’une régate (07-05, D-06) : registre à part, jamais effacé par un téléphone resté en v42
+
+const sansVenue = ({ venue, vu, ...r }) => r;
+test('plan d’eau : une copie v42 (sans venue) de même u et de contenu plus « grand » ne l’efface pas, dans les deux ordres', () => {
+  const a = reg({ venue: 'brest', vu: 1000 }), b = sansVenue(reg({ name: 'Coupe zzz' }));
+  assert.ok(canon({ name: b.name }) > canon({ name: a.name }), 'la copie v42 gagne le duel de la fiche');
+  for (const m of [mergeRegatta(a, b), mergeRegatta(b, a)]) {
+    assert.equal(m.name, 'Coupe zzz', 'la fiche suit le duel');
+    assert.equal(m.venue, 'brest', 'le plan d’eau reste connu'); assert.equal(m.vu, 1000);
+  }
+  assert.equal(canon(mergeRegatta(a, b)), canon(mergeRegatta(b, a)), 'commutative');
+});
+test('plan d’eau : une fiche modifiée plus tard par un téléphone v42 garde le plan d’eau ; l’historique de la fiche ne le compte pas', () => {
+  const a = reg({ venue: 'brest', vu: 1000 }), b = sansVenue(reg({ name: 'Renommée', u: 3000, ub: 'Thibaud' }));
+  const m = mergeRegatta(a, b);
+  assert.deepEqual([m.name, m.u, m.ub, m.venue, m.vu], ['Renommée', 3000, 'Thibaud', 'brest', 1000]);
+  assert.deepEqual(m.hist.map((x) => [x.kind, x.v.name, 'venue' in x.v]), [['head', 'Coupe test', false]]);
+  // même fiche, seule la présence du plan d’eau diffère : aucune ligne d’historique (ce n’est pas un écrasement)
+  assert.deepEqual(mergeRegatta(reg({ venue: 'brest', vu: 1000 }), sansVenue(reg())).hist, []);
+});
+test('plan d’eau : « toulon » écrit explicitement plus tard l’emporte ; plus tôt, il perd ; à égalité de date, la plus grande valeur', () => {
+  const brest = reg({ venue: 'brest', vu: 1000 }), toulon = reg({ venue: 'toulon', vu: 2000 });
+  assert.equal(mergeRegatta(brest, toulon).venue, 'toulon'); assert.equal(mergeRegatta(toulon, brest).venue, 'toulon');
+  const vieux = reg({ venue: 'toulon', vu: 500, u: 5000 });
+  assert.equal(mergeRegatta(brest, vieux).venue, 'brest', 'le plan d’eau a sa propre date : une fiche plus récente ne le remplace pas');
+  const egal = [reg({ venue: 'brest', vu: 7 }), reg({ venue: 'toulon', vu: 7 })];
+  assert.equal(mergeRegatta(egal[0], egal[1]).venue, mergeRegatta(egal[1], egal[0]).venue);
+});
+test('plan d’eau : triplet (Brest, v42 plus récente, Toulon explicite) — même résultat quel que soit l’ordre des échanges', () => {
+  const a = reg({ venue: 'brest', vu: 1000, u: 1000 }), b = sansVenue(reg({ name: 'v42', u: 3000, ub: 'Thibaud' })), c = reg({ venue: 'toulon', vu: 2000, u: 2000, ub: 'Romain' });
+  const vis = (r) => canon(sansHist(r));
+  const ordres = [mergeRegatta(mergeRegatta(a, b), c), mergeRegatta(a, mergeRegatta(b, c)), mergeRegatta(mergeRegatta(c, a), b), mergeRegatta(mergeRegatta(b, c), a)];
+  for (const m of ordres) { assert.equal(m.venue, 'toulon'); assert.equal(m.name, 'v42'); assert.equal(vis(m), vis(ordres[0])); }
+  assert.equal(canon(mergeRegatta(ordres[0], ordres[0])), canon(ordres[0]), 'idempotente');
+});
+test('plan d’eau : une régate de Toulon sans venue se fusionne comme en v42 (aucun champ ajouté)', () => {
+  const a = reg({ name: 'A', u: 1000 }), b = reg({ name: 'B', u: 1000, ub: 'Romain' });
+  const m = mergeRegatta(a, b);
+  assert.ok(!('venue' in m) && !('vu' in m), 'aucun champ venue ni vu');
+  assert.equal(m.name, 'B');
+});
+test('stamp : vu posé avec le plan d’eau, gardé tant qu’il ne change pas ; changer seulement le plan d’eau ne date pas la fiche', () => {
+  const r0 = stamp(undefined, { ...reg({ u: undefined, ub: undefined }), venue: 'brest' }, { now: 1000, by: 'Teiva' });
+  assert.deepEqual([r0.u, r0.vu], [1000, 1000]);
+  const r1 = stamp(r0, { ...r0, name: 'Autre' }, { now: 2000, by: 'Romain' });
+  assert.deepEqual([r1.u, r1.vu], [2000, 1000], 'fiche modifiée, plan d’eau inchangé');
+  const r2 = stamp(r1, { ...r1, venue: 'toulon' }, { now: 3000, by: 'Romain' });
+  assert.deepEqual([r2.u, r2.ub, r2.vu, r2.venue], [2000, 'Romain', 3000, 'toulon'], 'seul le plan d’eau est daté');
+  const st = stampState({ list: [r1] }, { list: [{ ...r1, venue: 'toulon' }] }, { now: 3000, by: 'Romain' });
+  assert.deepEqual(st.changed, ['rgA'], 'changement du plan d’eau envoyé');
+  const r3 = stamp(r1, sansVenue(r1), { now: 4000 });
+  assert.ok(!('vu' in r3) && !('venue' in r3));
+});
+test('plan d’eau : propriétés sur des triplets de fiches avec et sans venue (commutativité, associativité, idempotence)', () => {
+  const rnd = mulberry32(7), int = (n) => Math.floor(rnd() * n), pick = (a) => a[int(a.length)];
+  const copie = () => {
+    const o = reg({ name: pick(['A', 'B', 'C']), u: 1000 + int(3), ub: pick(['Teiva', 'Romain', null]) });
+    if (int(3)) { o.venue = pick(['toulon', 'brest']); o.vu = 1000 + int(3); }
+    return o;
+  };
+  for (let i = 0; i < 3000; i++) {
+    const a = copie(), b = copie(), c = copie();
+    assert.equal(canon(mergeRegatta(a, b)), canon(mergeRegatta(b, a)), `non commutative (${i})`);
+    assert.equal(canon(sansHist(mergeRegatta(mergeRegatta(a, b), c))), canon(sansHist(mergeRegatta(a, mergeRegatta(b, c)))), `non associative (${i})`);
+    const m = mergeRegatta(mergeRegatta(a, b), c);
+    assert.equal(canon(mergeRegatta(m, m)), canon(m), `non idempotente (${i})`);
+    const avec = [a, b, c].filter((x) => x.venue);
+    if (avec.length) {
+      const best = avec.reduce((x, y) => ((x.vu - y.vu) || (x.venue < y.venue ? -1 : x.venue > y.venue ? 1 : 0)) >= 0 ? x : y);
+      assert.equal(m.venue, best.venue, `plan d’eau le plus récent (${i})`);
+    } else assert.ok(!('venue' in m));
+  }
 });
 
 // ───────────────────────── convergence de milliers de scénarios à trois téléphones
@@ -255,6 +332,8 @@ function mulberry32(a) {
 const clone = (o) => JSON.parse(JSON.stringify(o));
 const PHONES = ['Romain', 'Teiva', 'Thibaud'], REGS = ['rgA', 'rgB', 'rgC'], DAYS = ['2026-11-07', '2026-11-08', '2026-11-09'], TIMES = ['10:55', '11:30', '12:15'];
 const MARKS = ['1', '2', '3'];
+// Ce que garde un téléphone en v42 (56f6625) après une fusion : la fiche sans `venue` ni `vu` (sa HEAD ne les connaît pas)
+const v42Of = (d) => ({ ...d, regattas: Object.fromEntries(Object.entries(d.regattas || {}).map(([id, { venue, vu, ...r }]) => [id, r])) });
 // L'état visible d'un document : sans l'historique des valeurs écrasées (`hist` des régates, `h` des recalages)
 const visible = (d) => ({
   ...d,
@@ -268,7 +347,7 @@ const visible = (d) => ({
 function scenario(seed) {
   const rnd = mulberry32(seed), int = (n) => Math.floor(rnd() * n), pick = (a) => a[int(a.length)];
   let now = 10_000, reportT = 5000;
-  const oracle = { write: {}, del: {}, regDel: new Set(), head: {}, nonLate: new Set(), marks: {}, report: {} };
+  const oracle = { write: {}, del: {}, regDel: new Set(), head: {}, nonLate: new Set(), marks: {}, report: {}, venue: {} };
   const base = emptyDoc();
   for (const id of REGS.slice(0, int(3))) {
     base.regattas[id] = reg({ id, name: `base ${id}`, u: 1000, ub: pick([null, 'Teiva', 'Romain']), by: pick([null, 'Teiva']), races: int(2) ? [race(`m${id}x`, { u: 1000, by: pick([undefined, 'Teiva']) })] : [] });
@@ -276,15 +355,18 @@ function scenario(seed) {
     oracle.head[id] = { t: 1000, name: `base ${id}`, n: 1 };
   }
   let server = clone(base);
-  const phones = PHONES.map((by) => ({ by, doc: clone(base), snaps: [] }));
-  const touch = (p, id, f) => { const prev = p.doc.regattas[id]; p.doc.regattas[id] = clone(stamp(prev, f(clone(prev)), { now, by: p.by, rnd })); return p.doc.regattas[id]; };
+  // une graine sur deux, Thibaud est resté en v42 : sa fusion ignore le plan d’eau (`venue`, `vu`), il ne l’écrit jamais (07-05)
+  const phones = PHONES.map((by, i) => ({ by, doc: clone(base), snaps: [], v42: i === 2 && seed % 2 === 0 }));
+  const look = (p, d) => (p.v42 ? v42Of(d) : d);
+  const touch = (p, id, f) => { const prev = p.doc.regattas[id]; p.doc.regattas[id] = clone(look(p, { regattas: { [id]: stamp(prev, f(clone(prev)), { now, by: p.by, rnd }) } }).regattas[id]); return p.doc.regattas[id]; };
   const record = (id, r, kind) => { if (r.u === now) { const h = oracle.head[id]; oracle.head[id] = { t: now, name: r.name, n: h && h.t === now ? h.n + 1 : 1 }; } void kind; };
-  const sync = (p, snap) => { server = clone(mergeDoc(server, snap || p.doc)); if (!snap) p.doc = clone(mergeDoc(p.doc, server)); };
+  const recordVenue = (id, r) => { if (r.vu === now) { const o = oracle.venue[id]; oracle.venue[id] = { t: now, v: r.venue, n: o && o.t === now ? o.n + 1 : 1 }; } };
+  const sync = (p, snap) => { server = clone(mergeDoc(server, snap || p.doc)); if (!snap) p.doc = clone(look(p, mergeDoc(p.doc, server))); };
 
   const steps = 5 + int(9);
   for (let i = 0; i < steps; i++) {
     now += int(4);                                                                  // 0 : égalités de date voulues
-    const p = pick(phones), mine = Object.keys(p.doc.regattas), op = int(11);
+    const p = pick(phones), mine = Object.keys(p.doc.regattas), op = int(12);
     if (int(4) === 0) p.snaps.push(clone(p.doc));
     if (op <= 1 && mine.length) {                                                   // ajouter ou modifier une manche (même identifiant sur deux téléphones : conflit voulu)
       const id = pick(mine), rid = `m${pick(DAYS).replace(/-/g, '')}${pick(TIMES).replace(':', '')}`, k = `${id}|${rid}`;
@@ -305,8 +387,9 @@ function scenario(seed) {
     } else if (op === 4) {                                                          // créer une régate (même identifiant sur deux téléphones : créations indépendantes)
       const id = pick(REGS);
       if (!p.doc.regattas[id]) {
-        const r = stamp(undefined, { id, name: `créée ${id}`, club: 'CVAT', dateStart: pick(DAYS), dateEnd: pick(DAYS), season: 2026, races: [], marks: [], courses: [], traces: [], frozen: {}, at: now }, { now, by: p.by, rnd });
-        p.doc.regattas[id] = clone(r); record(id, r, 'head');
+        const v = !p.v42 && int(2) ? { venue: pick(VENUE_IDS) } : {};
+        const r = stamp(undefined, { id, name: `créée ${id}`, club: 'CVAT', dateStart: pick(DAYS), dateEnd: pick(DAYS), season: 2026, races: [], marks: [], courses: [], traces: [], frozen: {}, at: now, ...v }, { now, by: p.by, rnd });
+        p.doc.regattas[id] = clone(r); record(id, r, 'head'); recordVenue(id, r);
       }
     } else if (op === 5 && mine.length && int(3) === 0) {                           // supprimer une régate
       const id = pick(mine); delete p.doc.regattas[id]; p.doc.tomb[`regatta:${id}`] = { t: now, by: p.by }; oracle.regDel.add(id);
@@ -327,6 +410,9 @@ function scenario(seed) {
         if (report && report !== cur?.report) oracle.report[`${id}|${tid}`] = report.t;
         return x;
       });
+    } else if (op === 9 && mine.length && !p.v42) {                                // changer le plan d’eau d’une régate (téléphone v43 ; « toulon » écrit explicitement)
+      const id = pick(mine), r = touch(p, id, (x) => ({ ...x, venue: pick(VENUE_IDS) }));
+      recordVenue(id, r);
     } else {                                                                        // se synchroniser, ou renvoyer un état ancien (dans le désordre, après une coupure)
       if (p.snaps.length && int(3) === 0) sync(p, pick(p.snaps)); else sync(p);
     }
@@ -350,9 +436,9 @@ function scenario(seed) {
   for (let tour = 0; tour < 4; tour++) {
     for (const p of phones) sync(p);
     c = canon(server);
-    if (phones.every((p) => canon(p.doc) === c)) break;
+    if (phones.every((p) => canon(p.doc) === canon(look(p, server)))) break;
   }
-  for (const p of phones) assert.equal(canon(p.doc), c, `téléphone ${p.by} différent du serveur (graine ${seed})`);
+  for (const p of phones) assert.equal(canon(p.doc), canon(look(p, server)), `téléphone ${p.by} différent du serveur (graine ${seed})`);
   assert.equal(canon(visible(server)), vAll, `le résultat final n'est pas la réunion de tout ce qui a été envoyé (graine ${seed})`);
   return { server, oracle, seed };
 }
@@ -370,6 +456,8 @@ function juge({ server, oracle, seed }) {
     for (const d of Object.keys(r.frozen)) if (oracle.nonLate.has(`${id}|${d}`)) assert.ok(!r.frozen[d].late, m(`gel tardif devant un gel d'avant le signal (${id} ${d})`));
     const h = oracle.head[id];
     if (h && h.n === 1) assert.equal(r.name, h.name, m(`la fiche la plus récente doit gagner (${id})`));
+    const v = oracle.venue[id];
+    if (v && v.n === 1) assert.equal(r.venue, v.v, m(`plan d’eau le plus récent perdu (${id}) : ${r.venue}`));
   }
   for (const id of oracle.regDel) assert.ok(!(id in server.regattas), m(`${id} supprimée mais présente`));
   // une manche écrite après sa dernière suppression est présente ; sinon absente (dernier écrit gagne, suppression gagne à égalité)

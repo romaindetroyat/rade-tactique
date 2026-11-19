@@ -261,13 +261,31 @@ const REFUSES = [...ONZE, '/package.json', '/package-lock.json', '/srv.log', '/.
   '/js/..%2F.planning/STATE.md', '/js/%2e%2e%2fmiddleware.js', '/JS/app.js', '/js/', '/vendor/sous/x.js', '/api/_ia', '/api/archive/', '/api/archive.js',
   '/API/archive', '/%61pi/archive', '/api//archive', '/api-docs.html', '/favicon.ico', '/js/.cache', '/js/a\\b.js', '//js/app.js', '/rapports/a/b.html'];
 const apiDuDepot = () => readdirSync(ROOT + 'api').filter((f) => f.endsWith('.js') && !f.startsWith('_')).map((f) => '/api/' + f.slice(0, -3));
-const cheminsDeLApp = () => [...listShell(ROOT).map((f) => (f === './' ? '/' : '/' + f)), ...PUBLIC_EXACT,
+// Fichiers des plans d’eau téléchargeables (data/venues.json, D-04) : de l’app sans être dans la liste hors réseau
+const cheminsDesPacks = () => Object.values(JSON.parse(readFileSync(ROOT + 'data/venues.json', 'utf8')).venues).flatMap((v) => v.files.map((f) => '/' + f.path));
+const cheminsDeLApp = () => [...listShell(ROOT).map((f) => (f === './' ? '/' : '/' + f)), ...cheminsDesPacks(), ...PUBLIC_EXACT,
   '/icons/logo.png', '/rapports/coupe-snpm-2026.html', '/rapports/coupe-snpm-2026.js', '/vendor/pdf.worker.min.js', '/api/membre', ...apiDuDepot()];
 const internes = () => [...new Set([...fichiers().filter((p) => !cheminDeLApp(p)), ...REFUSES])];
 
 test('cheminDeLApp : vrai pour tout ce que l’app sert (liste hors réseau, pages publiques, fonctions /api)', () => {
   assert.ok(apiDuDepot().length >= 4, 'les fonctions /api du dépôt doivent être énumérées');
   for (const p of cheminsDeLApp()) assert.equal(cheminDeLApp(p), true, `${p} fait partie de l’app`);
+});
+
+test('pack de Brest : noms plats sous data/ servis par la liste blanche, sous-dossier refusé, rien sans code d’accès', async () => {
+  const pack = cheminsDesPacks();
+  assert.ok(pack.includes('/data/brest.terrain.bin') && pack.includes('/data/brest.meta.json'), 'manifeste du pack de Brest');
+  assert.equal(cheminDeLApp('/data/brest.terrain.bin'), true);
+  for (const p of ['/data/brest/terrain.bin', '/data/brest/', '/data/brest.terrain.bin/x', '/data/.brest.terrain.bin']) assert.equal(cheminDeLApp(p), false, `${p} refusé`);
+  for (const chemin of pack) {
+    assert.equal(cheminDeLApp(chemin), true, `${chemin} fait partie de l’app`);
+    assert.ok(interceptee(chemin), `${chemin} doit passer par le middleware`);
+    for (const h of VISITEURS) {
+      const res = await appeler(chemin, h);
+      assert.equal(res.headers.get('x-middleware-next'), null, `${chemin} servi sans code`);
+      assert.ok(refuse(res), `${chemin} : réponse ${res.status} inattendue`);
+    }
+  }
 });
 
 test('cheminDeLApp : faux pour tout fichier du dépôt hors de l’app et pour chaque contournement d’écriture', () => {
@@ -349,6 +367,12 @@ test('toute adresse de même origine demandée par l’app est servie par la lis
   const base = /base\s*=\s*'([^']+)'/.exec(geo)?.[1];
   assert.ok(base, 'js/geo.js doit nommer le dossier des données');
   for (const m of geo.matchAll(/fetch\(\s*base\s*\+\s*'([^']+)'/g)) noter(base + m[1], '/', 'js/geo.js');
+  // plans d’eau (phase 7) : instantané météo et préfixe des fichiers lus dans les descripteurs (js/venues.js, js/venue-brest.js, js/weather.js)
+  for (const f of jsFiles) {
+    const src = lu('js/' + f);
+    for (const m of src.matchAll(/\bsnapshot:\s*'([^']+)'/g)) noter(m[1], '/', f + ' plan d’eau');
+    for (const m of src.matchAll(/\bbase:\s*'([^']+)'/g)) for (const g of geo.matchAll(/fetch\(\s*base\s*\+\s*'([^']+)'/g)) noter(m[1] + g[1], '/', f + ' plan d’eau');
+  }
   for (const f of ['index.html', 'guide.html', 'regles.html', 'acces.html']) {
     for (const m of lu(f).matchAll(/(?<![-\w])(?:src|href)=["']([^"']+)["']/g)) noter(m[1], '/', f);
   }

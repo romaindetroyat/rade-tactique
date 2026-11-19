@@ -191,6 +191,18 @@ test('confirmMark : geste, auteur et instant gardés ; sans position ou déjà i
   assert.equal(confirmMark(ignoreMark(r, 'X1'), 'X1', {}).marks[0].status, STATUS.IGNOREE);
 });
 
+test('plan d’eau de la régate (07-05) : bouées lues et corrigées avec les bornes de son plan d’eau ; Toulon garde les bornes et le message de la v42', () => {
+  const lues = marksFromReview([{ name: 'Bouée 1', position: '48°17.890N 004°21.630W' }], { by: 'Teiva', at: T0, club: 'GPEN', bounds: { south: 48.12, north: 48.53, west: -4.76, east: -4.12, nom: 'la rade de Brest' } });
+  assert.ok(Math.abs(lues[0].lat - 48.29817) < 1e-5 && Math.abs(lues[0].lon + 4.3605) < 1e-5, 'position de Brest lue avec les bornes de Brest');
+  assert.equal(marksFromReview([{ name: 'Bouée 1', position: '48°17.890N 004°21.630W' }], { by: 'Teiva', at: T0 })[0].lat, null, 'sans bornes : Toulon (v42), position refusée');
+  const brest = { id: 'rgB', venue: 'brest', marks: [{ id: 'X1', name: 'Bouée 1', lat: 48.29817, lon: -4.3605, status: STATUS.A_CONFIRMER }] };
+  const ok = moveMark(brest, 'X1', '48°18.000N 004°21.700W', { by: 'Romain', at: T0 });
+  assert.equal(ok.ok, true, ok.error); assert.equal(ok.regatta.marks[0].lat, 48.3);
+  assert.match(moveMark(brest, 'X1', '43°05.845N 005°56.049E').error, /hors de la rade de Brest/);
+  const toulon = { id: 'rgT', marks: [{ id: 'X1', name: 'B', lat: 43.0905, lon: 5.9587, status: STATUS.A_CONFIRMER }] };
+  assert.equal(moveMark(toulon, 'X1', '48°18.000N 004°21.700W').error, 'Position hors de la rade de Toulon : vérifiez les degrés et l’hémisphère');
+});
+
 test('moveMark : même saisie que « Recaler », bornée à la rade ; plus de 2 Nq demande confirmation ; la bouée reste à confirmer', () => {
   const r = confirmMark(avecMarques(), 'X1', { by: 'Thibaud', at: T0 });
   assert.match(moveMark(r, 'X1', '48°51.400N 002°21.100E').error, /hors de la rade/i);
@@ -500,7 +512,8 @@ test('courseFallback : jamais pendant une course (chrono, mode départ, trace, G
 test('câblage : sélecteur, manche, parcours probables et débrief ne proposent que les parcours permis ; repli jamais en course', () => {
   const app = readFileSync(ROOT + 'js/app.js', 'utf8');
   assert.match(app, /const proposes = \(\) => allowedCourses\(COURSES, openReg\(\)\?\.id \?\? null\)/);
-  assert.match(app, /Parcours — \$\{esc\(openReg\(\)\.name\)\}` : 'Parcours \(cahier CVAT\)'/, 'libellé du sélecteur');
+  // Toulon : « Parcours (cahier CVAT) » comme en v42 ; un autre plan d’eau : « Parcours (Rade de Brest) » (07-09)
+  assert.match(app, /Parcours — \$\{esc\(openReg\(\)\.name\)\}` : VENUE\.id === 'toulon' \? 'Parcours \(cahier CVAT\)' : `Parcours \(\$\{esc\(VENUE\.nom\)\}\)`/, 'libellé du sélecteur');
   assert.doesNotMatch(app, /optgroup/, 'plus de groupes');
   assert.match(app, /rankCourses\(S\.cls, w\.dir, w\.spd, proposes\(\)\)/);
   assert.match(app, /choices: raceChoices\(cur\)/);

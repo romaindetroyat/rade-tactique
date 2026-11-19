@@ -1,7 +1,14 @@
 // Géographie : projection locale, relief, utilitaires de cap et de distance.
 
-export const ORIGIN = { lat: 43.09, lon: 5.95 };
-const KX = Math.cos((ORIGIN.lat * Math.PI) / 180) * 111320;
+// Origine de la projection locale : celle du plan d’eau courant (Toulon par défaut, valeurs de la v42 au bit près).
+export let ORIGIN = { lat: 43.09, lon: 5.95 };
+let KX = Math.cos((ORIGIN.lat * Math.PI) / 180) * 111320;
+// Appelé une seule fois, au démarrage et avant tout toXY (js/lieu.js setVenue) ; jamais en cours de session :
+// tous les objets en XY (terrain, champ de vent, zones, routes) dépendent de l’origine (D-05 : changer de plan d’eau recharge l’app).
+export function setOrigin(o) {
+  ORIGIN = { lat: o.lat, lon: o.lon };
+  KX = Math.cos((ORIGIN.lat * Math.PI) / 180) * 111320;
+}
 const KY = 110574;
 export const NM = 1852;
 
@@ -19,8 +26,15 @@ export const bearingXY = (a, b) => norm360(deg(Math.atan2(b.x - a.x, b.y - a.y))
 export const distXY = (a, b) => Math.hypot(b.x - a.x, b.y - a.y);
 export const fromBearing = (p, brg, dist) => ({ x: p.x + Math.sin(rad(brg)) * dist, y: p.y + Math.cos(rad(brg)) * dist });
 
-export const fmtLat = (lat) => { const d = Math.floor(lat); return `${d}°${((lat - d) * 60).toFixed(3).padStart(6, '0')}N`; };
-export const fmtLon = (lon) => { const d = Math.floor(lon); return `${String(d).padStart(3, '0')}°${((lon - d) * 60).toFixed(3).padStart(6, '0')}E`; };
+// Sud et Ouest (D-07) : degrés et minutes de la valeur absolue ; Nord et Est : expressions de la v42 inchangées
+export const fmtLat = (lat) => {
+  if (lat < 0) { const a = -lat, d = Math.floor(a); return `${d}°${((a - d) * 60).toFixed(3).padStart(6, '0')}S`; }
+  const d = Math.floor(lat); return `${d}°${((lat - d) * 60).toFixed(3).padStart(6, '0')}N`;
+};
+export const fmtLon = (lon) => {
+  if (lon < 0) { const a = -lon, d = Math.floor(a); return `${String(d).padStart(3, '0')}°${((a - d) * 60).toFixed(3).padStart(6, '0')}W`; }
+  const d = Math.floor(lon); return `${String(d).padStart(3, '0')}°${((lon - d) * 60).toFixed(3).padStart(6, '0')}E`;
+};
 export const fmtBrg = (b) => `${String(Math.round(norm360(b)) % 360).padStart(3, '0')}°`;
 export const fmtNm = (m) => `${(m / NM).toFixed(m < 2 * NM ? 2 : 1)} Nq`;
 export const cardinal = (d) => ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSO', 'SO', 'OSO', 'O', 'ONO', 'NO', 'NNO'][Math.round(norm360(d) / 22.5) % 16];

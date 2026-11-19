@@ -31,13 +31,13 @@ const STATIC_TIPS = {
   '[data-v=layers]': 'Calques : couleurs du vent, filets animés, routes, noms, exagération du relief.',
   '#legend': 'Couleur de l’eau = force du vent prévue (nœuds), avec les effets du relief.',
   '[data-tab=brief]': 'Résumé du jour : vent, modèles, stratégie, effets locaux, réglages.',
-  '[data-tab=course]': 'Parcours de la régate ouverte (lus dans ses IC) ou, sinon, du cahier CVAT et Banane (construite) avec sa porte conseillée, relevés de vent, route optimale bord par bord, animation.',
+  '[data-tab=course]': 'Parcours de la régate ouverte (lus dans ses IC) ou, sinon, ceux du plan d’eau (cahier CVAT à Toulon, parcours J80 du GPEN à Brest) et Banane (construite) avec sa porte conseillée, relevés de vent, route optimale bord par bord, animation.',
   '[data-tab=start]': 'Ligne de départ : position, biais, extrémité favorisée, chrono 5-4-1-0.',
   '[data-tab=live]': 'Pendant la course : GPS, prochaine marque, recalcul de la suite, enregistrement de la trace.',
   '[data-tab=wind]': 'Vent manuel, relevés, intensité des effets du relief et explications du modèle.',
   '[data-tab=tracks]': 'Traces enregistrées : carte, statistiques, comparaison à la route optimale, export GPX.',
   '[data-tab=j80]': 'Polaires J80 (ORC), vitesses cibles et guides de réglage.',
-  '[data-tab=ic]': 'Régates : la liste (En préparation, En cours, Terminées) avec Ouvrir, et Fermer la régate pour revenir à l’entraînement libre ; créez une régate, ses manches, importez et relisez ses IC ; vent du jour figé, traces et débrief dans la fiche, partagés avec l’équipage hors course ; règles de course, marques, dangers.',
+  '[data-tab=ic]': 'Régates : la carte Plan d’eau (Toulon ou rade de Brest, téléchargée une fois pour le hors réseau), la liste (En préparation, En cours, Terminées) avec Ouvrir, et Fermer la régate pour revenir à l’entraînement libre ; créez une régate, ses manches, importez et relisez ses IC ; vent du jour figé, traces et débrief dans la fiche, partagés avec l’équipage hors course ; règles de course, marques, dangers.',
 };
 
 let bubble = null, bubbleFor = null;
@@ -87,7 +87,7 @@ function modal(html, cls = '') {
 
 export const GUIDE = `
 <h2>Rade Tactique — mode d’emploi</h2>
-<p class="small muted">Préparer et courir les régates du CVAT en J80 dans la rade de Toulon.</p>
+<p class="small muted">Préparer et courir les régates en J80 : la rade de Toulon (CVAT) et la rade de Brest (GPEN).</p>
 <ol class="guide">
   <li><b>La carte</b> : un doigt pour déplacer, deux doigts pour zoomer et tourner. La couleur de l’eau donne la force du vent prévue, les filets blancs sa direction. Touchez l’eau pour lire le vent en un point.</li>
   <li><b>L’heure</b> (curseur en haut) fait défiler la prévision de la journée. <b>⟳</b> télécharge les dernières prévisions.</li>
@@ -102,6 +102,8 @@ export const GUIDE = `
   <li><b>IA</b> : 30 appels par équipier et par jour (dictée, débrief, arbitre, lecture d’IC). Au-delà : « Limite d’IA du jour atteinte — reprise demain ». Le reste de l’app marche sans IA.</li>
   <li><b>Entraînement libre</b> : à chaque lancement, aucune régate n’est ouverte et tout marche quand même (vent, parcours du cahier, chrono, mode départ, GPS, trace, débrief). Le jour d’une régate, l’app l’ouvre toute seule. Sinon, <b>Ouvrir une régate</b> en tête du panneau mène à la liste, puis <b>Ouvrir</b> ; <b>Fermer la régate</b> revient à l’entraînement libre. Ouvrir ou fermer une régate ne change rien chez les autres.</li>
   <li><b>Régates</b> : créez la régate en trois champs (nom, premier jour, club), ajoutez ses manches (heure du signal, parcours) et touchez <b>Choisir cette manche</b>. Le Comité change l’heure ou le parcours : <b>✎ Modifier</b> sur la manche, corrigez, <b>Enregistrer</b> (la manche choisie est recalée ; un nouveau jour ou une nouvelle heure déplace la manche chez tout l’équipage ; jamais pendant une course). Ouvrez d’abord la régate avant d’importer ses IC. Importez le PDF des IC : chaque valeur s’affiche avec sa phrase d’origine, rien n’est retenu avant <b>Valider les IC</b>. Pour un autre club, <b>Lire avec l’IA</b> (avec le réseau, avant la régate) ; ses bouées restent « <b>X1 ?</b> » à confirmer dans la fiche avant de servir. Une porte (porte 4s / 4p) et une arrivée (<b>Arrivée : entre le Comité et F</b>) lues dans les IC se relisent avec leur extrait ; le parcours ne sert qu’une fois toutes ses bouées confirmées, porte et arrivée comprises. Au débrief, une porte dit la bouée prise (« porte : bouée prise »). Passez les trois téléphones à la même version avant la régate. Le vent du jour se fige tout seul à l’ouverture de l’app le jour de la régate. <b>Archive partagée</b> : les régates, manches, IC validées, bouées confirmées, recalages des bouées, vent du jour figé, traces, débriefs et rapports sont partagés avec l’équipage, en privé, à l’ouverture, au retour du réseau, 20 secondes après une modification et une minute après la course, <b>jamais pendant un chrono, une trace, le mode départ ou la course</b> ; l’indicateur de l’onglet Régates dit où l’on en est (« À jour », « En attente d’envoi », « Hors réseau · n modifications en attente »), et <b>Désactiver la synchronisation</b> coupe tout sur ce téléphone.</li>
+  <li><b>Plan d’eau</b> : onglet Régates, carte « Plan d’eau ». Toulon est toujours là, comme avant. Pour la rade de Brest, « Télécharger le plan d’eau » une fois, avec du réseau (moins de 5 Mo), jusqu’à « Prêt hors réseau » : elle s’ouvre ensuite en mode avion. « Passer à la rade de Brest » ou « Revenir à la rade de Toulon » recharge l’app, jamais pendant une course (« Pas pendant une course ») ; parcours, ligne, relevés et vent manuel sont gardés par plan d’eau. Une régate porte son plan d’eau (puce « Rade de Brest ») : l’ouvrir depuis Toulon propose de passer à Brest. Mettez les trois téléphones à jour le même jour : un téléphone resté en v42 voit les régates de Brest comme à Toulon, sans rien effacer.</li>
+  <li><b>Brest</b> : « Marée à Brest » et « Courant à l’heure du départ » au briefing, flèches « Courant de marée (flèches) » sur la carte, « Courant à la ligne » dans l’onglet Départ, « Courant ici » en course. Le courant est une estimation d’après l’atlas du Shom, à confirmer sur l’eau, en complément des documents officiels ; le mode départ plein écran ne le compte pas dans son temps au près. Toulon n’a ni marée ni courant. Parcours du GPEN : « GPEN — parcours 1 (2 tours) », parcours 2 et Virginie Hériot (arrivée à confirmer), marques 1 et 2 à bâbord, porte 3S / 3P, 3P seule au dernier tour, « Arrivée (à droite du comité) », zone A sur la carte. Fiche « GPEN 2027 — J80 » semée d’après les IC 2026, à vérifier avec les IC 2027. Zones interdites « à compléter sur carte marine ».</li>
   <li><b>Traces</b> : après la course, importez le GPX (rangé tout seul dans la régate du jour), revoyez-le, comparez-le à la route optimale et validez le débrief pré-rempli.</li>
 </ol>
 <p class="small"><a href="guide.html#minute" target="_blank" rel="noopener"><b>📖 Guide complet de l’équipage</b></a> : toutes les fonctions, du départ au débrief.</p>
@@ -169,5 +171,5 @@ export function openShare({ base, courseLink, courseLabel }) {
     const inp = m.querySelector('#' + b.dataset.copy);
     try { await navigator.clipboard.writeText(inp.value); b.textContent = 'Copié ✓'; } catch { inp.select(); document.execCommand?.('copy'); b.textContent = 'Copié ✓'; }
   }));
-  m.querySelector('#shNative')?.addEventListener('click', () => navigator.share({ title: 'Rade Tactique', text: `Rade Tactique — ${courseLabel} : vent, parcours et tactique pour la rade de Toulon`, url: courseLink }).catch(() => {}));
+  m.querySelector('#shNative')?.addEventListener('click', () => navigator.share({ title: 'Rade Tactique', text: `Rade Tactique — ${courseLabel} : vent, parcours et tactique en J80`, url: courseLink }).catch(() => {}));
 }

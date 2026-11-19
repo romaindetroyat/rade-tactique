@@ -1,0 +1,61 @@
+{
+ "v": 1,
+ "venues": {
+  "brest": {
+   "pack": "fc8e2a0d85",
+   "bytes": 4673496,
+   "files": [
+    {
+     "path": "data/brest.basemap.jpg",
+     "bytes": 752342,
+     "sha256": "44c923938eb70c72cb8ca39bb404a35258c1c29164286075ef7a74b65e853ff2"
+    },
+    {
+     "path": "data/brest.coast.json",
+     "bytes": 136609,
+     "sha256": "8e522cd04296d2b3784b160bb20cfc22104fc1398f7a1dee7a5fd56092f57736"
+    },
+    {
+     "path": "data/brest.courants.bin",
+     "bytes": 910946,
+     "sha256": "7ee0f96e105f3aeb7d3359971107a3db77c2d98bdca2041e6f5b8cb986e5c27b"
+    },
+    {
+     "path": "data/brest.courants.json",
+     "bytes": 1257,
+     "sha256": "b7e8461d8e5ae86eefae01e7bd5f9a3b5cdc884e7173313269376a17598b7f2d"
+    },
+    {
+     "path": "data/brest.cover.bin",
+     "bytes": 840564,
+     "sha256": "014a9bf67a4ccebb556fbb3e5429e7d91323b23d466929ac3cafacc4e8dc479a"
+    },
+    {
+     "path": "data/brest.fonds.bin",
+     "bytes": 100828,
+     "sha256": "c99853c022638b4b3acc3bbbb62ec87699de060dc3ac87a358fce3c2ba21aed1"
+    },
+    {
+     "path": "data/brest.maree.json",
+     "bytes": 8075,
+     "sha256": "847b231adef8812c61b77c7d39dfbf650ca2c422e59643da5dc69c03f9f4196a"
+    },
+    {
+     "path": "data/brest.meta.json",
+     "bytes": 318,
+     "sha256": "3c3a22656e8c6ed62ead4c4908b2228a1d13a178118178713c402a1f2e8842c6"
+    },
+    {
+     "path": "data/brest.seamask.png",
+     "bytes": 241429,
+     "sha256": "6a41b06f7f444e6e3139d49d06f069f16d8512b058079c5b759aa6268f434b72"
+    },
+    {
+     "path": "data/brest.terrain.bin",
+     "bytes": 1681128,
+     "sha256": "f221f724128d42a97bb1d1949c7faa9fa5d9585e53e3ce3ac211c6e102f23202"
+    }
+   ]
+  }
+ }
+}

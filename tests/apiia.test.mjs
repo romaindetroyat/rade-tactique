@@ -425,3 +425,81 @@ test('arbitre : la consigne sur 18.3 dit que c’est le bateau qui a viré qui d
   assert.match(src, /C'est toujours le bateau qui a viré qui doit, jamais l'inverse/);
   assert.match(src, /nomme chaque bateau sans ambiguïté/);
 });
+
+// ── consignes selon le plan d’eau (07-09, D-11) : à Toulon, les octets de la v42 ; à Brest, les IC du GPEN ; aucune valeur reçue n’entre dans une consigne
+import { createHash } from 'node:crypto';
+import { createHandler as creeDebrief } from '../api/debrief.js';
+import { createHandler as creeVoix } from '../api/voice.js';
+const V42 = JSON.parse(readFileSync(ROOT + 'tests/fixtures/ia-toulon-v42.json', 'utf8'));
+const SORTIES = {
+  rules: SORTIE_ARBITRE,
+  debrief: { resume: { bien: 'b', coute: 'c', meteo: 'm' }, bords: [], retenir: [] },
+  voice: { understood: true, direction: { mode: 'unchanged', value: null }, speed: { mode: 'unchanged', value: null }, gust: null, confidence: 'high', summary: 's', question: null },
+};
+const CORPS = { rules: { question: 'Bâbord / tribord ?' }, debrief: { bords: [{ n: 1 }] }, voice: { alts: ['vent au 300, 14 nœuds'] } };
+const CREE = { rules: creeArbitre, debrief: creeDebrief, voice: creeVoix };
+async function consigne(f, sup) {
+  const { client, appels } = faux(SORTIES[f]);
+  const h = CREE[f]({ openai: client, blob: createFakeBlob(), now: () => T });
+  const r = await invoke(h, { method: 'POST', url: '/api/' + f, body: { ...CORPS[f], ...sup }, headers: entete('Romain') });
+  assert.equal(r.status, 200, `${f} : ${JSON.stringify(r.body)}`);
+  assert.equal(appels.length, 1);
+  return appels[0];
+}
+const sha = (s) => createHash('sha256').update(s).digest('hex');
+
+test('fixture des consignes de Toulon : capturée sur 56f6625, trois empreintes', () => {
+  assert.equal(V42.from, '56f6625');
+  for (const f of ['rules', 'debrief', 'voice']) assert.match(V42[f], /^[0-9a-f]{64}$/);
+});
+
+for (const f of ['rules', 'debrief', 'voice']) {
+  test(`${f} : sans plan d’eau ou avec « toulon », consignes identiques à la v42 octet pour octet`, async () => {
+    assert.equal(sha((await consigne(f, {})).instructions), V42[f], 'sans plan d’eau');
+    assert.equal(sha((await consigne(f, { venue: 'toulon' })).instructions), V42[f], '« toulon »');
+  });
+  test(`${f} : valeur de plan d’eau inconnue ou hostile (« lorient », {}, « <script> », ["brest"]) → consignes de Toulon, rien recopié`, async () => {
+    for (const v of ['lorient', {}, '<script>alert(1)</script>', ['brest'], 'Brest', ' brest', null, 42]) {
+      const a = await consigne(f, { venue: v });
+      assert.equal(sha(a.instructions), V42[f], `venue ${JSON.stringify(v)}`);
+      assert.ok(!a.instructions.includes('<script>') && !a.instructions.includes('lorient'));
+    }
+  });
+  test(`${f} : à Brest, consignes « rade de Brest » et IC du GPEN (un seul tour, VHF 14), sans CVAT ni Toulon ; même schéma de sortie`, async () => {
+    const t = await consigne(f, {}), b = await consigne(f, { venue: 'brest' });
+    assert.match(b.instructions, /rade de Brest/);
+    assert.match(b.instructions, /un seul tour/);
+    assert.match(b.instructions, /VHF 14/);
+    assert.ok(!/CVAT|rade de Toulon|Toulon/.test(b.instructions), 'aucune mention du CVAT ni de Toulon');
+    assert.deepEqual(b.text, t.text, 'schéma de sortie inchangé');
+    assert.equal(b.model, t.model); assert.deepEqual(b.reasoning, t.reasoning);
+    assert.ok(!/'/.test(b.instructions.replace(/[\s\S]*=== TEXTE OFFICIEL[\s\S]*/, '')), 'apostrophe typographique ’ dans la consigne de Brest');
+  });
+}
+
+test('rules à Brest : la vérification des citations RRS marche pareil (citation exacte vérifiée, inventée refusée)', async () => {
+  const RRS = (await import('../api/_rrs.js')).default;
+  const vraie = RRS.split('\n').map((l) => l.trim()).find((l) => l.length > 60 && /keep clear/.test(l));
+  const sortie = { ...SORTIE_ARBITRE, regles: [{ numero: '10', titre: 'Bâbord et tribord', en: vraie, fr: 'x' }, { numero: '99', titre: 'Inventée', en: 'A boat shall always win every protest she files against another boat.', fr: 'y' }] };
+  const { client } = faux(sortie);
+  const h = creeArbitre({ openai: client, blob: createFakeBlob(), now: () => T });
+  const r = await invoke(h, { method: 'POST', url: '/api/rules', body: { question: 'Bâbord / tribord ?', venue: 'brest' }, headers: entete('Romain') });
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.body.regles.map((x) => x.verifie), [true, false]);
+});
+
+test('debrief : le plan d’eau ne passe pas dans les faits envoyés au modèle ; à Toulon, les faits sont ceux de la v42', async () => {
+  const t = await consigne('debrief', {}), b = await consigne('debrief', { venue: 'brest' });
+  assert.equal(t.input, b.input);
+  assert.ok(!/venue/.test(b.input));
+});
+
+test('clients : venue ajouté au corps seulement hors de Toulon (arbitre, débrief, dictée)', () => {
+  const lire = (f) => readFileSync(ROOT + f, 'utf8');
+  assert.match(lire('js/regles.js'), /body: JSON\.stringify\(\{ question: q, history, \.\.\.venueBody\(\) \}\)/);
+  assert.match(lire('js/regles.js'), /const venueBody = \(\) => \(brest \? \{ venue: 'brest' \} : \{\}\);/);
+  assert.match(lire('js/regles.js'), /\?\.venue === 'brest'/);
+  assert.match(lire('js/debrief.js'), /body: JSON\.stringify\(\{ \.\.\.facts, \.\.\.venueBody\(\) \}\)/);
+  assert.match(lire('js/app.js'), /body: JSON\.stringify\(\{ alts, last, tack, \.\.\.venueBody\(\) \}\)/);
+  assert.match(lire('js/lieu.js'), /export const venueBody = \(\) => \(VENUE\.id === 'toulon' \? \{\} : \{ venue: VENUE\.id \}\);/);
+});

@@ -1,0 +1,32 @@
+{
+  "id": "brest",
+  "nom": "Rade de Brest",
+  "prefix": "brest.",
+  "bounds": { "west": -4.66, "east": -4.22, "south": 48.22, "north": 48.43 },
+  "grid": { "nx": 1086, "ny": 774 },
+  "fine": { "nx": 3258, "ny": 2322 },
+  "cell": 30.0,
+  "coastCenter": { "lon": -4.44, "lat": 48.325 },
+  "tiles": { "zoom": 13, "url": "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png" },
+  "bathy": {
+    "file": "emodnet/bathy_brest.tif",
+    "url": "https://ows.emodnet-bathymetry.eu/wcs?service=WCS&version=1.0.0&request=GetCoverage&coverage=emodnet:mean&crs=EPSG:4326&BBOX=-4.70,48.20,-4.20,48.45&format=image/tiff&interpolation=nearest&resx=0.00104166666&resy=0.00104166666",
+    "left": -4.70,
+    "top": 48.45,
+    "step": 0.0010416666666666667,
+    "width": 480,
+    "height": 240
+  },
+  "seeds": { "depthBelow": -3.0, "coastClear": 4, "stride": 8 },
+  "osm": {
+    "overpass": ["https://overpass-api.de/api/interpreter", "https://overpass.kumi.systems/api/interpreter"],
+    "bbox": { "south": 48.20, "west": -4.70, "north": 48.45, "east": -4.18 },
+    "api": "https://api.openstreetmap.org/api/0.6/map",
+    "boxes": { "west": -4.68, "east": -4.20, "south": 48.21, "north": 48.45, "dlon": 0.04, "dlat": 0.02 }
+  },
+  "sources": [
+    "© contributeurs OpenStreetMap (ODbL)",
+    "EMODnet Bathymetry DTM (couche emodnet:mean)",
+    "AWS Terrain Tiles (Terrarium, SRTM/GMTED)"
+  ]
+}

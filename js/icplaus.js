@@ -46,10 +46,11 @@ export function checkVhf(n) {
   if (n === 16) return warn('canal 16 : veille de détresse, rarement un canal de course');
   return n > 28 && n < 60 ? warn('canal hors de la table internationale (1-28, 60-88)') : OK;
 }
-// Position : hors des bornes de la carte = impossible ; sur terre (isLand(x, y) en mètres, comme Terrain.isLand) = inhabituelle
-export function checkPos(lat, lon, { isLand } = {}) {
+// Position : hors des bornes de la carte = impossible ; sur terre (isLand(x, y) en mètres, comme Terrain.isLand) = inhabituelle.
+// `bounds` : emprise du plan d’eau courant (D-07) ; défaut = carte de Toulon
+export function checkPos(lat, lon, { isLand, bounds = BOUNDS } = {}) {
   if (!Number.isFinite(lat) || !Number.isFinite(lon)) return bad('position illisible');
-  if (lat < BOUNDS.south || lat > BOUNDS.north || lon < BOUNDS.west || lon > BOUNDS.east) return bad('position hors de la carte');
+  if (lat < bounds.south || lat > bounds.north || lon < bounds.west || lon > bounds.east) return bad('position hors de la carte');
   if (typeof isLand === 'function') { const p = toXY(lat, lon); if (isLand(p.x, p.y)) return warn('position sur terre'); }
   return OK;
 }

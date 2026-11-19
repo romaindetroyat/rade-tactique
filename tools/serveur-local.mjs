@@ -55,8 +55,9 @@ export function entetesPour(chemin, regles) {
 }
 
 // Serveur statique sur 127.0.0.1, port libre. Renvoie { serveur, base, refuses } ; `refuses` reçoit chaque chemin brut refusé par la liste blanche.
-export async function demarreServeur({ root }) {
-  const regles = lireEntetes(root);
+// entetes : dossier dont le vercel.json fournit les en-têtes (par défaut `root`) ; servir une extraction d’une ancienne version avec les en-têtes du dépôt.
+export async function demarreServeur({ root, entetes = root }) {
+  const regles = lireEntetes(entetes);
   const refuses = [];
   const serveur = createServer(async (req, res) => {
     try {

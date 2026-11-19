@@ -1,10 +1,11 @@
 // Analyse tactique : parcours → bords, ligne de départ, conseils par bord, stratégie du jour.
 
-import { MARKS, COURSES, LINE_PRESETS, PLACES } from './courses.js';
+import { MARKS, COURSES, LINE_PRESETS, PLACES, VENUE } from './lieu.js';
 import { toXY, toLL, NM, bearingXY, distXY, fromBearing, norm180, norm360, fmtBrg, fmtNm, cardinal } from './geo.js';
 import { boatSpeed, optimalAngles, spiMinTwa } from './polar.js';
 import { route, tackName } from './router.js';
-import { bananeCourse, orientGate } from './banane.js';
+import { bananeCourse, orientGate, cleanBan } from './banane.js';
+import { parisClock } from './racelock.js';
 
 export const sideName = (s) => (s === 'b' ? 'bâbord' : s === 't' ? 'tribord' : '');
 
@@ -58,7 +59,12 @@ export const REGIMES = [
       'Repérer de quel côté arrive le nouveau vent (risées au large, nuages) et s’y placer avant la transition.',
     ] },
 ];
-export const regimeOf = (dir, spd) => REGIMES.find((r) => r.test(norm360(dir), spd));
+// régimes du plan d’eau courant ; Toulon (regimes: null) garde REGIMES ci-dessus
+export const regimeOf = (dir, spd) => (VENUE.regimes?.length ? VENUE.regimes : REGIMES).find((r) => r.test(norm360(dir), spd));
+// Origine d’un conseil d’un autre plan d’eau ({ t, o }, étude de Brest § 3.6) ; les conseils de Toulon sont des chaînes, sans origine
+export const ORIGINES = { D: 'mesure', M: 'modèle de relief', C: 'courant', S: 'source citée', H: 'hypothèse' };
+// Texte affiché d’un conseil : chaîne telle quelle (Toulon) ; une hypothèse est présentée comme à confirmer (étude piège 10)
+export const tipText = (c) => (typeof c === 'string' ? c : c.o === 'H' ? `${c.t} (à confirmer sur l’eau)` : c.t);
 
 // ───────────────────────── Géométrie du parcours
 export function lineGeometry({ center, lengthNm = 0.12, windDir, mode = 'wind', firstMark, bearing }) {
@@ -94,6 +100,13 @@ export function buildLegs(course, cls, opts) {
     pts.A = { ...fromBearing(L.cb, windDir + 180, 0.05 * NM), name: 'A (arrivée)' };
   } else if (course.built === 'BAN') {
     L = lineGeometry({ center, lengthNm: line.lengthNm, windDir });
+    // parcours centré sur la position de ligne (GPEN : centre de la zone A) : la ligne recule sous le vent de la moitié de la distance de la
+    // marque 1, pour que le parcours tienne dans le cercle ; une ligne pinguée (override) fait foi
+    if (course.centre) {
+      const c1 = fromBearing(L.c, windDir + 180, (cleanBan(ban).nm / 2) * NM), dx = c1.x - L.c.x, dy = c1.y - L.c.y;
+      const sh = (p) => ({ x: p.x + dx, y: p.y + dy });
+      L = { ...L, c: sh(L.c), cb: sh(L.cb), pin: sh(L.pin) };
+    }
   } else {
     const first = seqDef[0][0];
     L = lineGeometry({ center, lengthNm: line.lengthNm, windDir, mode: line.mode, firstMark: pts[first], bearing: line.bearing });
@@ -117,7 +130,9 @@ export function buildLegs(course, cls, opts) {
     return legs;
   };
   if (course.built === 'BAN') {
-    const bc = bananeCourse(L, windDir, { laps, ban });
+    // arrivée propre d’un parcours (GPEN, Virginie Hériot) : ligne entre une bouée et un mât à terre (shore : jamais signalé « à terre »)
+    const fa = course.arrivee ? (({ bouee, mat, name }) => { const b = toXY(bouee.lat, bouee.lon); return { at: b, a: { ...b }, b: { ...toXY(mat.lat, mat.lon), shore: true }, name }; })(course.arrivee) : null;
+    const bc = bananeCourse(L, windDir, { laps, ban, names: course.names ?? null, finishAt: fa });
     Object.assign(pts, bc.points);
     const legs = chain({ x: L.c.x, y: L.c.y, name: 'Départ' }, [...bc.seq, { ...bc.finish, mark: 'FINISH', side: null }]);
     return { legs, line: L, points: pts, finishLine: bc.finishLine };
@@ -230,15 +245,26 @@ export function legSamples(leg, routePath = []) {
 // points, dans le même état du champ (field.gen, +1 à chaque WindField.compute) et avec les mêmes options n’est pas recalculée : c’est le
 // même résultat (le même objet), donc les mêmes bords, temps et conseils. Sert au bord de porte retenu (déjà routé par adviseGate), au bord
 // qui en part, et aux bords identiques d’un tour à l’autre. Sans ctx.memo : route() à chaque appel, comme avant.
+// Avec courant (Brest, opts.current) : la clé ajoute l’heure de départ arrondie à 5 min (le courant change avec l’heure) ; sans courant,
+// clé et comparaison de la v42.
 export function routeOf(from, to, field, opts, ctx) {
   const memo = ctx?.memo;
   if (!memo) return route(from, to, field, opts);
-  const k = `${field.gen ?? 0}|${from.x},${from.y}|${to.x},${to.y}|${opts.perf}|${opts.tackLoss}|${opts.gybeLoss}`;
+  let k = `${field.gen ?? 0}|${from.x},${from.y}|${to.x},${to.y}|${opts.perf}|${opts.tackLoss}|${opts.gybeLoss}`;
+  if (opts.current) k += `|${Math.round((opts.t0 ?? 0) / 300000)}`;
   const m = memo.get(k);
-  if (m && m.field === field && m.terrain === opts.terrain && m.forbidden === opts.forbidden) return m.r;
+  if (m && m.field === field && m.terrain === opts.terrain && m.forbidden === opts.forbidden && m.current === opts.current && m.depth === opts.depth) return m.r;
   const r = route(from, to, field, opts);
-  memo.set(k, { field, terrain: opts.terrain, forbidden: opts.forbidden, r });
+  memo.set(k, { field, terrain: opts.terrain, forbidden: opts.forbidden, current: opts.current, depth: opts.depth, r });
   return r;
+}
+
+// Options de routage d’une analyse : celles de la v42 ; à Brest seulement (ctx.current, ctx.depth), le courant, la hauteur d’eau et
+// l’instant de départ du bord (ms UTC, ctx.t0 sauf t0 donné)
+export function routeOpts(ctx, t0 = ctx?.t0) {
+  const o = { terrain: ctx.terrain, forbidden: ctx.forbidden, perf: ctx.perf ?? 1 };
+  if (ctx.current || ctx.depth) { o.current = ctx.current ?? null; o.depth = ctx.depth ?? null; o.t0 = t0 ?? 0; }
+  return o;
 }
 
 // ───────────────────────── Analyse d’un bord
@@ -277,7 +303,7 @@ export function analyzeLeg(leg, field, ctx) {
   const spd = Math.hypot(su, sv) / (N + 1), dir = norm360(Math.atan2(-su, -sv) * 180 / Math.PI), gust = sg / (N + 1), shelter = ssh / (N + 1);
   const twa = norm180(leg.brg - dir);
   const type = legType(twa, spd);
-  const r = routeOf(leg.from, leg.to, field, { terrain: ctx.terrain, forbidden: ctx.forbidden, perf: ctx.perf ?? 1 }, ctx);
+  const r = routeOf(leg.from, leg.to, field, routeOpts(ctx), ctx);
   const time = r ? r.time : leg.dist / (Math.max(1, boatSpeed(spd, twa)) * 0.5144);
   const sides = sideSample(field, leg);
   const dP = sides.right.spd - sides.left.spd; // >0 : plus de vent à droite
@@ -321,7 +347,102 @@ export function analyzeLeg(leg, field, ctx) {
   }
   if (shelter > 0.25) advice.push(`Zone partiellement déventée par le relief (indice ${Math.round(shelter * 100)} %) : vent irrégulier, rafales jusqu’à ${gust.toFixed(0)} nd, bascules ±${shiftAmp}°.`);
   const site = siteEffects(field, legSamples(leg, r?.path), leg);
-  return { ...leg, wind: { dir, spd, gust, shelter }, twa, type, route: r, time, sides: { dP, dS }, shiftAmp, advice, site };
+  const out = { ...leg, wind: { dir, spd, gust, shelter }, twa, type, route: r, time, sides: { dP, dS }, shiftAmp, advice, site };
+  // Brest seulement (ctx.current) : temps du même bord sans courant, puis conseils de courant ; Toulon : l’objet de la v42
+  if (ctx.current) {
+    const rs = routeOf(leg.from, leg.to, field, { terrain: ctx.terrain, forbidden: ctx.forbidden, perf: ctx.perf ?? 1 }, ctx);
+    out.timeSans = rs ? rs.time : leg.dist / (Math.max(1, boatSpeed(spd, twa)) * 0.5144);
+    const ca = currentAdvice(out, ctx);
+    out.courant = { advice: ca };
+    advice.push(...ca.map(tipText));
+  }
+  return out;
+}
+
+// ───────────────────────── Courant de marée (Brest, D-13) : conseils d’après l’atlas du Shom, toujours présentés comme des estimations
+const KNM = 1852 / 3600;                     // m/s par nœud
+const RESERVE = '(estimation d’après l’atlas du Shom)';
+const pad2 = (n) => String(n).padStart(2, '0');
+const nd1 = (v) => (Math.round(v * 10 + 1e-9) / 10).toFixed(1).replace('.', ',');
+const versOf = (c) => norm360(Math.atan2(c.u, c.v) * 180 / Math.PI);          // direction VERS laquelle porte le courant
+const duree = (s) => { const a = Math.round(Math.abs(s) / 10) * 10, m = Math.floor(a / 60), r = a % 60; return `${s >= 0 ? '+' : '−'}${m ? `${m} min ${pad2(r)} s` : `${r} s`}`; };
+export const renverseText = (ms) => { const c = parisClock(ms); return `Renverse vers ${pad2(c.hour)} h ${pad2(c.minute)}`; };
+
+// Courant moyen (vecteur, m/s) aux points à l’instant ms ; null si aucun point n’a de courant
+function meanCurrent(cur, pts, ms) {
+  let u = 0, v = 0, n = 0;
+  for (const p of pts) { const c = cur(p.x, p.y, ms); if (c) { u += c.u; v += c.v; n++; } }
+  return n ? { u: u / n, v: v / n } : null;
+}
+
+// Renverses entre t0 et t1 (ms) dans la zone { x, y, r } : instants où le courant moyen de la zone passe par un minimum, au pas de 5 min,
+// avec un changement de sens de plus de 90° entre la demi-heure d’avant et celle d’après → [{ t, de, vers, nd }]
+export function renverses(ctx, t0, t1, zone) {
+  const cur = ctx?.current;
+  if (!cur || !zone || !Number.isFinite(t0) || !Number.isFinite(t1) || t1 <= t0) return [];
+  const pts = [], st = zone.r / 3;
+  for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) if (dx * dx + dy * dy <= 9) pts.push({ x: zone.x + dx * st, y: zone.y + dy * st });
+  const STEP = 300000, L = 6, a = Math.floor(t0 / STEP) * STEP - L * STEP, ser = [];
+  for (let t = a; t <= t1 + L * STEP; t += STEP) ser.push({ t, m: meanCurrent(cur, pts, t) });
+  const sp = (k) => (ser[k]?.m ? Math.hypot(ser[k].m.u, ser[k].m.v) : NaN);
+  const out = [];
+  for (let i = L; i < ser.length - L; i++) {
+    const s = sp(i);
+    if (!(s <= sp(i - 1) && s < sp(i + 1)) || ser[i].t < t0 || ser[i].t > t1) continue;
+    const b = ser[i - L].m, c = ser[i + L].m;
+    if (!b || !c) continue;
+    const de = versOf(b), vers = versOf(c);
+    if (Math.abs(norm180(vers - de)) <= 90) continue;
+    const r = { t: ser[i].t, de, vers, nd: s / KNM }, prev = out[out.length - 1];
+    if (prev && r.t - prev.t < 3600e3) { if (r.nd < prev.nd) out[out.length - 1] = r; continue; }        // une seule renverse par heure
+    out.push(r);
+  }
+  return out;
+}
+
+// Conseils de courant d’un bord analysé (Brest, ctx.current) : [{ t, o: 'C' }] ; [] sans courant (Toulon). Le bord porte time (avec courant),
+// timeSans (même bord sans courant), route ; ctx.t0 = départ du bord (ms). Courant moyen sur la route à mi-bord ; côté favorable par
+// échantillons à ±400 m de la route (comme sideSample) ; renverse pendant le bord (ctx.renverses, ou cherchée dans ctx.zone) ; vent contre courant.
+export function currentAdvice(leg, ctx) {
+  const cur = ctx?.current;
+  if (!cur || !leg) return [];
+  const t0 = Number.isFinite(ctx.t0) ? ctx.t0 : 0, t1 = t0 + (leg.time || 0) * 1000, mid = (t0 + t1) / 2;
+  const brg = leg.brg ?? bearingXY(leg.from, leg.to), dist = leg.dist ?? distXY(leg.from, leg.to);
+  const ux = Math.sin(brg * Math.PI / 180), uy = Math.cos(brg * Math.PI / 180);
+  const line = Array.from({ length: 7 }, (_, k) => ({ x: leg.from.x + (leg.to.x - leg.from.x) * k / 6, y: leg.from.y + (leg.to.y - leg.from.y) * k / 6 }));
+  const pts = leg.route?.path?.length > 1 ? leg.route.path : line;
+  const out = [];
+  const m = meanCurrent(cur, pts, mid);
+  if (m) {
+    const spd = Math.hypot(m.u, m.v) / KNM, dir = versOf(m);
+    const along = (m.u * ux + m.v * uy) / KNM, cross = (m.u * uy - m.v * ux) / KNM;   // cross > 0 : porte à droite de la route
+    const dt = Number.isFinite(leg.timeSans) && Number.isFinite(leg.time) ? leg.time - leg.timeSans : null;
+    const effet = dt == null ? '' : Math.abs(dt) < 5 ? ' (effet sur le temps négligeable)' : ` (≈ ${duree(dt)})`;
+    if (spd < 0.15) out.push({ t: `Courant faible sur ce bord (${nd1(spd)} nd vers ${fmtBrg(dir)})`, o: 'C' });
+    else if (Math.abs(along) >= Math.abs(cross)) out.push({ t: `Courant ${nd1(spd)} nd vers ${fmtBrg(dir)} : ${along < 0 ? 'contre' : 'avec'} vous sur ce bord${effet}`, o: 'C' });
+    else out.push({ t: `Courant ${nd1(spd)} nd vers ${fmtBrg(dir)} : de travers, il vous dépose à ${cross > 0 ? 'droite' : 'gauche'} de la route${effet}`, o: 'C' });
+    // vent contre courant : le courant porte vers d’où vient le vent
+    if (spd > 0.5 && leg.wind && Number.isFinite(leg.wind.dir) && Math.abs(norm180(dir - leg.wind.dir)) < 45) out.push({ t: 'Vent contre courant : clapot plus dur', o: 'C' });
+  }
+  // côté du plan d’eau où le courant aide (composante dans l’axe du bord), échantillons rapprochés de la route s’ils tombent à terre
+  const off = Math.min(0.35 * dist, 400);
+  let sr = 0, sl = 0, n = 0;
+  for (const f of [0.3, 0.55, 0.8]) {
+    const p = { x: leg.from.x + (leg.to.x - leg.from.x) * f, y: leg.from.y + (leg.to.y - leg.from.y) * f };
+    const at = (sgn) => { for (const k of [1, 0.6, 0.35]) { const q = fromBearing(p, brg + sgn * 90, off * k), c = cur(q.x, q.y, mid); if (c) return c; } return null; };
+    const R = at(1), Lc = at(-1);
+    if (!R || !Lc) continue;
+    sr += (R.u * ux + R.v * uy) / KNM; sl += (Lc.u * ux + Lc.v * uy) / KNM; n++;
+  }
+  if (n && off > 50) {
+    const d = (sr - sl) / n;
+    if (Math.abs(d) >= 0.15) out.splice(1, 0, { t: `Courant plus favorable ${d > 0 ? 'à droite' : 'à gauche'} du bord (${nd1(Math.abs(d))} nd de mieux)`, o: 'C' });
+  }
+  // renverse pendant le bord
+  const rv = (ctx.renverses ?? (ctx.zone ? renverses(ctx, t0 - 3600e3, t1 + 3600e3, ctx.zone) : [])).filter((r) => r.t >= t0 && r.t <= t1);
+  for (const r of rv) out.push({ t: `${renverseText(r.t)} : le courant tourne pendant ce bord`, o: 'C' });
+  if (out.length) out[out.length - 1] = { ...out[out.length - 1], t: `${out[out.length - 1].t} ${RESERVE}` };
+  return out;
 }
 
 // ───────────────────────── Porte sous le vent à deux bouées (D-05)
@@ -335,17 +456,19 @@ const FALLBACK_KN = 4;              // repli quand le routage n’aboutit pas : 
 // Gauche et droite sont vues par les bateaux qui arrivent ; tendance > 0 (rotation à droite) → au près suivant le côté droit du plan d’eau,
 // c’est la bouée gauche en regardant sous le vent.
 export function adviseGate(leg, nextTo, field, ctx = {}) {
-  const opts = { terrain: ctx.terrain, forbidden: ctx.forbidden, perf: ctx.perf ?? 1 };
+  const opts = routeOpts(ctx);
   const rf = ctx.routeFn ?? ((a, b, f, o) => routeOf(a, b, f, o, ctx));
-  const trip = (a, b) => {
+  const trip = (a, b, o = opts) => {
     const d = distXY(a, b);
     if (d < 20) return 0;
-    const t = rf(a, b, field, opts)?.time;
+    const t = rf(a, b, field, o)?.time;
     return Number.isFinite(t) ? t : d / (FALLBACK_KN * 0.5144);
   };
+  // bord suivant : avec courant, il part à l’arrivée du premier (même objet d’options sans courant, comme en v42)
+  const then = (a, b, t1) => (opts.current ? trip(a, b, { ...opts, t0: opts.t0 + t1 * 1000 }) : trip(a, b));
   const { g, d } = leg.gate;
-  const tg = trip(leg.from, g) + (nextTo ? trip(g, nextTo) : 0);
-  const td = trip(leg.from, d) + (nextTo ? trip(d, nextTo) : 0);
+  const t1g = trip(leg.from, g), tg = t1g + (nextTo ? then(g, nextTo, t1g) : 0);
+  const t1d = trip(leg.from, d), td = t1d + (nextTo ? then(d, nextTo, t1d) : 0);
   const gain = Math.abs(tg - td), equal = gain < GATE_EQUAL_S, trend = ctx.trend || 0;
   let pick, why;
   if (!equal) { pick = tg <= td ? 'g' : 'd'; why = 'routage'; }
@@ -372,12 +495,14 @@ export function prepareLeg(leg, prev, next, field, ctx) {
 // Conseil de porte en français (briefing, navigation en course)
 export function gateText(gate) {
   if (!gate) return '';
-  const nom = gate.pick === 'd' ? 'droite' : 'gauche';
-  if (!Number.isFinite(gate.gain)) return `Porte : bouée ${nom} retenue pour le calcul`;
+  // noms courts des bouées quand le parcours les donne (GPEN : « Porte 3S / 3P : bouée 3P… ») ; sinon gauche / droite, comme en v42
+  const lab = !!(gate.g?.label && gate.d?.label), porte = lab ? `Porte ${gate.d.label} / ${gate.g.label}` : 'Porte';
+  const nom = gate.pick === 'd' ? (lab ? gate.d.label : 'droite') : (lab ? gate.g.label : 'gauche');
+  if (!Number.isFinite(gate.gain)) return `${porte} : bouée ${nom} retenue pour le calcul`;
   const s = Math.round(gate.gain);
-  if (!gate.equal) return `Porte : bouée ${nom} conseillée — ${s} s de mieux`;
-  if (gate.why === 'bascule') return `Porte : bouées équivalentes (${s} s d’écart) — bouée ${nom}, du côté de la bascule à ${gate.shift} annoncée`;
-  return `Porte : bouées équivalentes (${s} s d’écart) — bouée ${nom} retenue pour le calcul`;
+  if (!gate.equal) return `${porte} : bouée ${nom} conseillée — ${s} s de mieux`;
+  if (gate.why === 'bascule') return `${porte} : bouées équivalentes (${s} s d’écart) — bouée ${nom}, du côté de la bascule à ${gate.shift} annoncée`;
+  return `${porte} : bouées équivalentes (${s} s d’écart) — bouée ${nom} retenue pour le calcul`;
 }
 
 // Conseils de passage de marque (entre le bord i et le bord i+1)

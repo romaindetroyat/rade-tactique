@@ -1,6 +1,8 @@
 // Scénarios de bout en bout des régates dans Chromium. Outil facultatif, hors npm test et hors package.json.
 //
 //   node tools/regate-e2e.mjs [scénario…]      (tous les scénarios si aucun nom n’est donné)
+//   E2E_ROOT=<dossier>    sert ce dossier au lieu du dépôt (extraction d’une ancienne version) ; en-têtes et liste blanche restent ceux du dépôt
+//   E2E_CAPTURE=<fichier> le scénario toulon-vue écrit sa capture dans ce fichier au lieu de comparer à tests/fixtures/vue-toulon-v42.json
 //
 // Déroulé : petit serveur HTTP du dépôt sur 127.0.0.1 ; Chromium en émulation mobile 390 × 844 (fr-FR, fuseau Europe/Paris), service
 // worker bloqué, toute requête vers un autre hôte interrompue, dessin WebGL neutralisé (voir INIT), accueil désactivé. L’heure de la page
@@ -13,9 +15,9 @@
 //   2 : Chromium ne peut pas être lancé (toujours exigé : PW_REQUIRED=1 est posé ici, jamais « mesure sautée »)
 //   0 : chaque scénario demandé a affiché « OK <nom> »
 
-import { readFileSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import assert from 'node:assert/strict';
 import { demarreServeur, lireEntetes, entetesPour } from './serveur-local.mjs';
 
@@ -56,14 +58,16 @@ const INIT = () => {
 // ───────────────────────── outils communs
 
 // geo : { latitude, longitude } du GPS simulé (l’autorisation est donnée) ; sans lui, aucune position n’est fournie
-async function ouvreContexte(browser, { heure, geo = null }) {
-  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, locale: 'fr-FR', timezoneId: 'Europe/Paris', serviceWorkers: 'block', ...(geo ? { geolocation: geo, permissions: ['geolocation'] } : {}) });
+// worker : service worker AUTORISÉ (scénario brest-avion seulement) ; alors aucune route n’est posée (Playwright ne route pas les requêtes du
+// worker) : les autres hôtes restent injoignables par --host-resolver-rules du lancement de Chromium
+async function ouvreContexte(browser, { heure, geo = null, worker = false }) {
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, locale: 'fr-FR', timezoneId: 'Europe/Paris', serviceWorkers: worker ? 'allow' : 'block', ...(geo ? { geolocation: geo, permissions: ['geolocation'] } : {}) });
   await ctx.clock.setFixedTime(new Date(heure));         // d’abord : INIT doit s’exécuter après le script de l’horloge de Playwright
   await ctx.addInitScript(INIT);
   // chaque page du contexte, fenêtres ouvertes par l’app comprises (« Plein écran » du rapport) : violations relevées avant tout filtre
   ctx.on('page', (p) => p.on('console', (m) => { if (VIOLATION.test(m.text())) violations.push(m.text().slice(0, 300)); }));
   // seul l’hôte local est joignable ; une route enregistrée ensuite par un scénario passe avant celle-ci
-  await ctx.route('**/*', (route) => (new URL(route.request().url()).hostname === '127.0.0.1' ? route.fallback() : route.abort()));
+  if (!worker) await ctx.route('**/*', (route) => (new URL(route.request().url()).hostname === '127.0.0.1' ? route.fallback() : route.abort()));
   return ctx;
 }
 // Page + liste des erreurs vues par la page (hors échecs de chargement voulus : réseau coupé)
@@ -88,6 +92,8 @@ const ouvreApp = async (page, base) => {
 const sansErreur = (erreurs, quand) => assert.deepEqual(erreurs, [], `erreur de page ${quand} : ${erreurs.join(' ; ')}`);
 
 // Liste des régates affichée : [{ status: titre du groupe, rows: [{ id, name, text, open }] }] (En préparation, En cours, Terminées)
+// liste sans la fiche semée du GPEN (07-09) : pour les scénarios d’avant le GPEN qui comptent les régates de Toulon
+const sansGpen = (liste) => liste.map((g) => ({ ...g, rows: g.rows.filter((r) => r.id !== 'gpen-2027') })).filter((g) => g.rows.length);
 const lireListe = (page) => page.evaluate(() => [...document.querySelectorAll('section[data-tab=ic] .rggroup')].map((g) => ({
   status: g.querySelector('h4').textContent.trim(),
   rows: [...g.querySelectorAll('.rg[data-rg-row]')].map((el) => ({ id: el.dataset.rgRow, name: el.querySelector('.rgn').textContent, text: el.textContent, open: el.classList.contains('on') })),
@@ -114,13 +120,14 @@ async function fermeRegate(page) {
 }
 
 // Crée une régate par l’interface : « ＋ Nouvelle régate », trois champs (et le dernier jour), « Créer la régate »
-async function creeRegate(page, { nom, debut, fin = '', club = '' }) {
+async function creeRegate(page, { nom, debut, fin = '', club = '', lieu = '' }) {
   await page.click('#tabs button[data-tab=ic]');
   await page.click('#rgNew');
   await page.fill('#rgName', nom);
   await page.fill('#rgStart', debut);
   if (club) await page.fill('#rgClub', club);
   if (fin) await page.fill('#rgEnd', fin);
+  if (lieu) await page.selectOption('#rgVenue', lieu);
   await page.click('#rgCreate');
   await page.waitForSelector('#rgForm', { state: 'detached', timeout: 10000 });
 }
@@ -142,13 +149,12 @@ async function creer({ browser, base }) {
   await ouvreApp(page, base);
   const repris = await page.evaluate(() => ({ idx: JSON.parse(localStorage.getItem('rade.regates.v1')), ev: localStorage.getItem('rade.events.v1') }));
   assert.equal(repris.ev, ancien, 'rade.events.v1 modifiée par la nouvelle version');
-  assert.equal(repris.idx.list.length, 1, 'la fiche existante devient une régate');
-  assert.equal(repris.idx.list[0].id, 'snpm-2026');
+  assert.deepEqual(repris.idx.list.map((r) => r.id), ['snpm-2026', 'gpen-2027'], 'la fiche existante devient une régate ; la fiche du GPEN est semée (07-09)');
   assert.equal(repris.idx.list[0].club, 'CVAT');
   assert.equal(repris.idx.list[0].ic.fields.vhf, 72, 'les champs de la fiche sont repris');
 
   await creeRegate(page, { nom: NOM_PIEGE, debut: '2026-11-07', fin: '2026-11-09', club: 'CVAT' });
-  let liste = await lireListe(page);
+  let liste = sansGpen(await lireListe(page));
   assert.deepEqual(liste.map((g) => g.status), ['En cours', 'Terminées'], 'statuts : En cours puis Terminées');
   assert.equal(liste[0].rows[0].name, NOM_PIEGE, 'le nom s’affiche en texte');
   assert.match(liste[0].rows[0].text, /2026/, 'l’année reste lisible dans la ligne');
@@ -162,7 +168,7 @@ async function creer({ browser, base }) {
 
   // elle survit à un rechargement
   await ouvreApp(page, base);
-  liste = await lireListe(page);
+  liste = sansGpen(await lireListe(page));
   assert.equal(liste[0].rows[0].name, NOM_PIEGE, 'la régate a disparu au rechargement');
   assert.equal(await idOuverte(page), liste[0].rows[0].id, 'le jour de la régate, elle est ouverte au lancement sans aucun geste');
   assert.equal(await page.evaluate(() => localStorage.getItem('rade.events.v1')), ancien, 'rade.events.v1 modifiée au rechargement');
@@ -174,7 +180,7 @@ async function creer({ browser, base }) {
   assert.equal(await page.locator('#raceDone').count(), 1, 'dernier jour à 23 h 30 : la carte doit rester');
   await ctx.clock.setFixedTime(new Date('2026-11-10T08:30:00Z'));
   await ouvreApp(page, base);
-  liste = await lireListe(page);
+  liste = sansGpen(await lireListe(page));
   assert.deepEqual(liste.map((g) => g.status), ['Terminées'], 'le 10/11 la régate est terminée, comme la Coupe SNPM');
   assert.equal(liste[0].rows.length, 2); assert.equal(await idOuverte(page), '', 'le 10/11 : entraînement libre');
   await page.click('#tabs button[data-tab=live]');
@@ -712,9 +718,10 @@ async function gpx({ browser, base }) {
 
 // Index de régates posé avant le premier chargement de l'app (page de même origine sans l'app), puis app ouverte
 const regateSemee = (id, name, debut, fin = '') => ({ id, name, club: 'CVAT', dateStart: debut, dateEnd: fin, season: debut.slice(0, 4), races: [], ic: null, marks: [], courses: [], frozen: {}, traces: [], by: null, at: 0 });
+// Index déposé tel quel ; le marqueur de la fiche du GPEN (07-09) est posé : ce téléphone l’a déjà vue passer, l’index reste celui du scénario
 async function sème(page, base, regates) {
   await page.goto(base + 'data/meta.json');
-  await page.evaluate((v) => localStorage.setItem('rade.regates.v1', v), JSON.stringify({ v: 1, list: regates }));
+  await page.evaluate((v) => { localStorage.setItem('rade.regates.v1', v); localStorage.setItem('rade.seed.gpen.v1', '1'); }, JSON.stringify({ v: 1, list: regates }));
   await ouvreApp(page, base);
 }
 const indexRegates = (page) => page.evaluate(() => JSON.parse(localStorage.getItem('rade.regates.v1')));
@@ -1902,7 +1909,7 @@ async function reprise({ browser, base }) {
   assert.equal(snpm.traces.length, 1, 'la Coupe SNPM porte une seule référence');
   assert.equal(snpm.traces[0].id, idSnpm); assert.equal(snpm.traces[0].by, NOM); assert.equal(snpm.traces[0].n, 9538);
   assert.ok(idx.list.every((r) => !r.traces.some((t) => t.id === idOrph)), 'l’orpheline n’est dans aucune régate');
-  assert.equal(idx.list.length, 1, 'aucune fiche créée (D-02)');
+  assert.equal(idx.list.filter((r) => r.id !== 'gpen-2027').length, 1, 'aucune fiche créée (D-02) ; la fiche du GPEN est semée (07-09)');
   assert.ok((await lireTraces(page)).some((t) => t.id === idOrph), 'l’orpheline reste dans « Traces »');
   assert.ok((await lireTraces(page)).some((t) => t.id === idSnpm), 'la trace rangée reste aussi sur le téléphone');
   assert.match(await journalDe(page), /reprise/, 'une ligne reprise au journal');
@@ -2189,13 +2196,14 @@ async function accueil({ browser, base }) {
   assert.equal(b.ouverte, '', 'aucune régate ouverte au lancement'); assert.match(b.texte, /Entraînement libre/);
   assert.equal(await page.locator('#regGo').textContent(), 'Ouvrir une régate');
   let idx = await indexRegates(page);
-  assert.deepEqual(idx.list.map((r) => r.id), ['snpm-2026']); assert.ok(!('current' in idx), 'aucune clé current dans l’index');
+  assert.deepEqual(idx.list.map((r) => r.id), ['snpm-2026', 'gpen-2027'], 'Coupe SNPM et fiche du GPEN semées (07-09)'); assert.ok(!('current' in idx), 'aucune clé current dans l’index');
   await page.click('#tabs button[data-tab=ic]');
   assert.match(await page.locator('#rgNone').textContent(), /Aucune régate ouverte/);
   assert.equal(await page.locator('#rgSheet').count(), 0, 'pas de fiche sans régate ouverte');
-  assert.equal(await page.locator('#rgList [data-rg]').count(), 1);
+  assert.equal(await page.locator('#rgList [data-rg]').count(), 2, 'Coupe SNPM et fiche semée du GPEN (07-09)');
   let liste = await lireListe(page);
-  assert.deepEqual(liste.map((g) => g.status), ['Terminées']); assert.equal(liste[0].rows[0].id, 'snpm-2026'); assert.ok(!liste[0].rows[0].open);
+  const snpmRow = (l) => l.find((g) => g.status === 'Terminées').rows.find((r) => r.id === 'snpm-2026');
+  assert.deepEqual(liste.map((g) => g.status), ['En préparation', 'Terminées']); assert.deepEqual(liste[0].rows.map((r) => r.id), ['gpen-2027']); assert.ok(snpmRow(liste) && !snpmRow(liste).open);
   assert.equal(await page.locator('#rgList [data-rg="snpm-2026"]').textContent(), 'Ouvrir');
   assert.equal(await page.locator('#rgNone label[for=icFile]').textContent(), '＋ Importer des IC (PDF)');
   for (const id of ['#evDel', '#evEdit', '#evUse']) assert.equal(await page.locator(id).count(), 0, `${id} n’a de sens que dans une régate`);
@@ -2249,7 +2257,7 @@ async function accueil({ browser, base }) {
   assert.match(await page.locator('section[data-tab=ic]').textContent(), /Instructions de course/);
   assert.equal(await page.locator('#rgNone').count(), 0);
   liste = await lireListe(page);
-  assert.ok(liste[0].rows[0].open, 'la liste marque la régate ouverte'); assert.equal(await page.locator('#rgList [data-rg="snpm-2026"]').count(), 0, 'plus de bouton « Ouvrir » sur la régate ouverte');
+  assert.ok(snpmRow(liste).open, 'la liste marque la régate ouverte'); assert.equal(await page.locator('#rgList [data-rg="snpm-2026"]').count(), 0, 'plus de bouton « Ouvrir » sur la régate ouverte');
   assert.doesNotMatch(await page.locator('#daySeg').textContent(), /🏁/, 'le 18/10 est passé : il n’est pas parmi les trois jours affichés');
   idx = await indexRegates(page); assert.ok(!('current' in idx), 'ouvrir n’écrit rien dans l’index');
   // v41 : Coupe de la SNPM (régate CVAT, sans parcours lus) : le cahier CVAT et la banane, parcours choisi inchangé, rien à présélectionner
@@ -2297,7 +2305,7 @@ async function accueil({ browser, base }) {
   assert.deepEqual(apres.list, v36.list, 'la Coupe SNPM est intacte : mêmes champs');
   await p2.click('#tabs button[data-tab=ic]');
   liste = await lireListe(p2);
-  assert.deepEqual(liste.map((g) => [g.status, g.rows.map((r) => r.id)]), [['Terminées', ['snpm-2026']]]);
+  assert.deepEqual(liste.map((g) => [g.status, g.rows.map((r) => r.id)]), [['En préparation', ['gpen-2027']], ['Terminées', ['snpm-2026']]]);
   sansErreur(e2, 'avec un index v36');
   await ctx2.close();
 }
@@ -2930,7 +2938,623 @@ async function modifierManche({ browser, base }) {
   await A.ctx.close(); await B.ctx.close();
 }
 
-const SCENARIOS = { accueil, 'jour-j': jourJ, 'deux-telephones': deuxTelephones, reprise, equipage, archive, 'archive-bouees': archiveBouees, archivehors: archiveHors, creer, manche, auteur, ic, 'depuis-ic': depuisIC, vraisemblance, gel, 'debrief-tardif': debriefTardif, gpx, 'gpx-choix': gpxChoix, ia, 'ia-erreurs': iaErreurs, arbitre, bouees, guide, entetes, 'retour-port': retourPort, banane, 'banane-manche': bananeManche, 'banane-debrief': bananeDebrief, 'porte-ic': porteIC, 'modifier-manche': modifierManche };
+// ───────────────────────── vues de Toulon figées (phase 7, D-01 : Toulon ne change pas d’un bord)
+
+const VUE_TOULON = join(ROOT, 'tests/fixtures/vue-toulon-v42.json');
+const VUE_SECTIONS = ['brief', 'course', 'start', 'live', 'wind'];
+// Quatre états d’entraînement libre, vent manuel (indépendant du réseau), rafale = force × 1,3 arrondie
+const VUE_ETATS = [
+  { nom: 'parcours 3, G, 2 tours, 315°/25 nd', st: { courseId: 3, cls: 'G', laps: 2, manual: { dir: 315, spd: 25, gust: 33 } } },
+  { nom: 'parcours 13, G, 2 tours, 265°/14 nd', st: { courseId: 13, cls: 'G', laps: 2, manual: { dir: 265, spd: 14, gust: 18 } } },
+  { nom: 'banane, G, 3 tours, réglages par défaut, 215°/10 nd', st: { courseId: 90, cls: 'G', laps: 3, manual: { dir: 215, spd: 10, gust: 13 } } },
+  { nom: 'parcours 9, P, 140°/14 nd', st: { courseId: 9, cls: 'P', laps: 2, manual: { dir: 140, spd: 14, gust: 18 } } },
+];
+// Texte visible d’une section, espaces normalisés ; seul le libellé de version (« vN · JJ/MM ») est retiré
+const texteSection = (page, tab) => page.evaluate((t) => document.querySelector(`section[data-tab=${t}]`).innerText, tab)
+  .then((x) => x.replace(/\s+/g, ' ').trim().replace(/\bv\d+ · \d{2}\/\d{2}\b/g, 'vN · JJ/MM'));
+// Texte d’une section une fois stable (deux lectures identiques à 700 ms d’intervalle)
+async function texteStable(page, tab, delai = 60000) {
+  const fin = Date.now() + delai;
+  let a = await texteSection(page, tab);
+  while (Date.now() < fin) {
+    await new Promise((r) => setTimeout(r, 700));
+    const b = await texteSection(page, tab);
+    if (a && a === b) return a;
+    a = b;
+  }
+  throw new Error(`section ${tab} jamais stable`);
+}
+// Premier écart entre deux textes : position et 120 caractères autour, des deux côtés
+const ecart = (a, b) => { let i = 0; while (i < a.length && i < b.length && a[i] === b[i]) i++; const z = (x) => JSON.stringify(x.slice(Math.max(0, i - 60), i + 60)); return `caractère ${i} : vu ${z(a)}, attendu ${z(b)}`; };
+
+// Texte des onglets Briefing, Parcours, Départ, En course et Vent de Toulon dans quatre états fixés, comparé à la capture de la v42 (56f6625).
+// E2E_CAPTURE=<fichier> : écrit la capture au lieu de comparer (à faire en servant l’extraction de 56f6625 : E2E_ROOT). Marée absente à Toulon.
+async function toulonVue({ browser, base }) {
+  const etats = [];
+  for (const { nom, st } of VUE_ETATS) {
+    const ctx = await ouvreContexte(browser, { heure: '2026-12-05T09:00:00Z' });        // samedi 05/12/2026, 10 h 00 à Paris
+    await ctx.addInitScript((s) => { localStorage.setItem('rade.state', JSON.stringify({ day: '2026-12-05', hour: 11, startTime: 11, src: 'manual', localFx: 1, ...s })); }, st);
+    const { page, erreurs } = await ouvrePage(ctx);
+    await ouvreApp(page, base);
+    assert.equal(await idOuverte(page), '', `${nom} : entraînement libre, aucune régate ouverte`);
+    await page.click('#tabs button[data-tab=course]');
+    await attendBords(page, (b) => b.length > 0, nom);
+    const sections = {};
+    for (const tab of VUE_SECTIONS) {
+      await page.click(`#tabs button[data-tab=${tab}]`);
+      sections[tab] = await texteStable(page, tab);
+      assert.ok(!/Marée|courant de marée/i.test(sections[tab]), `${nom}, ${tab} : aucune marée à Toulon`);
+    }
+    sansErreur(erreurs, nom);
+    etats.push({ nom, st, sections });
+    await ctx.close();
+  }
+  if (process.env.E2E_CAPTURE) {
+    writeFileSync(process.env.E2E_CAPTURE, JSON.stringify({ v: 42, from: '56f6625', etats }) + '\n');
+    console.log(`  capture écrite : ${process.env.E2E_CAPTURE} (${etats.length} états × ${VUE_SECTIONS.length} sections)`);
+    return;
+  }
+  const ref = JSON.parse(readFileSync(VUE_TOULON, 'utf8'));
+  assert.equal(ref.from, '56f6625', 'capture de la v42');
+  assert.equal(ref.etats.length, etats.length, 'nombre d’états');
+  for (const [i, e] of etats.entries()) {
+    const r = ref.etats[i];
+    assert.deepEqual(e.st, r.st, `état ${i + 1} : mêmes réglages que la capture`);
+    for (const tab of VUE_SECTIONS) if (e.sections[tab] !== r.sections[tab]) throw new Error(`${e.nom}, onglet ${tab} différent de la v42 — ${ecart(e.sections[tab], r.sections[tab])}`);
+  }
+}
+
+// ───────────────────────── plans d’eau (07-04)
+
+const MANIFESTE = JSON.parse(readFileSync(join(ROOT, 'data/venues.json'), 'utf8'));
+const PACK_BREST = MANIFESTE.venues.brest;
+const CACHE_BREST = 'rade-venue-brest-' + PACK_BREST.pack;
+const MO_BREST = `${(PACK_BREST.bytes / 1e6).toFixed(1).replace('.', ',')} Mo`;
+const texte = (page, sel) => page.locator(sel).first().textContent();
+// Entrées du cache du pack de Brest vues par la page (chemins), ou null si le cache n’existe pas
+const cacheBrest = (page) => page.evaluate(async (nom) => {
+  if (!(await caches.keys()).includes(nom)) return null;
+  return (await (await caches.open(nom)).keys()).map((r) => new URL(r.url).pathname).sort();
+}, CACHE_BREST);
+const etatApp = (page) => page.evaluate(() => JSON.parse(localStorage.getItem('rade.state') || '{}'));
+// Un geste qui recharge l’app : attend la nouvelle page puis la carte prête
+async function rechargePar(page, geste, delai = 90000) {
+  const charge = page.waitForEvent('load', { timeout: delai });
+  await geste();
+  await charge;
+  await pret(page);
+}
+// Onglet Régates ouvert et carte « Plan d’eau » repeinte avec l’état du pack lu dans les caches
+async function cartePlanEau(page, etat) {
+  await page.click('#tabs button[data-tab=ic]');
+  await page.waitForSelector(`#pkCard[data-state="${etat}"]`, { timeout: 20000 });
+}
+
+// D-04, D-05, D-06 (entraînement libre) : carte « Plan d’eau » à Toulon, refus pendant un chrono, « Passer à la rade de Brest » → téléchargement
+// vérifié écrit dans le cache rade-venue-brest-<pack> par la page (worker bloqué ici) → rechargement → carte de Brest (data/brest.*) ;
+// « Revenir à la rade de Toulon » → réglages de Toulon retrouvés (parcours choisi avant le passage)
+async function planEau({ browser, base }) {
+  const ctx = await ouvreContexte(browser, { heure: '2026-12-05T09:00:00Z' });        // samedi 05/12/2026, 10 h 00 à Paris
+  const { page, erreurs } = await ouvrePage(ctx);
+  const brest = [];
+  page.on('request', (r) => { const u = new URL(r.url()); if (u.pathname.startsWith('/data/brest.')) brest.push(u.pathname + u.search); });
+  await ouvreApp(page, base);
+  assert.equal(await texte(page, '#regBar .regname'), 'Entraînement libre', 'Toulon : bandeau de la v42');
+  assert.deepEqual(brest, [], 'Toulon ne demande aucun fichier de Brest');
+  // parcours choisi à Toulon avant le passage
+  await page.click('#tabs button[data-tab=course]');
+  await page.waitForFunction(() => document.querySelectorAll('#cSel option').length > 2, null, { timeout: 60000 });
+  const valeurs = await page.locator('#cSel option').evaluateAll((os) => os.map((o) => o.value));
+  const choisi = valeurs.find((v) => !['3', '90'].includes(v));
+  assert.ok(choisi, 'un parcours du cahier autre que le 3');
+  await page.selectOption('#cSel', choisi);
+  assert.equal(String((await etatApp(page)).courseId), choisi);
+  // carte « Plan d’eau »
+  await cartePlanEau(page, 'absent');
+  assert.match(await texte(page, '#pkHere'), /Ce téléphone : Rade de Toulon/);
+  assert.equal(await texte(page, '#pkState'), `Rade de Brest : À télécharger (${MO_BREST})`);
+  assert.equal(await texte(page, '#pkGo'), 'Passer à la rade de Brest');
+  assert.match(await texte(page, '#pkCard'), /OpenStreetMap \(ODbL\)[\s\S]*EMODnet[\s\S]*Ne remplace pas les cartes et ouvrages nautiques officiels/);
+  // pendant un chrono : changement refusé (bouton désactivé, « Pas pendant une course »)
+  await page.click('#tabs button[data-tab=start]');
+  await page.click('#t5');
+  await page.waitForFunction(() => document.querySelector('#tPhase').textContent !== 'Prêt', null, { timeout: 10000 });
+  await cartePlanEau(page, 'absent');
+  assert.equal(await page.locator('#pkGo').isDisabled(), true, 'chrono lancé : #pkGo désactivé');
+  assert.match(await texte(page, '#pkLock'), /^Pas pendant une course/);
+  await page.click('#tabs button[data-tab=start]');
+  await page.click('#tstop');
+  await page.waitForFunction(() => document.querySelector('#tPhase').textContent === 'Prêt', null, { timeout: 10000 });
+  await cartePlanEau(page, 'absent');
+  assert.equal(await page.locator('#pkGo').isDisabled(), false, 'chrono arrêté : changement possible');
+  assert.equal(await cacheBrest(page), null, 'rien d’écrit avant le geste');
+  // « Passer à la rade de Brest » : téléchargement vérifié puis rechargement
+  await rechargePar(page, () => page.click('#pkGo'));
+  const fichiers = PACK_BREST.files.map((f) => f.path);
+  for (const f of fichiers) assert.ok(brest.includes(`/${f}?pack=${PACK_BREST.pack}`), `téléchargé : ${f}`);
+  assert.deepEqual(await cacheBrest(page), fichiers.map((f) => '/' + f).sort(), 'pack écrit dans son cache, chemins sans paramètre');
+  assert.equal(await texte(page, '#regBar .regname'), 'Entraînement libre · Brest');
+  for (const f of ['meta.json', 'terrain.bin', 'cover.bin', 'coast.json', 'basemap.jpg', 'seamask.png']) assert.ok(brest.includes(`/data/brest.${f}`), `carte de Brest : data/brest.${f} chargé`);
+  const st = await etatApp(page);
+  assert.equal(st.venue, 'brest');
+  assert.equal(st.courseId, 91, 'premier passage : parcours 1 du GPEN (07-09)');
+  assert.equal(st.linePreset, 'zoneA');
+  assert.equal(String(st.byVenue?.toulon?.courseId), choisi, 'réglages de Toulon rangés');
+  await cartePlanEau(page, 'ready');
+  assert.match(await texte(page, '#pkHere'), /Ce téléphone : Rade de Brest/);
+  assert.equal(await texte(page, '#pkState'), 'Rade de Brest : Prêt hors réseau');
+  assert.equal(await page.locator('#pkDl').count(), 0);
+  assert.equal(await texte(page, '#pkGo'), 'Revenir à la rade de Toulon');
+  // Dangers de Brest (07-06, D-10, D-14c) : les deux zones interdites, leur source et la mention « à compléter »
+  const dangers = (await texte(page, 'section[data-tab=ic]')).replace(/\s+/g, ' ');
+  assert.match(dangers, /Zone interdite — Île Longue [^.]*: La navigation dans la zone balisée de l’Île Longue \(marques 0 à 10\) est interdite \(IC GPEN\)[^]*?À compléter sur carte marine\./);
+  assert.match(dangers, /Zone interdite — Passage de Pen ar Vir [^]*?À compléter sur carte marine\./);
+  assert.ok(!/Saint-Mandrier/.test(dangers), 'pas de zone de Toulon à Brest');
+  // Vents de Brest (07-06, D-14, D-14b) : vents prédéfinis de Brest, vent manuel « Suroît », régime et conseils marqués selon leur origine
+  await page.click('#tabs button[data-tab=wind]');
+  const boutons = await page.locator('section[data-tab=wind] [data-p]').allTextContents();
+  assert.deepEqual(boutons, ['Suroît', 'Ouest', 'Brise d’ouest', 'Noroît', 'Nord', 'Nordet', 'Est', 'Sud', 'Petit temps'], 'vents prédéfinis de Brest');
+  await page.locator('section[data-tab=wind] [data-p]', { hasText: 'Suroît' }).click();
+  assert.equal((await etatApp(page)).src, 'manual');
+  await page.click('#tabs button[data-tab=brief]');
+  await page.waitForFunction(() => /Effets locaux — Suroît/.test(document.querySelector('section[data-tab=brief]')?.textContent || ''), null, { timeout: 30000 });
+  const brief = (await texte(page, 'section[data-tab=brief]')).replace(/\s+/g, ' ');
+  assert.match(brief, /Effets locaux — Suroît \(sud-ouest\)/);
+  assert.match(brief, /hypothèse Mer plate près de la côte sud\. \(à confirmer sur l’eau\)/, 'hypothèse présentée comme à confirmer');
+  assert.match(brief, /mesure Régime perturbé, le plus fort en moyenne/, 'origine en tête de chaque conseil');
+  assert.match(brief, /Conseils tirés de mesures, du modèle de relief et de l’atlas ; les hypothèses sont à confirmer sur l’eau\./);
+  assert.ok(!/Saint-Mandrier|Sicié|Mistral|Labech/.test(brief), 'aucun conseil de Toulon à Brest');
+  assert.ok(!/État de la mer/.test(brief), 'pas de houle du large dans la rade (piège 9)');
+  assert.ok(!/Balises en direct/.test(brief), 'aucune balise en direct à Brest (D-14b)');
+  // Marée à Brest (07-07, D-13) : lue dans le pack, calculée dans l’app ; samedi 5 décembre 2026, heure de Paris
+  assert.ok(brest.includes('/data/brest.maree.json'), 'fichier de marée lu dans le pack');
+  assert.match(brief, /Marée à Brest samedi 5 décembre, heure de Paris/);
+  assert.match(brief, /Pleine mer 02:03 · 6,07 m · marnage 3,6 m · coefficient approché 58\s*Basse mer 08:18 · 2,43 m\s*Pleine mer 14:27 · 6,16 m · marnage 3,8 m · coefficient approché 61\s*Basse mer 20:48 · 2,30 m/);
+  assert.match(brief, /Hauteurs au-dessus du zéro des cartes\.\s*Marée calculée d’après le marégraphe de Brest \(Shom – REFMAR, Licence Ouverte 2\.0\) ; ne remplace pas les cartes et ouvrages nautiques officiels\./);
+  assert.ok(!/Marée indisponible/.test(brief));
+  sansErreur(erreurs, 'à Brest');
+  // « Revenir à la rade de Toulon » : rechargement, réglages de Toulon retrouvés, pack gardé
+  await cartePlanEau(page, 'ready');
+  await rechargePar(page, () => page.click('#pkGo'));
+  assert.equal(await texte(page, '#regBar .regname'), 'Entraînement libre');
+  const t = await etatApp(page);
+  assert.equal(t.venue, 'toulon');
+  assert.equal(String(t.courseId), choisi, 'parcours de Toulon retrouvé');
+  assert.equal(t.linePreset, 'vignettes');
+  assert.equal(t.byVenue?.brest?.courseId, 91, 'réglages de Brest rangés à leur tour');
+  await page.click('#tabs button[data-tab=course]');
+  assert.equal(await page.locator('#cSel').inputValue(), choisi);
+  assert.ok(!/Marée/.test(await texte(page, 'section[data-tab=brief]')), 'Toulon n’a ni marée ni courant (D-13)');
+  await cartePlanEau(page, 'ready');
+  assert.equal(await texte(page, '#pkGo'), 'Passer à la rade de Brest');
+  sansErreur(erreurs, 'au retour à Toulon');
+  await ctx.close();
+}
+
+// Page contrôlée par le service worker, toute la liste hors réseau en cache (sondé depuis Node, comme tools/measure-boot.mjs)
+async function attendWorker(page, delai = 90000) {
+  const shell = JSON.parse(/const SHELL = (\[.*?\]);/s.exec(readFileSync(join(ROOT, 'sw.js'), 'utf8'))[1]).length;
+  const fin = Date.now() + delai;
+  for (;;) {
+    const ok = await page.evaluate(async (n) => {
+      if (!navigator.serviceWorker.controller) return false;
+      for (const k of (await caches.keys()).filter((x) => /^rade-[0-9a-f]+$/.test(x))) if ((await (await caches.open(k)).keys()).length >= n) return true;
+      return false;
+    }, shell).catch(() => false);
+    if (ok) return;
+    if (Date.now() > fin) throw new Error('le service worker n’a pas mis toute l’app en cache');
+    await new Promise((r) => setTimeout(r, 300));
+  }
+}
+
+// D-04, D-15 : mode avion avec le service worker actif. Serveur propre au scénario. Téléphone A : première visite en ligne, passage à Brest
+// (téléchargement) ; téléphone B : première visite en ligne, Toulon seulement. Serveur ARRÊTÉ pour de bon (connexion refusée, vérifiée).
+// A rouvre Brest hors réseau : carte chargée depuis le cache du pack, prévisions « hors ligne », aucune erreur. B, choisi à Brest sans pack,
+// hors réseau : message « La rade de Brest n’est pas encore sur ce téléphone… », « Revenir à la rade de Toulon » ramène Toulon.
+// D-13, D-14c (07-08) : courant de marée à Brest. Pack téléchargé par « Passer à la rade de Brest », jeudi 6 mai 2027 (GPEN, vive-eau), départ
+// à 14 h, vent manuel 270°/10 nd, banane de la zone A : briefing (« Marée à Brest », « Courant à l’heure du départ », conseil du premier bord
+// marqué « estimation d’après l’atlas du Shom », source du Shom), Parcours (conseils de courant des bords), Départ (« Courant à la ligne »,
+// dérive en m/min, rappel sur le mode départ), calque « Courant de marée », En course (« Courant ici » au GPS) ; puis retour à Toulon :
+// ni carte de courant ni calque (la vue de Toulon est comparée à la v42 par toulon-vue).
+async function brestCourant({ browser, base }) {
+  const ctx = await ouvreContexte(browser, { heure: '2027-05-06T07:00:00Z', geo: { latitude: 48.2985, longitude: -4.3600 } });     // 9 h 00 à Paris, zone A
+  const { page, erreurs } = await ouvrePage(ctx);
+  await ouvreApp(page, base);
+  assert.equal(await page.locator('#layersMenu [data-layer=current]').count(), 0, 'Toulon : pas de calque de courant');
+  await cartePlanEau(page, 'absent');
+  await rechargePar(page, () => page.click('#pkGo'));
+  assert.equal((await etatApp(page)).venue, 'brest');
+  await page.evaluate(() => {
+    const st = JSON.parse(localStorage.getItem('rade.state') || '{}');
+    localStorage.setItem('rade.state', JSON.stringify({ ...st, day: '2027-05-06', hour: 14, startTime: 14, src: 'manual', manual: { dir: 270, spd: 10, gust: 13 }, courseId: 90, linePreset: 'zoneA' }));
+  });
+  await ouvreApp(page, base);
+  const st = await etatApp(page);
+  assert.equal(st.venue, 'brest'); assert.equal(st.day, '2027-05-06'); assert.equal(st.startTime, 14); assert.equal(st.courseId, 90);
+  // briefing
+  await page.click('#tabs button[data-tab=brief]');
+  await page.waitForFunction(() => /Courant à l’heure du départ/.test(document.querySelector('section[data-tab=brief]')?.textContent || ''), null, { timeout: 90000 });
+  const brief = (await texte(page, 'section[data-tab=brief]')).replace(/\s+/g, ' ');
+  assert.match(brief, /Marée à Brest jeudi 6 mai, heure de Paris/);
+  assert.match(brief, /Basse mer 11:54 · 1,34 m/);
+  assert.match(brief, /Courant à l’heure du départ 14:00, vers où il porte\s*Ligne de départ : \d,\d nd → \d{3}°\s*Bouée au vent · B \(au vent\) : \d,\d nd → \d{3}°/);
+  assert.match(brief, /Prochaine renverse vers 1[78] h \d\d dans la zone du parcours/, 'renverse du soir (pleine mer de 17 h 52)');
+  assert.match(brief, /Courant : Shom – atlas de courants de marée 2D \(Licence Ouverte 2\.0, doi 10\.17183\/ATLASCOURANTS2D_NETCDF\), estimation en conditions moyennes ; ne remplace pas les cartes et ouvrages nautiques officiels\./);
+  assert.match(brief, /Temps de parcours avec le courant de marée \(atlas du Shom\)\./);
+  assert.match(brief, /Premier bord : Courant \d,\d nd vers \d{3}° : [^.]*\(estimation d’après l’atlas du Shom\)/);
+  assert.ok(!/Courant indisponible|Marée indisponible/.test(brief));
+  // Parcours : conseils de courant de chaque bord, une réserve par bord
+  await page.click('#tabs button[data-tab=course]');
+  const parcours = (await texte(page, 'section[data-tab=course]')).replace(/\s+/g, ' ');
+  assert.ok((parcours.match(/\(estimation d’après l’atlas du Shom\)/g) || []).length >= 4, 'réserve sur les bords de la banane');
+  assert.match(parcours, /Courant \d,\d nd vers \d{3}° : (contre|avec) vous sur ce bord \(≈ [+−]/);
+  // Départ : courant à la ligne et dérive ; le mode départ plein écran reste celui de la v42
+  await page.click('#tabs button[data-tab=start]');
+  const depart = (await texte(page, 'section[data-tab=start]')).replace(/\s+/g, ' ');
+  assert.match(depart, /Courant à la ligne à 14:00, estimation\s*\d,\d nd → \d{3}°\s*vitesse · vers\s*\d+ m\/min/);
+  assert.match(depart, /Dérive : (porte vers la ligne de \d+ m\/min|vous en éloigne de \d+ m\/min|presque parallèle à la ligne)/);
+  assert.match(depart, /Le temps pour la ligne du mode départ suit la vitesse fond du GPS, courant compris ; le temps au près à pleine vitesse ne le compte pas\./);
+  // calque « Courant de marée » (coché, décochable)
+  await page.click('#mapBtns [data-v=layers]');
+  assert.equal(await page.locator('#layersMenu [data-layer=current]').count(), 1);
+  assert.match(await texte(page, '#layersMenu'), /Courant de marée \(flèches\)/);
+  assert.equal(await page.locator('#layersMenu [data-layer=current]').isChecked(), true);
+  await page.locator('#layersMenu [data-layer=current]').uncheck(); await page.locator('#layersMenu [data-layer=current]').check();
+  await page.click('#mapBtns [data-v=layers]');
+  // En course : courant au bateau (GPS en zone A, 9 h 00) et prochaine renverse
+  await page.click('#tabs button[data-tab=live]');
+  await page.click('#gOn');
+  await page.waitForSelector('#courantIci', { timeout: 30000 });
+  assert.match(await texte(page, '#courantIci'), /^Courant ici : \d,\d nd → \d{3}° · prochaine renverse vers 1[12] h \d\d \(estimation d’après l’atlas du Shom\)$/);
+  await page.click('#gOff');
+  sansErreur(erreurs, 'à Brest');
+  // retour à Toulon : aucune carte ni calque de courant
+  await cartePlanEau(page, 'ready');
+  await rechargePar(page, () => page.click('#pkGo'));
+  assert.equal((await etatApp(page)).venue, 'toulon');
+  assert.equal(await page.locator('#layersMenu [data-layer=current]').count(), 0, 'Toulon : pas de calque de courant');
+  await page.click('#tabs button[data-tab=brief]');
+  assert.ok(!/Courant à l’heure du départ|atlas du Shom|Marée à Brest/.test(await texte(page, 'section[data-tab=brief]')), 'Toulon : ni marée ni courant');
+  await page.click('#tabs button[data-tab=start]');
+  assert.ok(!/Courant à la ligne/.test(await texte(page, 'section[data-tab=start]')));
+  sansErreur(erreurs, 'retour à Toulon');
+  await ctx.close();
+}
+
+// ───────────────────────── GPEN 2027 en rade de Brest (07-09 : D-08, D-09, D-11)
+// À Brest, parcours 1 du GPEN par défaut, vent 270° / 10 nd le 6 mai 2027 à 14 h : bords 1, 2 (dégagement), porte 3S / 3P, 1, 2, 3P seule, arrivée
+// à droite du comité ; conseil de porte, courant au briefing ; seule Dist. 1 se règle ; marque 1 à 1,5 Nq hors de la zone A, signalée.
+// Arbitre simulé pour le scénario gpen : la vraie fonction api/rules.js avec un faux client (aucun appel réel), corps et consignes relevés
+async function arbitreSimule(ctx) {
+  const { createHandler } = await import('../api/rules.js');
+  const { createFakeBlob, invoke } = await import('../tests/helpers/fakeblob.mjs');
+  process.env.OPENAI_API_KEY ||= 'cle-de-test';
+  const appels = [], corps = [];
+  const client = { responses: { create: async (args) => { appels.push(args); return { status: 'completed', output_text: JSON.stringify({ verdict: 'Un seul tour suffit', explication: 'Au GPEN, la pénalité est d’un tour.', regles: [], ic: 'Pénalité d’un tour (IC 15.1).', attention: '' }) }; } } };
+  const handler = createHandler({ openai: client, blob: createFakeBlob(), now: () => Date.now() });
+  await ctx.route('**/api/rules', async (route) => {
+    const req = route.request(), body = JSON.parse(req.postData() || 'null');
+    corps.push(body);
+    const r = await invoke(handler, { method: req.method(), url: '/api/rules', body, headers: { 'x-rt-membre': encodeURIComponent(PRENOM_IA) } });
+    await route.fulfill({ status: r.status, contentType: 'application/json', body: JSON.stringify(r.body ?? null) });
+  });
+  return { appels, corps };
+}
+const questionArbitre = async (page, base, q) => {
+  await page.goto(base + 'regles.html', { waitUntil: 'load' });
+  await page.fill('#chatIn', q); await page.click('#chatGo');
+  await page.waitForSelector('#chatLog .msg.bot .verdict', { timeout: 15000 });
+};
+
+async function gpen({ browser, base }) {
+  const ctx = await ouvreContexte(browser, { heure: '2027-05-06T07:00:00Z' });          // jeudi 6 mai 2027, 9 h 00 à Paris
+  const ia = await arbitreSimule(ctx);
+  const { page, erreurs } = await ouvrePage(ctx);
+  await ouvreApp(page, base);
+  await cartePlanEau(page, 'absent');
+  await rechargePar(page, () => page.click('#pkGo'));
+  const st0 = await etatApp(page);
+  assert.equal(st0.venue, 'brest'); assert.equal(st0.courseId, 91, 'Brest : parcours 1 du GPEN par défaut'); assert.equal(st0.linePreset, 'zoneA');
+  await page.evaluate(() => {
+    const st = JSON.parse(localStorage.getItem('rade.state') || '{}');
+    localStorage.setItem('rade.state', JSON.stringify({ ...st, day: '2027-05-06', hour: 14, startTime: 14, src: 'manual', manual: { dir: 270, spd: 10, gust: 13 }, laps: 5 }));
+  });
+  await ouvreApp(page, base);
+  await page.click('#tabs button[data-tab=course]');
+  await page.waitForFunction(() => document.querySelectorAll('section[data-tab=course] .leg').length > 0, null, { timeout: 90000 });
+  const sel = await page.evaluate(() => [...document.querySelectorAll('#cSel option')].map((o) => o.textContent));
+  assert.deepEqual(sel, ['GPEN — parcours 1 (2 tours)', 'GPEN — parcours 2 (3 tours)', 'GPEN — Virginie Hériot', 'Banane (construite)']);
+  // le 6 mai 2027, la fiche semée du GPEN est la régate du jour, ici : ouverte au lancement ; ses IC n’ont pas de parcours, le catalogue reste proposé
+  assert.equal(await idOuverte(page), 'gpen-2027'); assert.equal(await texte(page, '#regBar .regname'), 'GPEN 2027 — J80');
+  assert.equal(await page.evaluate(() => document.querySelector('#cSel').previousElementSibling.textContent), 'Parcours — GPEN 2027 — J80');
+  const bords = await page.evaluate(() => [...document.querySelectorAll('section[data-tab=course] .leg .hd > span:first-child')].map((e) => e.textContent.replace(/\s+/g, ' ').trim()));
+  assert.equal(bords.length, 7, `bords : ${bords.join(' | ')}`);
+  assert.match(bords[0], /^1 n°1 tour 1$/); assert.match(bords[1], /^2 n°2 \(dégagement\) tour 1$/); assert.match(bords[2], /^3 n°3[SP] tour 1$/);
+  assert.match(bords[3], /^4 n°1 tour 2$/); assert.match(bords[4], /^5 n°2 \(dégagement\) tour 2$/); assert.match(bords[5], /^6 n°3P tour 2$/);
+  assert.equal(bords[6], 'Arrivée (à droite du comité)');
+  const parcours = (await texte(page, 'section[data-tab=course]')).replace(/\s+/g, ' ');
+  assert.match(parcours, /Porte 3S \/ 3P : (bouée 3[SP] conseillée — \d+ s de mieux|bouées équivalentes)/, 'conseil de porte');
+  assert.match(parcours, /Laisser 3P à BÂBORD/);
+  assert.match(parcours, /le comité fait foi/);
+  assert.equal(await page.locator('#cLaps').count(), 0, 'tours imposés : pas de champ « Tours »');
+  assert.equal(await page.locator('#cBanNm').count(), 1); assert.equal(await page.locator('#cBanFin').count(), 0);
+  assert.match(await texte(page, '#cBan label'), /^Dist\. 1 \(Nq\)$/);
+  assert.equal(await page.locator('#banZone').count(), 0, 'Dist. 1 de 0,8 Nq : parcours dans la zone A');
+  assert.equal(await page.locator('#banFond').count(), 0, '14 h, 270° : aucune bouée sur des fonds trop faibles');
+  await page.click('#tabs button[data-tab=brief]');
+  await page.waitForFunction(() => /Temps de parcours avec le courant de marée/.test(document.querySelector('section[data-tab=brief]')?.textContent || ''), null, { timeout: 90000 });
+  const brief = (await texte(page, 'section[data-tab=brief]')).replace(/\s+/g, ' ');
+  assert.match(brief, /Courant à l’heure du départ 14:00/);
+  assert.match(brief, /Tour 1 · Porte 3S \/ 3P : /);
+  assert.match(brief, /GPEN — parcours 1 \(2 tours\) estimé à \d/, 'briefing : titre du parcours (07-10)');
+  assert.doesNotMatch(brief, /Parcours 91 estimé/);
+  // marque 1 à 1,5 Nq : hors du cercle, signalée dans l’onglet Parcours et au briefing
+  await page.click('#tabs button[data-tab=course]');
+  await page.fill('#cBanNm', '1.5'); await page.locator('#cBanNm').dispatchEvent('change');
+  await page.waitForSelector('#banZone', { timeout: 90000 });
+  assert.match(await texte(page, '#banZone'), /^⚠ Marques 1, 2 \(dégagement\), 3P, 3S, Arrivée hors de la zone A \(cercle de 1,2 NM\) : réduisez Dist\. 1 \(Nq\)/);
+  await page.click('#tabs button[data-tab=brief]');
+  assert.match(await texte(page, 'section[data-tab=brief]'), /hors de la zone A \(cercle de 1,2 NM\)/);
+  await page.click('#tabs button[data-tab=course]');
+  await page.fill('#cBanNm', '0.8'); await page.locator('#cBanNm').dispatchEvent('change');
+  await page.waitForFunction(() => !document.querySelector('#banZone') && document.querySelectorAll('section[data-tab=course] .leg').length === 7, null, { timeout: 90000 });
+  // fiche du GPEN (onglet Régates) : mention de la fiche semée, règles des IC 2026
+  await page.click('#tabs button[data-tab=ic]');
+  await page.waitForSelector('#rgSheet', { timeout: 20000 });
+  assert.match(await texte(page, '#rgSemee'), /^Fiche semée par l’app \(IC 2026\) — à vérifier avec les IC 2027\.$/);
+  const ic = (await texte(page, 'section[data-tab=ic]')).replace(/\s+/g, ' ');
+  for (const re of [/VHF 14/, /Pénalité d’un tour au lieu de deux \(RCV 44\.1 modifiée/, /Jugement semi-direct possible en zone A/, /DNS sans instruction au-delà de 4 min/, /90 min pour le premier, 20 min après le premier/, /D’après les IC 2026 : à mettre à jour avec les IC 2027/, /Sigle J80/]) assert.match(ic, re);
+  assert.ok(!/G1 : C et D1|canal 72/.test(ic), 'aucune règle du CVAT');
+  // arbitre à Brest : la requête porte venue « brest », la consigne parle du GPEN (client simulé, aucun appel réel)
+  await questionArbitre(page, base, 'Combien de tours de pénalité ?');
+  assert.deepEqual(ia.corps.at(-1), { question: 'Combien de tours de pénalité ?', history: [], venue: 'brest' });
+  assert.match(ia.appels.at(-1).instructions, /rade de Brest/); assert.ok(!/CVAT/.test(ia.appels.at(-1).instructions));
+  assert.equal(await texte(page, '#chatLog .msg.bot .verdict'), 'Un seul tour suffit');
+  assert.match(await texte(page, '#chatLog .msg.bot .note'), /^IC du GPEN : Pénalité d’un tour/);
+
+  // débrief d’une trace courue sur le parcours 1 du GPEN (07-10) : trace du 6 mai 2027 au matin, parcours 91 noté par l’enregistreur
+  // (sans ligne ni axe) ; le parcours se reconstruit comme une banane (ligne recentrée dans la zone A, axe ajusté sur la trace).
+  // Modules lus dans l’app ouverte à Brest (même instance que l’app : plan d’eau et origine de Brest)
+  await ouvreApp(page, base);
+  const trId = await page.evaluate(async () => {
+    const [{ toXY, toLL, distXY, fromBearing }, { COURSES, LINE_PRESETS }, { buildLegs }, { courseBan, courseLaps }, { saveTrack }] = await Promise.all(
+      ['/js/geo.js', '/js/lieu.js', '/js/tactics.js', '/js/banane.js', '/js/track.js'].map((u) => import(u)));
+    const c = COURSES.find((x) => x.id === 91), S = { laps: 5, banNm: 0.8 };
+    const B = buildLegs(c, 'G', { laps: courseLaps(c, S), windDir: 270, ban: courseBan(c, S), line: { center: LINE_PRESETS.zoneA, lengthNm: 0.12, mode: 'wind', bearing: 0, override: null } });
+    const L = B.line.c, wps = [fromBearing(L, 120, 400), fromBearing(L, 200, 150), fromBearing(L, 20, 150), fromBearing(L, 120, 250), L];
+    for (const l of B.legs) wps.push(l.gate ? l.gate.d : l.to);
+    wps.push(fromBearing(wps.at(-1), 180, 600));
+    const pts = []; let t = Date.parse('2027-05-06T04:30:00Z');
+    for (let k = 1; k < wps.length; k++) {
+      const a = wps[k - 1], b = wps[k], n = Math.max(1, Math.round(distXY(a, b) / 10));
+      for (let i = k === 1 ? 0 : 1; i <= n; i++) { const ll = toLL(a.x + (b.x - a.x) * i / n, a.y + (b.y - a.y) * i / n); pts.push([t, +ll.lat.toFixed(6), +ll.lon.toFixed(6), 6, null]); t += 3000; }
+    }
+    const tr = { id: 'tr' + pts[0][0], name: 'Jeudi — GPEN — parcours 1 (2 tours)', start: pts[0][0], course: { id: 91, cls: 'G', laps: 2, day: '2027-05-06', startTime: 7 }, pts };
+    await saveTrack(tr);
+    return tr.id;
+  });
+  await ouvreApp(page, base);
+  await ongletTraces(page);
+  await page.click(`[data-tv="${trId}"]`);
+  await page.waitForSelector('#trBan', { timeout: 90000 });
+  const dT = (await texte(page, '#traceDetail')).replace(/\s+/g, ' ');
+  assert.match(dT, /Parcours reconstruit \(GPEN — parcours 1 \(2 tours\)\) : marque 1 à 0,8 Nq, axe (26[89]|27[012])° \(ajusté sur la trace\), 2 tours, réglages de l’app\./, `détail : ${dT.slice(0, 500)}`);
+  assert.match(dT, /Bord par bord/);
+  assert.match(dT, /3 · 3S \(porte : bouée prise\)/); assert.match(dT, /6 · 3P/); assert.match(dT, /7 · Arrivée \(à droite du comité\)/);
+  assert.doesNotMatch(dT, /non détectée/, `toutes les bouées retrouvées : ${dT.slice(0, 600)}`);
+  await page.click('#trDebrief');
+  await page.waitForSelector('#dqCourse', { timeout: 90000 });
+  assert.equal(await page.locator('#dqCourse').inputValue(), '91', 'le parcours du GPEN est proposé');
+  const qG = (await page.locator('#modal').textContent()).replace(/\s+/g, ' ');
+  assert.match(qG, /Parcours reconstruit \(GPEN — parcours 1 \(2 tours\)\) : marque 1 à 0,8 Nq/);
+  assert.match(qG, /Détecté : 1 → 2 → 3S → 1 → 2 → 3P → Arrivée\./);
+  await page.click('#dqGo');
+  await page.waitForSelector('#rpFrame, #dmGo', { state: 'attached', timeout: 120000 });
+  if (await page.locator('#dmGo').isVisible()) { await page.click('#dmGo'); await page.waitForSelector('#rpFrame', { state: 'attached', timeout: 120000 }); }
+  await page.waitForFunction(() => document.querySelector('#rpFrame')?.srcdoc?.length > 500, null, { timeout: 120000 });
+  const rpG = await page.evaluate(() => document.querySelector('#rpFrame').srcdoc);
+  assert.match(rpG, /GPEN — parcours 1 \(2 tours\) : 1 à 0,8 Nq, axe/, 'le rapport nomme le parcours du GPEN');
+  assert.match(rpG, /2 → 3S \(porte : bouée prise\)/); assert.match(rpG, /3P → Arrivée \(à droite du comité\)/);
+  await page.click('#rpClose');
+  sansErreur(erreurs, 'GPEN à Brest');
+  await ctx.close();
+
+  // Toulon, samedi 5 décembre 2026 : la fiche semée est « En préparation » avec la puce « Rade de Brest » ; l’ouvrir propose de passer à Brest
+  const ctxT = await ouvreContexte(browser, { heure: '2026-12-05T09:00:00Z' });
+  const iaT = await arbitreSimule(ctxT);
+  const T = await ouvrePage(ctxT);
+  await ouvreApp(T.page, base);
+  assert.equal(await T.page.evaluate(() => localStorage.getItem('rade.seed.gpen.v1')), '1', 'marqueur du semis posé');
+  const idx = await T.page.evaluate(() => JSON.parse(localStorage.getItem('rade.regates.v1')).list.filter((r) => r.id === 'gpen-2027'));
+  assert.equal(idx.length, 1); assert.equal(idx[0].venue, 'brest'); assert.equal(idx[0].at, Date.UTC(2026, 10, 19));
+  await T.page.click('#tabs button[data-tab=ic]');
+  const groupes = await lireListe(T.page), prep = groupes.find((g) => g.rows.some((r) => r.id === 'gpen-2027'));
+  assert.match(prep.status, /^En préparation/);
+  assert.equal(await T.page.locator('#rgList .rg[data-rg-row="gpen-2027"] .rgv').textContent(), 'Rade de Brest');
+  assert.equal(await idOuverte(T.page), '');
+  await T.page.click('#rgList [data-rg="gpen-2027"]');
+  await T.page.waitForSelector('#vnAsk', { timeout: 10000 });
+  assert.match(await texte(T.page, '#vnAsk p'), /Cette régate se court en rade de Brest/);
+  await T.page.click('#vnNo');
+  assert.equal(await idOuverte(T.page), '', 'Annuler : rien d’ouvert');
+  // relancée : toujours une seule fiche (jamais ressemée)
+  await ouvreApp(T.page, base);
+  assert.equal(await T.page.evaluate(() => JSON.parse(localStorage.getItem('rade.regates.v1')).list.filter((r) => r.id === 'gpen-2027').length), 1);
+  // arbitre à Toulon : corps de la v42 (aucun champ venue), consigne du CVAT
+  await questionArbitre(T.page, base, 'Bâbord ou tribord ?');
+  assert.deepEqual(iaT.corps.at(-1), { question: 'Bâbord ou tribord ?', history: [] });
+  assert.match(iaT.appels.at(-1).instructions, /rade de Toulon/);
+  assert.match(await texte(T.page, '#chatLog .msg.bot .note'), /^IC CVAT : /);
+  sansErreur(T.erreurs, 'fiche du GPEN à Toulon');
+  await ctxT.close();
+}
+
+async function brestAvion({ browser }) {
+  const { serveur, base, refuses } = await demarreServeur({ root: ROOT });
+  let arrete = false;
+  const ctxs = [];
+  try {
+    const ctxA = await ouvreContexte(browser, { heure: '2026-12-05T09:00:00Z', worker: true }); ctxs.push(ctxA);
+    const A = await ouvrePage(ctxA);
+    await ouvreApp(A.page, base);
+    await attendWorker(A.page);
+    await cartePlanEau(A.page, 'absent');
+    await rechargePar(A.page, () => A.page.click('#pkGo'));
+    assert.equal(await texte(A.page, '#regBar .regname'), 'Entraînement libre · Brest');
+    assert.equal((await cacheBrest(A.page))?.length, PACK_BREST.files.length, 'pack complet dans son cache');
+    assert.equal(await A.page.evaluate(() => !!navigator.serviceWorker.controller), true, 'A : page servie par le worker');
+    const ctxB = await ouvreContexte(browser, { heure: '2026-12-05T09:00:00Z', worker: true }); ctxs.push(ctxB);
+    const B = await ouvrePage(ctxB);
+    await ouvreApp(B.page, base);
+    await attendWorker(B.page);
+    assert.equal(await cacheBrest(B.page), null, 'B : aucun pack');
+    sansErreur(A.erreurs, 'A en ligne'); sansErreur(B.erreurs, 'B en ligne');
+    // serveur arrêté pour de bon
+    serveur.closeAllConnections?.();
+    await new Promise((ok) => serveur.close(ok));
+    arrete = true;
+    let repond = false;
+    try { await fetch(base, { signal: AbortSignal.timeout(3000) }); repond = true; } catch { /* connexion refusée : attendu */ }
+    assert.equal(repond, false, 'le serveur ne doit plus répondre');
+    // A : Brest hors réseau
+    await A.page.reload({ waitUntil: 'load' });
+    await pret(A.page);
+    assert.equal(await A.page.evaluate(() => !!navigator.serviceWorker.controller), true);
+    assert.equal(await texte(A.page, '#regBar .regname'), 'Entraînement libre · Brest');
+    await A.page.waitForFunction(() => /hors ligne/.test(document.querySelector('#wxNone')?.textContent || ''), null, { timeout: 30000 });
+    assert.match(await texte(A.page, '#wxNone'), /Pas encore de prévision chargée \(hors ligne\)\. Le mode « Manuel » reste disponible\./);
+    await cartePlanEau(A.page, 'ready');
+    assert.equal(await texte(A.page, '#pkState'), 'Rade de Brest : Prêt hors réseau');
+    sansErreur(A.erreurs, 'A hors réseau à Brest');
+    // B : choisi à Brest sans pack, hors réseau
+    await B.page.evaluate(() => { const st = JSON.parse(localStorage.getItem('rade.state') || '{}'); st.venue = 'brest'; localStorage.setItem('rade.state', JSON.stringify(st)); });
+    await B.page.reload({ waitUntil: 'load' });
+    await B.page.waitForSelector('#pkMissing', { timeout: 60000 });
+    assert.equal(await texte(B.page, '#pkMissing p'), `La rade de Brest n’est pas encore sur ce téléphone : connectez-vous pour la télécharger (${MO_BREST}), ou revenez à Toulon.`);
+    assert.equal(await texte(B.page, '#pkBack'), 'Revenir à la rade de Toulon');
+    assert.equal(await B.page.evaluate(() => window.__marks?.includes('rt:ui') && !window.__marks?.includes('rt:map')), true, 'interface utile sans carte');
+    await B.page.click('#tabs button[data-tab=start]');
+    assert.equal(await texte(B.page, '#tPhase'), 'Prêt', 'chrono utilisable');
+    await cartePlanEau(B.page, 'absent');
+    assert.equal(await texte(B.page, '#pkGo'), 'Revenir à la rade de Toulon');
+    sansErreur(B.erreurs, 'B hors réseau sans pack');
+    await rechargePar(B.page, () => B.page.click('#pkMissing #pkBack'));
+    assert.equal(await texte(B.page, '#regBar .regname'), 'Entraînement libre');
+    assert.equal((await etatApp(B.page)).venue, 'toulon');
+    sansErreur(B.erreurs, 'B revenu à Toulon hors réseau');
+    const refusees = refuses.filter((x) => x !== '/favicon.ico');
+    assert.deepEqual(refusees, [], 'aucun chemin refusé par la liste blanche');
+  } finally {
+    for (const c of ctxs) await c.close().catch(() => { /* déjà fermé */ });
+    if (!arrete) { serveur.closeAllConnections?.(); serveur.close(); }
+  }
+}
+
+// ───────────────────────── plan d’eau d’une régate (07-05 : D-05, D-06, D-04)
+
+// D-06 : A (Toulon) crée « Entraînement Brest » en rade de Brest (choix du formulaire) : elle n’est pas ouverte sur la carte de Toulon, la bascule est
+// proposée (Annuler), le bandeau dit « Régate du jour en rade de Brest ». Synchronisation : B (Toulon) la voit avec la puce « Rade de Brest », l’ouvre,
+// reçoit la proposition, « Passer » → pack téléchargé (absent), rechargement à Brest avec la régate ouverte ; relancée, l’app la rouvre (régate du jour, ici).
+async function regateBrest({ browser, base }) {
+  const m = await mondeArchive('2026-12-05T08:30:00Z');                                   // samedi 05/12/2026, 9 h 30 à Paris
+  const A = await telephoneArchive(browser, base, m, 'Teiva'), B = await telephoneArchive(browser, base, m, 'Thibaud');
+  const brest = [];
+  B.page.on('request', (r) => { const u = new URL(r.url()); if (u.pathname.startsWith('/data/brest.')) brest.push(u.pathname + u.search); });
+  // formulaire : « Plan d’eau », défaut = celui du téléphone
+  await A.page.click('#tabs button[data-tab=ic]'); await A.page.click('#rgNew');
+  assert.equal(await A.page.locator('#rgVenue').inputValue(), 'toulon', 'défaut : le plan d’eau du téléphone');
+  assert.deepEqual(await A.page.locator('#rgVenue option').allTextContents(), ['Rade de Toulon', 'Rade de Brest']);
+  await A.page.click('#rgCancel');
+  await creeRegate(A.page, { nom: 'Entraînement Brest', debut: '2026-12-05', club: 'GPEN', lieu: 'brest' });
+  await A.page.waitForSelector('#vnAsk', { timeout: 10000 });
+  assert.equal(await texte(A.page, '#vnAsk p'), 'Cette régate se court en rade de Brest. Passer sur ce plan d’eau ? L’app se recharge.');
+  assert.deepEqual(await A.page.locator('#vnAsk button').allTextContents(), ['Passer', 'Annuler']);
+  await A.page.click('#vnNo');
+  await A.page.waitForSelector('#vnAsk', { state: 'detached', timeout: 5000 });
+  assert.equal(await idOuverte(A.page), '', 'pas ouverte sur la carte de Toulon');
+  assert.equal(await texte(A.page, '#regBar .regname'), 'Régate du jour en rade de Brest', 'bandeau : régate du jour ailleurs');
+  assert.equal(await texte(A.page, '#regVenue'), 'Passer à la rade de Brest');
+  const enA = await A.page.evaluate(() => JSON.parse(localStorage.getItem('rade.regates.v1')).list.find((r) => r.name === 'Entraînement Brest'));
+  assert.equal(enA.venue, 'brest'); assert.ok(Number.isFinite(enA.vu), 'plan d’eau daté');
+  const id = enA.id;
+  await avanceHeure(m, 60e3); await synchronise(m, A);
+  assert.equal((await m.invoke(m.handler, { method: 'GET', url: '/api/archive?k=light', headers: { 'x-rt-membre': 'Romain' } })).body.doc.regattas[id].venue, 'brest', 'le serveur garde le plan d’eau');
+  await avanceHeure(m, 60e3); await synchronise(m, B);
+  // B (Toulon) : puce dans la liste, rien d’ouvert en silence
+  await B.page.click('#tabs button[data-tab=ic]');
+  const ligne = B.page.locator(`#rgList .rg[data-rg-row="${id}"]`);
+  assert.equal(await ligne.locator('.rgv').textContent(), 'Rade de Brest');
+  assert.equal(await idOuverte(B.page), '');
+  assert.deepEqual(brest, [], 'B à Toulon : aucun fichier de Brest demandé');
+  // B ouvre : proposition, « Passer » → téléchargement du pack (absent), rechargement à Brest, régate ouverte
+  await B.page.click(`#rgList [data-rg="${id}"]`);
+  await B.page.waitForSelector('#vnAsk', { timeout: 10000 });
+  assert.equal(await idOuverte(B.page), '', 'proposée, pas encore ouverte');
+  await rechargePar(B.page, () => B.page.click('#vnGo'));
+  for (const f of PACK_BREST.files.map((x) => x.path)) assert.ok(brest.includes(`/${f}?pack=${PACK_BREST.pack}`), `pack téléchargé à l’ouverture : ${f}`);
+  assert.equal((await etatApp(B.page)).venue, 'brest');
+  assert.equal(await idOuverte(B.page), id, 'régate rouverte après le rechargement');
+  assert.equal(await texte(B.page, '#regBar .regname'), 'Entraînement Brest');
+  assert.equal(await B.page.evaluate(() => localStorage.getItem('rade.venue.reopen')), null, 'passage lu une fois et effacé');
+  await B.page.click('#tabs button[data-tab=ic]');
+  assert.match(await texte(B.page, '#rgSheet'), /Rade de Brest/, 'la fiche montre le plan d’eau');
+  // relancée à Brest : la régate du jour est ici, elle s’ouvre comme d’habitude
+  await ouvreApp(B.page, base);
+  assert.equal(await idOuverte(B.page), id, 'régate du jour à Brest, ouverte au lancement');
+
+  // D-12 : recalage CVAT réservé à Toulon. B avait un recalage de la bouée 11 gardé avant de passer à Brest ; A (Toulon) recale la bouée 3 et synchronise.
+  // À Brest : aucun bouton « Recaler », le recalage gardé n’est pas appliqué, celui reçu est gardé sur le téléphone sans toucher aux marques.
+  const toulon = (page, k) => page.evaluate(async (n) => { const { MARKS } = await import('/js/courses.js'); const x = MARKS[n]; return { lat: x.lat, lon: x.lon, ov: x.ov ?? null }; }, k);
+  const lieu = (page) => page.evaluate(async () => { const l = await import('/js/lieu.js'); return { venue: l.VENUE.id, cles: Object.keys(l.MARKS) }; });
+  const origine3 = await toulon(A.page, 3);
+  assert.equal((await lieu(B.page)).venue, 'brest');
+  assert.ok(!(await lieu(B.page)).cles.some((k) => /^\d+$/.test(k)), 'aucune bouée du cahier CVAT dans les marques de Brest');
+  await B.page.click('#tabs button[data-tab=ic]');
+  assert.equal(await B.page.locator('[data-mkfix]').count(), 0, 'aucun bouton « Recaler » à Brest');
+  await B.page.evaluate(() => { const o = JSON.parse(localStorage.getItem('rade.marks.v1') || '{}'); o[11] = { lat: 43.0712, lon: 5.9231, src: 'saisie', t: Date.parse('2026-12-04T10:00:00Z') }; localStorage.setItem('rade.marks.v1', JSON.stringify(o)); });
+  await ouvreApp(B.page, base);
+  assert.equal((await toulon(B.page, 11)).ov, null, 'recalage gardé : pas appliqué au démarrage à Brest');
+  await A.page.click('#tabs button[data-tab=ic]'); await A.page.click('[data-mkfix="3"]');
+  await A.page.fill('#mkTxt', '43.0905 5.9587'); await A.page.click('#mkOk');
+  await A.page.waitForSelector('#mkTxt', { state: 'detached', timeout: 10000 });
+  await avanceHeure(m, 60e3); await synchronise(m, A);
+  await avanceHeure(m, 60e3); await synchronise(m, B);
+  const gardes = await B.page.evaluate(() => JSON.parse(localStorage.getItem('rade.marks.v1') || '{}'));
+  assert.deepEqual([gardes[3]?.lat, gardes[3]?.lon], [43.0905, 5.9587], 'recalage reçu : gardé sur le téléphone');
+  assert.equal(gardes[11]?.lat, 43.0712, 'recalage local toujours gardé');
+  assert.deepEqual(await toulon(B.page, 3), origine3, 'recalage reçu : pas appliqué à Brest');
+  assert.ok(!(await lieu(B.page)).cles.includes('3'));
+  assert.deepEqual(Object.keys((await syncMeta(B.page)).dirty || {}), [], 'rien à renvoyer');
+  assert.doesNotMatch(await B.page.evaluate(() => document.getElementById('toast')?.textContent || ''), /recalée/, 'aucun message de recalage à Brest');
+  // retour à Toulon (régate fermée d’abord, pas de course) : les deux recalages sont appliqués comme en v42
+  await fermeRegate(B.page);
+  await B.page.click('#tabs button[data-tab=ic]');
+  await rechargePar(B.page, () => B.page.click('#pkGo'));
+  assert.equal((await lieu(B.page)).venue, 'toulon');
+  const b3 = await toulon(B.page, 3), b11 = await toulon(B.page, 11);
+  assert.deepEqual([b3.lat, b3.lon, b3.ov?.src], [43.0905, 5.9587, 'saisie'], 'revenu à Toulon : recalage reçu appliqué');
+  assert.deepEqual([b11.lat, b11.lon], [43.0712, 5.9231], 'revenu à Toulon : recalage gardé appliqué');
+  await B.page.click('#tabs button[data-tab=ic]');
+  assert.ok(await B.page.locator('[data-mkfix="3"]').count(), '« Recaler » de retour à Toulon');
+
+  // Trace d’un autre plan d’eau : importée à Toulon, jamais analysée sur la carte de Toulon ; « Passer » → Brest, trace rouverte et analysée
+  const pts = Array.from({ length: 80 }, (_, i) => `<trkpt lat="${(48.29 + i * 0.0004).toFixed(6)}" lon="${(-4.37 + i * 0.0003).toFixed(6)}"><time>${new Date(Date.parse('2026-12-05T09:40:00Z') + i * 5000).toISOString()}</time></trkpt>`).join('');
+  const gpxBrest = `<?xml version="1.0" encoding="UTF-8"?><gpx version="1.1" creator="test" xmlns="http://www.topografix.com/GPX/1/1"><trk><trkseg>${pts}</trkseg></trk></gpx>`;
+  await ongletTraces(A.page);
+  await A.page.setInputFiles('#gpxIn', { name: 'brest.gpx', mimeType: 'application/gpx+xml', buffer: Buffer.from(gpxBrest) });
+  await A.page.waitForSelector('#trElse', { timeout: 30000 });
+  assert.equal(await texte(A.page, '#trElse p'), 'Cette trace a été faite en rade de Brest : passez sur ce plan d’eau pour la débriefer.');
+  assert.equal(await texte(A.page, '#trVenue'), 'Passer à la rade de Brest');
+  assert.equal(await A.page.locator('#traceDetail .kpis, #dqEvent').count(), 0, 'aucune analyse ni débrief sur la carte de Toulon');
+  await rechargePar(A.page, () => A.page.click('#trVenue'));
+  assert.equal((await etatApp(A.page)).venue, 'brest');
+  await A.page.waitForSelector('#traceDetail .kpis', { timeout: 60000 });
+  assert.equal(await A.page.locator('#trElse').count(), 0, 'à Brest : la trace est analysée');
+  sansErreur(A.erreurs, 'sur A'); sansErreur(B.erreurs, 'sur B');
+  await A.ctx.close(); await B.ctx.close();
+}
+
+const SCENARIOS = { accueil, 'jour-j': jourJ, 'deux-telephones': deuxTelephones, reprise, equipage, archive, 'archive-bouees': archiveBouees, archivehors: archiveHors, creer, manche, auteur, ic, 'depuis-ic': depuisIC, vraisemblance, gel, 'debrief-tardif': debriefTardif, gpx, 'gpx-choix': gpxChoix, ia, 'ia-erreurs': iaErreurs, arbitre, bouees, guide, entetes, 'retour-port': retourPort, banane, 'banane-manche': bananeManche, 'banane-debrief': bananeDebrief, 'porte-ic': porteIC, 'modifier-manche': modifierManche, 'toulon-vue': toulonVue, 'plan-eau': planEau, 'brest-avion': brestAvion, 'regate-brest': regateBrest, 'brest-courant': brestCourant, gpen };
 
 // ───────────────────────── lancement
 
@@ -2945,7 +3569,9 @@ async function main() {
   process.env.PW_REQUIRED = '1';                              // toujours exigeant : tools/pw.mjs sort en 2 si Chromium est introuvable
   const { launchChromium } = await import('./pw.mjs');       // import dynamique : un import statique serait évalué avant la ligne ci-dessus
 
-  const { serveur, base, refuses } = await demarreServeur({ root: ROOT });
+  // E2E_ROOT : racine SERVIE (une extraction d’une ancienne version) ; en-têtes et liste blanche restent ceux du dépôt
+  const servie = process.env.E2E_ROOT ? resolve(process.env.E2E_ROOT) + '/' : ROOT;
+  const { serveur, base, refuses } = await demarreServeur({ root: servie, entetes: ROOT });
   const ok = [];
   let browser, chromium = true;
   try {
