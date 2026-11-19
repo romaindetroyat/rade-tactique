@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 07
 current_phase_name: "Plans d'eau : Toulon et rade de Brest (GPEN)"
 status: executing
-stopped_at: Completed 07-04-PLAN.md
-last_updated: "2026-11-19T07:35:52.941Z"
+stopped_at: Completed 07-05-PLAN.md
+last_updated: "2026-11-19T08:21:49.135Z"
 last_activity: 2026-11-19
-last_activity_desc: Plan 07-04 — choix du plan d’eau en entraînement libre, pack de Brest vérifié dans un cache dédié gardé par le service worker, Brest hors réseau, Toulon identique
-state_head: b475802b7df57ccf875bc2218fa06da8ca9a72b6
+last_activity_desc: Plan 07-05 — plan d’eau d’une régate partagé par l’archive (registre vu, compatible v42), bascule proposée à l’ouverture, recalage CVAT réservé à Toulon, Toulon identique
+state_head: 4226b1bcf966a9d8cbe085b0c565c4d97bd5c5c6
 progress:
   total_phases: 7
   completed_phases: 5
   total_plans: 38
-  completed_plans: 32
+  completed_plans: 33
   percent: 71
 ---
 
@@ -28,9 +28,9 @@ See: .planning/PROJECT.md (updated 2026-10-19)
 ## Current Position
 
 Phase: 07 (Plans d'eau : Toulon et rade de Brest (GPEN)) — EXECUTING
-Plan: 5 of 10
-Status: Ready to execute 07-05
-Last activity: 2026-11-19 — Plan 07-04 : carte « Plan d’eau » (Régates), pack de Brest téléchargé et vérifié (SHA-256) dans rade-venue-brest-7aa34dd280, gardé par le worker et servi hors réseau, passage par rechargement jamais en course, Brest en mode avion (brest-avion) ; version 91c6ef73d4 ; ouverture hors réseau Toulon 374 ms (403 avant), Brest 373 ms ; 737 tests (736 verts, 1 sauté), gardes Toulon vertes ; essai iPhone D-15 à faire sur l’aperçu (07-04-SUMMARY) ; BREST-03 fait, BREST-02 attend la régate (07-05)
+Plan: 6 of 10
+Status: Ready to execute 07-06
+Last activity: 2026-11-19 — Plan 07-05 : une régate porte son plan d’eau (`venue`, registre daté par `vu`, jamais effacé par une copie v42), liste blanche serveur, `venueOf` (champ, sinon bouées confirmées), fenêtre « Passer » à l’ouverture d’une régate d’ailleurs (pack, rechargement, régate rouverte), bandeau de la régate du jour d’ailleurs, recalage CVAT à Toulon seulement (D-12), traces de Brest débriefées à Brest ; tools/compat-v42.mjs 7 OK, compat-v41 7 OK ; version 30bfa611a6 ; 753 tests (752 verts, 1 sauté), 34/34 scénarios, gardes Toulon vertes ; BREST-02 fait ; consigne : trois téléphones à jour le même jour (07-05-SUMMARY, limite (c))
 
 Progress: [███████░░░] 71%
 
@@ -90,6 +90,7 @@ Progress: [███████░░░] 71%
 | Phase 07 P02 | 25min | 3 tasks | 17 files |
 | Phase 07 P03 | 21min | 3 tasks | 20 files |
 | Phase 07 P04 | 50min | 3 tasks | 10 files |
+| Phase 07 P05 | 45min | 3 tasks | 18 files |
 
 ## Accumulated Context
 
@@ -175,6 +176,10 @@ Décisions récentes qui orientent le travail en cours :
 - [Phase 07]: 07-04 : pack de Brest téléchargé par la page, vérifié par taille et SHA-256 (crypto.subtle) avant toute écriture, tout ou rien dans rade-venue-brest-<pack> ; ancien cache supprimé après succès seulement
 - [Phase 07]: 07-04 : sw.js épargne rade-venue-* à l’activation, sert data/<id>.* hors liste depuis rade-venue-<id>-* (du plus ancien au plus récent), n’intercepte pas ?pack= ; Toulon inchangé
 - [Phase 07]: 07-04 : changer de plan d’eau = réglages rangés dans S.byVenue (VENUE_KEYS) puis rechargement, refusé par isActive pendant une course ; à Toulon, init() ne lit ni manifeste ni caches
+- [Phase 07]: 07-05 : venue fusionné comme un registre daté par vu, hors du duel de la fiche (règle du plan non associative, graine 27) ; une copie v42 ne l’efface jamais
+- [Phase 07]: 07-05 : une régate de Toulon n’a pas de champ venue (absent = Toulon) ; fiches de Toulon identiques à la v42
+- [Phase 07]: 07-05 : liste blanche serveur VENUE_IDS dans js/archmerge.js (seul module embarqué par la fonction, Pitfall 15)
+- [Phase 07]: 07-05 : régate d’un autre plan d’eau jamais ouverte sur la mauvaise carte ; Passer = packGo + rade.venue.reopen { rg, tr }
 
 ### Pending Todos
 
@@ -212,6 +217,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-11-19T07:35:52.774Z
-Stopped at: Completed 07-04-PLAN.md
+Last session: 2026-11-19T08:21:48.966Z
+Stopped at: Completed 07-05-PLAN.md
 Resume file: None
