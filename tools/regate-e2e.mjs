@@ -1,6 +1,8 @@
 // Scénarios de bout en bout des régates dans Chromium. Outil facultatif, hors npm test et hors package.json.
 //
 //   node tools/regate-e2e.mjs [scénario…]      (tous les scénarios si aucun nom n’est donné)
+//   E2E_ROOT=<dossier>    sert ce dossier au lieu du dépôt (extraction d’une ancienne version) ; en-têtes et liste blanche restent ceux du dépôt
+//   E2E_CAPTURE=<fichier> le scénario toulon-vue écrit sa capture dans ce fichier au lieu de comparer à tests/fixtures/vue-toulon-v42.json
 //
 // Déroulé : petit serveur HTTP du dépôt sur 127.0.0.1 ; Chromium en émulation mobile 390 × 844 (fr-FR, fuseau Europe/Paris), service
 // worker bloqué, toute requête vers un autre hôte interrompue, dessin WebGL neutralisé (voir INIT), accueil désactivé. L’heure de la page
@@ -13,9 +15,9 @@
 //   2 : Chromium ne peut pas être lancé (toujours exigé : PW_REQUIRED=1 est posé ici, jamais « mesure sautée »)
 //   0 : chaque scénario demandé a affiché « OK <nom> »
 
-import { readFileSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import assert from 'node:assert/strict';
 import { demarreServeur, lireEntetes, entetesPour } from './serveur-local.mjs';
 
@@ -2930,7 +2932,73 @@ async function modifierManche({ browser, base }) {
   await A.ctx.close(); await B.ctx.close();
 }
 
-const SCENARIOS = { accueil, 'jour-j': jourJ, 'deux-telephones': deuxTelephones, reprise, equipage, archive, 'archive-bouees': archiveBouees, archivehors: archiveHors, creer, manche, auteur, ic, 'depuis-ic': depuisIC, vraisemblance, gel, 'debrief-tardif': debriefTardif, gpx, 'gpx-choix': gpxChoix, ia, 'ia-erreurs': iaErreurs, arbitre, bouees, guide, entetes, 'retour-port': retourPort, banane, 'banane-manche': bananeManche, 'banane-debrief': bananeDebrief, 'porte-ic': porteIC, 'modifier-manche': modifierManche };
+// ───────────────────────── vues de Toulon figées (phase 7, D-01 : Toulon ne change pas d’un bord)
+
+const VUE_TOULON = join(ROOT, 'tests/fixtures/vue-toulon-v42.json');
+const VUE_SECTIONS = ['brief', 'course', 'start', 'live', 'wind'];
+// Quatre états d’entraînement libre, vent manuel (indépendant du réseau), rafale = force × 1,3 arrondie
+const VUE_ETATS = [
+  { nom: 'parcours 3, G, 2 tours, 315°/25 nd', st: { courseId: 3, cls: 'G', laps: 2, manual: { dir: 315, spd: 25, gust: 33 } } },
+  { nom: 'parcours 13, G, 2 tours, 265°/14 nd', st: { courseId: 13, cls: 'G', laps: 2, manual: { dir: 265, spd: 14, gust: 18 } } },
+  { nom: 'banane, G, 3 tours, réglages par défaut, 215°/10 nd', st: { courseId: 90, cls: 'G', laps: 3, manual: { dir: 215, spd: 10, gust: 13 } } },
+  { nom: 'parcours 9, P, 140°/14 nd', st: { courseId: 9, cls: 'P', laps: 2, manual: { dir: 140, spd: 14, gust: 18 } } },
+];
+// Texte visible d’une section, espaces normalisés ; seul le libellé de version (« vN · JJ/MM ») est retiré
+const texteSection = (page, tab) => page.evaluate((t) => document.querySelector(`section[data-tab=${t}]`).innerText, tab)
+  .then((x) => x.replace(/\s+/g, ' ').trim().replace(/\bv\d+ · \d{2}\/\d{2}\b/g, 'vN · JJ/MM'));
+// Texte d’une section une fois stable (deux lectures identiques à 700 ms d’intervalle)
+async function texteStable(page, tab, delai = 60000) {
+  const fin = Date.now() + delai;
+  let a = await texteSection(page, tab);
+  while (Date.now() < fin) {
+    await new Promise((r) => setTimeout(r, 700));
+    const b = await texteSection(page, tab);
+    if (a && a === b) return a;
+    a = b;
+  }
+  throw new Error(`section ${tab} jamais stable`);
+}
+// Premier écart entre deux textes : position et 120 caractères autour, des deux côtés
+const ecart = (a, b) => { let i = 0; while (i < a.length && i < b.length && a[i] === b[i]) i++; const z = (x) => JSON.stringify(x.slice(Math.max(0, i - 60), i + 60)); return `caractère ${i} : vu ${z(a)}, attendu ${z(b)}`; };
+
+// Texte des onglets Briefing, Parcours, Départ, En course et Vent de Toulon dans quatre états fixés, comparé à la capture de la v42 (56f6625).
+// E2E_CAPTURE=<fichier> : écrit la capture au lieu de comparer (à faire en servant l’extraction de 56f6625 : E2E_ROOT). Marée absente à Toulon.
+async function toulonVue({ browser, base }) {
+  const etats = [];
+  for (const { nom, st } of VUE_ETATS) {
+    const ctx = await ouvreContexte(browser, { heure: '2026-12-05T09:00:00Z' });        // samedi 05/12/2026, 10 h 00 à Paris
+    await ctx.addInitScript((s) => { localStorage.setItem('rade.state', JSON.stringify({ day: '2026-12-05', hour: 11, startTime: 11, src: 'manual', localFx: 1, ...s })); }, st);
+    const { page, erreurs } = await ouvrePage(ctx);
+    await ouvreApp(page, base);
+    assert.equal(await idOuverte(page), '', `${nom} : entraînement libre, aucune régate ouverte`);
+    await page.click('#tabs button[data-tab=course]');
+    await attendBords(page, (b) => b.length > 0, nom);
+    const sections = {};
+    for (const tab of VUE_SECTIONS) {
+      await page.click(`#tabs button[data-tab=${tab}]`);
+      sections[tab] = await texteStable(page, tab);
+      assert.ok(!/Marée|courant de marée/i.test(sections[tab]), `${nom}, ${tab} : aucune marée à Toulon`);
+    }
+    sansErreur(erreurs, nom);
+    etats.push({ nom, st, sections });
+    await ctx.close();
+  }
+  if (process.env.E2E_CAPTURE) {
+    writeFileSync(process.env.E2E_CAPTURE, JSON.stringify({ v: 42, from: '56f6625', etats }) + '\n');
+    console.log(`  capture écrite : ${process.env.E2E_CAPTURE} (${etats.length} états × ${VUE_SECTIONS.length} sections)`);
+    return;
+  }
+  const ref = JSON.parse(readFileSync(VUE_TOULON, 'utf8'));
+  assert.equal(ref.from, '56f6625', 'capture de la v42');
+  assert.equal(ref.etats.length, etats.length, 'nombre d’états');
+  for (const [i, e] of etats.entries()) {
+    const r = ref.etats[i];
+    assert.deepEqual(e.st, r.st, `état ${i + 1} : mêmes réglages que la capture`);
+    for (const tab of VUE_SECTIONS) if (e.sections[tab] !== r.sections[tab]) throw new Error(`${e.nom}, onglet ${tab} différent de la v42 — ${ecart(e.sections[tab], r.sections[tab])}`);
+  }
+}
+
+const SCENARIOS = { accueil, 'jour-j': jourJ, 'deux-telephones': deuxTelephones, reprise, equipage, archive, 'archive-bouees': archiveBouees, archivehors: archiveHors, creer, manche, auteur, ic, 'depuis-ic': depuisIC, vraisemblance, gel, 'debrief-tardif': debriefTardif, gpx, 'gpx-choix': gpxChoix, ia, 'ia-erreurs': iaErreurs, arbitre, bouees, guide, entetes, 'retour-port': retourPort, banane, 'banane-manche': bananeManche, 'banane-debrief': bananeDebrief, 'porte-ic': porteIC, 'modifier-manche': modifierManche, 'toulon-vue': toulonVue };
 
 // ───────────────────────── lancement
 
@@ -2945,7 +3013,9 @@ async function main() {
   process.env.PW_REQUIRED = '1';                              // toujours exigeant : tools/pw.mjs sort en 2 si Chromium est introuvable
   const { launchChromium } = await import('./pw.mjs');       // import dynamique : un import statique serait évalué avant la ligne ci-dessus
 
-  const { serveur, base, refuses } = await demarreServeur({ root: ROOT });
+  // E2E_ROOT : racine SERVIE (une extraction d’une ancienne version) ; en-têtes et liste blanche restent ceux du dépôt
+  const servie = process.env.E2E_ROOT ? resolve(process.env.E2E_ROOT) + '/' : ROOT;
+  const { serveur, base, refuses } = await demarreServeur({ root: servie, entetes: ROOT });
   const ok = [];
   let browser, chromium = true;
   try {
