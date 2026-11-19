@@ -1,0 +1,31 @@
+{
+ "v": 1,
+ "venues": {
+  "brest": {
+   "pack": "ed71b22a6a",
+   "bytes": 2658567,
+   "files": [
+    {
+     "path": "data/brest.coast.json",
+     "bytes": 136609,
+     "sha256": "8e522cd04296d2b3784b160bb20cfc22104fc1398f7a1dee7a5fd56092f57736"
+    },
+    {
+     "path": "data/brest.cover.bin",
+     "bytes": 840564,
+     "sha256": "014a9bf67a4ccebb556fbb3e5429e7d91323b23d466929ac3cafacc4e8dc479a"
+    },
+    {
+     "path": "data/brest.meta.json",
+     "bytes": 266,
+     "sha256": "f1f8f2cc1d8dbd3fe93bdf10e6a06dfa6916b5122ee93b043649721b159fc451"
+    },
+    {
+     "path": "data/brest.terrain.bin",
+     "bytes": 1681128,
+     "sha256": "f221f724128d42a97bb1d1949c7faa9fa5d9585e53e3ce3ac211c6e102f23202"
+    }
+   ]
+  }
+ }
+}

@@ -1,3 +1,4 @@
 node_modules/
 .DS_Store
 .planning/milestone.lock
+__pycache__/
