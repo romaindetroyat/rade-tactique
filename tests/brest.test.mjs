@@ -324,3 +324,87 @@ test('positions de ligne de Brest : zones A, B et C des IC 2026, en mer', { skip
   assert.ok(ecartM(L.zoneC, parseLatLon('48°23.120N 004°25.340W', BREST.inputBounds)) < 1, 'zone C (IC 2026)');
   for (const [k, p] of Object.entries(L)) { const q = xy(p.lat, p.lon); assert.ok(!t.isLand(q.x, q.y), `${k} en mer`); assert.ok(p.label, `${k} : libellé`); }
 });
+
+// ───────── Vents de Brest (07-06, D-14, D-14b) : étude § 1.3, § 3.5, § 3.6, pièges 1, 9 et 10
+import * as tactics from '../js/tactics.js';
+
+const IDS_REGIMES = ['calme', 'suroit', 'ouest', 'noroit', 'nord', 'nordet', 'est', 'sud'];
+const ORIGINES = ['D', 'M', 'C', 'S', 'H'];
+
+test('régimes de Brest : huit, chaque direction (0 à 359°) et chaque force (0 à 30 nd) dans exactement un régime', () => {
+  const R = BREST.regimes;
+  assert.deepEqual(R.map((r) => r.id), IDS_REGIMES);
+  for (let d = 0; d < 360; d++) for (let s = 0; s <= 30; s += 0.5) {
+    const ok = R.filter((r) => r.test(d, s));
+    assert.equal(ok.length, 1, `${d}° ${s} nd : ${ok.map((r) => r.id).join(', ') || 'aucun'}`);
+    assert.equal(tactics.regimeOf(d, s), ok[0], `regimeOf ${d}° ${s} nd`);
+  }
+  const de = (d, s = 12) => tactics.regimeOf(d, s).id;
+  assert.deepEqual([de(100, 3.9), de(100, 4), de(199), de(200), de(225), de(249), de(250), de(289), de(290), de(339), de(340), de(0), de(19), de(20), de(69), de(70), de(119), de(120), de(180)],
+    ['calme', 'est', 'sud', 'suroit', 'suroit', 'suroit', 'ouest', 'ouest', 'noroit', 'noroit', 'nord', 'nord', 'nord', 'nordet', 'nordet', 'est', 'est', 'sud', 'sud']);
+  assert.equal(tactics.regimeOf(225, 14).name, 'Suroît (sud-ouest)');
+});
+
+test('conseils de Brest : chacun porte son origine (D, M, C, S, H) ; une hypothèse s’affiche « à confirmer sur l’eau »', () => {
+  let h = 0;
+  for (const r of BREST.regimes) {
+    assert.ok(r.tips.length >= 2, `${r.id} : au moins deux conseils`);
+    for (const c of r.tips) {
+      assert.ok(c && typeof c.t === 'string' && c.t.length > 10, `${r.id} : texte`);
+      assert.ok(ORIGINES.includes(c.o), `${r.id} : origine ${c.o}`);
+      assert.ok(!/'/.test(c.t), `${r.id} : apostrophe typographique`);
+      const vu = tactics.tipText(c);
+      if (c.o === 'H') { h++; assert.ok(vu.endsWith('(à confirmer sur l’eau)'), `${r.id} : hypothèse affichée sans réserve`); }
+      else assert.equal(vu, c.t);
+    }
+  }
+  assert.ok(h >= 4, 'des hypothèses sont signalées');
+  assert.equal(tactics.tipText('Conseil de Toulon.'), 'Conseil de Toulon.', 'les chaînes de Toulon sont affichées telles quelles');
+  for (const o of ORIGINES) assert.ok(tactics.ORIGINES[o], `libellé de l’origine ${o}`);
+  assert.match(BREST.texts.origine, /hypothèses sont à confirmer sur l’eau/);
+});
+
+test('vents prédéfinis de Brest : les neuf de l’étude § 3.6', () => {
+  assert.deepEqual(BREST.presets, [['Suroît', 225, 14, 20], ['Ouest', 270, 12, 17], ['Brise d’ouest', 275, 9, 12], ['Noroît', 315, 12, 18], ['Nord', 0, 9, 14],
+    ['Nordet', 45, 12, 17], ['Est', 90, 8, 12], ['Sud', 180, 10, 15], ['Petit temps', 90, 4, 6]]);
+});
+
+test('pas de vent en direct ni de houle du large à Brest (D-14b, piège 9)', () => {
+  assert.equal(BREST.weather.live, null);
+  assert.equal(BREST.weather.marine, null);
+});
+
+// Facteur du champ de vent sur les cellules d’eau intérieures (mêmes cellules que la référence de js/wind.js)
+function eau(F, kit) {
+  const v = []; let ref = 0;
+  for (let j = 1; j < F.ny - 1; j++) for (let i = 1; i < F.nx - 1; i++) { const id = j * F.nx + i; if (!F.land[id]) { v.push(kit.fac[id]); if (F.distLand[id] > F.openSea) ref++; } }
+  v.sort((a, b) => a - b);
+  return { ref, med: v[v.length >> 1], haut: v.filter((x) => x > 1).length / v.length };
+}
+
+test('référence « mer dégagée » de Brest : au moins 50 cellules, facteur médian de l’eau entre 0,9 et 1,1, pas d’accélération partout (piège 1)', { skip: sansPack }, async () => {
+  const t = await terrain(), F = new WindField(t, BREST.wind);
+  assert.equal(BREST.wind.openSea, 1500);
+  for (const d of [270, 150, 45, 0]) {
+    const e = eau(F, F.kit(d));
+    assert.ok(e.ref >= 50, `${d}° : ${e.ref} cellules de référence`);
+    assert.ok(e.med >= 0.9 && e.med <= 1.1, `${d}° : facteur médian ${e.med.toFixed(3)}`);
+    assert.ok(e.haut <= 0.8, `${d}° : ${(e.haut * 100).toFixed(0)} % de l’eau accélérée`);
+  }
+  // contrôle négatif : le seuil de Toulon (4 000 m) ne garde que l’Iroise à l’ouest du goulet, et la rade paraît déventée partout
+  const G = new WindField(t, { cell: BREST.wind.cell }), e = eau(G, G.kit(150));
+  assert.ok(e.ref < 200 && e.med < 0.9, `seuil de Toulon : ${e.ref} cellules, médiane ${e.med.toFixed(3)}`);
+});
+
+// Dévent (shel du kit) au centre des zones A et B. L’étude (§ 1.3) l’a calculé sur la mosaïque Terrarium (12,7 m) ; ici la grille de 30 m :
+// tolérance large (zone A, 150° : étude 0,26, accepté de 0,15 à 0,35 ; 270° et 0° : 0,00, accepté jusqu’à 0,10 ; zone B, 270° : 0,34, accepté dès 0,20)
+test('dévent au centre des zones A et B conforme à l’étude § 1.3', { skip: sansPack }, async () => {
+  const t = await terrain(), F = new WindField(t, BREST.wind);
+  const cell = (lat, lon) => { const p = xy(lat, lon); return Math.floor((F.y1 - p.y) / F.dy) * F.nx + Math.floor((p.x - F.x0) / F.dx); };
+  const A = cell(48.29817, -4.3605), B = cell(48.2840, -4.4108);
+  const sh = (d, c) => F.kit(d).shel[c];
+  assert.ok(sh(150, A) >= 0.15 && sh(150, A) <= 0.35, `zone A, 150° : ${sh(150, A).toFixed(2)}`);
+  assert.ok(sh(270, A) <= 0.1, `zone A, 270° : ${sh(270, A).toFixed(2)}`);
+  assert.ok(sh(0, A) <= 0.1, `zone A, 0° : ${sh(0, A).toFixed(2)}`);
+  assert.ok(sh(270, B) >= 0.2, `zone B, 270° : ${sh(270, B).toFixed(2)}`);
+});
