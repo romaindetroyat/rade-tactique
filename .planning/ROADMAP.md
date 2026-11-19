@@ -230,11 +230,12 @@ Plans:
   5. À Brest, l'app donne l'heure et la hauteur de la marée et le courant de l'atlas du Shom par heure de marée, hors réseau ; le routage (vitesse fond, marge de 1 m sur les fonds), les conseils (renverses, côté favorable) et l'affichage (briefing, carte, Départ, En course) en tiennent compte ; rien de cela à Toulon
   6. La fiche « GPEN 2027 — J80 » est semée ; les parcours 1 et 2 de la zone A (arrivée à droite du comité) et la variante Virginie Hériot sont proposés ; l'arbitre, le débrief et la dictée suivent les IC du GPEN à Brest et celles du CVAT à Toulon, mot pour mot
   7. v43 sur l'aperçu `apercu-phase-07`, vérifiée (tous les scénarios, dont Toulon identique et Brest : choix, téléchargement, mode avion, régate partagée, courant, GPEN), puis en production sur « publie » de Romain au plus tard le 10 décembre 2026
-**Plans:** 10 plans (vagues séquentielles : mêmes fichiers générés `sw.js`, `js/version.js` et outil `tools/regate-e2e.mjs`)
+
+**Plans:** 1/10 plans executed (vagues séquentielles : mêmes fichiers générés `sw.js`, `js/version.js` et outil `tools/regate-e2e.mjs`)
 
 Plans:
 **Wave 1**
-- [ ] 07-01-PLAN.md — Gel de Toulon : calculs, données et vues de la v42 capturés sur 56f6625 avant toute modification (`tests/toulon.test.mjs`, scénario `toulon-vue`), gardes en une commande (`tools/gardes-toulon.mjs`) (vague 1)
+- [x] 07-01-PLAN.md — Gel de Toulon : calculs, données et vues de la v42 capturés sur 56f6625 avant toute modification (`tests/toulon.test.mjs`, scénario `toulon-vue`), gardes en une commande (`tools/gardes-toulon.mjs`) (vague 1)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 - [ ] 07-02-PLAN.md — Le plan d'eau dans le moteur, sans effet sur Toulon : registre `js/venues.js`, `js/venue-brest.js`, `js/lieu.js` (exports vivants), `setOrigin`, longitudes Ouest, bornes et lecture des positions, météo, vent et vues par plan d'eau (vague 2)

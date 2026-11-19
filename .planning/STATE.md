@@ -1,19 +1,19 @@
 ---
 gsd_state_version: "1.0"
-current_phase: 06
-current_phase_name: "Parcours banane : dégagement, porte sous le vent, arrivée décalée"
+current_phase: 07
+current_phase_name: "Plans d'eau : Toulon et rade de Brest (GPEN)"
 status: executing
-stopped_at: "06-04 tâche 1 faite (v38 locale db7df7f) — point de décision tâche 2 : poussée, PR brouillon, « publie » de Romain"
-last_updated: "2026-10-23T18:58:01.400Z"
-last_activity: 2026-10-23
-last_activity_desc: Plan 06-04 partie autonome (guide, aide, v38 locale vérifiée) — point de décision production
-state_head: db7df7ff99dd765448df8f40106d60864b6c928c
+stopped_at: Completed 07-01-PLAN.md
+last_updated: "2026-11-19T06:16:09.250Z"
+last_activity: 2026-11-19
+last_activity_desc: Plan 07-01 — gel de Toulon v42 (calculs, données, vues) et gardes en une commande
+state_head: 0558f2ebb2158dcb7555676dedbc81addf873d3c
 progress:
-  total_phases: 6
+  total_phases: 7
   completed_phases: 5
-  total_plans: 28
-  completed_plans: 28
-  percent: 83
+  total_plans: 38
+  completed_plans: 29
+  percent: 71
 ---
 
 # Project State
@@ -23,16 +23,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-10-19)
 
 **Core value:** Le jour de la régate, l'équipage peut ouvrir l'épreuve, s'en servir en mer sans que rien ne lâche, et retrouver ensuite le débrief : des conseils et des chiffres justes, fiables sur l'eau, et partagés par tout l'équipage.
-**Current focus:** Phase 06 — Parcours banane : dégagement, porte sous le vent, arrivée décalée
+**Current focus:** Phase 07 — Plans d'eau : Toulon et rade de Brest (GPEN)
 
 ## Current Position
 
-Phase: 06 (Parcours banane : dégagement, porte sous le vent, arrivée décalée) — EXECUTING
-Plan: 4 of 4
-Status: Checkpoint — décision de production (06-04 tâche 2)
-Last activity: 2026-10-23 — Plan 06-04, partie autonome : guide et aide de la banane, v38 locale (`db7df7f`, hash bc914d22fb) vérifiée (638 tests, 28 scénarios, compat v37, porte en production) ; non poussée, `main` distante = v37 (6e7af98)
+Phase: 07 (Plans d'eau : Toulon et rade de Brest (GPEN)) — EXECUTING
+Plan: 2 of 10
+Status: Ready to execute 07-02
+Last activity: 2026-11-19 — Plan 07-01 : Toulon v42 figé sur 56f6625 (tests/toulon.test.mjs, 9 tests ; scénario toulon-vue ; tools/gardes-toulon.mjs), 684 tests verts ; js/ et data/ inchangés ; branche apercu-phase-07 non poussée
 
-Progress: [████████░░] 83%
+Progress: [███████░░░] 71%
 
 ## Performance Metrics
 
@@ -86,6 +86,7 @@ Progress: [████████░░] 83%
 | Phase 06 P02 | 13 min | 3 tasks | 8 files |
 | Phase 06 P03 | 15 min | 3 tasks | 15 files |
 | Phase 06 P04 | 19 min | 1 tasks | 6 files |
+| Phase 07 P01 | 18min | 3 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -161,6 +162,7 @@ Décisions récentes qui orientent le travail en cours :
 - [Phase 06]: 06-03 : un parcours de régate n’est injecté que lorsque toutes ses bouées (porte et arrivée comprises) sont confirmées ; une arrivée de type illisible empêche l’injection (jamais devinée)
 - [Phase 06]: 06-03 : au débrief, une porte compte un seul passage, la bouée approchée de plus près dans les 180 s ; un téléphone v37 voit la porte comme sa première bouée et l’arrivée sur la ligne de départ, ses fusions gardent porte, arrivée et ban (tools/compat-v37.mjs)
 - [Phase 06]: 06-04 : aide intégrée — textes construits par le code (conseil de porte, « Arrivée : entre le Comité et F ») en gras, jamais entre « » ; le guide nomme la v38 pour la mise à jour des trois téléphones avant la CVAT
+- [Phase 07]: 07-01 : Toulon v42 figé sur 56f6625 (tests/toulon.test.mjs dans npm test, scénario toulon-vue) ; tools/gardes-toulon.mjs avant tout commit qui touche js/ ou data/
 
 ### Pending Todos
 
@@ -198,6 +200,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-10-23T18:58:01.214Z
-Stopped at: 06-04 tâche 1 faite (v38 locale db7df7f) — point de décision tâche 2 : poussée, PR brouillon, « publie » de Romain
-Resume file: .planning/phases/06-parcours-banane/06-04-SUMMARY.md
+Last session: 2026-11-19T06:16:09.113Z
+Stopped at: Completed 07-01-PLAN.md
+Resume file: None
