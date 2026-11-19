@@ -893,3 +893,89 @@ test('venueCardHTML : course en cours → #pkGo désactivé « Pas pendant une c
   const inconnu = carteVenue({ venueId: 'toulon', status: { state: '<b>x</b>', bytes: 1 } });
   assert.match(inconnu.querySelector('#pkState').textContent, /état en cours de lecture/, 'état inconnu jamais affiché tel quel');
 });
+
+// ───────────────────────── fiche « GPEN 2027 — J80 » semée (07-09, D-08)
+test('seedGpen : fiche gpen-2027 ajoutée une seule fois, instant fixe, sans auteur, plan d’eau Brest ; marqueur posé après le semis', async () => {
+  const R = await import('../js/regates.js');
+  assert.equal(R.GPEN_ID, 'gpen-2027');
+  assert.equal(R.GPEN_AT, Date.UTC(2026, 10, 19, 0, 0, 0));
+  const s = mem(), st = migrate({ storage: s, now: t('2026-12-01T08:00:00Z'), by: 'Teiva' });
+  const n = R.seedGpen(st, { storage: s });
+  assert.notEqual(n, st);
+  const g = n.list.find((r) => r.id === 'gpen-2027');
+  assert.ok(g);
+  assert.equal(g.name, 'GPEN 2027 — J80'); assert.equal(g.club, 'AGPEN — École navale');
+  assert.equal(g.dateStart, '2027-05-05'); assert.equal(g.dateEnd, '2027-05-09'); assert.equal(g.season, '2027');
+  assert.equal(g.venue, 'brest');
+  assert.equal(g.at, R.GPEN_AT); assert.equal(g.by, null); assert.equal(g.u, R.GPEN_AT); assert.equal(g.ub, null); assert.equal(g.vu, R.GPEN_AT);
+  assert.equal(g.ic.read, 'semee'); assert.deepEqual(g.ic.validated, { by: null, at: R.GPEN_AT });
+  assert.equal(s.getItem('rade.seed.gpen.v1'), '1', 'marqueur posé');
+  assert.equal(n.list.filter((r) => r.id === 'snpm-2026').length, 1, 'Coupe SNPM toujours là');
+  assert.equal(R.seedGpen(n, { storage: mem() }), n, 'déjà présente : même objet');
+});
+
+test('seedGpen : deux téléphones qui la sèment séparément ont la même fiche (canon) ; la fusion de l’archive n’en garde qu’une', async () => {
+  const R = await import('../js/regates.js'), M = await import('../js/archmerge.js'), Y = await import('../js/archsync.js');
+  const a = R.seedGpen(migrate({ storage: mem(), now: t('2026-12-01T08:00:00Z'), by: 'Teiva' }), { storage: mem() });
+  const b = R.seedGpen(migrate({ storage: mem(), now: t('2026-12-03T18:00:00Z'), by: 'Thibaud' }), { storage: mem() });
+  const ga = a.list.find((r) => r.id === 'gpen-2027'), gb = b.list.find((r) => r.id === 'gpen-2027');
+  assert.equal(M.canon(M.toShared(ga)), M.canon(M.toShared(gb)));
+  // première synchronisation d’un téléphone (marquage des anciens éléments) : la graine garde son instant et son absence d’auteur
+  assert.equal(M.legacyStamp(a).list.find((r) => r.id === 'gpen-2027').ub, null);
+  const m = M.mergeDoc(Y.buildDoc(a, { marks: {} }), Y.buildDoc(b, { marks: {} }));
+  assert.equal(Object.keys(m.regattas).filter((k) => k === 'gpen-2027').length, 1);
+  assert.equal(M.canon(m.regattas['gpen-2027']), M.canon(M.toShared(ga)));
+});
+
+test('seedGpen : pierre tombale dans l’index ou marqueur posé → rien n’est semé (une fiche supprimée ne revient pas)', async () => {
+  const R = await import('../js/regates.js');
+  const base = migrate({ storage: mem(), now: t('2026-12-01T08:00:00Z'), by: 'Teiva' });
+  const tombe = { ...base, tomb: { 'gpen-2027': { t: t('2026-12-02T08:00:00Z'), by: 'Teiva' } } };
+  assert.equal(R.seedGpen(tombe, { storage: mem() }), tombe);
+  const s = mem({ 'rade.seed.gpen.v1': '1' });
+  assert.equal(R.seedGpen(base, { storage: s }), base);
+  // supprimée puis relancée : stampState pose la pierre tombale, seedGpen n’y touche plus
+  const seme = R.seedGpen(base, { storage: mem() });
+  const M = await import('../js/archmerge.js');
+  const sans = M.stampState(seme, removeRegatta(seme, 'gpen-2027'), { now: t('2026-12-02T08:00:00Z'), by: 'Teiva' }).st;
+  assert.ok(sans.tomb['gpen-2027']);
+  assert.equal(R.seedGpen(sans, { storage: mem() }), sans);
+  // stockage illisible : la fiche est semée quand même (l’index la garde), sans exception
+  const casse = { getItem() { throw new Error('refus'); }, setItem() { throw new Error('refus'); } };
+  assert.ok(R.seedGpen(base, { storage: casse }).list.some((r) => r.id === 'gpen-2027'));
+});
+
+test('fiche GPEN : règles des IC 2026 (VHF 14, zone A, un tour, semi-direct, DNS 4 min, orange 2 min, temps limites, classement, bout-dehors, gilet, réclamations, zones interdites, Virginie Hériot), mention IC 2027', async () => {
+  const R = await import('../js/regates.js');
+  const g = R.seedGpen(migrate({ storage: mem(), now: t('2026-12-01T08:00:00Z') }), { storage: mem() }).list.find((r) => r.id === 'gpen-2027');
+  const f = g.ic.fields, ic = icOf(g);
+  assert.equal(f.vhf, 14); assert.equal(ic.vhf, 14);
+  assert.equal(f.zone, 'Zone A — École Navale : cercle de 1,2 NM centré 48°17,890 N 004°21,630 W');
+  assert.deepEqual(f.classes, [['J80', 'Sigle J80']]); assert.deepEqual(ic.classes, [['J80', 'Sigle J80']], 'pas les pavillons du CVAT');
+  assert.ok(!ic.groups.some((x) => /G1 : C et D1/.test(x)), 'pas les groupes du CVAT');
+  const regles = f.keyRules.join('\n');
+  for (const re of [/D’après les IC 2026 : à mettre à jour avec les IC 2027 \(fin avril 2027\)/, /pénalité d’un tour/i, /RCV 44\.1 modifiée/, /semi-direct/, /pavillon rouge/, /« Protest »/,
+    /DNS[^\n]*4 min/, /orange[^\n]*2 min avant le signal d’avertissement/, /90 min[^\n]*20 min/, /3 courses pour valider/, /retirée dès 4 courses/, /Bout-dehors[^\n]*spi/, /gilet/i,
+    /60 min après/, /Île Longue[^\n]*0 à 10/, /Pen ar Vir/, /Virginie Hériot[^\n]*chapelle/]) assert.match(regles, re);
+  assert.ok(!/'/.test(regles), 'apostrophe typographique ’');
+  assert.ok(!/CVAT|Toulon/.test(JSON.stringify(f)), 'aucune règle du CVAT');
+});
+
+test('fiche GPEN : « En préparation » le 5 décembre 2026, puce « Rade de Brest », mention « Fiche semée par l’app (IC 2026) — à vérifier avec les IC 2027 »', async () => {
+  const R = await import('../js/regates.js');
+  const g = R.seedGpen(migrate({ storage: mem(), now: t('2026-12-01T08:00:00Z') }), { storage: mem() }).list.find((r) => r.id === 'gpen-2027');
+  assert.equal(regattaStatus(g, t('2026-12-05T09:00:00Z')), 'avenir');
+  assert.equal(STATUS_LABEL[regattaStatus(g, t('2026-12-05T09:00:00Z'))], 'En préparation');
+  const { document } = parseHTML(`<div>${sheetHTML(g, { now: t('2026-12-05T09:00:00Z') })}</div>`);
+  const txt = document.querySelector('#rgSheet').textContent.replace(/\s+/g, ' ');
+  assert.match(txt, /GPEN 2027 — J80/); assert.match(txt, /Rade de Brest/);
+  assert.match(txt, /Fiche semée par l’app \(IC 2026\) — à vérifier avec les IC 2027/);
+  const liste = parseHTML(`<div>${listHTML(groupByStatus([g], t('2026-12-05T09:00:00Z')), { now: t('2026-12-05T09:00:00Z') })}</div>`).document;
+  assert.match(liste.querySelector('div').textContent, /Rade de Brest/);
+  assert.equal(document.querySelectorAll('script, img, iframe').length, 0);
+});
+
+test('câblage : seedGpen appelé juste après seedNorm, l’index réécrit seulement si l’objet change', () => {
+  const app = readFileSync(ROOT + 'js/app.js', 'utf8');
+  assert.match(app, /\{ const seeded = seedNorm\(REG\); if \(seeded !== REG\) \{ REG = seeded; saveRegattas\(localStore\(\), REG\); \} \}\n\{ const g = seedGpen\(REG, \{ storage: localStore\(\) \}\); if \(g !== REG\) \{ REG = g; saveRegattas\(localStore\(\), REG\); \} \}/);
+});
