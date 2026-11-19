@@ -4,19 +4,50 @@ Entrées : DATA (osm_extract.json, tiles/13_x_y.png) et OUT/terrain.bin + meta.j
 Sorties (OUT) :
   basemap.jpg  couleurs terre (altitude, ombrage, zones urbaines) et fonds marins (profondeur, ombrage)
   seamask.png  masque mer (blanc) / terre (noir) au trait de côte OSM, pour découper la surface de l'eau
-Usage : python3 tools/build_basemap.py <dossier-données> data
+Usage : python3 tools/build_basemap.py <dossier-données> data [--config tools/venues/<plan d'eau>.json]
+Sans --config : Toulon à l'identique (graines écrites à la main, noms sans préfixe).
+Avec --config : entrées et sorties préfixées (brest.meta.json, brest.terrain.bin lus ; brest.basemap.jpg, brest.seamask.png écrits),
+graines de la mer tirées du terrain construit (cellules de brest.cover.bin en mer dont le fond de brest.terrain.bin est sous le seuil).
 """
 import json, math, os, sys
 import numpy as np
 from PIL import Image, ImageDraw, ImageFilter
 
-DATA, OUT = sys.argv[1], sys.argv[2]
-meta = json.load(open(os.path.join(OUT, 'meta.json')))
+args = sys.argv[1:]
+CFG = None
+if '--config' in args:
+    k = args.index('--config')
+    CFG = json.load(open(args[k + 1], encoding='utf-8'))
+    del args[k:k + 2]
+DATA, OUT = args[0], args[1]
+PREFIX = CFG['prefix'] if CFG else ''
+OSM = os.path.join('osm', 'osm_extract.json') if CFG else 'osm_extract.json'
+QUALITY = CFG.get('basemapQuality', 84) if CFG else 84
+meta = json.load(open(os.path.join(OUT, PREFIX + 'meta.json'), encoding='utf-8'))
 W0, E0, S0, N0 = meta['west'], meta['east'], meta['south'], meta['north']
 KX = math.cos(math.radians((S0 + N0) / 2)) * 111320
 WIDTH = 4096
 HEIGHT = round(WIDTH * (N0 - S0) * 110574 / ((E0 - W0) * KX))
-o = json.load(open(os.path.join(DATA, 'osm_extract.json')))
+o = json.load(open(os.path.join(DATA, OSM)))
+
+def sea_seeds():
+    """Graines de la mer tirées du terrain construit : centres des cellules en mer (cover 0) dont le fond est sous le seuil,
+    entourées de mer sur leurs huit voisines ; une cellule sur `stride`."""
+    nx, ny = meta['nx'], meta['ny']
+    cov = np.fromfile(os.path.join(OUT, PREFIX + 'cover.bin'), np.uint8).reshape(ny, nx)
+    hh = np.fromfile(os.path.join(OUT, PREFIX + 'terrain.bin'), '<i2').reshape(ny, nx).astype(np.float32) / 10
+    ok = (cov == 0) & (hh < CFG['seeds']['depthBelow'])
+    core = ok.copy()
+    core[1:-1, 1:-1] = ok[1:-1, 1:-1] & ok[:-2, 1:-1] & ok[2:, 1:-1] & ok[1:-1, :-2] & ok[1:-1, 2:] & ok[:-2, :-2] & ok[2:, 2:] & ok[:-2, 2:] & ok[2:, :-2]
+    core[0, :] = core[-1, :] = False; core[:, 0] = core[:, -1] = False
+    st = max(1, int(CFG['seeds']['stride']) // 3)
+    out = []
+    for j in range(st // 2, ny, st):
+        for i in range(st // 2, nx, st):
+            if core[j, i]:
+                out.append((W0 + (i + 0.5) / nx * (E0 - W0), N0 - (j + 0.5) / ny * (N0 - S0)))
+    print('graines de la mer', len(out))
+    return out
 
 def px(lon, lat):
     return ((lon - W0) / (E0 - W0) * WIDTH, (N0 - lat) / (N0 - S0) * HEIGHT)
@@ -28,7 +59,7 @@ for way in o['coast']:
     pts = [px(x, y) for x, y in way]
     if len(pts) > 1:
         d.line(pts, fill=255, width=2)
-for lon, lat in [(5.95, 43.005), (6.09, 43.005), (5.85, 43.005), (5.95, 43.05)]:
+for lon, lat in (sea_seeds() if CFG else [(5.95, 43.005), (6.09, 43.005), (5.85, 43.005), (5.95, 43.05)]):
     p = tuple(int(v) for v in px(lon, lat))
     if img.getpixel(p) == 0:
         ImageDraw.floodfill(img, p, 128)
@@ -53,7 +84,7 @@ dike = np.array(dimg) == 255
 seaf = sea.astype(np.float32) + line * 0.5
 seaf[dike] = 0
 mask = Image.fromarray((seaf * 255).astype(np.uint8)).filter(ImageFilter.GaussianBlur(0.7))
-mask.save(os.path.join(OUT, 'seamask.png'), optimize=True)
+mask.save(os.path.join(OUT, PREFIX + 'seamask.png'), optimize=True)
 
 # ── altitude terrestre (Terrarium z13), interpolation bilinéaire vectorisée
 z = 13
@@ -84,7 +115,7 @@ C = mosaic[iy[:, None] + 1, ix[None, :]]; D = mosaic[iy[:, None] + 1, ix[None, :
 elev = A * (1 - wx) * (1 - wy) + B * wx * (1 - wy) + C * (1 - wx) * wy + D * wx * wy
 
 # ── profondeurs : grille terrain.bin (déjà façonnée près des côtes), suréchantillonnée
-H = np.fromfile(os.path.join(OUT, 'terrain.bin'), '<i2').reshape(meta['ny'], meta['nx']).astype(np.float32) / 10
+H = np.fromfile(os.path.join(OUT, PREFIX + 'terrain.bin'), '<i2').reshape(meta['ny'], meta['nx']).astype(np.float32) / 10
 depth = np.array(Image.fromarray(np.minimum(H, 0)).resize((WIDTH, HEIGHT), Image.BICUBIC))
 depth = np.minimum(depth, -0.5)
 
@@ -135,7 +166,10 @@ edge = Image.fromarray(line.astype(np.uint8) * 255).filter(ImageFilter.MaxFilter
 e = np.array(edge).astype(np.float32)[..., None] / 255
 rgb = rgb * (1 - e * 0.55) + np.array((236, 226, 200), np.float32) * (e * 0.55)
 rgb[dike] = (232, 228, 218)
-Image.fromarray(np.clip(rgb, 0, 255).astype(np.uint8)).save(os.path.join(OUT, 'basemap.jpg'), quality=84, optimize=True, progressive=True)
+Image.fromarray(np.clip(rgb, 0, 255).astype(np.uint8)).save(os.path.join(OUT, PREFIX + 'basemap.jpg'), quality=QUALITY, optimize=True, progressive=True)
 meta['basemap'] = {'width': WIDTH, 'height': HEIGHT}
-json.dump(meta, open(os.path.join(OUT, 'meta.json'), 'w'), indent=1)
-print('ok', WIDTH, HEIGHT, os.path.getsize(os.path.join(OUT, 'basemap.jpg')), os.path.getsize(os.path.join(OUT, 'seamask.png')))
+if CFG:
+    json.dump(meta, open(os.path.join(OUT, PREFIX + 'meta.json'), 'w', encoding='utf-8'), indent=1, ensure_ascii=False)
+else:
+    json.dump(meta, open(os.path.join(OUT, 'meta.json'), 'w'), indent=1)
+print('ok', WIDTH, HEIGHT, os.path.getsize(os.path.join(OUT, PREFIX + 'basemap.jpg')), os.path.getsize(os.path.join(OUT, PREFIX + 'seamask.png')))

@@ -2,9 +2,14 @@
  "v": 1,
  "venues": {
   "brest": {
-   "pack": "ed71b22a6a",
-   "bytes": 2658567,
+   "pack": "7aa34dd280",
+   "bytes": 3652390,
    "files": [
+    {
+     "path": "data/brest.basemap.jpg",
+     "bytes": 752342,
+     "sha256": "44c923938eb70c72cb8ca39bb404a35258c1c29164286075ef7a74b65e853ff2"
+    },
     {
      "path": "data/brest.coast.json",
      "bytes": 136609,
@@ -17,8 +22,13 @@
     },
     {
      "path": "data/brest.meta.json",
-     "bytes": 266,
-     "sha256": "f1f8f2cc1d8dbd3fe93bdf10e6a06dfa6916b5122ee93b043649721b159fc451"
+     "bytes": 318,
+     "sha256": "3c3a22656e8c6ed62ead4c4908b2228a1d13a178118178713c402a1f2e8842c6"
+    },
+    {
+     "path": "data/brest.seamask.png",
+     "bytes": 241429,
+     "sha256": "6a41b06f7f444e6e3139d49d06f069f16d8512b058079c5b759aa6268f434b72"
     },
     {
      "path": "data/brest.terrain.bin",

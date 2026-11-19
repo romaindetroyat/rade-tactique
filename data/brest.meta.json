@@ -10,5 +10,9 @@
   "© contributeurs OpenStreetMap (ODbL)",
   "EMODnet Bathymetry DTM (couche emodnet:mean)",
   "AWS Terrain Tiles (Terrarium, SRTM/GMTED)"
- ]
+ ],
+ "basemap": {
+  "width": 4096,
+  "height": 2920
+ }
 }
