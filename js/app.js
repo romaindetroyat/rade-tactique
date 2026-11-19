@@ -10,7 +10,8 @@ import { pdfText, parseIC, cleanText } from './events.js';
 import { IA_IC, iaOffer, iaErrorMessage, reviewFromParse, reviewFromRegatta, reviewFromApi, setValue, setKeep, setKeepRace, setKeepMark, setKeepCourse, courseReady, canValidate, checksFor, applyReview, reviewHTML, chipOf, validatedHTML } from './icread.js';
 import { stampState, markDirty, canon, legacyStamp } from './archmerge.js';
 import { migrate, seedNorm, KEY as REG_KEY, saveRegattas, createRegatta, upsertRegatta, removeRegatta, openRegatta, openAtBoot, openOnNewDay, regattaStatus, STATUS_LABEL, todayRegatta, icOf, groupByStatus, lockDates, daysOf, addRace, updateRace, removeRace, raceSettings, membre, saveMembre, backfillAuthor } from './regates.js';
-import { THROTTLE_MS, slotKey, freezeAction, obsNeedsCopy, stratNeedsCopy, sliceDays, freezeSummary, strategySummary, compactStrategy, windSourceKind, frozenLabel, parisInstant } from './gel.js';
+import { THROTTLE_MS, slotKey, freezeAction, obsNeedsCopy, stratNeedsCopy, sliceDays, freezeSummary, strategySummary, compactStrategy, windSourceKind, frozenLabel, parisInstant, clockOf } from './gel.js';
+import { extremes, coefApproche } from './maree.js';
 import { putSlot, getSlot } from './regstore.js';
 import { listHTML, noRegattaHTML, newRegattaFormHTML, sheetHTML, venueCardHTML } from './regview.js';
 import { applyRegattaMarks, pendingMarks, confirmMark, moveMark, ignoreMark, allowedCourses, courseFallback, courseMismatch } from './regmarks.js';
@@ -193,6 +194,7 @@ async function init() {
   if (data) series = consensus(data);
   renderStatic();                                      // onglets Prévisions, Vent, J80 et IC : sans la carte
   if (VENUE.id !== 'toulon' && !(await venueReady())) { venueMissing(); return; }   // pack du plan d’eau absent et pas téléchargeable : pas de carte (D-04)
+  if (VENUE.maree) { MAREE = await loadMaree(VENUE.maree); renderBrief(); }          // marée du plan d’eau (Brest, D-13), lue dans le pack ; Toulon n’en a pas
   const { Scene3D } = await import('./scene3d.js');
   T = await new Terrain().load(VENUE.files.base);
   F = new WindField(T, VENUE.wind);
@@ -220,6 +222,38 @@ async function init() {
 
 // auto : téléchargement lancé sans geste (ouverture de l’app) ; son calcul est reporté pendant la séquence de départ. Le bouton ⟳ est un geste : tout de suite.
 let wxOff = false;                                   // dernier téléchargement des prévisions en échec : le briefing dit « hors ligne », pas « en cours »
+// Marée du plan d’eau (D-13) : undefined tant qu’elle n’est pas lue, null si le fichier manque ou est illisible (carte « Marée indisponible »)
+let MAREE;
+async function loadMaree(path) {
+  try {
+    const r = await fetch(path);
+    if (!r.ok) return null;
+    const P = await r.json();
+    const ok = Number.isFinite(P?.z0) && Array.isArray(P.c) && P.c.length && P.c.every((c) => Array.isArray(c) && c.length === 4 && c.slice(1).every(Number.isFinite))
+      && P.years && typeof P.years === 'object' && Object.values(P.years).every((y) => y?.f?.length === P.c.length && y?.vu?.length === P.c.length);
+    return ok ? P : null;
+  } catch (e) { report('maree', e); return null; }
+}
+const fmtM = (h, d = 2) => `${h.toFixed(d).replace('.', ',')} m`;
+// Carte « Marée à Brest » du jour choisi : pleines et basses mers (heure de Paris, hauteur au-dessus du zéro des cartes), marnage et
+// coefficient approché de chaque pleine mer (pleine mer moins la moyenne des basses mers qui l’encadrent, étude § 4.2), source
+function mareeHTML() {
+  const src = '<div class="small muted" style="margin-top:6px">Marée calculée d’après le marégraphe de Brest (Shom – REFMAR, Licence Ouverte 2.0) ; ne remplace pas les cartes et ouvrages nautiques officiels.</div>';
+  if (MAREE === undefined) return '';
+  if (!MAREE) return `<div class="card" id="maree"><h3>Marée indisponible</h3><p class="small muted">${esc('Le fichier de marée du plan d’eau manque ou est illisible : retéléchargez le plan d’eau (onglet Régates) quand le réseau revient.')}</p></div>`;
+  const t0 = parisInstant(S.day, 0), t1 = parisInstant(addDays(S.day, 1), 0);
+  const all = extremes(MAREE, t0 - 8 * 3600e3, t1 + 8 * 3600e3), ex = all.filter((e) => e.t >= t0 && e.t < t1);
+  if (!ex.length) return `<div class="card" id="maree"><h3>Marée à Brest</h3><p class="small muted">${esc('Pas de marée calculée pour ce jour : le fichier couvre 2026 à 2031.')}</p>${src}</div>`;
+  const rows = ex.map((e) => {
+    let extra = '';
+    if (e.type === 'PM') {
+      const i = all.indexOf(e), bms = [all[i - 1], all[i + 1]].filter((b) => b?.type === 'BM');
+      if (bms.length) { const m = e.h - bms.reduce((a, b) => a + b.h, 0) / bms.length; extra = ` · marnage ${fmtM(m, 1)} · coefficient approché ${coefApproche(m)}`; }
+    }
+    return `<div class="small"><b>${e.type === 'PM' ? 'Pleine mer' : 'Basse mer'}</b> ${esc(clockOf(e.t))} · ${esc(fmtM(e.h))}${esc(extra)}</div>`;
+  }).join('');
+  return `<div class="card" id="maree"><h3>Marée à Brest <small>${esc(dayName(S.day))}, heure de Paris</small></h3>${rows}<div class="small muted" style="margin-top:4px">Hauteurs au-dessus du zéro des cartes.</div>${src}</div>`;
+}
 async function refreshWeather(auto = false) {
   const b = $('#refresh'); b.classList.add('spin');
   try {
@@ -703,6 +737,7 @@ function renderBrief() {
     ${reg ? `<span class="chip">${esc(reg.name)}</span>` : ''}${rs ? `<span class="chip ${rs.confidence > 70 ? 'good' : rs.confidence > 45 ? 'mid' : 'low'}">Confiance ${rs.confidence} %</span>` : ''}
     ${isRace && (IC.firstWarning || IC.lastFinishSignal || IC.vhf != null) ? `<div class="small muted" style="margin-top:6px">${[IC.firstWarning && `1er avertissement ${esc(IC.firstWarning)}`, IC.lastFinishSignal && `arrivée limite ${esc(IC.lastFinishSignal)}`, IC.vhf != null && `VHF ${esc(IC.vhf)}`].filter(Boolean).join(' · ')}</div>` : ''}
   </div>`;
+  if (VENUE.maree) html += mareeHTML();                // Brest seulement : Toulon n’a ni marée ni courant (D-13)
   if (rows.length) html += `<div class="card"><h3><span>Vent sur la journée ${tip(`Trait plein : vent moyen AROME HD au ${VENUE.texts?.centre ?? 'centre de la rade'}. Pointillés : rafales. Bande bleue : écart entre les 6 modèles (plus elle est large, moins la prévision est sûre). Zone orange : fenêtre de course.`)}</span><small>${esc(VENUE.texts?.point ?? 'point central rade')}</small></h3>${chartSVG(rows, isRace)}<div class="small muted">Trait plein : AROME HD · pointillé : rafales · bande : écart entre les ${MODELS.length} modèles · flèches : direction (vers où souffle le vent).</div></div>`;
   // stratégie
   if (analysis) {

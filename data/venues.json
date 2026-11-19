@@ -2,8 +2,8 @@
  "v": 1,
  "venues": {
   "brest": {
-   "pack": "7aa34dd280",
-   "bytes": 3652390,
+   "pack": "4b0d009afc",
+   "bytes": 3660465,
    "files": [
     {
      "path": "data/brest.basemap.jpg",
@@ -19,6 +19,11 @@
      "path": "data/brest.cover.bin",
      "bytes": 840564,
      "sha256": "014a9bf67a4ccebb556fbb3e5429e7d91323b23d466929ac3cafacc4e8dc479a"
+    },
+    {
+     "path": "data/brest.maree.json",
+     "bytes": 8075,
+     "sha256": "847b231adef8812c61b77c7d39dfbf650ca2c422e59643da5dc69c03f9f4196a"
     },
     {
      "path": "data/brest.meta.json",

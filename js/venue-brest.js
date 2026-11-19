@@ -1,7 +1,7 @@
 // Rade de Brest : descripteur léger du plan d’eau (D-03) — origine, emprise, bornes de saisie, fichiers, météo, vent, cadrage 3D,
 // catalogue initial. Les données lourdes (relief, fond de carte…) sont des fichiers à noms plats `data/brest.*` (07-03).
 // Sources : étude du plan d’eau (07-RESEARCH-PLAN-EAU.md § 1.1, 5.1) et IC du GPEN 2026 (annexe 1, centre de la zone A).
-// Lieux, marques, zones, régimes et vents prédéfinis : 07-06 ; la marée et le courant arrivent en 07-07, le catalogue du GPEN en 07-09.
+// Lieux, marques, zones, régimes et vents prédéfinis : 07-06 ; marée et courant : 07-07 ; catalogue du GPEN : 07-09.
 
 // Centre de la zone A du GPEN : 48°17,890 N 004°21,630 W (IC GPEN 2026, annexe 1)
 const ZONE_A = { lat: 48.29817, lon: -4.3605 };
@@ -211,6 +211,8 @@ export const BREST = Object.freeze({
   inputBounds: { south: 48.12, north: 48.53, west: -4.76, east: -4.12, nom: 'la rade de Brest', exemple: '48°17.890N 004°21.630W' },
   exemple: '48°17.890N 004°21.630W',
   files: { base: 'data/brest.' },
+  // marée calculée dans l’app (D-13) : harmoniques du marégraphe de Brest (tools/build_maree.py, js/maree.js), fichier du pack
+  maree: 'data/brest.maree.json',
   weather: {
     center: { lat: 48.298, lon: -4.3605 },
     grid: GRID,

@@ -3103,6 +3103,12 @@ async function planEau({ browser, base }) {
   assert.ok(!/Saint-Mandrier|Sicié|Mistral|Labech/.test(brief), 'aucun conseil de Toulon à Brest');
   assert.ok(!/État de la mer/.test(brief), 'pas de houle du large dans la rade (piège 9)');
   assert.ok(!/Balises en direct/.test(brief), 'aucune balise en direct à Brest (D-14b)');
+  // Marée à Brest (07-07, D-13) : lue dans le pack, calculée dans l’app ; samedi 5 décembre 2026, heure de Paris
+  assert.ok(brest.includes('/data/brest.maree.json'), 'fichier de marée lu dans le pack');
+  assert.match(brief, /Marée à Brest samedi 5 décembre, heure de Paris/);
+  assert.match(brief, /Pleine mer 02:03 · 6,07 m · marnage 3,6 m · coefficient approché 58\s*Basse mer 08:18 · 2,43 m\s*Pleine mer 14:27 · 6,16 m · marnage 3,8 m · coefficient approché 61\s*Basse mer 20:48 · 2,30 m/);
+  assert.match(brief, /Hauteurs au-dessus du zéro des cartes\.\s*Marée calculée d’après le marégraphe de Brest \(Shom – REFMAR, Licence Ouverte 2\.0\) ; ne remplace pas les cartes et ouvrages nautiques officiels\./);
+  assert.ok(!/Marée indisponible/.test(brief));
   sansErreur(erreurs, 'à Brest');
   // « Revenir à la rade de Toulon » : rechargement, réglages de Toulon retrouvés, pack gardé
   await cartePlanEau(page, 'ready');
@@ -3115,6 +3121,7 @@ async function planEau({ browser, base }) {
   assert.equal(t.byVenue?.brest?.courseId, 90, 'réglages de Brest rangés à leur tour');
   await page.click('#tabs button[data-tab=course]');
   assert.equal(await page.locator('#cSel').inputValue(), choisi);
+  assert.ok(!/Marée/.test(await texte(page, 'section[data-tab=brief]')), 'Toulon n’a ni marée ni courant (D-13)');
   await cartePlanEau(page, 'ready');
   assert.equal(await texte(page, '#pkGo'), 'Passer à la rade de Brest');
   sansErreur(erreurs, 'au retour à Toulon');
