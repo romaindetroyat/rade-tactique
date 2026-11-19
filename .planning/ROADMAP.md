@@ -231,7 +231,7 @@ Plans:
   6. La fiche « GPEN 2027 — J80 » est semée ; les parcours 1 et 2 de la zone A (arrivée à droite du comité) et la variante Virginie Hériot sont proposés ; l'arbitre, le débrief et la dictée suivent les IC du GPEN à Brest et celles du CVAT à Toulon, mot pour mot
   7. v43 sur l'aperçu `apercu-phase-07`, vérifiée (tous les scénarios, dont Toulon identique et Brest : choix, téléchargement, mode avion, régate partagée, courant, GPEN), puis en production sur « publie » de Romain au plus tard le 10 décembre 2026
 
-**Plans:** 5/10 plans executed (vagues séquentielles : mêmes fichiers générés `sw.js`, `js/version.js` et outil `tools/regate-e2e.mjs`)
+**Plans:** 6/10 plans executed (vagues séquentielles : mêmes fichiers générés `sw.js`, `js/version.js` et outil `tools/regate-e2e.mjs`)
 
 Plans:
 **Wave 1**
@@ -250,7 +250,7 @@ Plans:
 - [x] 07-05-PLAN.md — Le plan d'eau d'une régate : `venue` dans les champs fusionnés (une copie v42 ne l'efface pas), liste blanche serveur, `venueOf`, bascule proposée à l'ouverture, recalage CVAT réservé à Toulon, `tools/compat-v42.mjs`, scénario `regate-brest` (vague 5)
 
 **Wave 6** *(blocked on Wave 5 completion)*
-- [ ] 07-06-PLAN.md — Connaissance locale de Brest : zones interdites évitées par le routage (« à compléter sur carte marine »), lieux, marques, dangers, presets de ligne, huit régimes de vent marqués selon leur origine, vents prédéfinis, seuil « mer dégagée » (vague 6)
+- [x] 07-06-PLAN.md — Connaissance locale de Brest : zones interdites évitées par le routage (« à compléter sur carte marine »), lieux, marques, dangers, presets de ligne, huit régimes de vent marqués selon leur origine, vents prédéfinis, seuil « mer dégagée » (vague 6)
 
 **Wave 7** *(blocked on Wave 6 completion)*
 - [ ] 07-07-PLAN.md — Marée et courant, données et calcul : contrôle des paquets Python par Romain, harmoniques du marégraphe (`data/brest.maree.json`, `js/maree.js`), carte « Marée à Brest », atlas 560 du Shom compacté (`data/brest.courants.*`, `js/courant.js`), fonds, valeurs de contrôle (vague 7, non autonome)

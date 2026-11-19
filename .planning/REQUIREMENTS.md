@@ -87,8 +87,8 @@ Ajoutés le 2026-11-19 à la demande de Romain (« permets le changement de plan
 - [ ] **BREST-01**: Toulon reste identique à la v42 : bords, conseils, champ de vent, routes, positions, météo, vues, données et liste hors réseau gardés par des tests capturés sur la v42 avant toute modification ; garde SNPM intacte ; ouverture hors réseau en moins de 2 s
 - [x] **BREST-02**: L'équipier choisit son plan d'eau (Toulon ou rade de Brest) en entraînement libre et pour une régate ; une régate porte son plan d'eau, partagé par l'archive et lu sans erreur par un téléphone resté en v42 ; changer de plan d'eau recharge l'app, jamais pendant une course
 - [x] **BREST-03**: La rade de Brest se télécharge une fois à la demande, vérifiée par empreinte, reste disponible après les mises à jour de l'app et s'ouvre hors réseau ; sans téléchargement, un message clair
-- [ ] **BREST-04**: Carte et relief de la rade de Brest (rade, goulet, Camaret), lieux, marques, dangers et zones interdites (Île Longue, Pen ar Vir) évitées par le routage, positions en longitude Ouest justes, sources et licences citées
-- [ ] **BREST-05**: Vents de Brest : régimes et vents prédéfinis propres, réglage « mer dégagée » du champ de vent, conseils marqués selon leur origine et présentés comme à confirmer sur l'eau
+- [x] **BREST-04**: Carte et relief de la rade de Brest (rade, goulet, Camaret), lieux, marques, dangers et zones interdites (Île Longue, Pen ar Vir) évitées par le routage, positions en longitude Ouest justes, sources et licences citées
+- [x] **BREST-05**: Vents de Brest : régimes et vents prédéfinis propres, réglage « mer dégagée » du champ de vent, conseils marqués selon leur origine et présentés comme à confirmer sur l'eau
 - [ ] **BREST-06**: Heure et hauteur de la marée de Brest (pleines et basses mers, marnage, coefficient approché) calculées hors réseau et contrôlées contre les observations
 - [ ] **BREST-07**: Courant de l'atlas du Shom par heure de marée utilisé par le routage (vitesse fond, marge sur les fonds), les conseils (renverses, côté favorable) et l'affichage (briefing, carte, Départ, En course), absent à Toulon
 - [ ] **BREST-08**: GPEN 2027 J80 : fiche semée, zone A sur la carte, parcours 1 et 2 construits au vent avec arrivée à droite du comité, variante Virginie Hériot, IC du GPEN pour l'arbitre, le débrief et la dictée à Brest
@@ -147,8 +147,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | BREST-01 | Phase 7 | Pending |
 | BREST-02 | Phase 7 | Complete |
 | BREST-03 | Phase 7 | Complete |
-| BREST-04 | Phase 7 | Pending |
-| BREST-05 | Phase 7 | Pending |
+| BREST-04 | Phase 7 | Complete |
+| BREST-05 | Phase 7 | Complete |
 | BREST-06 | Phase 7 | Pending |
 | BREST-07 | Phase 7 | Pending |
 | BREST-08 | Phase 7 | Pending |

@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 07
 current_phase_name: "Plans d'eau : Toulon et rade de Brest (GPEN)"
 status: executing
-stopped_at: Completed 07-05-PLAN.md
-last_updated: "2026-11-19T08:21:49.135Z"
+stopped_at: Completed 07-06-PLAN.md
+last_updated: "2026-11-19T09:00:43.785Z"
 last_activity: 2026-11-19
-last_activity_desc: Plan 07-05 — plan d’eau d’une régate partagé par l’archive (registre vu, compatible v42), bascule proposée à l’ouverture, recalage CVAT réservé à Toulon, Toulon identique
-state_head: 4226b1bcf966a9d8cbe085b0c565c4d97bd5c5c6
+last_activity_desc: Plan 07-06 — connaissance locale de Brest (zones interdites évitées, lieux, marques, dangers, régimes et vents prédéfinis marqués selon leur origine), Toulon identique
+state_head: 14a6f990a60c7d4896bbcd891d088bb48754f9ec
 progress:
   total_phases: 7
   completed_phases: 5
   total_plans: 38
-  completed_plans: 33
+  completed_plans: 34
   percent: 71
 ---
 
@@ -28,9 +28,9 @@ See: .planning/PROJECT.md (updated 2026-10-19)
 ## Current Position
 
 Phase: 07 (Plans d'eau : Toulon et rade de Brest (GPEN)) — EXECUTING
-Plan: 6 of 10
-Status: Ready to execute 07-06
-Last activity: 2026-11-19 — Plan 07-05 : une régate porte son plan d’eau (`venue`, registre daté par `vu`, jamais effacé par une copie v42), liste blanche serveur, `venueOf` (champ, sinon bouées confirmées), fenêtre « Passer » à l’ouverture d’une régate d’ailleurs (pack, rechargement, régate rouverte), bandeau de la régate du jour d’ailleurs, recalage CVAT à Toulon seulement (D-12), traces de Brest débriefées à Brest ; tools/compat-v42.mjs 7 OK, compat-v41 7 OK ; version 30bfa611a6 ; 753 tests (752 verts, 1 sauté), 34/34 scénarios, gardes Toulon vertes ; BREST-02 fait ; consigne : trois téléphones à jour le même jour (07-05-SUMMARY, limite (c))
+Plan: 7 of 10
+Status: Ready to execute 07-07
+Last activity: 2026-11-19 — Plan 07-06 : zones interdites de Brest (Île Longue élargie de 50 m, couloir de Pen ar Vir) dessinées, évitées par le routage et signalées « à compléter sur carte marine » ; 42 lieux, 36 marques à clés non numériques (2 à confirmer), 6 dangers, zones A, B, C ; huit régimes aux conseils { t, o } (hypothèses « à confirmer sur l’eau »), neuf vents prédéfinis, seuil « mer dégagée » 1 500 m validé, dévent conforme à l’étude ; version 96960cb043 ; 771 tests (770 verts, 1 sauté), 34/34 scénarios, gardes Toulon vertes ; BREST-04 et BREST-05 faits
 
 Progress: [███████░░░] 71%
 
@@ -91,6 +91,7 @@ Progress: [███████░░░] 71%
 | Phase 07 P03 | 21min | 3 tasks | 20 files |
 | Phase 07 P04 | 50min | 3 tasks | 10 files |
 | Phase 07 P05 | 45min | 3 tasks | 18 files |
+| Phase 07 P06 | 35min | 3 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -180,6 +181,9 @@ Décisions récentes qui orientent le travail en cours :
 - [Phase 07]: 07-05 : une régate de Toulon n’a pas de champ venue (absent = Toulon) ; fiches de Toulon identiques à la v42
 - [Phase 07]: 07-05 : liste blanche serveur VENUE_IDS dans js/archmerge.js (seul module embarqué par la fonction, Pitfall 15)
 - [Phase 07]: 07-05 : régate d’un autre plan d’eau jamais ouverte sur la mauvaise carte ; Passer = packGo + rade.venue.reopen { rg, tr }
+- [Phase 07]: 07-06 : polygone de l’Île Longue fermé par le rivage est et l’isthme, « D » avant 7 (sinon contour recoupé), élargi de 50 m ; couloir de Pen ar Vir 100 m, commencé à 10 m de la cardinale
+- [Phase 07]: 07-06 : seuil « mer dégagée » de Brest gardé à 1 500 m (3 103 cellules, médiane de l’eau 0,95-1,00 ; 4 000 m ne garde que 90 cellules de l’Iroise)
+- [Phase 07]: 07-06 : marques de Brest à clés courtes non numériques (36), conseils de Brest { t, o } avec origine affichée et hypothèses « à confirmer sur l’eau »
 
 ### Pending Todos
 
@@ -217,6 +221,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-11-19T08:21:48.966Z
-Stopped at: Completed 07-05-PLAN.md
+Last session: 2026-11-19T09:00:43.620Z
+Stopped at: Completed 07-06-PLAN.md
 Resume file: None
