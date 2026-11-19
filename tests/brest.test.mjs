@@ -180,11 +180,12 @@ test('Île Longue : les bouées 0 à 7 et « D » sont dans la zone, à 40 m au 
   }
 });
 
-test('Pen ar Vir : le couloir couvre l’axe cardinale → pointe et touche la terre au bout de la pointe', { skip: sansPack }, async () => {
+test('Pen ar Vir : le couloir couvre l’axe cardinale → pointe (cardinale exclue) et touche la terre au bout de la pointe', { skip: sansPack }, async () => {
   const t = await terrain();
   const poly = zone('Passage de Pen ar Vir').pts.map((p) => xy(p.lat, p.lon));
   const c = xy(CARD_PAV.lat, CARD_PAV.lon), p = xy(POINTE_PAV.lat, POINTE_PAV.lon);
-  for (let k = 0; k <= 20; k++) assert.ok(pointInPolygon({ x: c.x + (p.x - c.x) * k / 20, y: c.y + (p.y - c.y) * k / 20 }, poly), `axe à ${k * 5} %`);
+  assert.ok(!pointInPolygon(c, poly), 'la cardinale reste hors de la zone (on l’arrondit)');
+  for (let k = 1; k <= 20; k++) assert.ok(pointInPolygon({ x: c.x + (p.x - c.x) * k / 20, y: c.y + (p.y - c.y) * k / 20 }, poly), `axe à ${k * 5} %`);
   let terre = 0;                                                    // cellules de terre dans le couloir, à moins de 100 m de la pointe
   for (let dx = -100; dx <= 100; dx += 10) for (let dy = -100; dy <= 100; dy += 10) {
     const q = { x: p.x + dx, y: p.y + dy };
