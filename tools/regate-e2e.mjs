@@ -58,14 +58,16 @@ const INIT = () => {
 // ───────────────────────── outils communs
 
 // geo : { latitude, longitude } du GPS simulé (l’autorisation est donnée) ; sans lui, aucune position n’est fournie
-async function ouvreContexte(browser, { heure, geo = null }) {
-  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, locale: 'fr-FR', timezoneId: 'Europe/Paris', serviceWorkers: 'block', ...(geo ? { geolocation: geo, permissions: ['geolocation'] } : {}) });
+// worker : service worker AUTORISÉ (scénario brest-avion seulement) ; alors aucune route n’est posée (Playwright ne route pas les requêtes du
+// worker) : les autres hôtes restent injoignables par --host-resolver-rules du lancement de Chromium
+async function ouvreContexte(browser, { heure, geo = null, worker = false }) {
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, locale: 'fr-FR', timezoneId: 'Europe/Paris', serviceWorkers: worker ? 'allow' : 'block', ...(geo ? { geolocation: geo, permissions: ['geolocation'] } : {}) });
   await ctx.clock.setFixedTime(new Date(heure));         // d’abord : INIT doit s’exécuter après le script de l’horloge de Playwright
   await ctx.addInitScript(INIT);
   // chaque page du contexte, fenêtres ouvertes par l’app comprises (« Plein écran » du rapport) : violations relevées avant tout filtre
   ctx.on('page', (p) => p.on('console', (m) => { if (VIOLATION.test(m.text())) violations.push(m.text().slice(0, 300)); }));
   // seul l’hôte local est joignable ; une route enregistrée ensuite par un scénario passe avant celle-ci
-  await ctx.route('**/*', (route) => (new URL(route.request().url()).hostname === '127.0.0.1' ? route.fallback() : route.abort()));
+  if (!worker) await ctx.route('**/*', (route) => (new URL(route.request().url()).hostname === '127.0.0.1' ? route.fallback() : route.abort()));
   return ctx;
 }
 // Page + liste des erreurs vues par la page (hors échecs de chargement voulus : réseau coupé)
@@ -3096,7 +3098,88 @@ async function planEau({ browser, base }) {
   await ctx.close();
 }
 
-const SCENARIOS = { accueil, 'jour-j': jourJ, 'deux-telephones': deuxTelephones, reprise, equipage, archive, 'archive-bouees': archiveBouees, archivehors: archiveHors, creer, manche, auteur, ic, 'depuis-ic': depuisIC, vraisemblance, gel, 'debrief-tardif': debriefTardif, gpx, 'gpx-choix': gpxChoix, ia, 'ia-erreurs': iaErreurs, arbitre, bouees, guide, entetes, 'retour-port': retourPort, banane, 'banane-manche': bananeManche, 'banane-debrief': bananeDebrief, 'porte-ic': porteIC, 'modifier-manche': modifierManche, 'toulon-vue': toulonVue, 'plan-eau': planEau };
+// Page contrôlée par le service worker, toute la liste hors réseau en cache (sondé depuis Node, comme tools/measure-boot.mjs)
+async function attendWorker(page, delai = 90000) {
+  const shell = JSON.parse(/const SHELL = (\[.*?\]);/s.exec(readFileSync(join(ROOT, 'sw.js'), 'utf8'))[1]).length;
+  const fin = Date.now() + delai;
+  for (;;) {
+    const ok = await page.evaluate(async (n) => {
+      if (!navigator.serviceWorker.controller) return false;
+      for (const k of (await caches.keys()).filter((x) => /^rade-[0-9a-f]+$/.test(x))) if ((await (await caches.open(k)).keys()).length >= n) return true;
+      return false;
+    }, shell).catch(() => false);
+    if (ok) return;
+    if (Date.now() > fin) throw new Error('le service worker n’a pas mis toute l’app en cache');
+    await new Promise((r) => setTimeout(r, 300));
+  }
+}
+
+// D-04, D-15 : mode avion avec le service worker actif. Serveur propre au scénario. Téléphone A : première visite en ligne, passage à Brest
+// (téléchargement) ; téléphone B : première visite en ligne, Toulon seulement. Serveur ARRÊTÉ pour de bon (connexion refusée, vérifiée).
+// A rouvre Brest hors réseau : carte chargée depuis le cache du pack, prévisions « hors ligne », aucune erreur. B, choisi à Brest sans pack,
+// hors réseau : message « La rade de Brest n’est pas encore sur ce téléphone… », « Revenir à la rade de Toulon » ramène Toulon.
+async function brestAvion({ browser }) {
+  const { serveur, base, refuses } = await demarreServeur({ root: ROOT });
+  let arrete = false;
+  const ctxs = [];
+  try {
+    const ctxA = await ouvreContexte(browser, { heure: '2026-12-05T09:00:00Z', worker: true }); ctxs.push(ctxA);
+    const A = await ouvrePage(ctxA);
+    await ouvreApp(A.page, base);
+    await attendWorker(A.page);
+    await cartePlanEau(A.page, 'absent');
+    await rechargePar(A.page, () => A.page.click('#pkGo'));
+    assert.equal(await texte(A.page, '#regBar .regname'), 'Entraînement libre · Brest');
+    assert.equal((await cacheBrest(A.page))?.length, PACK_BREST.files.length, 'pack complet dans son cache');
+    assert.equal(await A.page.evaluate(() => !!navigator.serviceWorker.controller), true, 'A : page servie par le worker');
+    const ctxB = await ouvreContexte(browser, { heure: '2026-12-05T09:00:00Z', worker: true }); ctxs.push(ctxB);
+    const B = await ouvrePage(ctxB);
+    await ouvreApp(B.page, base);
+    await attendWorker(B.page);
+    assert.equal(await cacheBrest(B.page), null, 'B : aucun pack');
+    sansErreur(A.erreurs, 'A en ligne'); sansErreur(B.erreurs, 'B en ligne');
+    // serveur arrêté pour de bon
+    serveur.closeAllConnections?.();
+    await new Promise((ok) => serveur.close(ok));
+    arrete = true;
+    let repond = false;
+    try { await fetch(base, { signal: AbortSignal.timeout(3000) }); repond = true; } catch { /* connexion refusée : attendu */ }
+    assert.equal(repond, false, 'le serveur ne doit plus répondre');
+    // A : Brest hors réseau
+    await A.page.reload({ waitUntil: 'load' });
+    await pret(A.page);
+    assert.equal(await A.page.evaluate(() => !!navigator.serviceWorker.controller), true);
+    assert.equal(await texte(A.page, '#regBar .regname'), 'Entraînement libre · Brest');
+    await A.page.waitForFunction(() => /hors ligne/.test(document.querySelector('#wxNone')?.textContent || ''), null, { timeout: 30000 });
+    assert.match(await texte(A.page, '#wxNone'), /Pas encore de prévision chargée \(hors ligne\)\. Le mode « Manuel » reste disponible\./);
+    await cartePlanEau(A.page, 'ready');
+    assert.equal(await texte(A.page, '#pkState'), 'Rade de Brest : Prêt hors réseau');
+    sansErreur(A.erreurs, 'A hors réseau à Brest');
+    // B : choisi à Brest sans pack, hors réseau
+    await B.page.evaluate(() => { const st = JSON.parse(localStorage.getItem('rade.state') || '{}'); st.venue = 'brest'; localStorage.setItem('rade.state', JSON.stringify(st)); });
+    await B.page.reload({ waitUntil: 'load' });
+    await B.page.waitForSelector('#pkMissing', { timeout: 60000 });
+    assert.equal(await texte(B.page, '#pkMissing p'), `La rade de Brest n’est pas encore sur ce téléphone : connectez-vous pour la télécharger (${MO_BREST}), ou revenez à Toulon.`);
+    assert.equal(await texte(B.page, '#pkBack'), 'Revenir à la rade de Toulon');
+    assert.equal(await B.page.evaluate(() => window.__marks?.includes('rt:ui') && !window.__marks?.includes('rt:map')), true, 'interface utile sans carte');
+    await B.page.click('#tabs button[data-tab=start]');
+    assert.equal(await texte(B.page, '#tPhase'), 'Prêt', 'chrono utilisable');
+    await cartePlanEau(B.page, 'absent');
+    assert.equal(await texte(B.page, '#pkGo'), 'Revenir à la rade de Toulon');
+    sansErreur(B.erreurs, 'B hors réseau sans pack');
+    await rechargePar(B.page, () => B.page.click('#pkMissing #pkBack'));
+    assert.equal(await texte(B.page, '#regBar .regname'), 'Entraînement libre');
+    assert.equal((await etatApp(B.page)).venue, 'toulon');
+    sansErreur(B.erreurs, 'B revenu à Toulon hors réseau');
+    const refusees = refuses.filter((x) => x !== '/favicon.ico');
+    assert.deepEqual(refusees, [], 'aucun chemin refusé par la liste blanche');
+  } finally {
+    for (const c of ctxs) await c.close().catch(() => { /* déjà fermé */ });
+    if (!arrete) { serveur.closeAllConnections?.(); serveur.close(); }
+  }
+}
+
+const SCENARIOS = { accueil, 'jour-j': jourJ, 'deux-telephones': deuxTelephones, reprise, equipage, archive, 'archive-bouees': archiveBouees, archivehors: archiveHors, creer, manche, auteur, ic, 'depuis-ic': depuisIC, vraisemblance, gel, 'debrief-tardif': debriefTardif, gpx, 'gpx-choix': gpxChoix, ia, 'ia-erreurs': iaErreurs, arbitre, bouees, guide, entetes, 'retour-port': retourPort, banane, 'banane-manche': bananeManche, 'banane-debrief': bananeDebrief, 'porte-ic': porteIC, 'modifier-manche': modifierManche, 'toulon-vue': toulonVue, 'plan-eau': planEau, 'brest-avion': brestAvion };
 
 // ───────────────────────── lancement
 
