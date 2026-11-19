@@ -163,4 +163,5 @@ Which phases cover which requirements. Updated during roadmap creation.
 *Last updated: 2026-10-19 after roadmap creation (traceabilité remplie ; total corrigé de 23 à 22 besoins v1)*
 *Mise à jour 2026-10-20 : ARCH2-01 et SECU2-01 (reportés en v2, repris en phase 5) cochés après le plan 05-03 ; le plafond OpenAI reste à poser par Romain (05-USER-SETUP.md)*
 *Mise à jour 2026-10-23 : PARC-01 à PARC-04 ajoutés (phase 6, parcours banane, avant le gel à la demande de Romain)*
+*Mise à jour 2026-11-19 : PARC-01 à PARC-04 cochés (phase 6 en production en v38, complétée jusqu'à la v42)*
 *Mise à jour 2026-11-19 : VENUE-01 repris et BREST-01 à BREST-08 ajoutés (phase 7, plans d'eau : Toulon et rade de Brest, GPEN)*

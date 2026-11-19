@@ -166,6 +166,8 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | 2. Fiable et juste en mer | 5/5 | Complete    | 2026-10-19 |
 | 3. Ouvrir une régate | 7/7 | Complete    | 2026-10-19 |
 | 4. Archive partagée | 5/5 | Complete    | 2026-10-20 |
+| 5. Avant la régate | 3/3 | Complete    | 2026-10-20 |
+| 6. Parcours banane | 4/4 | Complete    | 2026-10-23 |
 
 ### Phase 5: Avant la régate : archive amorcée et IA bornée
 
@@ -202,7 +204,7 @@ Plans:
   4. La référence SNPM (`js/courses.js`, `tests/reference/`) ne bouge pas ; les parcours SNPM, le parcours 13 et les régates déjà archivées donnent exactement les mêmes bords qu'en v37
   5. v38 sur l'aperçu `apercu-phase-06`, vérifiée, puis en production sur décision de Romain avant le 2 novembre
 
-**Plans:** 4/4 plans executed (06-04 : décision de production en attente)
+**Plans:** 4/4 plans complete
 
 Plans:
 **Wave 1**
@@ -215,7 +217,7 @@ Plans:
 - [x] 06-03-PLAN.md — Autre club : porte et arrivée dans le schéma strict d'`api/ic.js` (extraits vérifiés), relecture, fiche et injection ; passages de porte au débrief et dans l'analyse d'une trace ; `tools/compat-v37.mjs` (fiches v37 ↔ v38) ; scénario `porte-ic` (vague 3)
 
 **Wave 4** *(blocked on Wave 3 completion)*
-- [ ] 06-04-PLAN.md — Guide et aide intégrée, v38 (`npm run release`), porte en `VERCEL_ENV=production`, poussée de `apercu-phase-06` et PR brouillon par l'orchestrateur, production seulement sur « publie » de Romain (vague 4, non autonome) — partie autonome faite le 2026-10-23 (guide, aide, v38 locale `db7df7f`, toutes vérifications vertes) ; en attente : poussée, PR brouillon, « publie » de Romain
+- [x] 06-04-PLAN.md — Guide et aide intégrée, v38 (`npm run release`), porte en `VERCEL_ENV=production`, poussée de `apercu-phase-06` et PR brouillon par l'orchestrateur, production seulement sur « publie » de Romain (vague 4, non autonome) — v38 en production le 2026-10-23 (PR #12, « publie » de Romain)
 
 ### Phase 7: Plans d'eau : Toulon et rade de Brest (GPEN)
 

@@ -2,7 +2,7 @@
 gsd_state_version: "1.0"
 current_phase: 07
 current_phase_name: "Plans d'eau : Toulon et rade de Brest (GPEN)"
-status: executing
+status: complete
 stopped_at: "07-10 tâche 1 faite (v43 locale, 6e4b0e3) — point de décision : « publie » de Romain"
 last_updated: "2026-11-19T11:34:55.929Z"
 last_activity: 2026-11-19
@@ -27,9 +27,9 @@ See: .planning/PROJECT.md (updated 2026-10-19)
 
 ## Current Position
 
-Phase: 07 (Plans d'eau : Toulon et rade de Brest (GPEN)) — EXECUTING
+Phase: 07 (Plans d'eau : Toulon et rade de Brest (GPEN)) — COMPLETE
 Plan: 10 of 10
-Status: 07-10 tâche 1 faite (v43 locale, tête 6e4b0e3, rien poussé) — en attente de « publie » de Romain (tâche 2, au plus tard le 10/12)
+Status: v43 en production le 2026-11-19 (PR #17, « publie » de Romain)
 Last activity: 2026-11-19 — Plan 07-10 tâche 1 : débrief des parcours du GPEN (reconstruits comme une banane, noms 1/2/3S/3P), titre du parcours au briefing de Brest, guide/aide/règles/description pour les plans d’eau ; 849 tests (848 verts, 1 sauté : instantané de Brest absent, limite Open-Meteo), 36/36 scénarios, compat-v42 8/8, compat-v41 7/7, ouvertures 418 ms Toulon / 403 ms Brest, horloge audio 3,4 ms ; v43 (5b9ef2068c), porte de production verte ; main inchangée (56f6625)
 
 Progress: [███████░░░] 71%
@@ -224,10 +224,14 @@ Décisions récentes qui orientent le travail en cours :
 | 261020-aid | Aide intégrée mise à jour (v34) | 2026-10-20 | fe1abb5 | [261020-aid-aide-integree](./quick/261020-aid-aide-integree/) |
 | 261020-sec | Durcissement : fichiers internes fermés (liste blanche), en-têtes de sécurité et CSP, GPS arrêté après la course (v35, aperçu) | 2026-10-20 | c40d262 | [261020-sec-durcissement](./quick/261020-sec-durcissement/) |
 | 261022-acc | Accueil en entraînement libre, régates ouvertes depuis l’onglet (v37) | 2026-10-22 | b072a50 | [261022-acc-accueil-hors-regate](./quick/261022-acc-accueil-hors-regate/) |
+| v39-v40 | Débrief d’une banane, alerte bouée à terre, conseil de porte plus rapide ; archive : ETag faible du CDN, écritures réparées (409) | 2026-11-04 | 32ae20b | PR #13 |
+| v41 | Vent manuel jamais présenté comme une prévision ; seuls les parcours de la régate ouverte | 2026-11-04 | dda755b | PR #14 |
+| v42 | Modifier une manche de régate | 2026-11-09 | 56f6625 | PR #15 |
 
 ### Roadmap Evolution
 
 - Phase 5 added: Avant la régate : archive amorcée et IA bornée (ARCH2-01, SECU2-01), choix de Romain le 2026-10-20
+- Phase 6 added: Parcours banane (PARC-01 à PARC-04), « Avant le gel » de Romain le 2026-10-23
 
 ## Deferred Items
 
