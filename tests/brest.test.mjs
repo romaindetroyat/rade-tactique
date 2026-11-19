@@ -219,3 +219,107 @@ test('routage à Brest : la route ne passe jamais entre la cardinale Pen ar Vir 
   const libre = route(xy(48.2935, -4.4230), xy(48.2948, -4.4110), F, { terrain: t, forbidden: [], perf: 1 });
   assert.ok(libre.path.some((q, i) => i && segCroise(libre.path[i - 1], q, c, p)), 'sans zone, la route passe entre la cardinale et la pointe');
 });
+
+// ───────── Lieux, marques, dangers, positions de ligne (07-06, D-10, D-12) : étude § 2.1, § 2.2, IC GPEN 2026
+import { fmtLat, fmtLon } from '../js/geo.js';
+import { parseLatLon } from '../js/marks.js';
+
+const NOMS_ETUDE = ['Pointe du Grand Minou', 'Pointe du Petit Minou', 'Pointe du Toulinguet', 'Pointe du Grand Gouin', 'Pointe des Capucins', 'Pointe de Cornouaille',
+  'Pointe du Dellec', 'Pointe du Diable', 'Pointe Robert', 'Pointe du Portzic', 'Pointe des Espagnols', 'Pointe de Lanvéoc', 'Pointe de l’Armorique', 'Pointe du Caro',
+  'Pointe de Kerdéniel', 'Pointe du Corbeau', 'Pointe Marloux', 'Penn ar Vir', 'Pointe de Doubidy', 'Pointe de Lomergat', 'Pointe du Bindy', 'Pointe d’Hanvec', 'Île Ronde',
+  'Roscanvel', 'Le Fret', 'Lanvéoc', 'Baie de Camaret', 'Anse de Sainte-Anne-du-Portzic', 'Anse du Dellec', 'Baie de Roscanvel', 'Anse du Fret', 'Anse du Caro',
+  'Anse de Poulmic', 'Baie de Daoulas'];
+// Lieux « à relever » trouvés dans l’extrait OpenStreetMap de 07-03 (nœuds place / natural=bay) ; École navale et Ménez-Hom (hors emprise) absents
+const NOMS_OSM = ['Brest', 'Plougastel-Daoulas', 'Le Relecq-Kerhuon', 'Landévennec', 'Camaret-sur-Mer', 'Crozon', 'Logonna-Daoulas', 'Anse du Moulin Blanc'];
+// Positions sources de l’étude § 2.2 (degrés et minutes) : IC GPEN 2026 quand elle existe, sinon OpenStreetMap
+const SOURCES = {
+  FIL: '48°19.752N 004°35.654W', MEN: '48°20.330N 004°34.560W', KER: '48°19.779N 004°35.240W', GOU: '48°20.035N 004°34.827W', COR: '48°20.609N 004°31.780W',
+  PEN: '48°21.444N 004°30.520W', REN: '48°19.760N 004°29.070W', RON: '48°19.243N 004°27.877W', DAL: '48°17.840N 004°27.150W', PAV: '48°17.754N 004°24.883W',
+  LA1: '48°19.065N 004°28.684W', LA3: '48°18.793N 004°28.361W', LA5: '48°18.500N 004°28.550W', LA4: '48°17.946N 004°28.496W', ILE: '48°18.297N 004°29.615W',
+  AU4: '48°18.391N 004°22.159W', AU6: '48°18.505N 004°20.719W', AU8: '48°18.719N 004°19.263W', AU10: '48°18.671N 004°18.712W', AU12: '48°18.495N 004°17.986W',
+  AU14: '48°18.299N 004°17.529W', AU16: '48°18.183N 004°15.918W', AU1: '48°18.597N 004°18.898W', AU3: '48°18.428N 004°17.955W', AU5: '48°18.251N 004°17.736W',
+  AU7: '48°18.065N 004°16.098W', OCE: '48°22.520N 004°26.730W', R1: '48°21.836N 004°28.284W', R3: '48°22.301N 004°27.430W', R2: '48°22.015N 004°28.739W',
+  R4: '48°22.290N 004°27.917W', R6: '48°22.552N 004°27.862W', FO3: '48°22.481N 004°27.356W', PAL: '48°19.520N 004°22.185W', MNZ: '48°20.337N 004°20.532W',
+  EVE: '48°18.735N 004°20.338W',
+};
+const DES_IC = ['FIL', 'MEN', 'COR', 'REN', 'RON', 'DAL', 'AU6', 'OCE'];          // positions des IC GPEN 2026, concordantes avec OpenStreetMap
+const FIXES = new Set(['tourelle', 'ilot', 'balise', 'amer']);                 // repères bâtis ou rochers : peuvent tomber à terre sur la grille de 30 m
+const ecartM = (a, b) => { const p = xy(a.lat, a.lon), q = xy(b.lat, b.lon); return Math.hypot(p.x - q.x, p.y - q.y); };
+const dansEmprise = (p) => p.lat > BREST.bounds.south && p.lat < BREST.bounds.north && p.lon > BREST.bounds.west && p.lon < BREST.bounds.east;
+
+test('lieux de Brest : ceux de l’étude et ceux trouvés dans OpenStreetMap, dans l’emprise, forme [nom, lat, lon, type]', () => {
+  const P = BREST.PLACES;
+  assert.ok(P.length >= 30, `${P.length} lieux`);
+  const noms = P.map((p) => p[0]);
+  assert.equal(new Set(noms).size, noms.length, 'noms uniques');
+  for (const n of [...NOMS_ETUDE, ...NOMS_OSM]) assert.ok(noms.includes(n), `lieu manquant : ${n}`);
+  assert.ok(!noms.some((n) => /Ménez-Hom|Menez-Hom|École navale/i.test(n)), 'lieux hors emprise ou introuvables : jamais inventés');
+  for (const [nom, lat, lon, type] of P) {
+    assert.ok(dansEmprise({ lat, lon }), `${nom} hors emprise`);
+    assert.ok([1, 2, 3, 4].includes(type), `${nom} : type ${type}`);
+    assert.ok(!/'/.test(nom), `${nom} : apostrophe typographique`);
+  }
+});
+
+test('marques de Brest : clés courtes non numériques, sources de l’étude, à confirmer seulement si les sources divergent', () => {
+  const M = BREST.MARKS, cles = Object.keys(M);
+  assert.ok(cles.length >= 25, `${cles.length} marques`);
+  assert.deepEqual(cles.slice().sort(), Object.keys(SOURCES).sort(), 'marques de l’étude § 2.2 (hors phares et feux de jetée)');
+  for (const [k, m] of Object.entries(M)) {
+    assert.ok(/^[A-Z][A-Z0-9]{1,3}$/.test(k) && !/^\d+$/.test(k), `${k} : clé courte non numérique (jamais une bouée du cahier CVAT, D-12)`);
+    assert.ok(!['A', 'B', 'C', 'D', 'PG', 'PD', 'S'].includes(k) && !/^X\d+$/.test(k), `${k} : clé réservée (banane, bouées d’une régate)`);
+    for (const f of ['name', 'note', 'src', 'kind', 'color']) assert.ok(typeof m[f] === 'string' && m[f], `${k} : ${f}`);
+    assert.ok(dansEmprise(m), `${k} hors emprise`);
+    assert.ok(['IC GPEN 2026', 'OpenStreetMap', 'approx'].includes(m.src), `${k} : source ${m.src}`);
+    if (/\bFeu\b/.test(m.note)) assert.match(m.note, /à vérifier sur le livre des feux/, `${k} : feu d’OpenStreetMap à vérifier`);
+    assert.ok(!/'/.test(m.name + m.note), `${k} : apostrophe typographique`);
+  }
+  for (const k of DES_IC) assert.equal(M[k].src, 'IC GPEN 2026', `${k} : position des IC`);
+  for (const k of ['KER', 'PEN']) {
+    assert.equal(M[k].src, 'approx', `${k} : IC et OpenStreetMap à plus de 50 m, à confirmer (JUST-01)`);
+    assert.match(M[k].note, /IC GPEN 2026[^]*OpenStreetMap/, `${k} : les deux positions citées`);
+  }
+  for (const k of cles.filter((x) => !DES_IC.includes(x) && !['KER', 'PEN'].includes(x))) assert.equal(M[k].src, 'OpenStreetMap', k);
+});
+
+test('marques de Brest : positions décimales = degrés-minutes de la source à moins de 1 m ; aller-retour fmtLat/fmtLon → parseLatLon à moins de 1 m', () => {
+  for (const [k, m] of Object.entries(BREST.MARKS)) {
+    const s = parseLatLon(SOURCES[k], BREST.inputBounds);
+    assert.ok(!s.error, `${k} : ${s.error}`);
+    assert.ok(ecartM(s, m) < 1, `${k} : ${ecartM(s, m).toFixed(2)} m de la source`);
+  }
+  for (const p of [...Object.values(BREST.MARKS), ...BREST.DANGERS, ...Object.values(BREST.LINE_PRESETS)]) {
+    const r = parseLatLon(`${fmtLat(p.lat)} ${fmtLon(p.lon)}`, BREST.inputBounds);
+    assert.ok(!r.error && ecartM(r, p) < 1, `${p.name ?? p.label} : aller-retour ${r.error ?? ecartM(r, p).toFixed(2) + ' m'}`);
+  }
+});
+
+test('marques de Brest en mer (sauf tourelles, îlots, balises et amers), hors des zones interdites', { skip: sansPack }, async () => {
+  const t = await terrain(), polys = zonesXY(BREST.FORBIDDEN_ZONES, xy);
+  for (const [k, m] of Object.entries(BREST.MARKS)) {
+    const p = xy(m.lat, m.lon);
+    if (!FIXES.has(m.kind)) assert.ok(!t.isLand(p.x, p.y), `${k} ${m.name} à terre`);
+    assert.ok(!polys.some((poly) => pointInPolygon(p, poly)), `${k} dans une zone interdite`);
+  }
+});
+
+test('dangers de Brest : les six de l’étude, chacun avec sa note ; l’épave du « Furieux » notée non dangereuse', () => {
+  const D = BREST.DANGERS;
+  assert.ok(D.length >= 6);
+  for (const re of [/Roche Mengam/, /Plateau des Fillettes/, /Basse du Renard/, /Les Ménéziou/, /Pen a Lan[^]*Le Bouc[^]*La Chèvre/, /Furieux/]) assert.ok(D.some((d) => re.test(d.name)), `danger manquant : ${re}`);
+  for (const d of D) {
+    assert.ok(typeof d.note === 'string' && d.note.length > 20, `${d.name} : note`);
+    assert.ok(dansEmprise(d), `${d.name} hors emprise`);
+    assert.ok(!/'/.test(d.name + d.note), `${d.name} : apostrophe typographique`);
+  }
+  assert.match(D.find((d) => /Furieux/.test(d.name)).note, /non dangereuse/);
+});
+
+test('positions de ligne de Brest : zones A, B et C des IC 2026, en mer', { skip: sansPack }, async () => {
+  const L = BREST.LINE_PRESETS, t = await terrain();
+  assert.deepEqual(Object.keys(L), ['zoneA', 'zoneB', 'zoneC']);
+  assert.ok(ecartM(L.zoneA, parseLatLon('48°17.890N 004°21.630W', BREST.inputBounds)) < 1, 'zone A : centre du cercle J80');
+  assert.ok(ecartM(L.zoneB, parseLatLon('48°17.040N 004°24.650W', BREST.inputBounds)) < 1, 'zone B (IC 2026)');
+  assert.ok(ecartM(L.zoneC, parseLatLon('48°23.120N 004°25.340W', BREST.inputBounds)) < 1, 'zone C (IC 2026)');
+  for (const [k, p] of Object.entries(L)) { const q = xy(p.lat, p.lon); assert.ok(!t.isLand(q.x, q.y), `${k} en mer`); assert.ok(p.label, `${k} : libellé`); }
+});
