@@ -1,7 +1,7 @@
 # Phase 7 : Plans d'eau — Toulon et rade de Brest (GPEN) — Contexte
 
 **Recueilli :** 2026-11-19, avec Romain (« prépare l'application pour conserver le même fonctionnement… mais permets le changement de plan d'eau en intégrant la rade de Brest et surtout la zone de course habituelle du GPEN » ; « nous avons le temps de tout développer maintenant avant la régate du 13 »)
-**Statut :** décisions A et B fixées ; décisions marée/courant/vent (C) complétées après 07-RESEARCH-PLAN-EAU.md
+**Statut :** décisions A et B fixées ; décisions complètes
 **Échéance :** production avant le 10 décembre 2026 (règle des 48 h avant la régate de Toulon du 13/12), sur « publie » de Romain. GPEN 2027 : 5 au 9 mai 2027.
 
 <domain>
@@ -33,9 +33,11 @@ Hors périmètre : autres plans d'eau que Toulon et Brest ; découpage de js/app
 - **D-11 :** arbitre (api/rules.js), débrief et dictée (api/debrief.js, api/voice.js) reçoivent le plan d'eau et ses règles propres (IC GPEN : un tour, jugement semi-direct) au lieu du bloc CVAT quand on est à Brest.
 - **D-12 :** recalage partagé des bouées CVAT réservé à Toulon ; à Brest les bouées viennent des IC / de la banane construite.
 
-### D. Marée, courant, vent (à compléter après 07-RESEARCH-PLAN-EAU.md)
-- **D-13 :** Brest a marée et courants forts : l'app doit au minimum donner l'heure et la hauteur de marée et un courant par zone et par heure de marée, utilisés par le routage (vitesse fond) et les conseils, hors réseau. Solution précise et sources : selon l'étude.
-- **D-14 :** régimes de vent et effets de relief propres à Brest (noms, conseils) au lieu de ceux de Toulon quand on est à Brest.
+### D. Marée, courant, vent (d'après 07-RESEARCH-PLAN-EAU.md)
+- **D-13 :** marée par harmoniques embarquées (`data/brest.maree.json`, `js/maree.js`, écart-type visé ≈ 4 min / 15 cm, contrôlé contre l'annuaire) ; courant par l'atlas Shom 560 ré-échantillonné sur 13 heures de marée et dosé par le marnage (`data/brest.courants.bin`, `js/courant.js`) ; Open-Meteo marine écarté dans la rade. Le routage reçoit une option `current` (vitesse fond = surface + courant) **absente à Toulon** : le chemin de calcul de Toulon est inchangé (gardé par la fixture v42). Conseils : heure de marée, renverses, côté du plan d'eau où le courant aide ; affichage de la marée et du courant sur la carte et au briefing. Mention de la source Shom (Licence Ouverte 2.0, DOI) « en complément des cartes et ouvrages nautiques officiels ».
+- **D-14 :** régimes de vent de Brest (huit, selon l'étude) et seuil « mer dégagée » du champ de vent (`js/wind.js:107`) en paramètre du plan d'eau ; conseils marqués selon leur origine et présentés comme à confirmer sur l'eau. Emprise 4,66–4,22° W, 48,22–48,43° N, maille 30 m (ou plus grossière si l'ouverture ou le calcul du vent dépassent ceux de Toulon).
+- **D-14b :** pas de vent en direct à Brest dans cette phase (aucune balise ouverte) ; METAR / Holfuy reportés.
+- **D-14c :** fonds : marge de sécurité d'au moins 1 m sur EMODnet ; zones interdites incomplètes (Île Longue 8-10, port militaire) marquées « à compléter sur carte marine » dans le guide.
 
 ### Livraison
 - **D-15 :** branche `apercu-phase-07`, PR brouillon, aperçu vérifié ; production (v43) sur « publie » de Romain avant le 10/12 ; la vague qui touche le service worker est vérifiée en priorité (mise à jour sur iPhone).
