@@ -2,18 +2,18 @@
 gsd_state_version: "1.0"
 current_phase: 06
 current_phase_name: "Parcours banane : dégagement, porte sous le vent, arrivée décalée"
-status: executing
-stopped_at: "06-04 tâche 1 faite (v38 locale db7df7f) — point de décision tâche 2 : poussée, PR brouillon, « publie » de Romain"
-last_updated: "2026-10-23T18:58:01.400Z"
-last_activity: 2026-10-23
-last_activity_desc: Plan 06-04 partie autonome (guide, aide, v38 locale vérifiée) — point de décision production
+status: complete
+stopped_at: "Phase 6 terminée ; v42 en production (2026-11-09)"
+last_updated: "2026-11-19T00:00:00.000Z"
+last_activity: 2026-11-19
+last_activity_desc: Suivi GSD rattrapé (v39 à v42, phase 6 close, La Seyne Cup archivée)
 state_head: db7df7ff99dd765448df8f40106d60864b6c928c
 progress:
   total_phases: 6
-  completed_phases: 5
+  completed_phases: 6
   total_plans: 28
   completed_plans: 28
-  percent: 83
+  percent: 100
 ---
 
 # Project State
@@ -27,12 +27,11 @@ See: .planning/PROJECT.md (updated 2026-10-19)
 
 ## Current Position
 
-Phase: 06 (Parcours banane : dégagement, porte sous le vent, arrivée décalée) — EXECUTING
-Plan: 4 of 4
-Status: Checkpoint — décision de production (06-04 tâche 2)
-Last activity: 2026-10-23 — Plan 06-04, partie autonome : guide et aide de la banane, v38 locale (`db7df7f`, hash bc914d22fb) vérifiée (638 tests, 28 scénarios, compat v37, porte en production) ; non poussée, `main` distante = v37 (6e7af98)
+Phase: 06 (Parcours banane) — COMPLETE ; toutes les phases de la feuille de route sont terminées
+Status: Production v42 (« Modifier la manche »), 2026-11-09
+Last activity: 2026-11-19 — suivi rattrapé : v39/v40 (débrief banane, archive réparée), v41 (météo absente signalée, parcours de la régate ouverte), v42 (modifier une manche) ; La Seyne Cup 2026 archivée (Parcours 4)
 
-Progress: [████████░░] 83%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
@@ -183,10 +182,14 @@ Décisions récentes qui orientent le travail en cours :
 | 261020-aid | Aide intégrée mise à jour (v34) | 2026-10-20 | fe1abb5 | [261020-aid-aide-integree](./quick/261020-aid-aide-integree/) |
 | 261020-sec | Durcissement : fichiers internes fermés (liste blanche), en-têtes de sécurité et CSP, GPS arrêté après la course (v35, aperçu) | 2026-10-20 | c40d262 | [261020-sec-durcissement](./quick/261020-sec-durcissement/) |
 | 261022-acc | Accueil en entraînement libre, régates ouvertes depuis l’onglet (v37) | 2026-10-22 | b072a50 | [261022-acc-accueil-hors-regate](./quick/261022-acc-accueil-hors-regate/) |
+| v39-v40 | Débrief d’une banane, alerte bouée à terre, conseil de porte plus rapide ; archive : ETag faible du CDN, écritures réparées (409) | 2026-11-04 | 32ae20b | PR #13 |
+| v41 | Vent manuel jamais présenté comme une prévision ; seuls les parcours de la régate ouverte | 2026-11-04 | dda755b | PR #14 |
+| v42 | Modifier une manche de régate | 2026-11-09 | 56f6625 | PR #15 |
 
 ### Roadmap Evolution
 
 - Phase 5 added: Avant la régate : archive amorcée et IA bornée (ARCH2-01, SECU2-01), choix de Romain le 2026-10-20
+- Phase 6 added: Parcours banane (PARC-01 à PARC-04), « Avant le gel » de Romain le 2026-10-23
 
 ## Deferred Items
 

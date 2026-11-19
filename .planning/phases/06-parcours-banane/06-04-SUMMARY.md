@@ -196,3 +196,11 @@ Aucun.
 
 - FOUND : guide.html, js/help.js, tests/guide.test.mjs, release.json, sw.js, js/version.js
 - FOUND : d45032b, db7df7f (ancêtres de HEAD)
+
+## Mise en production et suites (consigné le 2026-11-19)
+
+- **v38** : PR #12, « publie » de Romain le 2026-10-23 vers 19 h 05 UTC ; `sw.js` de production au hachage bc914d22fb vérifié.
+- **v39 / v40** (PR #13, publiée le 2026-11-04) : alerte bouée de banane à terre, réglages sur deux colonnes, débrief d'une banane (trace ou GPX), calcul du conseil de porte 4 à 5 fois plus rapide ; **correctif de l'archive** : l'ETag faible du CDN (`W/"…"`) faisait échouer chaque `ifMatch` (409 sur toute modification de l'archive, compteur d'IA bloqué) — révision lue sans le préfixe.
+- **v41** (PR #14, publiée le 2026-11-04) : vent manuel jamais présenté comme une prévision (nouvel essai Open-Meteo, badge rouge, avertissement au briefing) ; seuls les parcours de la régate ouverte proposés, parcours présélectionné à l'ouverture, jamais en course.
+- **v42** (PR #15, publiée le 2026-11-09) : « Modifier la manche » (`updateRace`, fusion juste entre téléphones, déplacement d'heure avec pierre tombale, refus en course, `tools/compat-v41.mjs`).
+- **La Seyne Cup 2026** (8/11, SN des Mouissèques) créée dans l'archive le 2026-11-04 (IC relues à la main, budget OpenAI alors atteint ; bouées X4–X7 estimées), fiche tactique PDF du jour envoyée à l'équipage ; archivée le 2026-11-09 : manche 1 = Parcours 4 (IC), prévu n°1 par l'app, pas de trace.
