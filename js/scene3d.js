@@ -247,6 +247,48 @@ export class Scene3D {
     if (name === 'particles') this.groups.particles.visible = on;
     if (name === 'labels') this.groups.labels.visible = on;
     if (name === 'routes') this.groups.routes.visible = on;
+    if (name === 'current' && this.groups.current) this.groups.current.visible = on;
+  }
+
+  // ───────── courant de marée (Brest seulement, D-13) : flèches sur une grille d’environ 500 m autour du centre de la vue
+  // at(x, y) → { u, v } m/s ou null, à l’heure affichée ; null : couche vidée. Groupe créé au premier appel (jamais à Toulon).
+  setCurrent(at) {
+    if (!this.groups.current) {
+      this.groups.current = new THREE.Group(); this.groups.current.visible = this.layers.current !== false; this.scene.add(this.groups.current);
+      this.controls.addEventListener('end', () => { if (this.currentAt) this.#drawCurrent(); });
+    }
+    this.currentAt = at;
+    this.#drawCurrent();
+  }
+  #drawCurrent() {
+    const g = this.groups.current; g.clear();
+    const at = this.currentAt, T = this.t;
+    if (!at) return;
+    const tg = this.controls.target, cx = tg.x, cy = -tg.z;
+    const half = Math.max(1500, Math.min(7000, this.camera.position.distanceTo(tg) * 0.55)), STEP = 500;
+    const pos = [], col = [], KN = 1852 / 3600;
+    for (let y = Math.ceil((cy - half) / STEP) * STEP; y <= cy + half; y += STEP) for (let x = Math.ceil((cx - half) / STEP) * STEP; x <= cx + half; x += STEP) {
+      if (T.inside && !T.inside(x, y)) continue;
+      if (T.isLand(x, y)) continue;
+      const c = at(x, y);
+      if (!c) continue;
+      const nd = Math.hypot(c.u, c.v) / KN;
+      if (nd < 0.05) continue;
+      const L = 120 + Math.min(4, nd) * 160, ux = c.u / (nd * KN), uy = c.v / (nd * KN);          // longueur selon la vitesse
+      const x0 = x - ux * L / 2, y0 = y - uy * L / 2, x1 = x + ux * L / 2, y1 = y + uy * L / 2, hl = Math.min(90, L * 0.35);
+      const hx = (a) => x1 - hl * (ux * Math.cos(a) - uy * Math.sin(a)), hy = (a) => y1 - hl * (uy * Math.cos(a) + ux * Math.sin(a));
+      const segs = [[x0, y0, x1, y1], [x1, y1, hx(0.45), hy(0.45)], [x1, y1, hx(-0.45), hy(-0.45)]];
+      // couleur : bleu pâle (faible) → violet → rouge (plus de 2 nd)
+      const k = Math.min(1, nd / 2), r = 0.35 + 0.6 * k, gc = 0.75 - 0.55 * k, b = 1 - 0.6 * k;
+      for (const [a1, b1, a2, b2] of segs) { pos.push(a1, 12, -b1, a2, 12, -b2); col.push(r, gc, b, r, gc, b); }
+    }
+    if (!pos.length) return;
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+    const lines = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.9, depthWrite: false }));
+    lines.renderOrder = 6; lines.frustumCulled = false;
+    g.add(lines);
   }
 
   // ───────── particules (traînées de vent)

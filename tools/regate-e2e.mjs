@@ -3148,6 +3148,76 @@ async function attendWorker(page, delai = 90000) {
 // (téléchargement) ; téléphone B : première visite en ligne, Toulon seulement. Serveur ARRÊTÉ pour de bon (connexion refusée, vérifiée).
 // A rouvre Brest hors réseau : carte chargée depuis le cache du pack, prévisions « hors ligne », aucune erreur. B, choisi à Brest sans pack,
 // hors réseau : message « La rade de Brest n’est pas encore sur ce téléphone… », « Revenir à la rade de Toulon » ramène Toulon.
+// D-13, D-14c (07-08) : courant de marée à Brest. Pack téléchargé par « Passer à la rade de Brest », jeudi 6 mai 2027 (GPEN, vive-eau), départ
+// à 14 h, vent manuel 270°/10 nd, banane de la zone A : briefing (« Marée à Brest », « Courant à l’heure du départ », conseil du premier bord
+// marqué « estimation d’après l’atlas du Shom », source du Shom), Parcours (conseils de courant des bords), Départ (« Courant à la ligne »,
+// dérive en m/min, rappel sur le mode départ), calque « Courant de marée », En course (« Courant ici » au GPS) ; puis retour à Toulon :
+// ni carte de courant ni calque (la vue de Toulon est comparée à la v42 par toulon-vue).
+async function brestCourant({ browser, base }) {
+  const ctx = await ouvreContexte(browser, { heure: '2027-05-06T07:00:00Z', geo: { latitude: 48.2985, longitude: -4.3600 } });     // 9 h 00 à Paris, zone A
+  const { page, erreurs } = await ouvrePage(ctx);
+  await ouvreApp(page, base);
+  assert.equal(await page.locator('#layersMenu [data-layer=current]').count(), 0, 'Toulon : pas de calque de courant');
+  await cartePlanEau(page, 'absent');
+  await rechargePar(page, () => page.click('#pkGo'));
+  assert.equal((await etatApp(page)).venue, 'brest');
+  await page.evaluate(() => {
+    const st = JSON.parse(localStorage.getItem('rade.state') || '{}');
+    localStorage.setItem('rade.state', JSON.stringify({ ...st, day: '2027-05-06', hour: 14, startTime: 14, src: 'manual', manual: { dir: 270, spd: 10, gust: 13 }, courseId: 90, linePreset: 'zoneA' }));
+  });
+  await ouvreApp(page, base);
+  const st = await etatApp(page);
+  assert.equal(st.venue, 'brest'); assert.equal(st.day, '2027-05-06'); assert.equal(st.startTime, 14); assert.equal(st.courseId, 90);
+  // briefing
+  await page.click('#tabs button[data-tab=brief]');
+  await page.waitForFunction(() => /Courant à l’heure du départ/.test(document.querySelector('section[data-tab=brief]')?.textContent || ''), null, { timeout: 90000 });
+  const brief = (await texte(page, 'section[data-tab=brief]')).replace(/\s+/g, ' ');
+  assert.match(brief, /Marée à Brest jeudi 6 mai, heure de Paris/);
+  assert.match(brief, /Basse mer 11:54 · 1,34 m/);
+  assert.match(brief, /Courant à l’heure du départ 14:00, vers où il porte\s*Ligne de départ : \d,\d nd → \d{3}°\s*Bouée au vent · B \(au vent\) : \d,\d nd → \d{3}°/);
+  assert.match(brief, /Prochaine renverse vers 1[78] h \d\d dans la zone du parcours/, 'renverse du soir (pleine mer de 17 h 52)');
+  assert.match(brief, /Courant : Shom – atlas de courants de marée 2D \(Licence Ouverte 2\.0, doi 10\.17183\/ATLASCOURANTS2D_NETCDF\), estimation en conditions moyennes ; ne remplace pas les cartes et ouvrages nautiques officiels\./);
+  assert.match(brief, /Temps de parcours avec le courant de marée \(atlas du Shom\)\./);
+  assert.match(brief, /Premier bord : Courant \d,\d nd vers \d{3}° : [^.]*\(estimation d’après l’atlas du Shom\)/);
+  assert.ok(!/Courant indisponible|Marée indisponible/.test(brief));
+  // Parcours : conseils de courant de chaque bord, une réserve par bord
+  await page.click('#tabs button[data-tab=course]');
+  const parcours = (await texte(page, 'section[data-tab=course]')).replace(/\s+/g, ' ');
+  assert.ok((parcours.match(/\(estimation d’après l’atlas du Shom\)/g) || []).length >= 4, 'réserve sur les bords de la banane');
+  assert.match(parcours, /Courant \d,\d nd vers \d{3}° : (contre|avec) vous sur ce bord \(≈ [+−]/);
+  // Départ : courant à la ligne et dérive ; le mode départ plein écran reste celui de la v42
+  await page.click('#tabs button[data-tab=start]');
+  const depart = (await texte(page, 'section[data-tab=start]')).replace(/\s+/g, ' ');
+  assert.match(depart, /Courant à la ligne à 14:00, estimation\s*\d,\d nd → \d{3}°\s*vitesse · vers\s*\d+ m\/min/);
+  assert.match(depart, /Dérive : (porte vers la ligne de \d+ m\/min|vous en éloigne de \d+ m\/min|presque parallèle à la ligne)/);
+  assert.match(depart, /Le temps pour la ligne du mode départ suit la vitesse fond du GPS, courant compris ; le temps au près à pleine vitesse ne le compte pas\./);
+  // calque « Courant de marée » (coché, décochable)
+  await page.click('#mapBtns [data-v=layers]');
+  assert.equal(await page.locator('#layersMenu [data-layer=current]').count(), 1);
+  assert.match(await texte(page, '#layersMenu'), /Courant de marée \(flèches\)/);
+  assert.equal(await page.locator('#layersMenu [data-layer=current]').isChecked(), true);
+  await page.locator('#layersMenu [data-layer=current]').uncheck(); await page.locator('#layersMenu [data-layer=current]').check();
+  await page.click('#mapBtns [data-v=layers]');
+  // En course : courant au bateau (GPS en zone A, 9 h 00) et prochaine renverse
+  await page.click('#tabs button[data-tab=live]');
+  await page.click('#gOn');
+  await page.waitForSelector('#courantIci', { timeout: 30000 });
+  assert.match(await texte(page, '#courantIci'), /^Courant ici : \d,\d nd → \d{3}° · prochaine renverse vers 1[12] h \d\d \(estimation d’après l’atlas du Shom\)$/);
+  await page.click('#gOff');
+  sansErreur(erreurs, 'à Brest');
+  // retour à Toulon : aucune carte ni calque de courant
+  await cartePlanEau(page, 'ready');
+  await rechargePar(page, () => page.click('#pkGo'));
+  assert.equal((await etatApp(page)).venue, 'toulon');
+  assert.equal(await page.locator('#layersMenu [data-layer=current]').count(), 0, 'Toulon : pas de calque de courant');
+  await page.click('#tabs button[data-tab=brief]');
+  assert.ok(!/Courant à l’heure du départ|atlas du Shom|Marée à Brest/.test(await texte(page, 'section[data-tab=brief]')), 'Toulon : ni marée ni courant');
+  await page.click('#tabs button[data-tab=start]');
+  assert.ok(!/Courant à la ligne/.test(await texte(page, 'section[data-tab=start]')));
+  sansErreur(erreurs, 'retour à Toulon');
+  await ctx.close();
+}
+
 async function brestAvion({ browser }) {
   const { serveur, base, refuses } = await demarreServeur({ root: ROOT });
   let arrete = false;
@@ -3313,7 +3383,7 @@ async function regateBrest({ browser, base }) {
   await A.ctx.close(); await B.ctx.close();
 }
 
-const SCENARIOS = { accueil, 'jour-j': jourJ, 'deux-telephones': deuxTelephones, reprise, equipage, archive, 'archive-bouees': archiveBouees, archivehors: archiveHors, creer, manche, auteur, ic, 'depuis-ic': depuisIC, vraisemblance, gel, 'debrief-tardif': debriefTardif, gpx, 'gpx-choix': gpxChoix, ia, 'ia-erreurs': iaErreurs, arbitre, bouees, guide, entetes, 'retour-port': retourPort, banane, 'banane-manche': bananeManche, 'banane-debrief': bananeDebrief, 'porte-ic': porteIC, 'modifier-manche': modifierManche, 'toulon-vue': toulonVue, 'plan-eau': planEau, 'brest-avion': brestAvion, 'regate-brest': regateBrest };
+const SCENARIOS = { accueil, 'jour-j': jourJ, 'deux-telephones': deuxTelephones, reprise, equipage, archive, 'archive-bouees': archiveBouees, archivehors: archiveHors, creer, manche, auteur, ic, 'depuis-ic': depuisIC, vraisemblance, gel, 'debrief-tardif': debriefTardif, gpx, 'gpx-choix': gpxChoix, ia, 'ia-erreurs': iaErreurs, arbitre, bouees, guide, entetes, 'retour-port': retourPort, banane, 'banane-manche': bananeManche, 'banane-debrief': bananeDebrief, 'porte-ic': porteIC, 'modifier-manche': modifierManche, 'toulon-vue': toulonVue, 'plan-eau': planEau, 'brest-avion': brestAvion, 'regate-brest': regateBrest, 'brest-courant': brestCourant };
 
 // ───────────────────────── lancement
 

@@ -204,6 +204,7 @@ async function init() {
   scene.upAngle = (tws) => optimalAngles(Math.max(1, tws)).up.twa;
   scene.setDangers(forbidden, DANGERS, FORBIDDEN_ZONES.map((z) => (z.note ? `Zone interdite · ${z.note}` : 'Zone interdite')));        // D-14c : zone incomplète signalée sur la carte
   scene.onPick = onPick;
+  if (VENUE.courant) addCurrentLayer();                // Brest : interrupteur « Courant de marée » des calques ; Toulon : aucun élément de plus
   scene.onCamera = () => { $('#compass .needle').style.transform = `rotate(${-scene.azimuth()}deg)`; };
   bindMap();
   initTips();
@@ -256,6 +257,63 @@ async function courantCtx(day, h) {
 }
 // Instant (ms UTC) du jour `day` à l’heure décimale `h` de Paris
 const parisAt = (day, h) => parisInstant(day, Math.floor(h), 0) + (h - Math.floor(h)) * 3600e3;
+// ── affichage du courant (Brest seulement) : vitesse arrondie à 0,1 nd, direction VERS laquelle il porte ; toujours une estimation
+const KN_MS = 1852 / 3600;
+const curNd = (c) => Math.hypot(c.u, c.v) / KN_MS, curVers = (c) => norm360(Math.atan2(c.u, c.v) * 180 / Math.PI);
+const curTxt = (c) => (c ? `${(Math.round(curNd(c) * 10 + 1e-9) / 10).toFixed(1).replace('.', ',')} nd → ${fmtBrg(curVers(c))}` : '—');
+const SHOM_COURANT = 'Courant : Shom – atlas de courants de marée 2D (Licence Ouverte 2.0, doi 10.17183/ATLASCOURANTS2D_NETCDF), estimation en conditions moyennes ; ne remplace pas les cartes et ouvrages nautiques officiels.';
+function addCurrentLayer() {
+  const lab = document.createElement('label'), box = document.createElement('input');
+  box.type = 'checkbox'; box.dataset.layer = 'current'; box.checked = true;
+  lab.append(box, ' Courant de marée (flèches)');
+  const menu = $('#layersMenu'), relief = $('#exag')?.closest('label');
+  menu.insertBefore(lab, relief && relief.parentNode === menu ? relief : null);
+}
+// flèches de courant de la carte à l’heure affichée (curseur) ; rien si l’atlas ou la marée manquent
+async function paintCurrent() {
+  const day = S.day, h = S.hour, cur = await courantCtx(day, h);
+  if (!scene || day !== S.day || h !== S.hour) return;
+  if (!cur?.current) { scene.setCurrent(null); return; }
+  const ms = parisAt(day, h);
+  scene.setCurrent((x, y) => cur.current(x, y, ms));
+}
+// Carte « Courant à l’heure du départ » du briefing : à la ligne, à la bouée au vent, prochaine renverse, source Shom
+function courantHTML() {
+  const C = analysis?.courant;
+  if (!C) return '';
+  if (!C.ok || !CUR) return `<div class="card" id="courantCard"><h3>Courant indisponible</h3><p class="small muted">${esc(C.raison ?? 'Atlas de courant non chargé.')}</p></div>`;
+  const t0 = C.t0, L = analysis.line, up = analysis.legs.find((l) => l.type?.id === 'pres') ?? analysis.legs[0];
+  const at = (p) => CUR.current(p.x, p.y, t0);
+  const rv = C.renverses.find((r) => r.t >= t0 - 3600e3);
+  const rows = [['Ligne de départ', at(L.c)], [up ? `Bouée au vent · ${up.to.name}` : 'Bouée au vent', up ? at(up.to) : null]]
+    .map(([n, c]) => `<div class="small"><b>${esc(n)}</b> : ${esc(curTxt(c))}</div>`).join('');
+  return `<div class="card" id="courantCard"><h3>Courant à l’heure du départ <small>${esc(hhmm(S.startTime))}, vers où il porte</small></h3>${rows}
+    <div class="small" style="margin-top:4px">${esc(rv ? `Prochaine ${renverseText(rv.t).toLowerCase()} dans la zone du parcours : le courant portait vers ${fmtBrg(rv.de)}, il portera vers ${fmtBrg(rv.vers)}.` : 'Pas de renverse dans la zone du parcours le reste de la journée.')}</div>
+    <div class="small muted" style="margin-top:6px">${esc(SHOM_COURANT)}</div></div>`;
+}
+// Carte « Courant à la ligne » de l’onglet Départ : vitesse, direction, composante vers le côté parcours (m/min) à l’heure du départ
+function courantLigneHTML() {
+  const C = analysis?.courant;
+  if (!C?.ok || !CUR) return '';
+  const L = analysis.line, c = CUR.current(L.c.x, L.c.y, C.t0);
+  if (!c) return '';
+  const f = L.face * Math.PI / 180, mmin = (c.u * Math.sin(f) + c.v * Math.cos(f)) * 60;      // > 0 : porte vers le côté parcours de la ligne
+  const sens = Math.abs(mmin) < 1 ? 'presque parallèle à la ligne' : mmin > 0 ? `porte vers la ligne de ${Math.round(mmin)} m/min` : `vous en éloigne de ${Math.round(-mmin)} m/min`;
+  return `<div class="card" id="courantLigne"><h3>Courant à la ligne <small>à ${esc(hhmm(S.startTime))}, estimation</small></h3>
+    <div class="kpis"><div class="kpi"><b>${esc(curTxt(c))}</b><span>vitesse · vers</span></div><div class="kpi"><b>${esc(String(Math.round(Math.abs(mmin))))} m/min</b><span>${mmin >= 0 ? 'vers la ligne' : 'vers l’arrière'}</span></div></div>
+    <p class="small">${esc(`Dérive : ${sens} (bateau arrêté sous la ligne).`)}</p>
+    <p class="small muted">${esc('Le temps pour la ligne du mode départ suit la vitesse fond du GPS, courant compris ; le temps au près à pleine vitesse ne le compte pas.')}</p>
+    <div class="small muted">${esc(SHOM_COURANT)}</div></div>`;
+}
+// En course (Brest) : courant au bateau maintenant, prochaine renverse ; renverses mises en mémoire par tranche de 5 min
+let liveRv = null;
+function courantIci(p) {
+  if (!CUR || !analysis?.courant?.ok || !p) return null;
+  const now = Date.now(), c = CUR.current(p.x, p.y, now);
+  const k = Math.floor(now / 300000);
+  if (!liveRv || liveRv.k !== k) liveRv = { k, rv: renverses(CUR, now, now + 12 * 3600e3, analysis.courant.zone) };
+  return { c, rv: liveRv.rv[0] ?? null };
+}
 const fmtM = (h, d = 2) => `${h.toFixed(d).replace('.', ',')} m`;
 // Carte « Marée à Brest » du jour choisi : pleines et basses mers (heure de Paris, hauteur au-dessus du zéro des cartes), marnage et
 // coefficient approché de chaque pleine mer (pleine mer moins la moyenne des basses mers qui l’encadrent, étude § 4.2), source
@@ -514,6 +572,7 @@ function updateDisplayField() {
   $('#windBadge').innerHTML = `${arrow(c.dir)} <b>${c.spd.toFixed(0)}</b> nd · ${cardinal(c.dir)} ${fmtBrg(c.dir)}<br><span class="small">rafales ${c.gust.toFixed(0)} nd · ${hhmm(S.hour)}${src}</span>`;
   $('#windBadge').classList.toggle('nowx', S.src === 'forecast' && !b);
   renderLegend();
+  if (VENUE.courant) paintCurrent();
 }
 function scheduleAnalysis() { clearTimeout(anaTimer); anaTimer = setTimeout(runAnalysis, 120); }
 
@@ -553,6 +612,7 @@ async function runAnalysis() {
     const p = { x: L0.pin.x + (L0.cb.x - L0.pin.x) * f, y: L0.pin.y + (L0.cb.y - L0.pin.y) * f };
     const r = routeOf(p, first.to, F, routeOpts(ctx), ctx);          // la route du point retenu resservira au 1er bord
     if (r) cands.push({ f, p, time: r.time });
+    if (ctx.current) { await new Promise((ok) => setTimeout(ok, 0)); if (token !== anaToken) return; }    // Brest : routes avec courant plus longues, découpées
   }
   if (cands.length) {
     const best = cands.reduce((a, b) => (b.time < a.time ? b : a)), mid = cands.find((c) => c.f === 0.5) || best;
@@ -776,6 +836,7 @@ function renderBrief() {
     ${isRace && (IC.firstWarning || IC.lastFinishSignal || IC.vhf != null) ? `<div class="small muted" style="margin-top:6px">${[IC.firstWarning && `1er avertissement ${esc(IC.firstWarning)}`, IC.lastFinishSignal && `arrivée limite ${esc(IC.lastFinishSignal)}`, IC.vhf != null && `VHF ${esc(IC.vhf)}`].filter(Boolean).join(' · ')}</div>` : ''}
   </div>`;
   if (VENUE.maree) html += mareeHTML();                // Brest seulement : Toulon n’a ni marée ni courant (D-13)
+  if (VENUE.courant) html += courantHTML();
   if (rows.length) html += `<div class="card"><h3><span>Vent sur la journée ${tip(`Trait plein : vent moyen AROME HD au ${VENUE.texts?.centre ?? 'centre de la rade'}. Pointillés : rafales. Bande bleue : écart entre les 6 modèles (plus elle est large, moins la prévision est sûre). Zone orange : fenêtre de course.`)}</span><small>${esc(VENUE.texts?.point ?? 'point central rade')}</small></h3>${chartSVG(rows, isRace)}<div class="small muted">Trait plein : AROME HD · pointillé : rafales · bande : écart entre les ${MODELS.length} modèles · flèches : direction (vers où souffle le vent).</div></div>`;
   // stratégie
   if (analysis) {
@@ -794,8 +855,8 @@ function renderBrief() {
     }
     tips.push(`Parcours ${analysis.course.id} estimé à <b>${summarizeTime(analysis.total * 3600)}</b> pour un J80 (${(analysis.dist / NM).toFixed(1)} Nq route directe).`);
     if (analysis.courant) tips.push(analysis.courant.ok ? 'Temps de parcours avec le courant de marée (atlas du Shom).' : `<b>${esc(analysis.courant.raison)}</b>`);
-    const rv = analysis.courant?.ok ? analysis.courant.renverses.find((r) => r.t >= analysis.courant.t0 - 3600e3) : null;
-    if (rv) tips.push(esc(`Prochaine ${renverseText(rv.t).toLowerCase()} dans la zone du parcours : le courant portait vers ${fmtBrg(rv.de)}, il portera vers ${fmtBrg(rv.vers)} (estimation d’après l’atlas du Shom).`));
+    const c0 = analysis.legs[0]?.courant?.advice;           // Brest : ce que le courant change au premier bord (renverse : carte du courant)
+    if (c0?.length) tips.push(`Premier bord : ${esc(c0.map(tipText).join(' · '))}`);
     if (analysis.horsEau?.length) tips.push(`<b>⚠ ${esc(horsEauText(analysis.horsEau))}</b>`);
     for (const l of analysis.legs) if (l.gate) tips.push(`Tour ${esc(l.lap ?? 1)} · ${esc(gateText(l.gate))}`);         // porte conseillée à chaque passage (D-06)
     html += `<div class="card"><h3>Stratégie du jour ${tip('Synthèse automatique : rotation du vent attendue pendant la course, zones les plus ventées, désaccord entre modèles et temps estimé du parcours.')}</h3><ul class="tips">${tips.map((t) => `<li>${t}</li>`).join('')}</ul></div>`;
@@ -1077,6 +1138,7 @@ function renderStart() {
       <div class="kpis"><div class="kpi"><b>${Math.abs(st.bias).toFixed(0)}°</b><span>biais</span></div><div class="kpi"><b>${st.favored === 'aucun' ? '=' : st.favored}</b><span>extrémité favorisée</span></div><div class="kpi"><b>${Math.round(st.len)} m</b><span>longueur · ${fmtBrg(st.lineBrg)}</span></div></div>
       <ul class="tips">${st.advice.map((a) => `<li>${esc(a)}</li>`).join('')}</ul>
       ${A.legs[0]?.advice?.length ? `<div class="mark small" style="background:#f2f6fa;border-radius:8px;padding:6px 8px;margin-top:6px"><b>Premier bord</b> : ${esc(A.legs[0].advice.slice(0, 3).join(' '))}</div>` : ''}</div>`;
+    if (VENUE.courant) html += courantLigneHTML();      // Brest seulement (D-13) : le mode départ plein écran (js/startmode.js) n’est pas modifié
   }
   html += `<div class="card timer"><h3>Chrono de départ <small>règle 26 : 5-4-1-0</small></h3>
     <div class="clock" id="tClock">5:00</div><div class="phase" id="tPhase">Prêt</div>
@@ -1415,6 +1477,16 @@ function renderLive() {
   renderLiveNav(); renderPlan(); renderObsAll();
   if (timer.iv) tickTimer();
 }
+// Marque au vent avec courant (Brest) : caps au près sur le vent de l’eau (vent − courant) et route fond de chaque amure (cap × vitesse
+// + courant) ; la lay-line est celle de la route fond : on y est quand le relèvement de la marque suit la route fond de l’amure
+function layCourant(w, c, brg) {
+  const wu = -Math.sin(w.dir * Math.PI / 180) * w.spd * KN_MS - c.u, wv = -Math.cos(w.dir * Math.PI / 180) * w.spd * KN_MS - c.v;
+  const tws = Math.max(1, Math.hypot(wu, wv) / KN_MS), wdir = norm360(Math.atan2(-wu, -wv) * 180 / Math.PI), up = optimalAngles(tws).up;
+  const fond = (hd) => { const b = boatSpeed(tws, up.twa) * KN_MS, h = hd * Math.PI / 180; return norm360(Math.atan2(Math.sin(h) * b + c.u, Math.cos(h) * b + c.v) * 180 / Math.PI); };
+  const stb = norm360(wdir - up.twa), prt = norm360(wdir + up.twa), gs = fond(stb), gp = fond(prt);
+  const onStb = Math.abs(norm180(brg - gs)) < 3, onPrt = Math.abs(norm180(brg - gp)) < 3;
+  return `Marque au vent (dérive du courant comprise) : caps ${fmtBrg(stb)} (tribord, route fond ${fmtBrg(gs)}) / ${fmtBrg(prt)} (bâbord, route fond ${fmtBrg(gp)}). ${onStb ? '<b>Sur la lay-line tribord.</b>' : onPrt ? '<b>Sur la lay-line bâbord.</b>' : `Bord rapprochant : ${Math.abs(norm180(brg - gs)) < Math.abs(norm180(brg - gp)) ? 'tribord' : 'bâbord'} amures.`}`;
+}
 function renderLiveNav() {
   const g = $('#liveGps'), n = $('#liveNav'), r = $('#liveRec'); if (!g) return;
   const A = analysis, p = gps?.pos;
@@ -1450,7 +1522,9 @@ function renderLiveNav() {
     const vmc = p.sog != null && p.cog != null ? p.sog * Math.cos((p.cog - brg) * Math.PI / 180) : null;
     const eta = vmc > 0.3 ? d / (vmc * 0.5144) : null;
     let rec = '';
-    if (Math.abs(twaM) < up.twa) {
+    const ici = VENUE.courant ? courantIci(p) : null;          // Brest : courant au bateau ; Toulon : null, texte de la v42
+    if (ici?.c && Math.abs(twaM) < up.twa) rec = layCourant(w, ici.c, brg);
+    else if (Math.abs(twaM) < up.twa) {
       const stb = norm360(w.dir - up.twa), prt = norm360(w.dir + up.twa);
       const onStbLay = Math.abs(norm180(brg - stb)) < 3, onPrtLay = Math.abs(norm180(brg - prt)) < 3;
       rec = `Marque au vent : caps ${fmtBrg(stb)} (tribord) / ${fmtBrg(prt)} (bâbord). ${onStbLay ? '<b>Sur la lay-line tribord.</b>' : onPrtLay ? '<b>Sur la lay-line bâbord.</b>' : `Bord rapprochant : ${Math.abs(norm180(brg - stb)) < Math.abs(norm180(brg - prt)) ? 'tribord' : 'bâbord'} amures.`}`;
@@ -1459,6 +1533,7 @@ function renderLiveNav() {
     html += `<div class="kpis" style="margin-top:8px"><div class="kpi live"><b class="big">${fmtBrg(brg)}</b><span>relèvement</span></div><div class="kpi"><b class="big" style="font-size:28px">${(d / NM).toFixed(2)}</b><span>Nq</span></div><div class="kpi"><b>${eta ? summarizeTime(eta) : '—'}</b><span>ETA (VMC ${vmc != null ? vmc.toFixed(1) : '—'} nd)</span></div></div>
       <div class="kpis" style="margin-top:8px"><div class="kpi"><b>${p.sog != null ? p.sog.toFixed(1) : '—'}</b><span>SOG nd</span></div><div class="kpi"><b>${p.cog != null ? fmtBrg(p.cog) : '—'}</b><span>COG</span></div><div class="kpi"><b>${fmtBrg(w.dir)}</b><span>vent modèle ${w.spd.toFixed(0)} nd</span></div></div>
       <p class="small">${rec}</p>`;
+    if (ici) html += `<p class="small" id="courantIci">${esc(`Courant ici : ${curTxt(ici.c)}${ici.rv ? ` · prochaine ${renverseText(ici.rv.t).toLowerCase()}` : ''} (estimation d’après l’atlas du Shom)`)}</p>`;
     if (other) html += `<p class="small">Autre bouée : ${esc(fmtBrg(bearingXY(p, other)))} · ${esc((distXY(p, other) / NM).toFixed(2))} Nq</p>`;
   } else html += `<p class="small muted">Activez le GPS pour le relèvement, la distance et l’ETA vers la marque.</p>`;
   html += `<div class="btns"><button class="btn alt small" id="nPrev">◀ Marque précédente</button><button class="btn small" id="nNext">Marque passée ▶</button></div>`;
