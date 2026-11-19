@@ -17,7 +17,7 @@ import { applyRegattaMarks, pendingMarks, confirmMark, moveMark, ignoreMark, all
 import { trackDay, matchRegattas, raceOfTrack, sameTrack, attachTrace, detachTrace, traceSummary, setTraceSummary, setTraceReport } from './attach.js';
 import { breaksOf } from './segments.js';
 import { fetchAll, cached, snapshot, consensus, gridPoints, marineAt, fetchLive, coversDay, MODELS, WMO, CENTER, configureWeather } from './weather.js';
-import { buildLegs, analyzeLeg, markAdvice, analyzeStart, trendOf, rankCourses, regimeOf, sideName, summarizeTime, prepareLeg, gateText, routeOf } from './tactics.js';
+import { buildLegs, analyzeLeg, markAdvice, analyzeStart, trendOf, rankCourses, regimeOf, tipText, ORIGINES, sideName, summarizeTime, prepareLeg, gateText, routeOf } from './tactics.js';
 import { BANANE_ID, BANANE, addBanane, banOf, banToState, cleanBan, courseMarkUse, legReached, banHorsEau } from './banane.js';
 import { optimalAngles, boatSpeed, trimAdvice, spiMinTwa, getPolar, setPolar, resetPolar, parsePolar } from './polar.js';
 import { renderJ80 } from './j80.js';
@@ -732,7 +732,8 @@ function renderBrief() {
     }
     html += `<div class="card"><h3>Effets de site du relief ${tip('Calculés par le modèle de vent local à partir du relief de la rade (accélérations, dévents, vent dévié le long des côtes), à l’heure où chaque bord est couru. Ils sont intégrés au routage et au choix du côté.')}<small>sur le parcours ${analysis.course.id}</small></h3>${rows.length ? `<ul class="tips">${rows.slice(0, 6).join('')}</ul>` : '<p class="small muted">Pas d’effet de site marqué sur ce parcours avec ce vent : le plan d’eau est homogène.</p>'}<div class="small muted">Intensité réglable dans l’onglet Vent (« Effets locaux du relief »).</div></div>`;
   }
-  if (reg) html += `<div class="card"><h3>Effets locaux — ${esc(reg.name)} <small>connaissance de la rade</small></h3><ul class="tips">${reg.tips.map((t) => `<li>${esc(t)}</li>`).join('')}</ul></div>`;
+  // Toulon : conseils en chaînes, affichage de la v42 ; ailleurs { t, o } : origine en tête, hypothèse « à confirmer sur l’eau », ligne d’origine (D-14)
+  if (reg) html += `<div class="card"><h3>Effets locaux — ${esc(reg.name)} <small>connaissance de la rade</small></h3><ul class="tips">${reg.tips.map((t) => `<li>${typeof t === 'string' ? '' : `<small class="muted">${esc(ORIGINES[t.o] ?? '')}</small> `}${esc(tipText(t))}</li>`).join('')}</ul>${VENUE.texts?.origine ? `<div class="small muted">${esc(VENUE.texts.origine)}</div>` : ''}</div>`;
   if (w?.spd != null) { const ta = trimAdvice(w.spd, w.gust); html += `<div class="card"><h3>Réglages J80 — ${ta.mode}</h3><ul class="tips"><li><b>Gréement</b> : ${ta.rig} Haubans / intermédiaires / bas-haubans (North, jauge Loos B) : <b>${shroudsFor(w.gust ? (w.spd + w.gust) / 2 : w.spd)}</b>.</li><li><b>Voiles</b> : ${ta.sails}</li><li><b>Équipage</b> : ${ta.crew}</li><li><b>Tactique</b> : ${ta.tactic}</li></ul><div class="small muted">Valeurs chiffrées (haubans, points de tir) : onglet J80.</div></div>`; }
   // modèles à l'heure affichée
   const ih = seriesIndex(S.day, S.hour);
@@ -1849,7 +1850,7 @@ function renderWind() {
   const el = $('section[data-tab=wind]');
   const m = S.manual;
   el.innerHTML = `<div class="card"><h3>Vent manuel <small>toute situation météo</small></h3>
-    <div class="btns" style="margin-top:0">${(VENUE.presets ?? PRESETS).map((p, i) => `<button class="btn small alt" data-p="${i}">${p[0]}</button>`).join('')}</div>
+    <div class="btns" style="margin-top:0">${(VENUE.presets ?? PRESETS).map((p, i) => `<button class="btn small alt" data-p="${i}">${esc(p[0])}</button>`).join('')}</div>
     <label class="f">Direction (d’où vient le vent) : <b id="mDirL">${fmtBrg(m.dir)} ${cardinal(m.dir)}</b></label><input id="mDir" type="range" min="0" max="355" step="5" value="${m.dir}">
     <label class="f">Vent moyen : <b id="mSpdL">${m.spd} nd</b></label><input id="mSpd" type="range" min="1" max="40" step="1" value="${m.spd}">
     <label class="f">Rafales : <b id="mGL">${m.gust} nd</b></label><input id="mG" type="range" min="1" max="50" step="1" value="${m.gust}">

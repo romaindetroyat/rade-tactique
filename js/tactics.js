@@ -60,6 +60,10 @@ export const REGIMES = [
 ];
 // régimes du plan d’eau courant ; Toulon (regimes: null) garde REGIMES ci-dessus
 export const regimeOf = (dir, spd) => (VENUE.regimes?.length ? VENUE.regimes : REGIMES).find((r) => r.test(norm360(dir), spd));
+// Origine d’un conseil d’un autre plan d’eau ({ t, o }, étude de Brest § 3.6) ; les conseils de Toulon sont des chaînes, sans origine
+export const ORIGINES = { D: 'mesure', M: 'modèle de relief', C: 'courant', S: 'source citée', H: 'hypothèse' };
+// Texte affiché d’un conseil : chaîne telle quelle (Toulon) ; une hypothèse est présentée comme à confirmer (étude piège 10)
+export const tipText = (c) => (typeof c === 'string' ? c : c.o === 'H' ? `${c.t} (à confirmer sur l’eau)` : c.t);
 
 // ───────────────────────── Géométrie du parcours
 export function lineGeometry({ center, lengthNm = 0.12, windDir, mode = 'wind', firstMark, bearing }) {

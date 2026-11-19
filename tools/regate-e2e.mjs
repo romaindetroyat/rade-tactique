@@ -3087,8 +3087,25 @@ async function planEau({ browser, base }) {
   assert.match(dangers, /Zone interdite — Île Longue [^.]*: La navigation dans la zone balisée de l’Île Longue \(marques 0 à 10\) est interdite \(IC GPEN\)[^]*?À compléter sur carte marine\./);
   assert.match(dangers, /Zone interdite — Passage de Pen ar Vir [^]*?À compléter sur carte marine\./);
   assert.ok(!/Saint-Mandrier/.test(dangers), 'pas de zone de Toulon à Brest');
+  // Vents de Brest (07-06, D-14, D-14b) : vents prédéfinis de Brest, vent manuel « Suroît », régime et conseils marqués selon leur origine
+  await page.click('#tabs button[data-tab=wind]');
+  const boutons = await page.locator('section[data-tab=wind] [data-p]').allTextContents();
+  assert.deepEqual(boutons, ['Suroît', 'Ouest', 'Brise d’ouest', 'Noroît', 'Nord', 'Nordet', 'Est', 'Sud', 'Petit temps'], 'vents prédéfinis de Brest');
+  await page.locator('section[data-tab=wind] [data-p]', { hasText: 'Suroît' }).click();
+  assert.equal((await etatApp(page)).src, 'manual');
+  await page.click('#tabs button[data-tab=brief]');
+  await page.waitForFunction(() => /Effets locaux — Suroît/.test(document.querySelector('section[data-tab=brief]')?.textContent || ''), null, { timeout: 30000 });
+  const brief = (await texte(page, 'section[data-tab=brief]')).replace(/\s+/g, ' ');
+  assert.match(brief, /Effets locaux — Suroît \(sud-ouest\)/);
+  assert.match(brief, /hypothèse Mer plate près de la côte sud\. \(à confirmer sur l’eau\)/, 'hypothèse présentée comme à confirmer');
+  assert.match(brief, /mesure Régime perturbé, le plus fort en moyenne/, 'origine en tête de chaque conseil');
+  assert.match(brief, /Conseils tirés de mesures, du modèle de relief et de l’atlas ; les hypothèses sont à confirmer sur l’eau\./);
+  assert.ok(!/Saint-Mandrier|Sicié|Mistral|Labech/.test(brief), 'aucun conseil de Toulon à Brest');
+  assert.ok(!/État de la mer/.test(brief), 'pas de houle du large dans la rade (piège 9)');
+  assert.ok(!/Balises en direct/.test(brief), 'aucune balise en direct à Brest (D-14b)');
   sansErreur(erreurs, 'à Brest');
   // « Revenir à la rade de Toulon » : rechargement, réglages de Toulon retrouvés, pack gardé
+  await cartePlanEau(page, 'ready');
   await rechargePar(page, () => page.click('#pkGo'));
   assert.equal(await texte(page, '#regBar .regname'), 'Entraînement libre');
   const t = await etatApp(page);

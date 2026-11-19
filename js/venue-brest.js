@@ -1,7 +1,7 @@
 // Rade de Brest : descripteur léger du plan d’eau (D-03) — origine, emprise, bornes de saisie, fichiers, météo, vent, cadrage 3D,
 // catalogue initial. Les données lourdes (relief, fond de carte…) sont des fichiers à noms plats `data/brest.*` (07-03).
 // Sources : étude du plan d’eau (07-RESEARCH-PLAN-EAU.md § 1.1, 5.1) et IC du GPEN 2026 (annexe 1, centre de la zone A).
-// Lieux, marques, zones et régimes : 07-06 ; la marée et le courant arrivent en 07-07, le catalogue du GPEN en 07-09.
+// Lieux, marques, zones, régimes et vents prédéfinis : 07-06 ; la marée et le courant arrivent en 07-07, le catalogue du GPEN en 07-09.
 
 // Centre de la zone A du GPEN : 48°17,890 N 004°21,630 W (IC GPEN 2026, annexe 1)
 const ZONE_A = { lat: 48.29817, lon: -4.3605 };
@@ -136,6 +136,68 @@ const LINE_PRESETS = {
   zoneC: { label: 'Zone C du GPEN (Moulin Blanc, IC 2026)', lat: 48.385333, lon: -4.422333 },  // 48°23,120 N 004°25,340 W
 };
 
+// ───────── Régimes de vent (étude § 3.6, D-14) : même forme que REGIMES de js/tactics.js, mais chaque conseil est { t, o } avec son origine :
+// D donnée mesurée (Météo-France, Lanvéoc et Guipavas, mois de mai 2010-2026), M modèle de relief de l’app, C courant (atlas Shom 560),
+// S source citée, H hypothèse à valider sur l’eau (affichée « à confirmer sur l’eau », étude piège 10). Tests exclusifs : chaque direction et
+// chaque force trouvent exactement un régime. Pas de seuil de force du type mistral : aucun vent fort dominant en rade (§ 3.4).
+const vent = (s) => !(s < 4);
+const REGIMES = [
+  { id: 'calme', name: 'Calme / très petit temps', test: (d, s) => s < 4,
+    tips: [
+      { t: 'Par beau temps, après un vent du matin d’est ou de nord-est, la brise d’ouest s’installe entre 13 h et 16 h : zone sans vent puis demi-tour, le nouveau vent arrive par l’ouest.', o: 'D' },
+      { t: 'Sous 5 nd, le courant décide : 0,75 nd de courant vaut un cinquième de la vitesse du bateau.', o: 'C' },
+      { t: 'Mouiller, ou chercher le courant faible quand il est contraire.', o: 'H' },
+    ] },
+  { id: 'suroit', name: 'Suroît (sud-ouest)', test: (d, s) => vent(s) && d >= 200 && d < 250,
+    tips: [
+      { t: 'Régime perturbé, le plus fort en moyenne (12 nd à Lanvéoc en mai).', o: 'D' },
+      { t: 'Zone A : le vent passe par-dessus les collines de Lanvéoc (75 à 90 m, à 2,4 à 3,2 km) : environ 10 % de vent en moins et des trous dans le sud du cercle.', o: 'M' },
+      { t: 'Zone B (Poulmic) très abritée.', o: 'M' },
+      { t: 'Mer plate près de la côte sud.', o: 'H' },
+    ] },
+  { id: 'ouest', name: 'Ouest', test: (d, s) => vent(s) && d >= 250 && d < 290,
+    tips: [
+      { t: 'Secteur le plus fréquent en mai (20 % des heures de course à Lanvéoc).', o: 'D' },
+      { t: 'Zone A dégagée, 8 à 10 km d’eau au vent : vent plus régulier, clapot.', o: 'M' },
+      { t: 'C’est aussi la direction de la brise de l’après-midi (le plus souvent vers 15 h, maximum à 17-18 h) ; une fois établie, elle ne tourne pas régulièrement d’un côté.', o: 'D' },
+      { t: 'Vent contre courant pendant le jusant (le jusant porte à l’ouest) : clapot plus dur.', o: 'C' },
+    ] },
+  { id: 'noroit', name: 'Noroît (nord-ouest)', test: (d, s) => vent(s) && d >= 290 && d < 340,
+    tips: [
+      { t: 'Le vent vient de la presqu’île de Plougastel (45 à 130 m) : zone A peu abritée.', o: 'M' },
+      { t: 'Ciel de traîne : grains et rafales.', o: 'H' },
+    ] },
+  { id: 'nord', name: 'Nord', test: (d, s) => vent(s) && (d >= 340 || d < 20),
+    tips: [
+      { t: '« Très perturbé par l’effet vent de terre » (livret « Rade de Brest », voileaviron.org).', o: 'S' },
+      { t: 'Zone A à 2 à 4 km sous le vent de Logonna et de la baie de Daoulas : oscillations, risées par paquets.', o: 'H' },
+    ] },
+  { id: 'nordet', name: 'Nordet (nord-est)', test: (d, s) => vent(s) && d >= 20 && d < 70,
+    tips: [
+      { t: 'Fréquent par temps anticyclonique (14 à 18 % des heures de course en mai).', o: 'D' },
+      { t: 'Un quart de vent en moins dans le sud de la rade que sur le plateau de Guipavas.', o: 'D' },
+      { t: 'Vent de terre : rafales et rotations.', o: 'H' },
+    ] },
+  { id: 'est', name: 'Est', test: (d, s) => vent(s) && d >= 70 && d < 120,
+    tips: [
+      { t: 'Vent canalisé par l’estuaire de l’Aulne (livret « Rade de Brest »).', o: 'S' },
+      { t: 'Vent contre courant pendant le flot (le flot porte à l’est).', o: 'C' },
+      { t: 'Force moyenne faible (7 nd à Lanvéoc en mai).', o: 'D' },
+    ] },
+  { id: 'sud', name: 'Sud et sud-est', test: (d, s) => vent(s) && d >= 120 && d < 200,
+    tips: [
+      { t: 'Le plus perturbé en zone A : relief de 62 à 93 m à 1,8 à 3 km, 10 à 13 % de vent en moins.', o: 'M' },
+      { t: 'Plus de pression dans le nord du cercle, plus loin de la côte sud.', o: 'H' },
+      { t: '« Les vents peuvent s’accélérer vers la baie de Roscanvel » (livret « Rade de Brest »).', o: 'S' },
+      { t: 'Sud-est rare (3 % des heures de course en mai).', o: 'D' },
+    ] },
+];
+// Vents prédéfinis pour la saisie manuelle (étude § 3.6) : [nom, direction, vent moyen, rafales] ; forces tirées des moyennes mesurées, rafales supposées
+const PRESETS = [
+  ['Suroît', 225, 14, 20], ['Ouest', 270, 12, 17], ['Brise d’ouest', 275, 9, 12], ['Noroît', 315, 12, 18], ['Nord', 0, 9, 14],
+  ['Nordet', 45, 12, 17], ['Est', 90, 8, 12], ['Sud', 180, 10, 15], ['Petit temps', 90, 4, 6],
+];
+
 // Emprise des données (meta) : rade, goulet, Camaret (étude § 1.1, D-14)
 const BOUNDS = { west: -4.66, east: -4.22, south: 48.22, north: 48.43 };
 
@@ -158,7 +220,8 @@ export const BREST = Object.freeze({
     key: 'rade.wx.brest.v1',
     snapshot: 'data/brest.wx-snapshot.json',
   },
-  // maille du champ de vent et seuil « mer dégagée » (aucune eau à plus de 4 000 m d’une terre dans l’emprise : étude § 3.5)
+  // maille du champ de vent et seuil « mer dégagée » (étude § 3.5, piège 1) : avec 4 000 m (Toulon), seules ~90 cellules de l’Iroise servent de
+  // référence et la rade paraît déventée partout ; 1 500 m garde ~3 100 cellules de la rade et un facteur médian de l’eau de 0,95 à 1,0 (tests)
   wind: { cell: 150, openSea: 1500 },
   // cadrage initial de la 3D, en mètres depuis l’origine : centre de la zone A
   scene: { home: { target: { x: 6620, y: -3520 }, dist: 16000, portrait: { target: { x: 5200, y: -5600 }, dist: 34000, tilt: 0.5 } } },
@@ -170,9 +233,13 @@ export const BREST = Object.freeze({
   PLACES,
   FORBIDDEN_ZONES: ZONES,
   DANGERS,
-  regimes: [],             // rempli en 07-06 (étude § 3.6)
-  presets: null,
-  texts: { centre: 'centre de la zone A', point: 'centre de la zone A', relief: 'accélérations aux pointes et dans le goulet' },
+  regimes: REGIMES,
+  presets: PRESETS,
+  texts: {
+    centre: 'centre de la zone A', point: 'centre de la zone A',
+    relief: 'relief bas (60 à 130 m : collines de Lanvéoc et de Crozon, presqu’île de Plougastel), dévents courts ; accélérations aux pointes et dans le goulet',
+    origine: 'Conseils tirés de mesures, du modèle de relief et de l’atlas ; les hypothèses sont à confirmer sur l’eau.',
+  },
   // autres sources (onglet Vent) : liens neutres, sans balise de Toulon
   links: [
     ['Bulletin côtier Météo-France', 'https://meteofrance.com/previsions-meteo-marine/bulletin/cotier'],
