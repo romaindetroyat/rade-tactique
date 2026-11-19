@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 07
 current_phase_name: "Plans d'eau : Toulon et rade de Brest (GPEN)"
 status: executing
-stopped_at: Completed 07-08-PLAN.md
-last_updated: "2026-11-19T10:06:54.015Z"
+stopped_at: Completed 07-09-PLAN.md
+last_updated: "2026-11-19T11:03:11.524Z"
 last_activity: 2026-11-19
-last_activity_desc: Plan 07-08 — courant de marée dans le routage, les conseils et l’affichage de Brest (option current jamais passée à Toulon), hauteur d’eau avec marge de 1 m, Toulon identique
-state_head: 8540d09eb06fa89778821af9121e1f7f401a63e2
+last_activity_desc: Plan 07-09 — GPEN 2027 à Brest (parcours 91, 92, 93 de la zone A, arrivée à droite du comité, fiche semée, IA par plan d’eau), Toulon identique
+state_head: 508e9b8a394eba0ce2ae570be0d216dabe74e9e6
 progress:
   total_phases: 7
   completed_phases: 5
   total_plans: 38
-  completed_plans: 36
+  completed_plans: 37
   percent: 71
 ---
 
@@ -28,9 +28,9 @@ See: .planning/PROJECT.md (updated 2026-10-19)
 ## Current Position
 
 Phase: 07 (Plans d'eau : Toulon et rade de Brest (GPEN)) — EXECUTING
-Plan: 9 of 10
-Status: Ready to execute 07-09
-Last activity: 2026-11-19 — Plan 07-08 : route() avec options current, t0 et depth (branche à côté du pas de la v42 : vent sur l’eau, vitesse fond, dérive pendant les manœuvres, hauteur d’eau ≥ 1,5 + 1 m) ; courant uniforme 12,31 / 15,24 / 10,37 min (étude 12,1 / 14,9 / 10,2) ; banane de la zone A le 6 mai 2027 à 14 h : 41,7 → 44,1 min ; conseils de courant { t, o: 'C' } (temps gagné ou perdu, côté favorable, renverses 05:45, 12:10 et 18:00, vent contre courant, réserve Shom) ; cartes du briefing et de l’onglet Départ, flèches de courant, « Courant ici » et lay-lines corrigées en course ; js/startmode.js inchangé ; ouverture Brest 459 ms, Toulon 403 ms ; 811 tests (810 verts, 1 sauté), scénarios brest-courant, plan-eau, toulon-vue, jour-j, retour-port, banane verts ; gardes Toulon vertes ; BREST-07 fait
+Plan: 10 of 10
+Status: Ready to execute 07-10
+Last activity: 2026-11-19 — Plan 07-09 : parcours du GPEN construits par la banane (fin « comite » à droite du comité, 3P seule au dernier tour, noms 1 / 2 (dégagement) / 3S / 3P), 91 (2 tours), 92 (3 tours), 93 Virginie Hériot (chapelle relevée sur OpenStreetMap, arrivée à confirmer) ; ligne recentrée dans la zone A ; cercle « Zone A » sur la carte ; avertissements hors zone A et fonds trop faibles ; fiche gpen-2027 semée (instant fixe, sans auteur, pierre tombale et marqueur) ; consignes de Brest pour l’arbitre, le débrief et la dictée, consignes de Toulon identiques (empreintes v42) ; 844 tests (843 verts, 1 sauté), 36/36 scénarios, compat-v42 8/8 ; gardes Toulon vertes ; BREST-08 fait
 
 Progress: [███████░░░] 71%
 
@@ -94,6 +94,7 @@ Progress: [███████░░░] 71%
 | Phase 07 P06 | 35min | 3 tasks | 10 files |
 | Phase 07 P07 | 20min | 3 tasks | 20 files |
 | Phase 07 P08 | 38min | 3 tasks | 8 files |
+| Phase 07 P09 | 55min | 3 tasks | 24 files |
 
 ## Accumulated Context
 
@@ -195,6 +196,10 @@ Décisions récentes qui orientent le travail en cours :
 - [Phase 07]: Hauteur d’eau : hauteur − fond ≥ 1,5 + 1 m ; hors grille des fonds ou marée inconnue : navigable
 - [Phase 07]: Réserve « (estimation d’après l’atlas du Shom) » une fois par bord ; renverses dans un cercle de 0,6 Nq autour de la zone du GPEN
 - [Phase 07]: js/startmode.js inchangé ; pas de correction du débrief par le courant dans cette phase (question pour Romain)
+- [Phase 07]: Parcours du GPEN centrés dans la zone A : la ligne recule de Dist. 1 / 2 sous le vent (centre de la zone au milieu du bord de près), une ligne pinguée fait foi
+- [Phase 07]: Chapelle de l’École navale trouvée dans OpenStreetMap (Chapelle maritime, 48,283165 N 4,415900 W) : parcours 93 Virginie Hériot, mât et bouée de l’arrivée supposés, position à confirmer
+- [Phase 07]: Fiche gpen-2027 semée en local sur chaque téléphone, instant fixe et sans auteur, jamais envoyée ; pierre tombale et marqueur rade.seed.gpen.v1 empêchent tout nouveau semis
+- [Phase 07]: Consignes d’IA choisies dans une table fermée { toulon, brest } (api/_gpen.js) ; consignes de Toulon figées par leurs empreintes v42 capturées sur 56f6625
 
 ### Pending Todos
 
@@ -232,6 +237,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-11-19T10:06:53.861Z
-Stopped at: Completed 07-08-PLAN.md
+Last session: 2026-11-19T11:03:11.368Z
+Stopped at: Completed 07-09-PLAN.md
 Resume file: None

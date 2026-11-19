@@ -231,7 +231,7 @@ Plans:
   6. La fiche « GPEN 2027 — J80 » est semée ; les parcours 1 et 2 de la zone A (arrivée à droite du comité) et la variante Virginie Hériot sont proposés ; l'arbitre, le débrief et la dictée suivent les IC du GPEN à Brest et celles du CVAT à Toulon, mot pour mot
   7. v43 sur l'aperçu `apercu-phase-07`, vérifiée (tous les scénarios, dont Toulon identique et Brest : choix, téléchargement, mode avion, régate partagée, courant, GPEN), puis en production sur « publie » de Romain au plus tard le 10 décembre 2026
 
-**Plans:** 8/10 plans executed (vagues séquentielles : mêmes fichiers générés `sw.js`, `js/version.js` et outil `tools/regate-e2e.mjs`)
+**Plans:** 9/10 plans executed (vagues séquentielles : mêmes fichiers générés `sw.js`, `js/version.js` et outil `tools/regate-e2e.mjs`)
 
 Plans:
 **Wave 1**
@@ -259,7 +259,7 @@ Plans:
 - [x] 07-08-PLAN.md — Courant dans le routage (option `current` absente à Toulon, marge de hauteur d'eau), conseils (courant du bord, côté favorable, renverses, vent contre courant) et affichage (briefing, couche « Courant », Départ, En course), scénario `brest-courant` (vague 8)
 
 **Wave 9** *(blocked on Wave 8 completion)*
-- [ ] 07-09-PLAN.md — GPEN : parcours 1 et 2 de la zone A (arrivée « à droite du comité »), zone sur la carte, Virginie Hériot, fiche « GPEN 2027 — J80 » semée, arbitre, débrief et dictée par plan d'eau (consignes de Toulon identiques), scénario `gpen` (vague 9)
+- [x] 07-09-PLAN.md — GPEN : parcours 1 et 2 de la zone A (arrivée « à droite du comité »), zone sur la carte, Virginie Hériot, fiche « GPEN 2027 — J80 » semée, arbitre, débrief et dictée par plan d'eau (consignes de Toulon identiques), scénario `gpen` (vague 9)
 
 **Wave 10** *(blocked on Wave 9 completion)*
 - [ ] 07-10-PLAN.md — Guide et aide, vérification complète (gardes Toulon, compatibilités, tous les scénarios, mesures), v43 (`npm run release`), porte en `VERCEL_ENV=production`, poussée et PR brouillon par l'orchestrateur, production seulement sur « publie » de Romain au plus tard le 10/12 (vague 10, non autonome)
