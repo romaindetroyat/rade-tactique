@@ -219,10 +219,46 @@ Plans:
 
 ### Phase 7: Plans d'eau : Toulon et rade de Brest (GPEN)
 
-**Goal:** [To be planned]
-**Requirements**: TBD
+**Goal:** L'équipage choisit son plan d'eau : Toulon, qui reste exactement celui de la v42, ou la rade de Brest avec la zone A du GPEN, téléchargée une fois et utilisable hors réseau, avec sa marée, ses courants, ses vents, ses zones interdites et le catalogue de parcours J80 du GPEN ; tout est livré en v43 avant la régate de Toulon du 13 décembre 2026 (production au plus tard le 10 décembre, sur « publie » de Romain).
+**Requirements**: VENUE-01, BREST-01, BREST-02, BREST-03, BREST-04, BREST-05, BREST-06, BREST-07, BREST-08
 **Depends on:** Phase 6
-**Plans:** 0 plans
+**Success Criteria** (what must be TRUE):
+  1. Toulon est identique à la v42 : garde SNPM, fixture des calculs (bords, conseils, champ de vent, routes, positions, météo) et vues capturées sur 56f6625 avant toute modification, empreintes des données de Toulon, liste hors réseau de Toulon sans fichier lourd nouveau, ouverture hors réseau en moins de 2 s ; une garde rouge sans explication = rien de publié avant le 13/12
+  2. En entraînement libre comme pour une régate, l'équipier choisit Toulon ou la rade de Brest ; le changement recharge l'app hors course, jamais pendant une course ; une régate porte son plan d'eau, partagé par l'archive, et un téléphone resté en v42 la lit sans erreur ni effacement
+  3. La rade de Brest se télécharge une fois (environ 5 Mo), vérifiée par empreinte, reste disponible après les mises à jour et s'ouvre en mode avion ; sans téléchargement, un message clair et le retour à Toulon
+  4. À Brest : carte et relief (rade, goulet, Camaret), lieux, marques, dangers, zones interdites (Île Longue, Pen ar Vir) évitées par le routage, vents et conseils propres marqués selon leur origine, positions en longitude Ouest lues et écrites justes, sources et licences citées
+  5. À Brest, l'app donne l'heure et la hauteur de la marée et le courant de l'atlas du Shom par heure de marée, hors réseau ; le routage (vitesse fond, marge de 1 m sur les fonds), les conseils (renverses, côté favorable) et l'affichage (briefing, carte, Départ, En course) en tiennent compte ; rien de cela à Toulon
+  6. La fiche « GPEN 2027 — J80 » est semée ; les parcours 1 et 2 de la zone A (arrivée à droite du comité) et la variante Virginie Hériot sont proposés ; l'arbitre, le débrief et la dictée suivent les IC du GPEN à Brest et celles du CVAT à Toulon, mot pour mot
+  7. v43 sur l'aperçu `apercu-phase-07`, vérifiée (tous les scénarios, dont Toulon identique et Brest : choix, téléchargement, mode avion, régate partagée, courant, GPEN), puis en production sur « publie » de Romain au plus tard le 10 décembre 2026
+**Plans:** 10 plans (vagues séquentielles : mêmes fichiers générés `sw.js`, `js/version.js` et outil `tools/regate-e2e.mjs`)
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 7 to break down)
+**Wave 1**
+- [ ] 07-01-PLAN.md — Gel de Toulon : calculs, données et vues de la v42 capturés sur 56f6625 avant toute modification (`tests/toulon.test.mjs`, scénario `toulon-vue`), gardes en une commande (`tools/gardes-toulon.mjs`) (vague 1)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+- [ ] 07-02-PLAN.md — Le plan d'eau dans le moteur, sans effet sur Toulon : registre `js/venues.js`, `js/venue-brest.js`, `js/lieu.js` (exports vivants), `setOrigin`, longitudes Ouest, bornes et lecture des positions, météo, vent et vues par plan d'eau (vague 2)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+- [ ] 07-03-PLAN.md — Données physiques de Brest : outils paramétrés par emprise, entrées téléchargées (OSM par Overpass sinon l'API par boîtes, EMODnet, tuiles), `data/brest.*` hors de la liste hors réseau, manifeste `data/venues.json` par stamp, accès privé, sources et licences (vague 3)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+- [ ] 07-04-PLAN.md — Choisir et télécharger le plan d'eau : carte « Plan d'eau », pack vérifié par SHA-256 dans un cache `rade-venue-*` épargné par le service worker, bascule par rechargement hors course, démarrage hors réseau, scénarios `plan-eau` et `brest-avion`, mesures d'ouverture ; vague du service worker vérifiée en priorité sur iPhone (vague 4)
+
+**Wave 5** *(blocked on Wave 4 completion)*
+- [ ] 07-05-PLAN.md — Le plan d'eau d'une régate : `venue` dans les champs fusionnés (une copie v42 ne l'efface pas), liste blanche serveur, `venueOf`, bascule proposée à l'ouverture, recalage CVAT réservé à Toulon, `tools/compat-v42.mjs`, scénario `regate-brest` (vague 5)
+
+**Wave 6** *(blocked on Wave 5 completion)*
+- [ ] 07-06-PLAN.md — Connaissance locale de Brest : zones interdites évitées par le routage (« à compléter sur carte marine »), lieux, marques, dangers, presets de ligne, huit régimes de vent marqués selon leur origine, vents prédéfinis, seuil « mer dégagée » (vague 6)
+
+**Wave 7** *(blocked on Wave 6 completion)*
+- [ ] 07-07-PLAN.md — Marée et courant, données et calcul : contrôle des paquets Python par Romain, harmoniques du marégraphe (`data/brest.maree.json`, `js/maree.js`), carte « Marée à Brest », atlas 560 du Shom compacté (`data/brest.courants.*`, `js/courant.js`), fonds, valeurs de contrôle (vague 7, non autonome)
+
+**Wave 8** *(blocked on Wave 7 completion)*
+- [ ] 07-08-PLAN.md — Courant dans le routage (option `current` absente à Toulon, marge de hauteur d'eau), conseils (courant du bord, côté favorable, renverses, vent contre courant) et affichage (briefing, couche « Courant », Départ, En course), scénario `brest-courant` (vague 8)
+
+**Wave 9** *(blocked on Wave 8 completion)*
+- [ ] 07-09-PLAN.md — GPEN : parcours 1 et 2 de la zone A (arrivée « à droite du comité »), zone sur la carte, Virginie Hériot, fiche « GPEN 2027 — J80 » semée, arbitre, débrief et dictée par plan d'eau (consignes de Toulon identiques), scénario `gpen` (vague 9)
+
+**Wave 10** *(blocked on Wave 9 completion)*
+- [ ] 07-10-PLAN.md — Guide et aide, vérification complète (gardes Toulon, compatibilités, tous les scénarios, mesures), v43 (`npm run release`), porte en `VERCEL_ENV=production`, poussée et PR brouillon par l'orchestrateur, production seulement sur « publie » de Romain au plus tard le 10/12 (vague 10, non autonome)

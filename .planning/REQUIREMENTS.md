@@ -77,14 +77,27 @@ Reportés après cette version. Suivis mais hors de la feuille de route actuelle
 
 ### Plans d'eau et code
 
-- **VENUE-01**: Les données propres à la rade (zone, relief, bouées, parcours, IC par défaut) ne sont plus écrites dans le code mais dans un « pack » de plan d'eau
+- **VENUE-01**: Les données propres à la rade (zone, relief, bouées, parcours, IC par défaut) ne sont plus écrites dans le code mais dans un « pack » de plan d'eau (repris en phase 7)
 - **CODE-01**: `js/app.js` découpé en modules testables, panneau par panneau
+
+### Rade de Brest (BREST) — phase 7
+
+Ajoutés le 2026-11-19 à la demande de Romain (« permets le changement de plan d'eau en intégrant la rade de Brest et surtout la zone de course habituelle du GPEN »), livrés en v43 avant la régate de Toulon du 13/12/2026.
+
+- [ ] **BREST-01**: Toulon reste identique à la v42 : bords, conseils, champ de vent, routes, positions, météo, vues, données et liste hors réseau gardés par des tests capturés sur la v42 avant toute modification ; garde SNPM intacte ; ouverture hors réseau en moins de 2 s
+- [ ] **BREST-02**: L'équipier choisit son plan d'eau (Toulon ou rade de Brest) en entraînement libre et pour une régate ; une régate porte son plan d'eau, partagé par l'archive et lu sans erreur par un téléphone resté en v42 ; changer de plan d'eau recharge l'app, jamais pendant une course
+- [ ] **BREST-03**: La rade de Brest se télécharge une fois à la demande, vérifiée par empreinte, reste disponible après les mises à jour de l'app et s'ouvre hors réseau ; sans téléchargement, un message clair
+- [ ] **BREST-04**: Carte et relief de la rade de Brest (rade, goulet, Camaret), lieux, marques, dangers et zones interdites (Île Longue, Pen ar Vir) évitées par le routage, positions en longitude Ouest justes, sources et licences citées
+- [ ] **BREST-05**: Vents de Brest : régimes et vents prédéfinis propres, réglage « mer dégagée » du champ de vent, conseils marqués selon leur origine et présentés comme à confirmer sur l'eau
+- [ ] **BREST-06**: Heure et hauteur de la marée de Brest (pleines et basses mers, marnage, coefficient approché) calculées hors réseau et contrôlées contre les observations
+- [ ] **BREST-07**: Courant de l'atlas du Shom par heure de marée utilisé par le routage (vitesse fond, marge sur les fonds), les conseils (renverses, côté favorable) et l'affichage (briefing, carte, Départ, En course), absent à Toulon
+- [ ] **BREST-08**: GPEN 2027 J80 : fiche semée, zone A sur la carte, parcours 1 et 2 construits au vent avec arrivée à droite du comité, variante Virginie Hériot, IC du GPEN pour l'arbitre, le débrief et la dictée à Brest
 
 ## Out of Scope
 
 | Feature | Reason |
 |---------|--------|
-| Ajouter réellement un second plan d'eau | Choix de Romain : plus tard ; on prépare seulement l'architecture (v2) |
+| Plans d'eau autres que Toulon et Brest | Hors périmètre de la phase 7 (07-CONTEXT) ; la rade de Brest est ajoutée en phase 7 à la demande de Romain (2026-11-19) |
 | Application native iOS/Android | Décidé : PWA uniquement |
 | Suivi en direct, traces publiques, classements | App privée d'équipage, pas un outil de flotte |
 | Comptes et rôles fins | Trois équipiers, tous égaux (choix de Romain) |
@@ -130,6 +143,15 @@ Which phases cover which requirements. Updated during roadmap creation.
 | PARC-02 | Phase 6 | Complete |
 | PARC-03 | Phase 6 | Complete |
 | PARC-04 | Phase 6 | Complete |
+| VENUE-01 | Phase 7 | Pending |
+| BREST-01 | Phase 7 | Pending |
+| BREST-02 | Phase 7 | Pending |
+| BREST-03 | Phase 7 | Pending |
+| BREST-04 | Phase 7 | Pending |
+| BREST-05 | Phase 7 | Pending |
+| BREST-06 | Phase 7 | Pending |
+| BREST-07 | Phase 7 | Pending |
+| BREST-08 | Phase 7 | Pending |
 
 **Coverage:**
 - v1 requirements: 22 total
@@ -141,3 +163,4 @@ Which phases cover which requirements. Updated during roadmap creation.
 *Last updated: 2026-10-19 after roadmap creation (traceabilité remplie ; total corrigé de 23 à 22 besoins v1)*
 *Mise à jour 2026-10-20 : ARCH2-01 et SECU2-01 (reportés en v2, repris en phase 5) cochés après le plan 05-03 ; le plafond OpenAI reste à poser par Romain (05-USER-SETUP.md)*
 *Mise à jour 2026-10-23 : PARC-01 à PARC-04 ajoutés (phase 6, parcours banane, avant le gel à la demande de Romain)*
+*Mise à jour 2026-11-19 : VENUE-01 repris et BREST-01 à BREST-08 ajoutés (phase 7, plans d'eau : Toulon et rade de Brest, GPEN)*
