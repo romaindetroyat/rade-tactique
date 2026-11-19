@@ -20,7 +20,7 @@ import { trackDay, matchRegattas, raceOfTrack, sameTrack, attachTrace, detachTra
 import { breaksOf } from './segments.js';
 import { fetchAll, cached, snapshot, consensus, gridPoints, marineAt, fetchLive, coversDay, MODELS, WMO, CENTER, configureWeather } from './weather.js';
 import { buildLegs, analyzeLeg, markAdvice, analyzeStart, trendOf, rankCourses, regimeOf, tipText, ORIGINES, sideName, summarizeTime, prepareLeg, gateText, routeOf, routeOpts, renverses, renverseText } from './tactics.js';
-import { BANANE_ID, BANANE, addBanane, banOf, banToState, cleanBan, courseMarkUse, legReached, banHorsEau } from './banane.js';
+import { BANANE_ID, BANANE, addBanane, banOf, banToState, cleanBan, courseMarkUse, legReached, banHorsEau, banHorsZone, courseBan, courseLaps } from './banane.js';
 import { optimalAngles, boatSpeed, trimAdvice, spiMinTwa, getPolar, setPolar, resetPolar, parsePolar } from './polar.js';
 import { renderJ80 } from './j80.js';
 import { modelPoints, modelAt, idwAt, scoreModels, renderObsCard } from './obs.js';
@@ -202,7 +202,7 @@ async function init() {
   F = new WindField(T, VENUE.wind);
   scene = new Scene3D($('#view'), T, { home: VENUE.scene?.home, files: VENUE.files });
   scene.upAngle = (tws) => optimalAngles(Math.max(1, tws)).up.twa;
-  scene.setDangers(forbidden, DANGERS, FORBIDDEN_ZONES.map((z) => (z.note ? `Zone interdite · ${z.note}` : 'Zone interdite')));        // D-14c : zone incomplète signalée sur la carte
+  scene.setDangers(forbidden, DANGERS, FORBIDDEN_ZONES.map((z) => (z.note ? `Zone interdite · ${z.note}` : 'Zone interdite')), ...zoneCircles());        // D-14c : zone incomplète signalée sur la carte
   scene.onPick = onPick;
   if (VENUE.courant) addCurrentLayer();                // Brest : interrupteur « Courant de marée » des calques ; Toulon : aucun élément de plus
   scene.onCamera = () => { $('#compass .needle').style.transform = `rotate(${-scene.azimuth()}deg)`; };
@@ -586,14 +586,19 @@ async function runAnalysis() {
   const ctr = toXY(preset.lat, preset.lon);
   const wLine = F.sample(ctr.x, ctr.y);
   const ov = S.lineOverride ? { cb: toXY(S.lineOverride.cb.lat, S.lineOverride.cb.lon), pin: toXY(S.lineOverride.pin.lat, S.lineOverride.pin.lon) } : null;
-  const B = buildLegs(course, cls, { laps: S.laps, windDir: wLine.dir, wlLengthNm: S.wlNm, ban: banOf(S), line: { center: preset, lengthNm: S.lineLen, mode: S.lineMode, bearing: S.lineBrg, override: ov } });
+  // réglages et tours imposés par un parcours du GPEN (courseBan, courseLaps) ; banane et parcours de Toulon : ceux de l’état, comme en v42
+  const B = buildLegs(course, cls, { laps: courseLaps(course, S), windDir: wLine.dir, wlLengthNm: S.wlNm, ban: courseBan(course, S), line: { center: preset, lengthNm: S.lineLen, mode: S.lineMode, bearing: S.lineBrg, override: ov } });
   // banane : bouées construites à terre ou dans la zone interdite avec ce vent (routage impossible, temps absurdes) → avertissement
   const horsEau = course.built === 'BAN' ? banHorsEau(B, (p) => !T.inside(p.x, p.y) || T.isLand(p.x, p.y) || forbidden.some((poly) => pointInPolygon(p, poly))) : [];
+  // parcours du GPEN : bouées hors du cercle de la zone A (l’arrivée devant la chapelle en est dehors par construction)
+  const horsZone = course.zone === 'A' && VENUE.zoneA ? banHorsZone(B, ((z) => (p) => distXY(p, z) <= VENUE.zoneA.rayonNm * NM)(toXY(VENUE.zoneA.lat, VENUE.zoneA.lon)), { finish: !course.arrivee }) : [];
   const trend = S.src === 'forecast' && data ? trendOf(series, Math.max(0, seriesIndex(S.day, S.startTime)), Math.max(0, seriesIndex(S.day, S.startTime + 4))) : 0;
   const ctx = { terrain: T, forbidden, perf: S.perf, trend, memo: new Map() };          // memo : routes de cette analyse (routeOf), jamais recalculées
   // Brest : courant de l’atlas et hauteur d’eau dans le routage, à l’heure de chaque bord (D-13, D-14c) ; Toulon : contexte de la v42
   const cur = VENUE.courant ? await courantCtx(S.day, S.startTime) : null;
   if (token !== anaToken) return;
+  // Brest : bouées construites sur des fonds trop faibles à l’heure du départ (tirant d’eau + marge, D-14c) — le routage ne peut pas les atteindre
+  const horsFond = cur?.depth && course.built === 'BAN' ? banHorsEau(B, (p) => !cur.depth(p.x, p.y, parisAt(S.day, S.startTime))) : [];
   if (cur?.current) {
     // renverses de la journée dans la zone du parcours (cercle de la zone du GPEN, sinon le centre du parcours), une fois par analyse
     const zp = /^zone/.test(S.linePreset) ? ctr : B.legs.reduce((a, l) => ({ x: a.x + l.to.x / B.legs.length, y: a.y + l.to.y / B.legs.length }), { x: 0, y: 0 });
@@ -639,6 +644,8 @@ async function runAnalysis() {
   let ord = 0;
   legs.forEach((l) => { if (l.mark !== 'GATE' && l.mark !== 'FINISH') l.order = ++ord; });
   analysis = { course, cls, legs, line: B.line, points: B.points, start, total: t - S.startTime, dist: legs.reduce((s, l) => s + l.dist, 0), trend, day: S.day, cfg: stratSettings(cls), finishLine: B.finishLine ?? null, horsEau };
+  if (horsZone.length) analysis.horsZone = horsZone;          // GPEN : bouées hors du cercle de la zone A (absent à Toulon)
+  if (horsFond.length) analysis.horsFond = horsFond;          // Brest : bouées sur des fonds trop faibles à l’heure du départ (absent à Toulon)
   if (cur) analysis.courant = cur.current ? { ok: true, renverses: ctx.renverses, zone: ctx.zone, t0: ctx.t0 } : { ok: false, raison: cur.raison };     // Brest seulement : Toulon garde l’objet de la v42
   freezeTick('analyse');
   applyPendingEnds();
@@ -857,7 +864,9 @@ function renderBrief() {
     if (analysis.courant) tips.push(analysis.courant.ok ? 'Temps de parcours avec le courant de marée (atlas du Shom).' : `<b>${esc(analysis.courant.raison)}</b>`);
     const c0 = analysis.legs[0]?.courant?.advice;           // Brest : ce que le courant change au premier bord (renverse : carte du courant)
     if (c0?.length) tips.push(`Premier bord : ${esc(c0.map(tipText).join(' · '))}`);
-    if (analysis.horsEau?.length) tips.push(`<b>⚠ ${esc(horsEauText(analysis.horsEau))}</b>`);
+    if (analysis.horsEau?.length) tips.push(`<b>⚠ ${esc(horsEauText(analysis.horsEau, distLabel(analysis.course)))}</b>`);
+    if (analysis.horsZone?.length) tips.push(`<b>⚠ ${esc(horsZoneText(analysis.horsZone))}</b>`);
+    if (analysis.horsFond?.length) tips.push(`<b>⚠ ${esc(horsFondText(analysis.horsFond, distLabel(analysis.course)))}</b>`);
     for (const l of analysis.legs) if (l.gate) tips.push(`Tour ${esc(l.lap ?? 1)} · ${esc(gateText(l.gate))}`);         // porte conseillée à chaque passage (D-06)
     html += `<div class="card"><h3>Stratégie du jour ${tip('Synthèse automatique : rotation du vent attendue pendant la course, zones les plus ventées, désaccord entre modèles et temps estimé du parcours.')}</h3><ul class="tips">${tips.map((t) => `<li>${t}</li>`).join('')}</ul></div>`;
   }
@@ -919,8 +928,10 @@ function chartSVG(rows, isRace) {
 
 // ───────────────────────── PARCOURS
 // Réglages de la banane construite (D-04), montrés seulement quand elle est choisie ; valeurs bornées par banOf
-function banPanel() {
+function banPanel(c) {
   const b = banOf(S), opt = (v, txt, cur) => `<option value="${esc(v)}" ${v === cur ? 'selected' : ''}>${esc(txt)}</option>`;
+  // parcours du GPEN : dégagement, côté, porte et arrivée imposés par les IC ; seule la distance de la marque 1 (annoncée par le comité) se règle
+  if (c?.ban) return `<div class="row2" id="cBan" style="margin-top:8px"><div><label class="f">${esc(distLabel(c))}</label><input id="cBanNm" type="number" min="0.3" max="2" step="0.1" value="${esc(b.nm)}"></div></div>`;
   return `<div class="row2" id="cBan" style="margin-top:8px">
     <div><label class="f">Dist. B (Nq)</label><input id="cBanNm" type="number" min="0.3" max="2" step="0.1" value="${esc(b.nm)}"></div>
     <div><label class="f">Dégagement (C)</label><select id="cBanOff">${opt('1', 'Oui', b.off ? '1' : '0')}${opt('0', 'Non', b.off ? '1' : '0')}</select></div>
@@ -942,23 +953,31 @@ function pickHTML() {
   const c = COURSES.find((x) => x.id === S.courseId);
   return `<div class="notice" id="coursePick" style="margin-top:8px"><b>${esc(c?.title || '—')} présélectionné</b>${preselect.n != null ? ` (parcours de la manche ${preselect.n})` : ''} — choisissez celui annoncé par le Comité.</div>`;
 }
-// Avertissement d’une banane dont une bouée tombe à terre ou dans la zone interdite (onglet Parcours et briefing)
-function horsEauText(noms) { return `Avec ce vent et ces réglages, ${noms.join(', ')} ${noms.length > 1 ? 'tombent' : 'tombe'} à terre ou dans la zone interdite : temps et conseils de ce parcours faux. Réduisez Dist. B (Nq), ou changez la position de la ligne (onglet Départ).`; }
+// Avertissement d’une banane dont une bouée tombe à terre ou dans la zone interdite (onglet Parcours et briefing) ; GPEN : la marque 1 s’appelle « 1 »
+function horsEauText(noms, dist = 'Dist. B (Nq)') { return `Avec ce vent et ces réglages, ${noms.join(', ')} ${noms.length > 1 ? 'tombent' : 'tombe'} à terre ou dans la zone interdite : temps et conseils de ce parcours faux. Réduisez ${dist}, ou changez la position de la ligne (onglet Départ).`; }
+const distLabel = (c) => (c?.names?.B ? `Dist. ${c.names.B} (Nq)` : 'Dist. B (Nq)');
+// Brest, parcours du GPEN : bouées construites hors du cercle de la zone A (07-09, D-09)
+function horsZoneText(noms) { return `${noms.length > 1 ? 'Marques' : 'Marque'} ${noms.join(', ')} hors de la zone A (cercle de 1,2 NM) : réduisez Dist. 1 (Nq), ou rapprochez la ligne du centre de la zone (onglet Départ).`; }
+function horsFondText(noms, dist) { return `Avec la marée de l’heure du départ, ${noms.join(', ')} ${noms.length > 1 ? 'tombent' : 'tombe'} sur des fonds trop faibles pour le J80 (1,5 m de tirant d’eau et 1 m de marge, estimation) : temps et conseils faux près de ${noms.length > 1 ? 'ces bouées' : 'cette bouée'}. Changez ${dist}, ou la position de la ligne (onglet Départ).`; }
+// Cercle de la zone de course du plan d’eau sur la carte (Brest : zone A du GPEN) ; Toulon : aucun argument de plus (appel de la v42)
+function zoneCircles() { const z = VENUE.zoneA; return z ? [[{ ...toXY(z.lat, z.lon), r: z.rayonNm * NM, label: 'Zone A' }]] : []; }
 function renderCourse() {
   const el = $('section[data-tab=course]');
   const c = COURSES.find((x) => x.id === S.courseId);
   const nObs = dayObs().length;
   let html = `<details class="card obsbox" ${S.obsOpen !== false ? 'open' : ''}><summary><span>🌬 Relevé de vent sur l’eau ${tip('Réglez la direction d’où vient le vent (compas) et sa force mesurée, puis Enregistrer. L’app compare votre relevé aux 6 modèles, garde celui qui colle le mieux et recale la prévision autour de cette heure. Plusieurs relevés dans la journée affinent le choix.')}</span><small>${S.src === 'manual' ? 'mode manuel' : `${nObs ? nObs + ' relevé(s) · ' : ''}modèle : ${esc(modelLabel(selectedModel()))}`}</small></summary><div class="obs-card"></div></details>
-  <div class="card"><div class="row2"><div><label class="f">${openReg() ? `Parcours — ${esc(openReg().name)}` : 'Parcours (cahier CVAT)'}</label><select id="cSel">${(proposes().some((x) => x.id === S.courseId) ? proposes() : [...proposes(), c]).map((x) => `<option value="${x.id}" ${x.id === S.courseId ? 'selected' : ''}>${esc(x.title)}</option>`).join('')}</select></div>
+  <div class="card"><div class="row2"><div><label class="f">${openReg() ? `Parcours — ${esc(openReg().name)}` : VENUE.id === 'toulon' ? 'Parcours (cahier CVAT)' : `Parcours (${esc(VENUE.nom)})`}</label><select id="cSel">${(proposes().some((x) => x.id === S.courseId) ? proposes() : [...proposes(), c]).map((x) => `<option value="${x.id}" ${x.id === S.courseId ? 'selected' : ''}>${esc(x.title)}</option>`).join('')}</select></div>
     <div><label class="f">Classes</label><select id="cCls"><option value="G" ${S.cls === 'G' ? 'selected' : ''}>C–D–L–R1-R3 (grand)</option><option value="P" ${S.cls === 'P' ? 'selected' : ''}>P1–P2 (petit)</option></select></div></div>
     <div class="row3">${c.laps ? `<div><label class="f">Tours</label><input id="cLaps" type="number" min="1" max="5" value="${S.laps}"></div>` : ''}${c.built === 'WL' ? `<div><label class="f">Dist. B (Nq)</label><input id="cWl" type="number" min="0.3" max="2" step="0.1" value="${S.wlNm}"></div>` : ''}
     <div><label class="f">Heure de départ</label><input id="cStart" type="text" inputmode="numeric" value="${hhmm(S.startTime)}"></div></div>
-    ${c.built === 'BAN' ? banPanel() : ''}
+    ${c.built === 'BAN' ? banPanel(c) : ''}
     <p class="small muted" style="margin:8px 0 0">${esc(c.text)}</p>${pickHTML()}</div>`;
   if (!analysis) html += '<div class="card">Calcul en cours…</div>';
   else {
     const A = analysis, man = A.legs.reduce((s, l) => s + (l.route?.maneuvers || 0), 0);
-    if (A.horsEau?.length) html += `<div class="card" id="banEau" style="border:2px solid var(--bad)"><b>⚠ ${esc(horsEauText(A.horsEau))}</b></div>`;
+    if (A.horsEau?.length) html += `<div class="card" id="banEau" style="border:2px solid var(--bad)"><b>⚠ ${esc(horsEauText(A.horsEau, distLabel(c)))}</b></div>`;
+    if (A.horsZone?.length) html += `<div class="card" id="banZone" style="border:2px solid var(--bad)"><b>⚠ ${esc(horsZoneText(A.horsZone))}</b></div>`;
+    if (A.horsFond?.length) html += `<div class="card" id="banFond" style="border:2px solid var(--bad)"><b>⚠ ${esc(horsFondText(A.horsFond, distLabel(c)))}</b></div>`;
     html += `<div class="card"><div class="kpis"><div class="kpi"><b>${(A.dist / NM).toFixed(1)}</b><span>Nq route directe${c.nm ? ` (cahier : ${c.nm[A.cls]})` : c.lapNm ? ` (${c.lapNm} Nq/tour)` : ''}</span></div><div class="kpi"><b>${summarizeTime(A.total * 3600)}</b><span>temps J80 estimé</span></div><div class="kpi"><b>${man}</b><span>virements / empannages</span></div></div>
       <div class="small muted" style="margin-top:6px">Arrivée estimée ≈ ${hhmm(S.startTime + A.total)}. Chaque bord est calculé avec le vent prévu à l’heure où vous le courez, depuis le meilleur point de la ligne de départ.</div><button class="btn acc" id="playCourse" style="width:100%;margin-top:8px">▶ Animer le parcours</button></div>`;
     html += `<div class="legs">` + A.legs.map((l, i) => {
@@ -1500,7 +1519,7 @@ function renderLiveNav() {
     const c = COURSES.find((x) => x.id === S.courseId);
     // banane : ses réglages, et la ligne et l’axe du vent de l’analyse en cours, pour la reconstruire telle quelle au débrief
     const banGeo = S.courseId === BANANE_ID && analysis?.course.id === BANANE_ID ? { axe: +norm360(analysis.line.face).toFixed(2), ligne: (({ lat, lon }) => ({ lat: +lat.toFixed(6), lon: +lon.toFixed(6) }))(toLL(analysis.line.c.x, analysis.line.c.y)) } : {};
-    recorder.start({ name: `${dayName(today())} — ${c.title}`, course: { id: S.courseId, cls: S.cls, laps: S.laps, day: S.day, startTime: S.startTime, ...(S.courseId === BANANE_ID ? { ban: banOf(S), ...banGeo } : {}) } });
+    recorder.start({ name: `${dayName(today())} — ${c.title}`, course: { id: S.courseId, cls: S.cls, laps: courseLaps(c, S), day: S.day, startTime: S.startTime, ...(S.courseId === BANANE_ID ? { ban: banOf(S), ...banGeo } : {}) } });
     toast('Enregistrement lancé : gardez l’app ouverte, écran allumé.'); renderLiveNav(); raceTick();
   });
   $('#recStop')?.addEventListener('click', async () => {
@@ -2388,8 +2407,8 @@ const cacheStore = () => (typeof caches === 'undefined' ? null : caches);
 const venueIn = (id) => VENUES[id].nom.replace(/^Rade /, 'rade ');      // « la rade de Brest »
 // réglages propres à un plan d’eau, rangés dans S.byVenue[<id>] quand on le quitte ; la polaire et les réglages du bateau sont communs
 const VENUE_KEYS = ['courseId', 'cls', 'laps', 'linePreset', 'lineLen', 'lineMode', 'lineBrg', 'lineOverride', 'obs', 'manual', 'src', 'modelSel'];
-// premier passage : défauts du plan d’eau (Brest : banane tant que le catalogue du GPEN n’existe pas, ligne au centre de la zone A, vent d’ouest)
-const VENUE_DEF = { brest: { courseId: BANANE_ID, linePreset: 'zoneA', lineOverride: null, obs: [], manual: { dir: 270, spd: 12, gust: 17 } } };
+// premier passage : défauts du plan d’eau (Brest : parcours 1 du GPEN, 91 ; ligne au centre de la zone A, vent d’ouest)
+const VENUE_DEF = { brest: { courseId: 91, linePreset: 'zoneA', lineOverride: null, obs: [], manual: { dir: 270, spd: 12, gust: 17 } } };
 const pickVenueKeys = (o) => Object.fromEntries(VENUE_KEYS.filter((k) => o && typeof o === 'object' && Object.hasOwn(o, k)).map((k) => [k, structuredClone(o[k])]));
 const packView = () => ({ venueId: VENUE.id, venues: VENUES, status: PACK.status, busy: PACK.busy, error: PACK.error, locked: raceActive(Date.now()), packId: PACK_ID });
 async function loadManifest() {

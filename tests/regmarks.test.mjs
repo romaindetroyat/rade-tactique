@@ -512,7 +512,8 @@ test('courseFallback : jamais pendant une course (chrono, mode départ, trace, G
 test('câblage : sélecteur, manche, parcours probables et débrief ne proposent que les parcours permis ; repli jamais en course', () => {
   const app = readFileSync(ROOT + 'js/app.js', 'utf8');
   assert.match(app, /const proposes = \(\) => allowedCourses\(COURSES, openReg\(\)\?\.id \?\? null\)/);
-  assert.match(app, /Parcours — \$\{esc\(openReg\(\)\.name\)\}` : 'Parcours \(cahier CVAT\)'/, 'libellé du sélecteur');
+  // Toulon : « Parcours (cahier CVAT) » comme en v42 ; un autre plan d’eau : « Parcours (Rade de Brest) » (07-09)
+  assert.match(app, /Parcours — \$\{esc\(openReg\(\)\.name\)\}` : VENUE\.id === 'toulon' \? 'Parcours \(cahier CVAT\)' : `Parcours \(\$\{esc\(VENUE\.nom\)\}\)`/, 'libellé du sélecteur');
   assert.doesNotMatch(app, /optgroup/, 'plus de groupes');
   assert.match(app, /rankCourses\(S\.cls, w\.dir, w\.spd, proposes\(\)\)/);
   assert.match(app, /choices: raceChoices\(cur\)/);

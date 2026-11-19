@@ -198,6 +198,39 @@ const PRESETS = [
   ['Nordet', 45, 12, 17], ['Est', 90, 8, 12], ['Sud', 180, 10, 15], ['Petit temps', 90, 4, 6],
 ];
 
+// ───────── Zone A du GPEN et catalogue J80 (07-09, D-09) : IC 2022-2026, annexes 1 et 3.1 ; à mettre à jour avec les IC 2027 (fin avril 2027)
+// Zone A : « Zone A - Ecole Navale - Rose 1,2 NM 48°17,890 N 004°21,630 W » (cercle de 1,2 NM de diamètre)
+export const zoneA = Object.freeze({ lat: ZONE_A.lat, lon: ZONE_A.lon, rayonNm: 0.6, nom: 'Zone A — École Navale' });
+// dans le cercle de la zone A (distance en milles, plan local : 1′ de latitude = 1 Nq ; sans effet à cette échelle)
+export function inZoneA(lat, lon) {
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return false;
+  const dn = (lat - zoneA.lat) * 60, de = (lon - zoneA.lon) * 60 * Math.cos((zoneA.lat * Math.PI) / 180);
+  return Math.hypot(dn, de) <= zoneA.rayonNm;
+}
+// Parcours J80 de la zone A, construits au vent par la banane (js/banane.js) : 1 au vent (distance annoncée par le comité, IC § 9.2 : réglable),
+// 2 dégagement à gauche en regardant au vent, porte 3S / 3P sous le vent (3P = bouée gauche en regardant sous le vent, laissée à bâbord),
+// dernier passage par 3P seule, arrivée « à droite du comité ». Marques 1 et 2 à bâbord (IC § 10.3). Ligne placée pour que le parcours tienne
+// dans le cercle (centre de la zone au milieu du bord de près) ; une ligne pinguée fait foi. Identifiants hors de 1-13, 90 et 101+.
+const GPEN_SEQ = { G: [['B', 'b'], ['C', 'b'], ['PORTE', null]], P: [['B', 'b'], ['C', 'b'], ['PORTE', null]] };
+const GPEN_NOMS = { B: '1', C: '2 (dégagement)', gate: '3S / 3P', PG: '3P', PD: '3S', last: '3P', finish: 'Arrivée (à droite du comité)' };
+const GPEN_TEXTE = 'Construit au vent depuis la ligne choisie (zone A, cercle de 1,2 NM). Marques 1 et 2 (dégagement) à bâbord, porte 3S / 3P, dernier passage par 3P seule, arrivée à droite du comité. Dist. 1 : longueur annoncée par le comité. Positions théoriques : le comité fait foi.';
+// Virginie Hériot : arrivée décalée « entre une bouée blanche à laisser à bâbord et un mât à terre arborant un pavillon Bleu devant la chapelle de
+// l’Ecole Navale » (IC 2026, annexe 3.1). Chapelle : bâtiment « Chapelle maritime » d’OpenStreetMap (chemin 579236187, site de l’École navale),
+// 48,283165 N 4,415900 W ; mât supposé au point du trait de côte le plus proche (data/brest.coast.json, ligne 35) ; bouée supposée à 0,1 Nq vers
+// le large (relèvement 064°, perpendiculaire au rivage), navigable à la basse mer du 6 mai 2027 avec la marge de 1 m. Positions à confirmer.
+const CHAPELLE = { mat: { lat: 48.283084, lon: -4.416146 }, bouee: { lat: 48.283818, lon: -4.413897 }, name: 'Arrivée devant la chapelle (position à confirmer)' };
+const COURSES = [
+  { id: 91, title: 'GPEN — parcours 1 (2 tours)', laps: false, fixedLaps: 2, both: true, built: 'BAN', line: 'zoneA', centre: true, zone: 'A',
+    ban: { off: true, side: 'b', gate: true, fin: 'comite' }, names: GPEN_NOMS, seq: GPEN_SEQ,
+    text: `${GPEN_TEXTE} Flamme numérique n° 1 : Départ – 1 – 2 – 3S/3P – 1 – 2 – 3P – Arrivée (IC 2026).` },
+  { id: 92, title: 'GPEN — parcours 2 (3 tours)', laps: false, fixedLaps: 3, both: true, built: 'BAN', line: 'zoneA', centre: true, zone: 'A',
+    ban: { off: true, side: 'b', gate: true, fin: 'comite' }, names: GPEN_NOMS, seq: GPEN_SEQ,
+    text: `${GPEN_TEXTE} Flamme numérique n° 2 : Départ – 1 – 2 – 3S/3P – 1 – 2 – 3S/3P – 1 – 2 – 3P – Arrivée (IC 2026).` },
+  { id: 93, title: 'GPEN — Virginie Hériot', laps: false, fixedLaps: 2, both: true, built: 'BAN', line: 'zoneA', centre: true, zone: 'A',
+    ban: { off: true, side: 'b', gate: true, fin: 'depart' }, names: { ...GPEN_NOMS, finish: CHAPELLE.name }, arrivee: CHAPELLE, seq: GPEN_SEQ,
+    text: 'Pavillon jaune et pavillon GPEN : Départ – 1 – 2 – 3S/3P – 1 – 2 – 3S/3P – Arrivée décalée entre une bouée blanche à laisser à bâbord et un mât à terre (pavillon bleu) devant la chapelle de l’École navale (IC 2026). Position de l’arrivée à confirmer : chapelle relevée sur OpenStreetMap, mât et bouée supposés. Le comité fait foi.' },
+];
+
 // Emprise des données (meta) : rade, goulet, Camaret (étude § 1.1, D-14)
 const BOUNDS = { west: -4.66, east: -4.22, south: 48.22, north: 48.43 };
 
@@ -230,9 +263,10 @@ export const BREST = Object.freeze({
   // cadrage initial de la 3D, en mètres depuis l’origine : centre de la zone A
   scene: { home: { target: { x: 6620, y: -3520 }, dist: 16000, portrait: { target: { x: 5200, y: -5600 }, dist: 34000, tilt: 0.5 } } },
   windRef: ZONE_A,
-  // catalogue initial (non gelé : applyRegattaMarks et addBanane le modifient sur place, comme à Toulon)
+  // catalogue initial (non gelé : applyRegattaMarks et addBanane le modifient sur place, comme à Toulon) : parcours J80 du GPEN puis la banane
   MARKS,
-  COURSES: [],
+  COURSES,
+  zoneA,
   LINE_PRESETS,
   PLACES,
   FORBIDDEN_ZONES: ZONES,

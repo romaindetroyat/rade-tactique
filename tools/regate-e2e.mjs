@@ -3074,7 +3074,7 @@ async function planEau({ browser, base }) {
   for (const f of ['meta.json', 'terrain.bin', 'cover.bin', 'coast.json', 'basemap.jpg', 'seamask.png']) assert.ok(brest.includes(`/data/brest.${f}`), `carte de Brest : data/brest.${f} chargé`);
   const st = await etatApp(page);
   assert.equal(st.venue, 'brest');
-  assert.equal(st.courseId, 90, 'premier passage : banane (catalogue du GPEN à venir)');
+  assert.equal(st.courseId, 91, 'premier passage : parcours 1 du GPEN (07-09)');
   assert.equal(st.linePreset, 'zoneA');
   assert.equal(String(st.byVenue?.toulon?.courseId), choisi, 'réglages de Toulon rangés');
   await cartePlanEau(page, 'ready');
@@ -3118,7 +3118,7 @@ async function planEau({ browser, base }) {
   assert.equal(t.venue, 'toulon');
   assert.equal(String(t.courseId), choisi, 'parcours de Toulon retrouvé');
   assert.equal(t.linePreset, 'vignettes');
-  assert.equal(t.byVenue?.brest?.courseId, 90, 'réglages de Brest rangés à leur tour');
+  assert.equal(t.byVenue?.brest?.courseId, 91, 'réglages de Brest rangés à leur tour');
   await page.click('#tabs button[data-tab=course]');
   assert.equal(await page.locator('#cSel').inputValue(), choisi);
   assert.ok(!/Marée/.test(await texte(page, 'section[data-tab=brief]')), 'Toulon n’a ni marée ni courant (D-13)');
@@ -3215,6 +3215,60 @@ async function brestCourant({ browser, base }) {
   await page.click('#tabs button[data-tab=start]');
   assert.ok(!/Courant à la ligne/.test(await texte(page, 'section[data-tab=start]')));
   sansErreur(erreurs, 'retour à Toulon');
+  await ctx.close();
+}
+
+// ───────────────────────── GPEN 2027 en rade de Brest (07-09 : D-08, D-09, D-11)
+// À Brest, parcours 1 du GPEN par défaut, vent 270° / 10 nd le 6 mai 2027 à 14 h : bords 1, 2 (dégagement), porte 3S / 3P, 1, 2, 3P seule, arrivée
+// à droite du comité ; conseil de porte, courant au briefing ; seule Dist. 1 se règle ; marque 1 à 1,5 Nq hors de la zone A, signalée.
+async function gpen({ browser, base }) {
+  const ctx = await ouvreContexte(browser, { heure: '2027-05-06T07:00:00Z' });          // jeudi 6 mai 2027, 9 h 00 à Paris
+  const { page, erreurs } = await ouvrePage(ctx);
+  await ouvreApp(page, base);
+  await cartePlanEau(page, 'absent');
+  await rechargePar(page, () => page.click('#pkGo'));
+  const st0 = await etatApp(page);
+  assert.equal(st0.venue, 'brest'); assert.equal(st0.courseId, 91, 'Brest : parcours 1 du GPEN par défaut'); assert.equal(st0.linePreset, 'zoneA');
+  await page.evaluate(() => {
+    const st = JSON.parse(localStorage.getItem('rade.state') || '{}');
+    localStorage.setItem('rade.state', JSON.stringify({ ...st, day: '2027-05-06', hour: 14, startTime: 14, src: 'manual', manual: { dir: 270, spd: 10, gust: 13 }, laps: 5 }));
+  });
+  await ouvreApp(page, base);
+  await page.click('#tabs button[data-tab=course]');
+  await page.waitForFunction(() => document.querySelectorAll('section[data-tab=course] .leg').length > 0, null, { timeout: 90000 });
+  const sel = await page.evaluate(() => [...document.querySelectorAll('#cSel option')].map((o) => o.textContent));
+  assert.deepEqual(sel, ['GPEN — parcours 1 (2 tours)', 'GPEN — parcours 2 (3 tours)', 'GPEN — Virginie Hériot', 'Banane (construite)']);
+  assert.equal(await page.evaluate(() => document.querySelector('#cSel').previousElementSibling.textContent), 'Parcours (Rade de Brest)');
+  const bords = await page.evaluate(() => [...document.querySelectorAll('section[data-tab=course] .leg .hd > span:first-child')].map((e) => e.textContent.replace(/\s+/g, ' ').trim()));
+  assert.equal(bords.length, 7, `bords : ${bords.join(' | ')}`);
+  assert.match(bords[0], /^1 n°1 tour 1$/); assert.match(bords[1], /^2 n°2 \(dégagement\) tour 1$/); assert.match(bords[2], /^3 n°3[SP] tour 1$/);
+  assert.match(bords[3], /^4 n°1 tour 2$/); assert.match(bords[4], /^5 n°2 \(dégagement\) tour 2$/); assert.match(bords[5], /^6 n°3P tour 2$/);
+  assert.equal(bords[6], 'Arrivée (à droite du comité)');
+  const parcours = (await texte(page, 'section[data-tab=course]')).replace(/\s+/g, ' ');
+  assert.match(parcours, /Porte 3S \/ 3P : (bouée 3[SP] conseillée — \d+ s de mieux|bouées équivalentes)/, 'conseil de porte');
+  assert.match(parcours, /Laisser 3P à BÂBORD/);
+  assert.match(parcours, /le comité fait foi/);
+  assert.equal(await page.locator('#cLaps').count(), 0, 'tours imposés : pas de champ « Tours »');
+  assert.equal(await page.locator('#cBanNm').count(), 1); assert.equal(await page.locator('#cBanFin').count(), 0);
+  assert.match(await texte(page, '#cBan label'), /^Dist\. 1 \(Nq\)$/);
+  assert.equal(await page.locator('#banZone').count(), 0, 'Dist. 1 de 0,8 Nq : parcours dans la zone A');
+  assert.equal(await page.locator('#banFond').count(), 0, '14 h, 270° : aucune bouée sur des fonds trop faibles');
+  await page.click('#tabs button[data-tab=brief]');
+  await page.waitForFunction(() => /Temps de parcours avec le courant de marée/.test(document.querySelector('section[data-tab=brief]')?.textContent || ''), null, { timeout: 90000 });
+  const brief = (await texte(page, 'section[data-tab=brief]')).replace(/\s+/g, ' ');
+  assert.match(brief, /Courant à l’heure du départ 14:00/);
+  assert.match(brief, /Tour 1 · Porte 3S \/ 3P : /);
+  // marque 1 à 1,5 Nq : hors du cercle, signalée dans l’onglet Parcours et au briefing
+  await page.click('#tabs button[data-tab=course]');
+  await page.fill('#cBanNm', '1.5'); await page.locator('#cBanNm').dispatchEvent('change');
+  await page.waitForSelector('#banZone', { timeout: 90000 });
+  assert.match(await texte(page, '#banZone'), /^⚠ Marques 1, 2 \(dégagement\), 3P, 3S, Arrivée hors de la zone A \(cercle de 1,2 NM\) : réduisez Dist\. 1 \(Nq\)/);
+  await page.click('#tabs button[data-tab=brief]');
+  assert.match(await texte(page, 'section[data-tab=brief]'), /hors de la zone A \(cercle de 1,2 NM\)/);
+  await page.click('#tabs button[data-tab=course]');
+  await page.fill('#cBanNm', '0.8'); await page.locator('#cBanNm').dispatchEvent('change');
+  await page.waitForFunction(() => !document.querySelector('#banZone') && document.querySelectorAll('section[data-tab=course] .leg').length === 7, null, { timeout: 90000 });
+  sansErreur(erreurs, 'GPEN à Brest');
   await ctx.close();
 }
 
@@ -3383,7 +3437,7 @@ async function regateBrest({ browser, base }) {
   await A.ctx.close(); await B.ctx.close();
 }
 
-const SCENARIOS = { accueil, 'jour-j': jourJ, 'deux-telephones': deuxTelephones, reprise, equipage, archive, 'archive-bouees': archiveBouees, archivehors: archiveHors, creer, manche, auteur, ic, 'depuis-ic': depuisIC, vraisemblance, gel, 'debrief-tardif': debriefTardif, gpx, 'gpx-choix': gpxChoix, ia, 'ia-erreurs': iaErreurs, arbitre, bouees, guide, entetes, 'retour-port': retourPort, banane, 'banane-manche': bananeManche, 'banane-debrief': bananeDebrief, 'porte-ic': porteIC, 'modifier-manche': modifierManche, 'toulon-vue': toulonVue, 'plan-eau': planEau, 'brest-avion': brestAvion, 'regate-brest': regateBrest, 'brest-courant': brestCourant };
+const SCENARIOS = { accueil, 'jour-j': jourJ, 'deux-telephones': deuxTelephones, reprise, equipage, archive, 'archive-bouees': archiveBouees, archivehors: archiveHors, creer, manche, auteur, ic, 'depuis-ic': depuisIC, vraisemblance, gel, 'debrief-tardif': debriefTardif, gpx, 'gpx-choix': gpxChoix, ia, 'ia-erreurs': iaErreurs, arbitre, bouees, guide, entetes, 'retour-port': retourPort, banane, 'banane-manche': bananeManche, 'banane-debrief': bananeDebrief, 'porte-ic': porteIC, 'modifier-manche': modifierManche, 'toulon-vue': toulonVue, 'plan-eau': planEau, 'brest-avion': brestAvion, 'regate-brest': regateBrest, 'brest-courant': brestCourant, gpen };
 
 // ───────────────────────── lancement
 

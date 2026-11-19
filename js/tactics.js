@@ -4,7 +4,7 @@ import { MARKS, COURSES, LINE_PRESETS, PLACES, VENUE } from './lieu.js';
 import { toXY, toLL, NM, bearingXY, distXY, fromBearing, norm180, norm360, fmtBrg, fmtNm, cardinal } from './geo.js';
 import { boatSpeed, optimalAngles, spiMinTwa } from './polar.js';
 import { route, tackName } from './router.js';
-import { bananeCourse, orientGate } from './banane.js';
+import { bananeCourse, orientGate, cleanBan } from './banane.js';
 import { parisClock } from './racelock.js';
 
 export const sideName = (s) => (s === 'b' ? 'bâbord' : s === 't' ? 'tribord' : '');
@@ -100,6 +100,13 @@ export function buildLegs(course, cls, opts) {
     pts.A = { ...fromBearing(L.cb, windDir + 180, 0.05 * NM), name: 'A (arrivée)' };
   } else if (course.built === 'BAN') {
     L = lineGeometry({ center, lengthNm: line.lengthNm, windDir });
+    // parcours centré sur la position de ligne (GPEN : centre de la zone A) : la ligne recule sous le vent de la moitié de la distance de la
+    // marque 1, pour que le parcours tienne dans le cercle ; une ligne pinguée (override) fait foi
+    if (course.centre) {
+      const c1 = fromBearing(L.c, windDir + 180, (cleanBan(ban).nm / 2) * NM), dx = c1.x - L.c.x, dy = c1.y - L.c.y;
+      const sh = (p) => ({ x: p.x + dx, y: p.y + dy });
+      L = { ...L, c: sh(L.c), cb: sh(L.cb), pin: sh(L.pin) };
+    }
   } else {
     const first = seqDef[0][0];
     L = lineGeometry({ center, lengthNm: line.lengthNm, windDir, mode: line.mode, firstMark: pts[first], bearing: line.bearing });
@@ -123,7 +130,9 @@ export function buildLegs(course, cls, opts) {
     return legs;
   };
   if (course.built === 'BAN') {
-    const bc = bananeCourse(L, windDir, { laps, ban });
+    // arrivée propre d’un parcours (GPEN, Virginie Hériot) : ligne entre une bouée et un mât à terre (shore : jamais signalé « à terre »)
+    const fa = course.arrivee ? (({ bouee, mat, name }) => { const b = toXY(bouee.lat, bouee.lon); return { at: b, a: { ...b }, b: { ...toXY(mat.lat, mat.lon), shore: true }, name }; })(course.arrivee) : null;
+    const bc = bananeCourse(L, windDir, { laps, ban, names: course.names ?? null, finishAt: fa });
     Object.assign(pts, bc.points);
     const legs = chain({ x: L.c.x, y: L.c.y, name: 'Départ' }, [...bc.seq, { ...bc.finish, mark: 'FINISH', side: null }]);
     return { legs, line: L, points: pts, finishLine: bc.finishLine };
@@ -486,12 +495,14 @@ export function prepareLeg(leg, prev, next, field, ctx) {
 // Conseil de porte en français (briefing, navigation en course)
 export function gateText(gate) {
   if (!gate) return '';
-  const nom = gate.pick === 'd' ? 'droite' : 'gauche';
-  if (!Number.isFinite(gate.gain)) return `Porte : bouée ${nom} retenue pour le calcul`;
+  // noms courts des bouées quand le parcours les donne (GPEN : « Porte 3S / 3P : bouée 3P… ») ; sinon gauche / droite, comme en v42
+  const lab = !!(gate.g?.label && gate.d?.label), porte = lab ? `Porte ${gate.d.label} / ${gate.g.label}` : 'Porte';
+  const nom = gate.pick === 'd' ? (lab ? gate.d.label : 'droite') : (lab ? gate.g.label : 'gauche');
+  if (!Number.isFinite(gate.gain)) return `${porte} : bouée ${nom} retenue pour le calcul`;
   const s = Math.round(gate.gain);
-  if (!gate.equal) return `Porte : bouée ${nom} conseillée — ${s} s de mieux`;
-  if (gate.why === 'bascule') return `Porte : bouées équivalentes (${s} s d’écart) — bouée ${nom}, du côté de la bascule à ${gate.shift} annoncée`;
-  return `Porte : bouées équivalentes (${s} s d’écart) — bouée ${nom} retenue pour le calcul`;
+  if (!gate.equal) return `${porte} : bouée ${nom} conseillée — ${s} s de mieux`;
+  if (gate.why === 'bascule') return `${porte} : bouées équivalentes (${s} s d’écart) — bouée ${nom}, du côté de la bascule à ${gate.shift} annoncée`;
+  return `${porte} : bouées équivalentes (${s} s d’écart) — bouée ${nom} retenue pour le calcul`;
 }
 
 // Conseils de passage de marque (entre le bord i et le bord i+1)

@@ -389,8 +389,15 @@ export class Scene3D {
   }
 
   // zones : polygones en mètres (une à Toulon, plusieurs ailleurs) ; labels : étiquette de chaque zone (défaut « Zone interdite », celle de la v42)
-  setDangers(zones, dangers, labels = []) {
+  // circles (Brest) : zones de course { x, y, r (m), label } en cercle pointillé rose (zone A du GPEN, « Rose » dans les IC) ; Toulon : aucune
+  setDangers(zones, dangers, labels = [], circles = []) {
     const g = this.groups.zones; g.clear();
+    for (const z of circles) {
+      const pts = [];
+      for (let k = 0; k <= 96; k++) { const a = (k / 96) * 2 * Math.PI; pts.push(W(z.x + z.r * Math.sin(a), z.y + z.r * Math.cos(a), 5)); }
+      g.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineDashedMaterial({ color: '#e64980', dashSize: 80, gapSize: 50 })).computeLineDistances());
+      const s = makeLabel(z.label, { bg: 'rgba(214,51,108,.85)' }, 13); s.position.copy(W(z.x, z.y + z.r, 60)); g.add(s);
+    }
     for (const [i, poly] of zones.entries()) {
       const shape = new THREE.Shape(poly.map((p) => new THREE.Vector2(p.x, p.y)));
       const geo = new THREE.ShapeGeometry(shape); geo.rotateX(-Math.PI / 2);
