@@ -3676,9 +3676,11 @@ async function tofinouBateau({ browser }) {
     assert.equal((await texte(page, '#tabs button[data-tab=j80]')).trim(), 'Tofinou', 'bouton d’onglet « Tofinou »');
     await page.click('#tabs button[data-tab=course]');
     await attendBords(page, suite([BAN_B, BAN_C, BAN_PORTE, BAN_B, BAN_C, /^Arrivée \(ligne de départ\)/]), 'banane de Bormes au génois');
+    await texteStable(page, 'course');                                  // analyse terminée (machine chargée : une analyse peut en suivre une autre)
     const genois = await tempsBanane(page);
     assert.ok(Number.isFinite(genois) && genois > 0, `temps estimé au génois : ${genois}`);
     assert.match(await texte(page, 'section[data-tab=course]'), /temps Tofinou 9\.5 estimé/);
+    if (await page.locator('#banEau').count()) console.log('  banEau :', await texte(page, '#banEau'));
     assert.equal(await page.locator('#banEau').count(), 0, 'banane en mer par vent du sud');
     await page.click('#tabs button[data-tab=j80]');
     const onglet = async () => (await texte(page, 'section[data-tab=j80]')).replace(/\s+/g, ' ');
@@ -3698,12 +3700,15 @@ async function tofinouBateau({ browser }) {
     const fin = Date.now() + 60000;
     let foc = genois;
     while (Date.now() < fin) { foc = await tempsBanane(page).catch(() => NaN); if (foc > genois) break; await new Promise((r) => setTimeout(r, 250)); }
+    await texteStable(page, 'course');
+    foc = await tempsBanane(page);
     assert.ok(foc > genois, `au foc, banane plus longue par 6 nd : ${genois} min au génois, ${foc} min au foc`);
     await page.reload({ waitUntil: 'load' });
     await pret(page);
     assert.equal(await page.evaluate(() => localStorage.getItem('rade.bateau.v1')), '{"voile":"foc"}', 'choix gardé');
     await page.click('#tabs button[data-tab=course]');
     await attendBords(page, suite([BAN_B, BAN_C, BAN_PORTE, BAN_B, BAN_C, /^Arrivée \(ligne de départ\)/]), 'banane de Bormes au foc');
+    await texteStable(page, 'course');
     assert.equal(await tempsBanane(page), foc, 'après rechargement : temps au foc');
     await page.click('#tabs button[data-tab=j80]');
     assert.equal(await page.locator('section[data-tab=j80] [data-voile=foc].on').count(), 1, 'foc toujours choisi');
