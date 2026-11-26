@@ -12,6 +12,9 @@ export const env = () => (process.env.VERCEL_ENV === 'production' ? 'prod' : 'pr
 // Comparaison exacte avec la liste blanche : « Naos », « __proto__ », un tableau ou une valeur absente ne sont pas des espaces
 export const espaceDe = (h) => (typeof h === 'string' && ESPACE_IDS.includes(h) ? h : null);
 
+// Espace d’une requête (en-tête posé par le middleware seulement) : sert aux fonctions d’IA à choisir leur consigne fixe (08-09)
+export const espaceDeRequete = (req) => espaceDe(req?.headers?.['x-rt-espace']);
+
 // Préfixe du magasin : Naos inchangé depuis la v43 ; les autres espaces dans leur propre arbre
 export const prefixe = (e) => (e === 'naos' ? env() : `${e}/${env()}`);
 
@@ -24,5 +27,6 @@ export const POLITIQUE = gele({
   tofinou: { venues: ['bormes'], reserves: ['snpm-2026', 'gpen-2027'], recalage: false },
 });
 
-// Espaces dont l’IA est ouverte : un espace sans consignes propres n’a pas d’IA (jamais les consignes d’un autre espace)
-export const IA_ESPACES = Object.freeze(['naos']);
+// Espaces dont l’IA est ouverte : un espace sans consignes propres n’a pas d’IA (jamais les consignes d’un autre espace). Tofinou : consignes
+// d’api/_tofinou.js (08-09, D-06), même clé et même budget que Naos, quota compté par espace et prénom
+export const IA_ESPACES = Object.freeze(['naos', 'tofinou']);

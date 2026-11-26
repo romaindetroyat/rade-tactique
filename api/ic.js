@@ -4,9 +4,12 @@
 // n’est transmis à OpenAI. Variables d’environnement : OPENAI_API_KEY, OPENAI_MODEL (défaut gpt-5.5).
 // Les fonctions de vérification sont exportées pour être testées sans réseau (tests/apiic.test.mjs) ; `createHandler({ openai, blob, now })`
 // accepte un client simulé (objet ou fonction qui le rend) et un faux Blob. L'appel à OpenAI, le quota par équipier et les erreurs passent par
-// api/_ia.js ; le prénom de l'équipier y est lu, ici rien de la requête n'est lu hors du texte.
+// api/_ia.js ; le prénom de l'équipier y est lu, ici rien de la requête n'est lu hors du texte (l’espace, posé par le middleware, est lu par
+// api/_espace.js pour choisir la consigne fixe de l’espace ; il ne part pas chez le fournisseur).
 
 import { createIA } from './_ia.js';
+import { espaceDeRequete } from './_espace.js';
+import { CONSIGNES_TOFINOU } from './_tofinou.js';
 
 export const MAX_TEXT = 50000;                      // caractères envoyés au plus ; les IC CVAT en font ~11 500
 export const MIN_EXCERPT = 8;                       // un extrait plus court ne prouve rien (comparé sans blancs)
@@ -152,6 +155,7 @@ export function verify(out, text) {
 
 const bornee = (err) => String(err?.message || err).slice(0, 300);
 
+// `instructions` : consigne de l’espace Naos (v43) ; l’espace Tofinou reçoit toujours la sienne (08-09, D-06), choisie par l’en-tête du middleware
 export function createHandler({ openai, blob, now, delai, instructions = SYSTEM } = {}) {
   const ia = createIA({ openai, blob, now, delai });
   return async function handler(req, res) {
@@ -164,7 +168,7 @@ export function createHandler({ openai, blob, now, delai, instructions = SYSTEM 
     let r;
     try {
       r = await ia.appelle({
-        model: MODEL, instructions, input: `<ic>\n${sent}\n</ic>`, reasoning: { effort: 'low' }, max_output_tokens: MAX_OUT,
+        model: MODEL, instructions: espaceDeRequete(req) === 'tofinou' ? CONSIGNES_TOFINOU.ic : instructions, input: `<ic>\n${sent}\n</ic>`, reasoning: { effort: 'low' }, max_output_tokens: MAX_OUT,
         text: { format: { type: 'json_schema', name: 'ic', schema: SCHEMA, strict: true } },
       });
     } catch (err) {

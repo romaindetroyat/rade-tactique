@@ -6,6 +6,8 @@
 
 import { createIA } from './_ia.js';
 import { GPEN, venueOf } from './_gpen.js';
+import { espaceDeRequete } from './_espace.js';
+import { CONSIGNES_TOFINOU } from './_tofinou.js';
 
 const MODEL = process.env.OPENAI_MODEL || 'gpt-5.5';
 
@@ -56,7 +58,8 @@ export function createHandler({ openai, blob, now, delai } = {}) {
     if (req.method !== 'POST') return res.status(405).json({ error: 'POST uniquement' });
     if (!process.env.OPENAI_API_KEY) return res.status(503).json({ error: 'no_key' });
     // plan d’eau lu à part (liste fermée) et retiré des faits : à Toulon, les faits envoyés sont ceux de la v42
-    const consigne = CONSIGNES[venueOf(req.body)];
+    // espace Tofinou (08-09, D-06) : consigne fixe de l’espace, posée par le middleware ; le plan d’eau du corps n’y change rien
+    const consigne = espaceDeRequete(req) === 'tofinou' ? CONSIGNES_TOFINOU.debrief : CONSIGNES[venueOf(req.body)];
     const facts = req.body && typeof req.body === 'object' && Object.hasOwn(req.body, 'venue') ? (({ venue, ...f }) => f)(req.body) : req.body;
     if (!facts || !Array.isArray(facts.bords) || !facts.bords.length) return res.status(400).json({ error: 'faits manquants' });
     const input = JSON.stringify(facts).slice(0, 60000);

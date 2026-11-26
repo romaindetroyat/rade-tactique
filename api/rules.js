@@ -8,6 +8,8 @@
 import RRS from './_rrs.js';
 import { createIA } from './_ia.js';
 import { GPEN, venueOf } from './_gpen.js';
+import { espaceDeRequete } from './_espace.js';
+import { CONSIGNES_TOFINOU } from './_tofinou.js';
 
 const MODEL = process.env.OPENAI_MODEL || 'gpt-5.5';
 
@@ -78,6 +80,8 @@ ${GPEN}
 === TEXTE OFFICIEL RRS 2025-2028 (extraits : signaux, définitions, chapitres 1 à 4, règle 60) ===
 ${RRS}`;
 const CONSIGNES = { toulon: SYSTEM, brest: SYSTEM_BREST };
+// Espace Tofinou (08-09, D-06) : consigne fixe de l’espace, choisie par l’en-tête du middleware ; le plan d’eau du corps n’y change rien
+const consigneDe = (req) => (espaceDeRequete(req) === 'tofinou' ? CONSIGNES_TOFINOU.rules : CONSIGNES[venueOf(req.body)]);
 
 const SCHEMA = {
   type: 'object', additionalProperties: false, required: ['verdict', 'explication', 'regles', 'ic', 'attention'],
@@ -109,7 +113,7 @@ export function createHandler({ openai, blob, now, delai } = {}) {
     try {
       const response = await ia.appelle({
         model: MODEL,
-        instructions: CONSIGNES[venueOf(req.body)],
+        instructions: consigneDe(req),
         input: [...history, { role: 'user', content: question }],
         reasoning: { effort: 'low' },
         text: { format: { type: 'json_schema', name: 'arbitre', schema: SCHEMA, strict: true } },

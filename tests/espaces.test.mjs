@@ -254,7 +254,7 @@ test('parité : ESPACE_IDS = espaces du middleware ; préfixes de Naos inchangé
   await avecEnv(undefined, () => { assert.equal(prefixe('naos'), 'preview'); assert.equal(prefixe('tofinou'), 'tofinou/preview'); });
   await avecEnv('production', () => { assert.equal(prefixe('naos'), 'prod'); assert.equal(prefixe('tofinou'), 'tofinou/prod'); });
   assert.deepEqual([...POLITIQUE.naos.venues], ['toulon', 'brest']);
-  assert.deepEqual([...IA_ESPACES], ['naos']);
+  assert.deepEqual([...IA_ESPACES], ['naos', 'tofinou']);         // 08-09 : IA de Tofinou ouverte avec ses consignes (api/_tofinou.js)
 });
 
 test('tables réelles : EQUIPAGE en premier, prénoms uniques par table, une empreinte commune porte le même prénom (aucune empreinte affichée)', () => {

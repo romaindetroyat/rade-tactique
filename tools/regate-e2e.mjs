@@ -4226,7 +4226,94 @@ async function baie({ browser, base: base0 }) {
   }
 }
 
-const SCENARIOS = { baie, accueil, 'jour-j': jourJ, 'deux-telephones': deuxTelephones, reprise, equipage, archive, 'archive-bouees': archiveBouees, archivehors: archiveHors, creer, manche, auteur, ic, 'depuis-ic': depuisIC, vraisemblance, gel, 'debrief-tardif': debriefTardif, gpx, 'gpx-choix': gpxChoix, ia, 'ia-erreurs': iaErreurs, arbitre, bouees, guide, entetes, 'retour-port': retourPort, banane, 'banane-manche': bananeManche, 'banane-debrief': bananeDebrief, 'porte-ic': porteIC, 'modifier-manche': modifierManche, 'toulon-vue': toulonVue, 'plan-eau': planEau, 'brest-avion': brestAvion, 'regate-brest': regateBrest, 'brest-courant': brestCourant, gpen, 'naos-cles': naosCles, 'tofinou-demarrage': tofinouDemarrage, 'espace-garde': espaceGarde, 'tofinou-bateau': tofinouBateau, 'tofinou-identite': tofinouIdentite, 'bormes-local': bormesLocal };
+// 08-09, D-06 : IA de l’espace Tofinou à son hôte (tofinou.localhost). Les VRAIES fonctions d’IA (api/rules.js, api/voice.js, api/debrief.js)
+// derrière la route, avec un client simulé qui note les consignes et un faux Blob (aucun réseau, aucune clé réelle) ; l’en-tête x-rt-espace
+// « tofinou » est posé comme par le middleware. Dictée d’un relevé de vent (champ texte de l’onglet Parcours), rédaction d’un débrief (fonction
+// `narrative` de l’app), question à l’arbitre (regles.html) : chaque réponse simulée s’affiche ou revient à l’app, les consignes vues sont
+// celles de l’espace Tofinou, le quota est compté sous tofinou/.
+async function serviaIAEspace(ctx, { membre, espace }) {
+  process.env.OPENAI_API_KEY ||= 'cle-de-test';
+  const { createFakeBlob, invoke } = await import('../tests/helpers/fakeblob.mjs');
+  const blob = createFakeBlob(), etat = { appels: {}, corps: {}, blob };
+  const SORTIES = {
+    rules: { verdict: 'Un tour suffit', explication: 'Au Challenge de la Baie, la pénalité est d’un tour.', regles: [], ic: 'Pénalité d’un tour, VHF 72.', attention: 'À vérifier dans les RIR.' },
+    voice: { understood: true, direction: { mode: 'absolute', value: 260 }, speed: { mode: 'absolute', value: 16 }, gust: null, confidence: 'high', summary: 'Vent au 260, 16 nœuds', question: null },
+    debrief: { resume: { bien: 'Bon départ côté comité.', coute: 'Bord de près trop long.', meteo: 'Ouest établi.' }, bords: [{ verdict: 'good', titre: 'Près', texte: 'Conforme.' }], retenir: ['Virer sur les bascules.'] },
+  };
+  for (const f of Object.keys(SORTIES)) {
+    etat.appels[f] = []; etat.corps[f] = [];
+    const client = { responses: { create: async (args) => { etat.appels[f].push(args); return { status: 'completed', output_text: JSON.stringify(SORTIES[f]) }; } } };
+    const handler = (await import(`../api/${f}.js`)).createHandler({ openai: client, blob, now: () => Date.now() });
+    await ctx.route(`**/api/${f}`, async (route) => {
+      const req = route.request(), body = JSON.parse(req.postData() || 'null');
+      etat.corps[f].push(body);
+      const r = await invoke(handler, { method: req.method(), url: '/api/' + f, body, headers: { 'x-rt-membre': encodeURIComponent(membre), 'x-rt-espace': espace } });
+      await route.fulfill({ status: r.status, contentType: 'application/json', body: JSON.stringify(r.body ?? null) });
+    });
+  }
+  return etat;
+}
+async function tofinouIa({ browser, base: base0 }) {
+  const { CONSIGNES_TOFINOU } = await import('../api/_tofinou.js');
+  const base = baseSur(base0, HOTES_ESSAI.tofinou);
+  const ctx = await ouvreContexte(browser, { heure: '2026-12-05T09:00:00Z' });
+  try {
+    await membreEspace(ctx, { membre: 'Frédéric', espace: 'tofinou' });
+    const ia = await serviaIAEspace(ctx, { membre: 'Frédéric', espace: 'tofinou' });
+    const { page, erreurs } = await ouvrePage(ctx);
+    await ouvreApp(page, base);
+    await membreGarde(page, 'Frédéric');
+    assert.equal(await page.evaluate(async () => (await import('/js/espaces.js')).ESPACE.id), 'tofinou', 'app ouverte dans l’espace Tofinou');
+    // (1) dictée : « vent au 260, 16 nœuds » tapé dans le champ du relevé, compris par la fonction de dictée de l’espace
+    await page.click('#tabs button[data-tab=course]');
+    await page.waitForSelector('.obs-card [data-vtext]', { timeout: 60000 });
+    await page.fill('.obs-card [data-vtext]', 'vent au 260, 16 nœuds');
+    await page.click('.obs-card [data-vgo]');
+    await page.waitForFunction(() => /enregistrement dans 3 s/.test(document.querySelector('#voicePend')?.textContent || ''), null, { timeout: 15000 });
+    const pend = (await texte(page, '#voicePend')).replace(/\s+/g, ' ');
+    assert.match(pend, /260° · 16 nd/, `relevé compris affiché : ${pend}`);
+    assert.match(pend, /Vent au 260, 16 nœuds/);
+    await page.click('#vpCancel');
+    assert.equal(ia.appels.voice.length, 1, 'un appel de dictée');
+    assert.equal(ia.appels.voice[0].instructions, CONSIGNES_TOFINOU.voice, 'dictée : consigne de Tofinou');
+    assert.equal(ia.corps.voice[0].venue, 'bormes', 'la page envoie son plan d’eau ; le serveur l’ignore dans l’espace Tofinou');
+    // (2) débrief : rédaction par la fonction de l’app (même module que l’app ouverte), faits d’un bord
+    const nar = await page.evaluate(async () => {
+      const { narrative } = await import('/js/debrief.js');
+      const t0 = Date.parse('2026-12-05T10:05:00Z');
+      const L = { name: 'Bord 1', ta: t0, tb: t0 + 600e3, wind: { dir: 260, spd: 14, src: 'relevé' }, plan: { type: { label: 'Près' }, route: null, advice: [], site: [] }, planTime: null,
+        st: { dur: 600, dist: 1852, direct: 1500, man: 3, right: 0.5, maxOff: 120, slow: 0 }, polarSrc: 'relevé', polar: [], angles: null, verdict: ['good', 'Conforme'], notes: [] };
+      return narrative({ tStart: t0, legs: [L] }, { event: 'Challenge de la Baie', place: '', fleet: '', course: { title: 'Parcours 4 — banane (construite)' }, reduced: false, falseStarts: 0, startNote: '', notes: '' });
+    });
+    assert.equal(nar.ai, true, 'débrief rédigé par l’IA de l’espace');
+    assert.equal(nar.resume.bien, 'Bon départ côté comité.');
+    assert.equal(ia.appels.debrief.length, 1);
+    assert.equal(ia.appels.debrief[0].instructions, CONSIGNES_TOFINOU.debrief, 'débrief : consigne de Tofinou');
+    assert.equal(ia.corps.debrief[0].venue, 'bormes');
+    assert.ok(!/bormes|venue/.test(ia.appels.debrief[0].input), 'le plan d’eau ne part pas dans les faits');
+    sansErreur(erreurs, 'app de Tofinou');
+    // (3) arbitre : page des règles ouverte sur l’adresse de Tofinou
+    await questionArbitre(page, base, 'Combien de tours de pénalité ?');
+    assert.equal(await texte(page, '#chatLog .msg.bot .verdict'), 'Un tour suffit');
+    assert.deepEqual(ia.corps.rules.at(-1), { question: 'Combien de tours de pénalité ?', history: [] });
+    assert.equal(ia.appels.rules.at(-1).instructions, CONSIGNES_TOFINOU.rules, 'arbitre : consigne de Tofinou');
+    // consignes vues : jamais celles de Naos ; quota compté dans l’arbre de Tofinou
+    for (const f of ['rules', 'voice', 'debrief']) for (const a of ia.appels[f]) {
+      assert.doesNotMatch(a.instructions.replace(/=== TEXTE OFFICIEL[\s\S]*/, ''), /Naos|CVAT|GPEN|J80|Toulon|Brest/, `${f} : aucun mot de Naos`);
+      assert.equal(a.store, false);
+    }
+    const { cheminQuota } = await import('../api/_ia.js'), { prefixe } = await import('../api/_espace.js');
+    const compteurs = [...ia.blob.store.keys()];
+    assert.ok(compteurs[0]?.startsWith('tofinou/'), 'compteur rangé sous tofinou/');
+    assert.deepEqual(compteurs, [cheminQuota(prefixe('tofinou'), 'Frédéric', Date.now())], `compteur de Tofinou seulement : ${compteurs.join(', ')}`);
+    assert.equal(ia.blob.store.get(compteurs[0]).text, '{"n":3}', 'trois appels comptés à Frédéric dans l’espace Tofinou');
+    sansErreur(erreurs, 'règles de Tofinou');
+  } finally {
+    await ctx.close().catch(() => { /* déjà fermé */ });
+  }
+}
+
+const SCENARIOS = { baie, accueil, 'jour-j': jourJ, 'deux-telephones': deuxTelephones, reprise, equipage, archive, 'archive-bouees': archiveBouees, archivehors: archiveHors, creer, manche, auteur, ic, 'depuis-ic': depuisIC, vraisemblance, gel, 'debrief-tardif': debriefTardif, gpx, 'gpx-choix': gpxChoix, ia, 'ia-erreurs': iaErreurs, arbitre, bouees, guide, entetes, 'retour-port': retourPort, banane, 'banane-manche': bananeManche, 'banane-debrief': bananeDebrief, 'porte-ic': porteIC, 'modifier-manche': modifierManche, 'toulon-vue': toulonVue, 'plan-eau': planEau, 'brest-avion': brestAvion, 'regate-brest': regateBrest, 'brest-courant': brestCourant, gpen, 'naos-cles': naosCles, 'tofinou-demarrage': tofinouDemarrage, 'espace-garde': espaceGarde, 'tofinou-bateau': tofinouBateau, 'tofinou-identite': tofinouIdentite, 'bormes-local': bormesLocal, 'tofinou-ia': tofinouIa };
 
 // ───────────────────────── lancement
 
