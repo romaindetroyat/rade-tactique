@@ -23,7 +23,7 @@ export const STATUS = Object.freeze({ A_CONFIRMER: 'a_confirmer', CONFIRMEE: 'co
 
 const str = (v) => (v == null ? '' : String(v).trim());
 // Texte venu d’un PDF : sans caractères de contrôle ni chevrons, borné (l’affichage échappe de toute façon)
-const clean = (v, max) => str(v).replace(/[\u0000-\u001f\u007f<>]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
+export const clean = (v, max) => str(v).replace(/[\u0000-\u001f\u007f<>]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
 const finite = (n) => typeof n === 'number' && Number.isFinite(n);
 const hasPos = (m) => finite(m?.lat) && finite(m?.lon);
 
@@ -187,6 +187,7 @@ export function applyRegattaMarks(marks, courses, r) {
       addedMarks.push(m.id);
     }
     for (const c of r.courses || []) {
+      if (c?.origine === SAISIE) { if (injectHand(marks, courses, r, c)) addedCourses.push(c.id); continue; }       // parcours saisi (D-17) : bloc à part
       if (c.incomplete || !Number.isInteger(c.id) || c.id <= COURSE_BASE || !(c.seq || []).length) continue;
       const fin = c.finish && (c.finish.kind === 'comite' || c.finish.kind === 'pres') ? c.finish : null;
       if (c.finish && !fin) continue;                                                // arrivée illisible : jamais d’arrivée devinée
@@ -208,14 +209,39 @@ export function applyRegattaMarks(marks, courses, r) {
   return { marks, courses, addedMarks, addedCourses, removedMarks, removedCourses, gone };
 }
 
+// Parcours saisi dans l’app (D-17, 08-11, js/regedit.js) : injecté quand toutes ses bouées sont confirmées, titre « (saisi) », marqueur `saisi`.
+// Plus d’un tour : `laps: true` et `fixedLaps` (tours imposés, comme le GPEN : courseLaps de js/banane.js) ; `lapLine: false` = sans repasser la
+// ligne de départ entre deux tours (buildLegs). Rend vrai s’il est injecté. SAISIE et 4 : HAND et LAP_MAX de js/regedit.js (test qui les compare).
+const SAISIE = 'saisie', TOURS_MAX = 4;
+function injectHand(marks, courses, r, c) {
+  if (!Number.isInteger(c.id) || c.id <= COURSE_BASE || !Array.isArray(c.seq) || !c.seq.length || c.seq.length > MAX_LEGS) return false;
+  const fin = c.finish && (c.finish.kind === 'comite' || c.finish.kind === 'pres') ? c.finish : null;
+  if (c.finish && !fin) return false;
+  if (!courseMarkIds({ seq: c.seq, finish: fin }).every((k) => Object.hasOwn(marks, k) && marks[k].fromRegatta === r.id)) return false;
+  if (courses.some((x) => x.id === c.id)) return false;
+  const n = Number.isInteger(c.laps) && c.laps >= 2 && c.laps <= TOURS_MAX ? c.laps : 1, parLigne = c.lapLine !== false;
+  const seq = c.seq.map((l) => (l.gate ? [l.mark, null, l.gate] : [l.mark, l.side === 'b' || l.side === 't' ? l.side : null]));
+  const nameOf = (k) => marks[k].name;
+  const tours = n > 1 ? ` (${n} tours, ${parLigne ? 'par la ligne de départ' : 'sans repasser la ligne'} entre deux tours)` : '';
+  courses.push({
+    id: c.id, title: `${clean(c.name, MAX_TITLE)} (saisi)`, custom: true, saisi: true, fromRegatta: r.id, seq: { G: seq, P: seq.map((x) => [...x]) },
+    ...(fin ? { finish: { kind: fin.kind, mark: fin.mark } } : {}),
+    ...(n > 1 ? { laps: true, fixedLaps: n } : {}), ...(n > 1 && !parLigne ? { lapLine: false } : {}),
+    text: `Ligne de départ, ${c.seq.map((l) => legTxt(l, nameOf)).join(', ')}${tours}, ${fin ? finishTxt(fin, nameOf) : 'ligne d’arrivée'}. Parcours saisi dans l’app, bouées confirmées sur la carte : le Comité fait foi.`,
+  });
+  return true;
+}
+
 // ───────────────────────── parcours proposés pour la régate ouverte
 
 // Parcours proposés (onglet Parcours, « Ajouter une manche », parcours probables, débrief) : la régate ouverte qui a ses propres parcours (lus dans
 // ses IC, `fromRegatta`) ne propose QU’EUX ; sinon (régate CVAT, entraînement libre) le cahier CVAT et les parcours construits (banane).
 // Jamais les parcours d’une autre régate (applyRegattaMarks n’injecte de toute façon que ceux de la régate ouverte).
+// Parcours saisis (D-17, `saisi`) : ajoutés au catalogue du plan d’eau quand la régate n’a pas de parcours lu ; sans parcours saisi, règle de la v43.
 export function allowedCourses(courses, openId) {
   const all = courses || [];
   const own = openId != null ? all.filter((c) => c.fromRegatta === openId) : [];
+  if (own.length && own.every((c) => c.saisi === true)) return [...all.filter((c) => !c.fromRegatta), ...own];
   return own.length ? own : all.filter((c) => !c.fromRegatta);
 }
 // Parcours à présélectionner quand le parcours choisi n’est pas proposé (ouverture, changement ou fermeture de régate, bouées confirmées) :

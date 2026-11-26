@@ -159,7 +159,7 @@ export function buildLegs(course, cls, opts) {
   if (course.laps) {
     for (let k = 0; k < laps; k++) {
       seqDef.forEach(([m, sd, g2]) => seq.push(item(m, sd, g2, k + 1)));
-      if (k < laps - 1 && !course.built) seq.push({ ...gate, mark: 'GATE', side: null, lap: k + 1 });
+      if (k < laps - 1 && !course.built && course.lapLine !== false) seq.push({ ...gate, mark: 'GATE', side: null, lap: k + 1 });   // lapLine : parcours saisi (08-11)
     }
   } else {
     seqDef.forEach(([m, sd, g2]) => seq.push(m === 'GATE' ? { ...gate, mark: 'GATE', side: null } : item(m, sd, g2)));
