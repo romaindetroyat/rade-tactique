@@ -425,11 +425,11 @@ test('toute adresse de même origine demandée par l’app est servie par la lis
     for (const m of src.matchAll(/\bsnapshot:\s*'([^']+)'/g)) noter(m[1], '/', f + ' plan d’eau');
     for (const m of src.matchAll(/\bbase:\s*'([^']+)'/g)) for (const g of geo.matchAll(/fetch\(\s*base\s*\+\s*'([^']+)'/g)) noter(m[1] + g[1], '/', f + ' plan d’eau');
   }
-  for (const f of ['index.html', 'guide.html', 'regles.html', 'acces.html']) {
+  for (const f of ['index.html', 'guide.html', 'guide-tofinou.html', 'regles.html', 'acces.html']) {
     for (const m of lu(f).matchAll(/(?<![-\w])(?:src|href)=["']([^"']+)["']/g)) noter(m[1], '/', f);
   }
   assert.ok(adresses.size >= 20, 'le balayage doit trouver les adresses de l’app');
-  for (const a of ['/api/voice', '/api/membre', '/api/archive', '/api/ic', '/api/debrief', '/api/rules', '/vendor/pdf.min.js', '/data/terrain.bin', '/data/wx-snapshot.json', '/regles.html', '/guide.html']) {
+  for (const a of ['/api/voice', '/api/membre', '/api/archive', '/api/ic', '/api/debrief', '/api/rules', '/vendor/pdf.min.js', '/data/terrain.bin', '/data/wx-snapshot.json', '/regles.html', '/guide.html', '/guide-tofinou.html']) {
     assert.ok(adresses.has(a), `le balayage doit trouver ${a}`);
   }
   const refusees = [...adresses].filter(([a]) => !cheminDeLApp(a)).map(([a, o]) => `${a} (demandée par ${o})`);

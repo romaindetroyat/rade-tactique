@@ -51,7 +51,7 @@ const versApi = (chemin) => {
 // et ce fichier-ci (les empreintes des codes) y sont aussi. C'est donc une LISTE BLANCHE, jamais une liste noire : une liste noire laisserait
 // passer le prochain dossier interne (.vercel/, node_modules/, un nouveau fichier de notes). Le chemin est jugé tel que reçu (encodé) :
 // toute forme déguisée (%2F, %2e%2e, //, \, segment en point, majuscules, .js, _) est refusée avant le reste.
-const NOMS_PUBLICS = new Set(['/', '/index.html', '/guide.html', '/regles.html', '/styles.css', '/manifest.webmanifest', '/manifest-tofinou.webmanifest', '/sw.js', '/acces.html', '/acces.js']);
+const NOMS_PUBLICS = new Set(['/', '/index.html', '/guide.html', '/guide-tofinou.html', '/regles.html', '/styles.css', '/manifest.webmanifest', '/manifest-tofinou.webmanifest', '/sw.js', '/acces.html', '/acces.js']);
 const FICHIER_DE_DOSSIER = /^\/(?:js|data|vendor|icons|rapports)\/[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const FONCTION_API = /^\/api\/[a-z0-9-]+$/;
 export function cheminDeLApp(chemin) {

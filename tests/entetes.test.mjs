@@ -11,7 +11,7 @@ const lu = (f) => readFileSync(ROOT + f, 'utf8');
 const regles = lireEntetes(ROOT);
 const jsFiles = readdirSync(ROOT + 'js').filter((f) => f.endsWith('.js')).map((f) => 'js/' + f);
 const rapports = readdirSync(ROOT + 'rapports').filter((f) => f.endsWith('.html')).map((f) => 'rapports/' + f);
-const PAGES = ['index.html', 'guide.html', 'regles.html', 'acces.html'];
+const PAGES = ['index.html', 'guide.html', 'guide-tofinou.html', 'regles.html', 'acces.html'];
 
 // « dir-a 'self' x; dir-b y » → Map { dir-a → ["'self'", 'x'], … }
 const lireListe = (texte, separateur) => new Map(texte.split(separateur).map((s) => s.trim()).filter(Boolean).map((d) => {
@@ -20,7 +20,7 @@ const lireListe = (texte, separateur) => new Map(texte.split(separateur).map((s)
 }));
 const csp = (chemin) => lireListe(entetesPour(chemin, regles)['content-security-policy'] || '', ';');
 
-const CHEMINS_APP = ['/', '/index.html', '/guide.html', '/regles.html', '/acces.html', '/acces.js', '/sw.js', '/js/app.js', '/data/meta.json',
+const CHEMINS_APP = ['/', '/index.html', '/guide.html', '/guide-tofinou.html', '/regles.html', '/acces.html', '/acces.js', '/sw.js', '/js/app.js', '/data/meta.json',
   '/vendor/pdf.worker.min.js', '/icons/logo.png', '/api/archive'];
 const RAPPORT = '/rapports/coupe-snpm-2026.html';
 const SECURITE = ['x-content-type-options', 'referrer-policy', 'permissions-policy', 'x-frame-options'];

@@ -123,7 +123,7 @@ export const GUIDE = `
 <p class="small muted">Le vent local est un modèle simplifié pour la tactique : il donne les tendances (pression, bascules, dévents), utile jusqu’à 25 nœuds ; au-delà, les chiffres ne sont pas faits pour. Il ne remplace pas l’observation du plan d’eau. Les positions marquées « approx » sont à vérifier sur zone ; le Comité fait foi.</p>`;
 
 // Aide et accueil de l’espace Tofinou (08-06, D-07) : mêmes fonctions que l’aide de Naos, sans J80, CVAT, GPEN, Brest ni Toulon.
-// Le guide complet de l’espace (guide-tofinou.html) arrive en 08-10 ; l’IA de l’espace est ouverte depuis 08-09 (rubrique « IA »).
+// Lien du guide court de l’espace (guide-tofinou.html, 08-10) ; l’IA de l’espace est ouverte depuis 08-09 (rubrique « IA »). Naos garde guide.html.
 export const GUIDE_TOFINOU = `
 <h2>Tofinou Bormes — mode d’emploi</h2>
 <p class="small muted">Préparer et courir le Challenge de la Baie en Tofinou 9.5 dans la rade de Bormes – Le Lavandou.</p>
@@ -145,6 +145,7 @@ export const GUIDE_TOFINOU = `
   <li><b>Le bateau</b> : onglet Tofinou, polaire du Tofinou 9.5 tirée du certificat ORC d’un sister-ship (à recaler), génois ou foc, pertes aux manœuvres et tirant d’eau estimés. La colonne « Spi dès » est un repère indicatif, à vérifier sur l’eau.</li>
   <li><b>Traces</b> : après la course, importez le GPX (rangé tout seul dans la régate du jour), revoyez-le, comparez-le à la route optimale et validez le débrief pré-rempli.</li>
 </ol>
+<p class="small"><a href="guide-tofinou.html" target="_blank" rel="noopener"><b>📖 Guide de l’espace Tofinou</b></a> : entrer, la rade hors réseau, le Challenge de la Baie, vos IC et parcours, le bateau, la trace de course, les vents, les zones et l’IA.</p>
 <p class="small"><a href="regles.html" target="_blank" rel="noopener"><b>📘 Règles de course expliquées</b></a> : départs P, I, U, Z, noir, priorités, bouées, arrivée, pénalités, la note du Tofinou 9.5 et du Challenge de la Baie, et un arbitre de poche à qui poser vos questions.</p>
 <p class="small"><b>Installer l’app</b> : sur iPhone, ouvrez le lien dans Safari puis Partager → « Sur l’écran d’accueil » ; elle s’appelle « Tofinou Bormes ». Sur Android, menu ⋮ → « Installer l’application ».</p>
 <p class="small muted">Le vent local est un modèle simplifié pour la tactique : il donne les tendances (pression, bascules, dévents), utile jusqu’à 25 nœuds ; au-delà, les chiffres ne sont pas faits pour. Il ne remplace pas l’observation du plan d’eau. Les positions marquées « approx » sont à vérifier sur zone ; le Comité fait foi.</p>`;

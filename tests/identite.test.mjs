@@ -38,7 +38,9 @@ test('aide et accueil de Tofinou : « Préparer et courir le Challenge de la Bai
   assert.ok(texte(g).includes('Préparer et courir le Challenge de la Baie en Tofinou 9.5 dans la rade de Bormes – Le Lavandou'));
   assert.ok(texte(g).includes('« Tofinou Bormes »'), 'nom à l’installation');
   assert.doesNotMatch(texte(g), INTERDITS);
-  assert.doesNotMatch(g, /guide\.html/, 'le guide complet de Naos n’est pas proposé (guide de l’espace en 08-10)');
+  assert.doesNotMatch(g, /href="guide\.html/, 'le guide complet de Naos n’est pas proposé');
+  assert.ok(g.includes('href="guide-tofinou.html"'), 'lien du guide de l’espace Tofinou (08-10)');
+  assert.ok(!help.GUIDE.includes('guide-tofinou'), 'l’aide de Naos garde son seul guide');
   assert.doesNotMatch(texte(g), /gpt|claude|opus|sonnet|haiku|\?acces=|rt_acces/i);
   const tips = help.tipsDe(ESPACES.tofinou);
   assert.deepEqual(Object.keys(tips), Object.keys(help.tipsDe(ESPACES.naos)), 'mêmes éléments');
