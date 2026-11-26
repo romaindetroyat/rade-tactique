@@ -97,13 +97,13 @@ Ajoutés le 2026-11-19 à la demande de Romain (« permets le changement de plan
 
 Ajoutés le 2026-11-26 à la demande de Romain (« créer la même chose pour un Tofinou dans la rade de Bormes / Le Lavandou, à partager avec un code… sans accès aux régates de J80 de Toulon et Brest »), livrés en v44 dès qu'elle est prête et vérifiée, au plus tard le 10/12/2026 (sinon après la régate de Toulon du 13/12) (08-CONTEXT, D-01 à D-15).
 
-- [ ] **ESPACE-01**: Le code d'accès décide de l'espace, jamais l'app : le middleware est la seule source (`x-rt-espace` posé en écrasant toute valeur du client, `/api/membre` rend `{ membre, espace }`), un code d'un espace est refusé sur l'adresse d'un autre comme un code inconnu, les fonctions refusent une requête sans espace valide (403)
+- [x] **ESPACE-01**: Le code d'accès décide de l'espace, jamais l'app : le middleware est la seule source (`x-rt-espace` posé en écrasant toute valeur du client, `/api/membre` rend `{ membre, espace }`), un code d'un espace est refusé sur l'adresse d'un autre comme un code inconnu, les fonctions refusent une requête sans espace valide (403)
 - [ ] **ESPACE-02**: Archive (régates, traces, rapports, vents figés, corbeille), quotas et IA cloisonnés par espace côté serveur : préfixes `tofinou/…` (Naos `prod/…` à l'octet près), régates d'un autre plan d'eau, graines SNPM/GPEN et recalages CVAT refusés à l'archive Tofinou, quota de 30 appels par jour compté par espace + prénom, consignes d'IA propres à chaque espace
 - [ ] **ESPACE-03**: Une adresse par espace (stockage, caches, service worker et cookie séparés par le navigateur), même projet et même déploiement ; Romain dans les deux espaces avec « Changer d'espace », Frédéric dans l'espace Tofinou seulement ; garde de synchronisation (aucun envoi tant que l'espace n'est pas confirmé, ni vers un autre espace)
 - [ ] **ESPACE-04**: Plans d'eau et graines par espace : l'espace Tofinou ne voit que Bormes (pack de Brest refusé), Naos ne voit pas Bormes (pack refusé) ; aucune graine SNPM ni GPEN dans l'espace Tofinou ; l'installation hors réseau de chaque espace reste complète
 - [ ] **ESPACE-05**: Naos identique à la v43 : gel capturé sur 5e9b8a5 avant toute modification (réponses du middleware, chemins Blob, consignes d'IA, clés de stockage, liste hors réseau, pack de Brest), gardes Toulon et garde SNPM vertes, même URL, même archive, mêmes clés locales
 - [ ] **ESPACE-06**: Nom, textes et manifeste par espace (« Tofinou — Bormes », app « Tofinou Bormes ») : page d'accès, titre, aide, débrief, manifeste réécrit par le middleware sur l'adresse de Tofinou ; installable à part
-- [ ] **ESPACE-07**: Outil de création des codes : affiche le code une seule fois avec le lien personnel et n'écrit que l'empreinte ; aucun code d'accès dans le dépôt, les tests, les journaux ni la PR ; le code de Frédéric, créé par l'orchestrateur, n'y entre que par son empreinte
+- [x] **ESPACE-07**: Outil de création des codes : affiche le code une seule fois avec le lien personnel et n'écrit que l'empreinte ; aucun code d'accès dans le dépôt, les tests, les journaux ni la PR ; le code de Frédéric, créé par l'orchestrateur, n'y entre que par son empreinte
 - [ ] **TOF-01**: Bateau Tofinou 9.5 : polaire tirée du certificat ORC Club 2026 du sister-ship (génois par défaut, variante foc estimée), polaire par défaut de l'espace recalable (performance, polaire personnelle), longueur 9,47 m, pertes 11 s / 8 s, tirant d'eau 2,20 / 1,20 m à confirmer, confiance affichée comme estimation
 - [ ] **TOF-02**: Pack « Bormes » hors réseau (relief, côte, fond de carte, instantané météo) construit par les outils du dépôt : emprise 6,22–6,60° E, 42,96–43,20° N, maille 30 m, Levant militaire non urbain, borne ouest de saisie 6,20° E, seuil « mer dégagée » par défaut
 - [ ] **TOF-03**: Savoir local de Bormes : lieux, marques fixes (La Fourmigue, coffre 1) et bouées « position à confirmer », dangers, zones interdites (Levant militaire, Brégançon) évitées par le routage et règles de Port-Cros, « à compléter sur carte marine » ; régimes de vent propres (mistral d'ouest) et vents prédéfinis marqués selon leur origine ; ni marée ni modèle de courant (courant d'ouest en information) ; plus aucun texte de Toulon à Bormes
@@ -170,13 +170,13 @@ Which phases cover which requirements. Updated during roadmap creation.
 | BREST-06 | Phase 7 | Complete |
 | BREST-07 | Phase 7 | Complete (données et calcul en 07-07 ; routage, conseils et affichage en 07-08) |
 | BREST-08 | Phase 7 | Complete |
-| ESPACE-01 | Phase 8 | Pending (08-02) |
-| ESPACE-02 | Phase 8 | Pending (08-02, 08-09) |
+| ESPACE-01 | Phase 8 | Complete (08-02) |
+| ESPACE-02 | Phase 8 | Pending (serveur fait en 08-02 ; consignes Tofinou 08-09) |
 | ESPACE-03 | Phase 8 | Pending (08-04, 08-06, 08-10) |
-| ESPACE-04 | Phase 8 | Pending (08-02, 08-04) |
+| ESPACE-04 | Phase 8 | Pending (packs et graines refusés par le serveur en 08-02 ; app 08-04) |
 | ESPACE-05 | Phase 8 | Pending (08-01, preuve finale 08-10) |
 | ESPACE-06 | Phase 8 | Pending (08-06) |
-| ESPACE-07 | Phase 8 | Pending (08-02) |
+| ESPACE-07 | Phase 8 | Complete (08-02) |
 | TOF-01 | Phase 8 | Pending (08-05) |
 | TOF-02 | Phase 8 | Pending (08-03) |
 | TOF-03 | Phase 8 | Pending (08-07) |

@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 08
 current_phase_name: "Espace Tofinou : rade de Bormes – Le Lavandou, Tofinou 9.5, accès séparé"
 status: in_progress
-stopped_at: Completed 08-01-PLAN.md
-last_updated: "2026-11-26T19:05:19.031Z"
+stopped_at: Completed 08-02-PLAN.md
+last_updated: "2026-11-26T19:25:26.217Z"
 last_activity: 2026-11-26
-last_activity_desc: Plan 08-01 — gel de Naos v43 capturé sur 5e9b8a5 (tests/naos.test.mjs, scénario naos-cles), six gardes vertes
-state_head: 9c03a591cd2a8f93d2535eed83a56a5c5fac2b7e
+last_activity_desc: Plan 08-02 — serveur cloisonné par espace (x-rt-espace, archive et quota par espace, IA fermée hors de Naos, packs par espace, outil des codes) ; TOFINOU = Frédéric et Romain
+state_head: c5f02b2fb329930085949869f0459c2486d4c2c9
 progress:
   total_phases: 8
   completed_phases: 6
   total_plans: 49
-  completed_plans: 39
+  completed_plans: 40
   percent: 75
 ---
 
@@ -28,9 +28,9 @@ See: .planning/PROJECT.md (updated 2026-10-19)
 ## Current Position
 
 Phase: 08 (Espace Tofinou : rade de Bormes – Le Lavandou, Tofinou 9.5, accès séparé) — EN COURS
-Plan: 1 of 11 terminé (08-01)
+Plan: 2 of 11 terminés (08-01, 08-02)
 Status: aperçu apercu-phase-08 ; v43 en production (PR #17)
-Last activity: 2026-11-26 — Plan 08-01 : gel de Naos v43 sur l’extraction de 5e9b8a5 avant toute modification (480 réponses du middleware, archive et compteur sur faux Blob, consignes d’IA, SHELL, pack de Brest ; clés, bases, caches et adresses de l’app par le scénario naos-cles) ; 860 tests (859 verts, 1 sauté), six gardes vertes ; aucun fichier de js/, api/, data/, middleware.js ni sw.js modifié
+Last activity: 2026-11-26 — Plan 08-02 : serveur cloisonné par espace (api/_espace.js, x-rt-espace posé par le middleware, archive et quota sous prefixe(espace), 403 espace_inconnu, archive Tofinou fermée à Naos, IA fermée hors de Naos, packs par espace, tools/codes-acces.mjs) ; table TOFINOU = Frédéric et Romain ; 886 tests (885 verts, 1 sauté), gardes et gel de Naos verts, 6 scénarios OK
 
 Progress: [████████░░] 75%
 
@@ -97,6 +97,7 @@ Progress: [████████░░] 75%
 | Phase 07 P09 | 55min | 3 tasks | 24 files |
 | Phase 07 P10 | 75min | 1 tasks | 12 files |
 | Phase 08 P01 | 13min | 3 tasks | 7 files |
+| Phase 08 P02 | 17min | 3 tasks | 17 files |
 
 ## Accumulated Context
 
@@ -206,6 +207,10 @@ Décisions récentes qui orientent le travail en cours :
 - [Phase 08]: 08-01 : gel de Naos v43 capturé sur l’extraction de 5e9b8a5 (tests/naos.test.mjs dans npm test, scénario naos-cles) ; tools/gardes-toulon.mjs rejoue six gardes (Toulon, SNPM, départ, tests figés, Naos, Brest)
 - [Phase 08]: 08-01 : différences admises pour Naos (espace/espaces de /api/membre, x-rt-espace: naos, AJOUTS_SHELL ≤ 64 Ko) jamais exigées, acceptées seulement si le code courant rend exactement « naos »
 - [Phase 08]: 08-01 : en v43 un x-rt-espace forgé par le navigateur est transmis aux fonctions /api/ ; 08-02 doit l’écraser
+- [Phase 08]: Espaces (08-02) : hôte connu → son espace s’il est ouvert au code, sinon réponse d’un code inconnu ; hôte inconnu (aperçu) → premier espace du code (naos d’abord)
+- [Phase 08]: Espaces (08-02) : archive et IA contrôlent le prénom d’abord (membre_inconnu), puis l’espace (espace_inconnu) : gel de Naos inchangé
+- [Phase 08]: Espaces (08-02) : createIA({ espacesIA = IA_ESPACES }) pour tester le quota par espace ; IA de Tofinou fermée (503 ia_espace) jusqu’à 08-08
+- [Phase 08]: Espaces (08-02) : hors de Naos, seuls les recalages partagés (doc.marks) sont vidés ; les bouées des régates (IC) restent
 
 ### Pending Todos
 
@@ -247,6 +252,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-11-26T19:05:18.882Z
-Stopped at: Completed 08-01-PLAN.md
+Last session: 2026-11-26T19:25:26.060Z
+Stopped at: Completed 08-02-PLAN.md
 Resume file: None
