@@ -4297,6 +4297,26 @@ async function tofinouIa({ browser, base: base0 }) {
     assert.equal(await texte(page, '#chatLog .msg.bot .verdict'), 'Un tour suffit');
     assert.deepEqual(ia.corps.rules.at(-1), { question: 'Combien de tours de pénalité ?', history: [] });
     assert.equal(ia.appels.rules.at(-1).instructions, CONSIGNES_TOFINOU.rules, 'arbitre : consigne de Tofinou');
+    assert.equal(await texte(page, '#chatLog .msg.bot .note'), 'IC du Challenge de la Baie : Pénalité d’un tour, VHF 72.', 'libellé des IC de l’épreuve');
+    // (4) page des règles de l’espace : note du bateau et de l’épreuve en tête, partie de Brest et guide de Naos cachés
+    const NOTE = 'Tofinou 9.5 : zone = 3 longueurs = 28,4 m ; deux longueurs = 18,9 m. Challenge de la Baie : Règles d’introduction à la régate (RIR), pénalité d’un tour, VHF 72.';
+    assert.equal(await texte(page, '#noteEspace'), NOTE);
+    assert.equal(await page.locator('#noteEspace').isVisible(), true, 'note visible');
+    assert.equal(await page.locator('#brest').isVisible(), false, 'partie de Brest cachée');
+    assert.equal(await page.locator('.hero a[href="guide.html"]').count(), 0, 'pas de lien vers le guide de Naos');
+    assert.equal(await page.locator('nav.toc a[href="#brest"]').count(), 0, 'sommaire sans Brest');
+    // (5) depuis l’app : rubrique IA de l’aide, puis le lien des règles ouvre la page avec la note
+    await ouvreApp(page, base);
+    await ouvreAide(page);
+    const aide = await texteAide(page);
+    assert.match(aide, /IA : 30 appels par équipier et par jour .*comptés dans l’espace Tofinou/, 'rubrique IA de l’aide de Tofinou');
+    assert.match(aide, /« Spi dès » est un repère indicatif/);
+    assert.doesNotMatch(aide, MOTS_DE_NAOS);
+    const [regles] = await Promise.all([ctx.waitForEvent('page'), page.click('#modal a[href="regles.html"]')]);
+    await regles.waitForSelector('#noteEspace', { timeout: 20000 });
+    assert.equal(await regles.locator('#noteEspace').textContent(), NOTE, 'règles ouvertes depuis l’aide : note de Tofinou');
+    await regles.close();
+    await fermeAide(page);
     // consignes vues : jamais celles de Naos ; quota compté dans l’arbre de Tofinou
     for (const f of ['rules', 'voice', 'debrief']) for (const a of ia.appels[f]) {
       assert.doesNotMatch(a.instructions.replace(/=== TEXTE OFFICIEL[\s\S]*/, ''), /Naos|CVAT|GPEN|J80|Toulon|Brest/, `${f} : aucun mot de Naos`);
@@ -4308,6 +4328,18 @@ async function tofinouIa({ browser, base: base0 }) {
     assert.deepEqual(compteurs, [cheminQuota(prefixe('tofinou'), 'Frédéric', Date.now())], `compteur de Tofinou seulement : ${compteurs.join(', ')}`);
     assert.equal(ia.blob.store.get(compteurs[0]).text, '{"n":3}', 'trois appels comptés à Frédéric dans l’espace Tofinou');
     sansErreur(erreurs, 'règles de Tofinou');
+    // (6) Naos (127.0.0.1) : page des règles de la v43, sans note ni rien de caché
+    const ctxN = await ouvreContexte(browser, { heure: '2026-12-05T09:00:00Z' });
+    try {
+      const pn = await ouvrePage(ctxN);
+      await pn.page.goto(base0 + 'regles.html', { waitUntil: 'load' });
+      await pn.page.waitForTimeout(500);
+      assert.equal(await pn.page.locator('#espace').count(), 0, 'Naos : aucune note d’espace');
+      assert.match(await texte(pn.page, '#arbitre .lead'), /et les IC CVAT/);
+      assert.equal(await pn.page.locator('#brest').isVisible(), true, 'Naos : partie de Brest');
+      assert.equal(await pn.page.locator('.hero a[href="guide.html"]').isVisible(), true, 'Naos : lien du guide');
+      sansErreur(pn.erreurs, 'règles de Naos');
+    } finally { await ctxN.close().catch(() => { /* déjà fermé */ }); }
   } finally {
     await ctx.close().catch(() => { /* déjà fermé */ });
   }
