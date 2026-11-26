@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 08
 current_phase_name: "Espace Tofinou : rade de Bormes – Le Lavandou, Tofinou 9.5, accès séparé"
 status: in_progress
-stopped_at: Completed 08-09-PLAN.md
-last_updated: "2026-11-26T23:07:40.069Z"
+stopped_at: Completed 08-11-PLAN.md
+last_updated: "2026-11-26T23:44:00.175Z"
 last_activity: 2026-11-26
-last_activity_desc: "Plan 08-09 — IA de l’espace Tofinou (consignes propres, quota par espace + prénom) et note du Tofinou sur la page des règles ; Naos identique à la v43"
-state_head: 027373d47bcae63e0fd40ea28b02ee733854682f
+last_activity_desc: Plan 08-09 — IA de l’espace Tofinou (consignes propres, quota par espace + prénom) et note du Tofinou sur la page des règles ; Naos identique à la v43
+state_head: 5f884f6857c996b695c941454a27fd739df280d4
 progress:
   total_phases: 8
   completed_phases: 6
   total_plans: 49
-  completed_plans: 47
+  completed_plans: 48
   percent: 75
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-10-19)
 ## Current Position
 
 Phase: 08 (Espace Tofinou : rade de Bormes – Le Lavandou, Tofinou 9.5, accès séparé) — EN COURS
-Plan: 9 of 11 terminés (08-01, 08-02, 08-03, 08-04, 08-05, 08-06, 08-07, 08-08, 08-09)
+Plan: 10 of 11 terminés (08-01, 08-02, 08-03, 08-04, 08-05, 08-06, 08-07, 08-08, 08-09)
 Status: aperçu apercu-phase-08 ; v43 en production (PR #17)
 Last activity: 2026-11-26 — Plan 08-09 : IA ouverte à l’espace Tofinou (IA_ESPACES = naos, tofinou) avec ses consignes fixes (api/_tofinou.js : Tofinou 9.5, zone 28,4 m, Challenge de la Baie, RIR, un tour, VHF 72) choisies par l’en-tête du middleware pour l’arbitre, le débrief, la dictée et la lecture des IC ; quota de 30 par espace + prénom ; page des règles chez Tofinou : note du bateau et de l’épreuve, « IC du Challenge de la Baie », rubrique IA de l’aide ; Naos identique (gel v43, empreintes, page des règles capturée sur 5e9b8a5) ; 1009 tests (1007 verts, 2 sautés), gardes vertes, scénarios tofinou-ia, ia, arbitre, ia-erreurs, gpen, guide, naos-cles verts ; instantanés de Bormes et de Brest refusés par Open-Meteo (limite quotidienne)
 
@@ -105,6 +105,7 @@ Progress: [████████░░] 75%
 | Phase 08 P07 | 25min | 2 tasks | 9 files |
 | Phase 08 P08 | 24min | 2 tasks | 20 files |
 | Phase 08 P09 | 20 min | 2 tasks | 17 files |
+| Phase 08 P11 | 35min | 3 tasks | 17 files |
 
 ## Accumulated Context
 
@@ -238,6 +239,10 @@ Décisions récentes qui orientent le travail en cours :
 - [Phase 08]: 08-08 : banane n° 4 depuis la ligne « Milieu de la baie » (43,120 N 6,392 E), parcours par défaut de Bormes ; lineDefaut et sansClasses dans le descripteur
 - [Phase 08]: 08-09 : IA de Tofinou ouverte avec ses consignes fixes (api/_tofinou.js : Tofinou 9.5, 28,4 m, Challenge de la Baie, RIR, un tour, VHF 72), choisies par l’en-tête du middleware ; Naos garde les octets de la v43 ; texte des RIR non embarqué (« à vérifier dans les RIR »)
 - [Phase 08]: 08-09 : page des règles chez Tofinou : note du bateau et de l’épreuve, « IC du Challenge de la Baie », partie de Brest et guide de Naos retirés ; Naos identique à la v43 (DOM capturé sur 5e9b8a5)
+- [Phase 08]: 08-11 : éditeur de parcours dans la fiche de la régate, ouvert par ESPACE.editeurParcours (Tofinou vrai, Naos faux) ; sans option, vues de la v43
+- [Phase 08]: 08-11 : identifiants de bouées (X1000–X9999) et de parcours (1000–9999) saisis tirés au hasard parmi les libres, pour la fusion par éléments hors réseau
+- [Phase 08]: 08-11 : classes du CVAT masquées à Bormes (sansClasses), cls gardé ; libellés des IC de Tofinou dans ESPACES.tofinou.textesIC ; exemple de saisie de Bormes = La Fourmigue
+- [Phase 08]: 08-11 : en course, dans l’espace Tofinou, éditeur inactif et gestes Confirmer / Corriger / Ignorer refusés
 
 ### Pending Todos
 
@@ -279,6 +284,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-11-26T23:07:39.929Z
-Stopped at: Completed 08-09-PLAN.md
+Last session: 2026-11-26T23:43:59.970Z
+Stopped at: Completed 08-11-PLAN.md
 Resume file: None

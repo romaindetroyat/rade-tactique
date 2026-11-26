@@ -2,9 +2,9 @@
 schema_version: 1
 open_count: 9
 waived_count: 0
-fixed_count: 8
-total_count: 17
-last_updated: 2026-11-26T23:07:25.597Z
+fixed_count: 9
+total_count: 18
+last_updated: 2026-11-26T23:42:11.680Z
 ---
 
 # Broken Windows Ledger
@@ -29,9 +29,10 @@ last_updated: 2026-11-26T23:07:25.597Z
 | 12 | 08 | stub | js/help.js |  | Aide de Tofinou : la note de version affichée est celle de la v43 (« … GPEN ») jusqu’à la release v44 (08-10) ; lien du guide complet et rubrique IA de l’espace absents (08-10, 08-09) | open |  | 2026-11-26T21:36:35.725Z |  |
 | 13 | 08 | todo | js/app.js | 989 | Message « pas un parcours du cahier CVAT » possible dans l’espace Tofinou sans régate ouverte (pickHTML) : texte du plan d’eau à rendre propre à Bormes (08-07/08-08) | fixed |  | 2026-11-26T21:36:35.832Z | 2026-11-26T22:13:54.015Z |
 | 14 | 08 | stub | js/venue-bormes.js |  | Catalogue du Challenge de la Baie absent (COURSES vide, banane seule) ; libellés de classes du CVAT (« C–D–L–R1-R3 », « P1–P2 ») dans l’onglet Parcours et le texte de partage à Bormes : 08-08 | fixed |  | 2026-11-26T22:13:49.386Z | 2026-11-26T22:45:06.569Z |
-| 15 | 08 | todo | js/regview.js | 139 | Formulaire de manche : « Classe G (grand) / P (petit) » du CVAT encore proposé à Bormes (onglet Régates) ; à masquer ou remplacer par les groupes du Challenge (08-09/08-10) | open |  | 2026-11-26T22:45:06.695Z |  |
+| 15 | 08 | todo | js/regview.js | 139 | Formulaire de manche : « Classe G (grand) / P (petit) » du CVAT encore proposé à Bormes (onglet Régates) ; à masquer ou remplacer par les groupes du Challenge (08-09/08-10) | fixed |  | 2026-11-26T22:45:06.695Z | 2026-11-26T23:42:11.680Z |
 | 16 | 08 | skipped-test | tests/bormes.test.mjs |  | 08-09 : instantané météo de Bormes réessayé, refusé par Open-Meteo (limite quotidienne) ; test toujours sauté, à produire avant la release (08-10) | open |  | 2026-11-26T23:07:25.489Z |  |
 | 17 | 08 | deviation | data/brest.wx-snapshot.json |  | 08-09 : instantané de Brest refusé (limite quotidienne) ; s’il est produit, il casse la garde data/brest.* = 5e9b8a5 et la section brest du gel de Naos : différence admise à décider par Romain avant de le committer | open |  | 2026-11-26T23:07:25.597Z |  |
+| 18 | 08 | deviation | js/tactics.js | 576 | 08-11 : rankCourses plante à Brest pour un parcours lu dans les IC sans ligne (préréglage « vignettes » absent), comme en v43 ; corrigé à Bormes seulement (gel de Naos) : correctif à décider pour Naos | open |  | 2026-11-26T23:42:11.562Z |  |
 
 ````json
 [
@@ -224,10 +225,10 @@ last_updated: 2026-11-26T23:07:25.597Z
     "file": "js/regview.js",
     "line": 139,
     "description": "Formulaire de manche : « Classe G (grand) / P (petit) » du CVAT encore proposé à Bormes (onglet Régates) ; à masquer ou remplacer par les groupes du Challenge (08-09/08-10)",
-    "status": "open",
+    "status": "fixed",
     "reason": "",
     "recorded_at": "2026-11-26T22:45:06.695Z",
-    "resolved_at": null,
+    "resolved_at": "2026-11-26T23:42:11.680Z",
     "milestone": null
   },
   {
@@ -253,6 +254,19 @@ last_updated: 2026-11-26T23:07:25.597Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-11-26T23:07:25.597Z",
+    "resolved_at": null,
+    "milestone": null
+  },
+  {
+    "id": 18,
+    "kind": "deviation",
+    "phase": "08",
+    "file": "js/tactics.js",
+    "line": 576,
+    "description": "08-11 : rankCourses plante à Brest pour un parcours lu dans les IC sans ligne (préréglage « vignettes » absent), comme en v43 ; corrigé à Bormes seulement (gel de Naos) : correctif à décider pour Naos",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-11-26T23:42:11.562Z",
     "resolved_at": null,
     "milestone": null
   }

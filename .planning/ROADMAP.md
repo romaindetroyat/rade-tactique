@@ -281,7 +281,7 @@ Plans:
   7. v44 sur l'aperçu `apercu-phase-08`, vérifiée (tous les scénarios, cloisonnement sur l'adresse réelle, iPhone), puis en production sur « publie » de Romain dès qu'elle est prête, au plus tard le 10/12/2026 (sinon à partir du 14/12), jamais dans les 48 h avant une régate ni pendant une course ; domaine de Tofinou ajouté par Romain dans Vercel
   8. Dans l'espace Tofinou, Frédéric charge ses propres IC de bout en bout (PDF → IA avec les consignes d'IC du Tofinou → relecture → bouées « à confirmer » bornées à Bormes → parcours), avec l'archive et le quota de l'espace ; un éditeur de parcours à la main (« Créer un parcours » / « Modifier le parcours » : bouées confirmées avec côté, porte, arrivée sur la ligne ou distincte, tours ; bouées par position saisie ou touchée sur la carte, à confirmer) est partagé par l'archive Tofinou, refusé pendant une course, et n'apparaît pas dans l'espace Naos
 
-**Plans:** 9/11 plans executed (vagues séquentielles : mêmes fichiers générés `sw.js`, `js/version.js`, mêmes `js/app.js` et `tools/regate-e2e.mjs`)
+**Plans:** 10/11 plans executed (vagues séquentielles : mêmes fichiers générés `sw.js`, `js/version.js`, mêmes `js/app.js` et `tools/regate-e2e.mjs`)
 
 Plans:
 **Wave 1**
@@ -312,7 +312,7 @@ Plans:
 - [x] 08-09-PLAN.md — IA de l'espace Tofinou : consignes propres (arbitre, débrief, dictée, IC ; Tofinou 9.5, RIR, un tour, VHF 72), consignes de Naos identiques, IA ouverte avec quota par espace + prénom ; note des règles ; scénario `tofinou-ia` (vague 9)
 
 **Wave 10** *(blocked on Wave 9 completion)*
-- [ ] 08-11-PLAN.md — IC et parcours de l'équipage Tofinou (D-16, D-17) : IC de Frédéric de bout en bout à Bormes (PDF d'essai, IA avec les consignes d'IC du Tofinou, quota et archive de l'espace, bornes de Bormes, libellés sans texte de Naos ; scénario `tofinou-ic`) ; éditeur de parcours à la main dans l'espace Tofinou seulement (`js/regedit.js` : bouées saisies ou touchées sur la carte à confirmer, parcours avec côtés, porte, arrivée, tours ; partage par éléments, `tools/compat-v43.mjs`, refus en course, rien chez Naos ; scénario `tofinou-parcours`) (vague 10)
+- [x] 08-11-PLAN.md — IC et parcours de l'équipage Tofinou (D-16, D-17) : IC de Frédéric de bout en bout à Bormes (PDF d'essai, IA avec les consignes d'IC du Tofinou, quota et archive de l'espace, bornes de Bormes, libellés sans texte de Naos ; scénario `tofinou-ic`) ; éditeur de parcours à la main dans l'espace Tofinou seulement (`js/regedit.js` : bouées saisies ou touchées sur la carte à confirmer, parcours avec côtés, porte, arrivée, tours ; partage par éléments, `tools/compat-v43.mjs`, refus en course, rien chez Naos ; scénario `tofinou-parcours`) (vague 10)
 
 **Wave 11** *(blocked on Wave 10 completion)*
 - [ ] 08-10-PLAN.md — Livraison : guide Tofinou court, vérification complète, v44 (`npm run release`) seulement si le gel de Naos et les gardes Toulon sont verts, poussée et PR brouillon par l'orchestrateur, aperçu vérifié sur l'adresse réelle, production seulement sur « publie » de Romain au plus tard le 10/12 (sinon à partir du 14/12), domaine passé en Production (vague 11, non autonome)
