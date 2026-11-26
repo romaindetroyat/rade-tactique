@@ -2702,8 +2702,10 @@ function renderIC() {
     <div class="small muted" id="rgSync" hidden></div>
     <div class="btns" style="margin:6px 0 0"><button type="button" class="btn small alt" id="rgSyncBtn"${SYNC.off ? ' disabled' : ''}>Synchroniser</button><button type="button" class="btn small alt" id="rgSyncOff">${SYNC.off ? 'Réactiver la synchronisation' : 'Désactiver la synchronisation'}</button>${tip(SYNC_TIP)}</div></div>`;
   if (rgDraft) html += newRegattaFormHTML(rgDraft, rgErr);
-  html += cur ? sheetHTML(cur, { now, courses: courseList(), choices: raceChoices(cur), raceDraft, raceErrors: raceErr, markFix, nmOf: fmtNm, local: LOCAL?.traces ?? null, daysLocal: LOCAL?.days ?? null, me: who(), tipHtml: tip(DL_TIP) }) : noRegattaHTML();
-  if (icDraft) html += reviewHTML(icDraft, icChecks(), { ia: iaState(), isLand: T ? (x, y) => T.isLand(x, y) : undefined });
+  // textes des IC de l’espace (08-11, D-16) et classes masquées à Bormes (WINDOWS n° 15) : options posées hors de Naos seulement (vues de la v43 sinon)
+  const propres = { ...(ESPACE.textesIC ? { semee: ESPACE.textesIC.notice } : {}), ...(cur && VENUES[venueOf(cur)].sansClasses ? { sansClasses: true } : {}) };
+  html += cur ? sheetHTML(cur, { now, courses: courseList(), choices: raceChoices(cur), raceDraft, raceErrors: raceErr, markFix, nmOf: fmtNm, local: LOCAL?.traces ?? null, daysLocal: LOCAL?.days ?? null, me: who(), tipHtml: tip(DL_TIP), ...propres }) : noRegattaHTML();
+  if (icDraft) html += reviewHTML(icDraft, icChecks(), { ia: iaState(), isLand: T ? (x, y) => T.isLand(x, y) : undefined, ...(ESPACE.textesIC ? { libelles: ESPACE.textesIC } : {}) });
   if (cur) html += `<div class="card"><h3>Instructions de course <small>${cur.ic ? 'validées' : 'à importer'}</small></h3>
     <div class="btns" style="margin:0 0 6px"><label class="btn acc small" for="icFile" style="cursor:pointer">＋ Importer des IC (PDF)</label><button class="btn alt small" id="evEdit">Modifier</button></div>
     <input type="file" id="icFile" accept="application/pdf,.pdf,.txt,text/plain" hidden>
@@ -2759,8 +2761,8 @@ function renderIC() {
     renderIC(); $('#rcTime')?.focus();
   });
   if (raceDraft) {
-    const sync = () => { raceDraft = { ...raceDraft, date: $('#rcDate').value, time: $('#rcTime').value, courseId: $('#rcCourse').value, cls: $('#rcCls').value, laps: $('#rcLaps').value, note: $('#rcNote').value }; };
-    for (const id of ['#rcDate', '#rcTime', '#rcCourse', '#rcCls', '#rcLaps', '#rcNote']) { $(id).addEventListener('input', sync); $(id).addEventListener('change', sync); }
+    const sync = () => { raceDraft = { ...raceDraft, date: $('#rcDate').value, time: $('#rcTime').value, courseId: $('#rcCourse').value, cls: $('#rcCls')?.value ?? raceDraft.cls, laps: $('#rcLaps').value, note: $('#rcNote').value }; };
+    for (const id of ['#rcDate', '#rcTime', '#rcCourse', '#rcCls', '#rcLaps', '#rcNote']) { $(id)?.addEventListener('input', sync); $(id)?.addEventListener('change', sync); }
     if ($('#rcAdd')) $('#rcAdd').onclick = () => {
       sync();
       // une manche en banane garde les réglages de la banane de ce téléphone (D-04) : « Choisir cette manche » les rend sur les autres

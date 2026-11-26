@@ -270,8 +270,8 @@ export const BORMES = Object.freeze({
   origin: { lat: 43.10, lon: 6.40 },
   bounds: BOUNDS,
   // saisie des positions : emprise ± 0,1°, sauf à l’ouest, bornée à 6,20° E pour ne jamais recouvrir les bornes de Toulon (piège 6)
-  inputBounds: { south: 42.86, north: 43.30, west: 6.20, east: 6.70, nom: 'la rade de Bormes – Le Lavandou', exemple: '43°07.980N 006°22.860E' },
-  exemple: '43°07.980N 006°22.860E',
+  inputBounds: { south: 42.86, north: 43.30, west: 6.20, east: 6.70, nom: 'la rade de Bormes – Le Lavandou', exemple: '43°06.362N 006°24.252E' },
+  exemple: '43°06.362N 006°24.252E',                                      // La Fourmigue (D-13) : exemple de saisie pris à Bormes (08-11)
   files: { base: 'data/bormes.' },
   weather: {
     center: { lat: 43.115, lon: 6.39 },

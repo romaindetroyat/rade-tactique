@@ -117,11 +117,13 @@ const courseLabel = (id, courses) => (id == null ? 'parcours à préciser' : cou
 // Une ligne par manche : numéro, jour, signal d’avertissement, parcours, classe, tours, auteur (et dernière modification) ; « Choisir cette manche »,
 // « ✎ Modifier » et suppression. `editing` : la manche dont le formulaire de modification est ouvert (ses boutons sont masqués).
 // « modifiée par » : u/ub posés par le marquage et signés par le serveur, quand la manche a changé plus d’une minute après sa création.
-function raceRowHTML(m, { courses, chosen, editing }) {
+// sansClasses (08-11, WINDOWS n° 15) : plan d’eau sans classes du CVAT (Bormes) : la classe n’est ni montrée ni proposée, la valeur `cls` de la
+// manche est gardée telle quelle (archive et v43) ; sans l’option, vue de la v43
+function raceRowHTML(m, { courses, chosen, editing, sansClasses = false }) {
   const signal = m.time ? `signal ${escHTML(m.time)}` : 'signal : heure inconnue';
   const modif = typeof m.ub === 'string' && m.ub && Number.isFinite(m.u) && Number.isFinite(m.at) && m.u - m.at > 60000 ? ` · modifiée ${byLine(m.ub, m.u)}` : '';
   return `<div class="rgrace${chosen ? ' on' : ''}${editing ? ' edit' : ''}" data-n="${m.n}"><div class="rgrh"><b>Manche ${m.n}</b> <span class="small">${escHTML(dayLabel(m.date))} · ${signal}</span>${chosen ? ' <span class="chip good">choisie</span>' : ''}</div>`
-    + `<div class="small">${escHTML(courseLabel(m.courseId, courses))} · classe ${escHTML(m.cls)} · ${m.laps} tour${m.laps > 1 ? 's' : ''}</div>`
+    + `<div class="small">${escHTML(courseLabel(m.courseId, courses))}${sansClasses ? '' : ` · classe ${escHTML(m.cls)}`} · ${m.laps} tour${m.laps > 1 ? 's' : ''}</div>`
     + `${m.note ? `<div class="small"><i>${escHTML(m.note)}</i></div>` : ''}<div class="small muted">${byLine(m.by, m.at)}${modif}</div>`
     + (editing ? '<div class="small muted">Modification en cours, ci-dessous.</div>'
       : `<div class="btns" style="margin-top:6px"><button type="button" class="btn small acc" data-race="${m.n}">Choisir cette manche</button><button type="button" class="btn small alt" data-edrace="${m.n}" aria-label="Modifier la manche ${m.n}">✎ Modifier</button><button type="button" class="btn small alt" data-rmrace="${m.n}" aria-label="Supprimer la manche ${m.n}">✕</button></div>`)
@@ -129,7 +131,7 @@ function raceRowHTML(m, { courses, chosen, editing }) {
 }
 // Petit formulaire « Ajouter une manche » : jour (parmi ceux de la régate), signal d’avertissement, parcours, classe, tours, note.
 // Le même formulaire, prérempli, sert à « Modifier la manche » quand `d.edit` porte le rang de la manche : « Enregistrer » au lieu d’« Ajouter la manche ».
-function raceFormHTML(r, d, errors, courses) {
+function raceFormHTML(r, d, errors, courses, { sansClasses = false } = {}) {
   const err = (k) => (errors[k] ? `<div class="rgerr" data-err="${k}">${escHTML(errors[k])}</div>` : '');
   const sel = (v, x) => (String(v ?? '') === String(x) ? ' selected' : '');
   const edit = Number.isInteger(d.edit) ? d.edit : null;
@@ -138,7 +140,7 @@ function raceFormHTML(r, d, errors, courses) {
     <div class="row2"><div><label class="f" for="rcDate">Jour</label><select id="rcDate">${dates.map((x) => `<option value="${escHTML(x)}"${sel(d.date, x)}>${escHTML(dayLabel(x))}</option>`).join('')}</select>${err('date')}</div>
     <div><label class="f" for="rcTime">Signal d’avertissement</label><input id="rcTime" type="time" value="${escHTML(d.time)}">${err('time')}</div></div>
     <label class="f" for="rcCourse">Parcours</label><select id="rcCourse"><option value="">parcours à préciser</option>${courses.map((c) => `<option value="${escHTML(c.id)}"${sel(d.courseId, c.id)}>${escHTML(c.title)}</option>`).join('')}</select>${err('courseId')}
-    <div class="row2"><div><label class="f" for="rcCls">Classe</label><select id="rcCls"><option value="G"${sel(d.cls, 'G')}>G (grand)</option><option value="P"${sel(d.cls, 'P')}>P (petit)</option></select>${err('cls')}</div>
+    <div class="row2">${sansClasses ? '' : `<div><label class="f" for="rcCls">Classe</label><select id="rcCls"><option value="G"${sel(d.cls, 'G')}>G (grand)</option><option value="P"${sel(d.cls, 'P')}>P (petit)</option></select>${err('cls')}</div>`}
     <div><label class="f" for="rcLaps">Tours</label><select id="rcLaps">${[1, 2, 3, 4].map((n) => `<option value="${n}"${sel(d.laps, n)}>${n}</option>`).join('')}</select>${err('laps')}</div></div>
     <label class="f" for="rcNote">Note <small>facultatif</small></label><input id="rcNote" type="text" maxlength="${MAX_NOTE}" autocomplete="off" value="${escHTML(d.note)}">${err('note')}
     ${edit != null ? '<p class="small muted">Changer le jour ou l’heure déplace la manche chez tout l’équipage, à la synchronisation suivante.</p>' : ''}
@@ -169,15 +171,15 @@ const hm = (h) => { const m = Math.round(h * 60); return `${pad2(Math.floor(m / 
 const dur = (h) => { const m = Math.round(h * 60); return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${pad2(m % 60)}`; };
 const SIDE = { t: ' (à tribord)', b: ' (à bâbord)' };
 // Route conseillée figée : réglages en une ligne, puis le détail des bords dans un <details> (déjà dans l’index : aucune requête)
-function strategyHTML(s, courses) {
+function strategyHTML(s, courses, sansClasses = false) {
   if (!s) return '<div class="small muted">Route conseillée : pas encore figée (aucune analyse faite ce jour-là).</div>';
   const legs = s.legs || [];
-  return `<div class="small">Route conseillée figée : ${escHTML(courseLabel(s.courseId, courses))} · classe ${escHTML(s.cls)} · ${s.laps} tour${s.laps > 1 ? 's' : ''} · départ ${hm(s.startTime)} · ${s.nLegs} bord${s.nLegs > 1 ? 's' : ''} · arrivée estimée en ${dur(s.total)}</div>`
+  return `<div class="small">Route conseillée figée : ${escHTML(courseLabel(s.courseId, courses))}${sansClasses ? '' : ` · classe ${escHTML(s.cls)}`} · ${s.laps} tour${s.laps > 1 ? 's' : ''} · départ ${hm(s.startTime)} · ${s.nLegs} bord${s.nLegs > 1 ? 's' : ''} · arrivée estimée en ${dur(s.total)}</div>`
     + `<details class="rgdet"><summary class="small">Détail des bords (${legs.length})</summary>${legs.map((l, i) => `<div class="small rgleg" data-rgleg="${i + 1}">`
       + `<span class="rgdn">${i + 1} · ${escHTML(l.name)}</span>${SIDE[l.side] || ''} · cap ${Math.round(l.brg)}° · ${(l.dist / 1852).toFixed(1).replace('.', ',')} Nq · ${dur(l.time / 3600)}`
       + `<br>${escHTML(l.type)} · vent ${Math.round(l.windDir)}° ${Math.round(l.windSpd)} nd${l.advice ? `<br><i>${escHTML(l.advice)}</i>` : ''}</div>`).join('')}</details>`;
 }
-function windDayHTML(day, f, { now, courses }) {
+function windDayHTML(day, f, { now, courses, sansClasses = false }) {
   const head = `<div class="rgh"><span class="rgdn">${escHTML(dayLabel(day))}</span></div>`;
   if (!f) {
     const passe = day < parisClock(now).date;
@@ -189,13 +191,13 @@ function windDayHTML(day, f, { now, courses }) {
   return `<div class="rgwind" data-day="${escHTML(day)}">${head}`
     + `<div class="small"><span class="rgwf">Figé automatiquement à ${clockOf(f.at)}</span> · <span class="muted">${byLine(f.by, f.at)}</span></div>`
     + `<div class="small">${escHTML(prev)}${f.model ? ` · modèle ${escHTML(modelLabel(f.model))}` : ''} · ${nRel(f.nObs ?? 0)}</div>${ws}`
-    + `${etat ? `<div class="small">${escHTML(etat)}</div>` : ''}${strategyHTML(f.strategy, courses)}</div>`;
+    + `${etat ? `<div class="small">${escHTML(etat)}</div>` : ''}${strategyHTML(f.strategy, courses, sansClasses)}</div>`;
 }
 // Section « Vent du jour » : une entrée par jour de la régate
-export function windSectionHTML(r, { now = Date.now(), courses = [] } = {}) {
+export function windSectionHTML(r, { now = Date.now(), courses = [], sansClasses = false } = {}) {
   const jours = daysOf(r);
   if (!jours.length) return '';
-  return `<div class="rgwinds"><h4>Vent du jour</h4>${jours.map((d) => windDayHTML(d, r.frozen?.[d] || null, { now, courses })).join('')}</div>`;
+  return `<div class="rgwinds"><h4>Vent du jour</h4>${jours.map((d) => windDayHTML(d, r.frozen?.[d] || null, { now, courses, sansClasses })).join('')}</div>`;
 }
 
 // ───────────────────────── traces rangées dans la régate (ARCH-02, ARCH-04)
@@ -297,24 +299,24 @@ const HIST_MAX_LINES = MAX_HIST, HIST_MAX_CHARS = 120;
 const str = (x) => (typeof x === 'string' || typeof x === 'number' ? String(x) : '');
 const jour = (d) => (/^\d{4}-\d{2}-\d{2}$/.test(str(d)) ? `${d.slice(8, 10)}/${d.slice(5, 7)}` : str(d).slice(0, 20));
 // Ancienne valeur en une ligne de texte brut (échappée plus tard), sans jamais lever
-function histValue(kind, v) {
+function histValue(kind, v, sansClasses = false) {
   if (v == null) return '(texte des IC non conservé)';
   if (typeof v !== 'object' || Array.isArray(v)) return '';
   const nom = str(v.name);
   if (kind === 'head') return [nom, str(v.club), v.dateStart ? `${jour(v.dateStart)}${v.dateEnd && v.dateEnd !== v.dateStart ? ` au ${jour(v.dateEnd)}` : ''}` : ''].filter(Boolean).join(' · ');
-  if (kind === 'race') return [v.date ? `jour ${jour(v.date)}` : '', v.time ? `signal ${str(v.time)}` : 'signal : heure inconnue', v.cls ? `classe ${str(v.cls)}` : ''].filter(Boolean).join(' · ');
+  if (kind === 'race') return [v.date ? `jour ${jour(v.date)}` : '', v.time ? `signal ${str(v.time)}` : 'signal : heure inconnue', v.cls && !sansClasses ? `classe ${str(v.cls)}` : ''].filter(Boolean).join(' · ');
   if (kind === 'mark') return [nom, Number.isFinite(v.lat) && Number.isFinite(v.lon) ? fmtPos(v.lat, v.lon) : ''].filter(Boolean).join(' · ');
   if (kind === 'trace') return [nom, Number.isFinite(v.start) ? tClock(v.start) : ''].filter(Boolean).join(' · ');
   return nom;
 }
 const clip = (x) => (x.length > HIST_MAX_CHARS ? x.slice(0, HIST_MAX_CHARS - 1) + '…' : x);
-export function historySectionHTML(r) {
+export function historySectionHTML(r, { sansClasses = false } = {}) {
   const list = (Array.isArray(r?.hist) ? r.hist : []).filter((x) => x && typeof x === 'object' && Number.isFinite(x.t) && typeof x.kind === 'string')
     .sort((a, b) => b.t - a.t).slice(0, HIST_MAX_LINES);
   if (!list.length) return '';
   const lignes = list.map((x) => {
     const quand = x.t > 0 ? tClock(x.t) : '—', par = typeof x.by === 'string' && x.by ? `par ${escHTML(x.by.slice(0, 40))}` : '—';
-    return `<div class="small rghl" data-kind="${escHTML(HIST_KIND[x.kind] ? x.kind : 'autre')}"><span class="rghk">${HIST_KIND[x.kind] || 'Modification'}</span> · ${quand} · ${par} · <span class="muted rghv">${escHTML(clip(histValue(x.kind, x.v)))}</span></div>`;
+    return `<div class="small rghl" data-kind="${escHTML(HIST_KIND[x.kind] ? x.kind : 'autre')}"><span class="rghk">${HIST_KIND[x.kind] || 'Modification'}</span> · ${quand} · ${par} · <span class="muted rghv">${escHTML(clip(histValue(x.kind, x.v, sansClasses)))}</span></div>`;
   });
   return `<details class="rghist"><summary class="small">Historique (${list.length})</summary>`
     + `<p class="small muted">Valeurs remplacées par une modification plus récente : quoi, de qui, quand, et ce qu’elle contenait avant.</p>${lignes.join('')}</details>`;
@@ -322,18 +324,19 @@ export function historySectionHTML(r) {
 
 // Fiche de la régate ouverte : nom, club, dates, statut, auteur, puis les manches (courses = parcours connus [{ id, title }], pour les libellés ;
 // choices = parcours proposés dans « Ajouter une manche », ceux de la régate quand elle en a) et le vent du jour
-export function sheetHTML(r, { now = Date.now(), courses = [], choices = courses, raceDraft = null, raceErrors = {}, markFix = null, nmOf, local = null, daysLocal = null, me = null, tipHtml = '' } = {}) {
+// semee (08-11) : notice d’une fiche semée propre à l’espace (sans elle, celle de la v43 ; la fiche du Challenge garde la sienne)
+export function sheetHTML(r, { now = Date.now(), courses = [], choices = courses, raceDraft = null, raceErrors = {}, markFix = null, nmOf, local = null, daysLocal = null, me = null, tipHtml = '', semee = null, sansClasses = false } = {}) {
   if (!r) return '';
   const races = r.races || [];
   return `<div class="card" id="rgSheet"><h3><span>${escHTML(r.name)}</span><small>${escHTML(r.club || 'club à préciser')}</small></h3>
     <div class="small">${escHTML(datesLabel(r))} ${statusChip(r, now)}${venueChip(r)}</div>
     <div class="small muted" style="margin-top:4px">Créée ${byLine(r.by, r.at)}</div>
-    ${r.ic?.read === 'semee' ? `<div class="notice small" id="rgSemee" style="margin-top:6px">${r.ic.source === BAIE_SOURCE ? 'Fiche semée par l’app (avis de course et fiches de course 2026-2027) — à vérifier sur la fiche de course de chaque manche.' : 'Fiche semée par l’app (IC 2026) — à vérifier avec les IC 2027.'}</div>` : ''}
-    <div class="rgraces"><h4>Manches</h4>${races.length ? races.map((m) => raceRowHTML(m, { courses, chosen: r.sel === m.n, editing: Number.isInteger(raceDraft?.edit) && (raceDraft.id != null ? raceDraft.id === m.id : raceDraft.edit === m.n) })).join('') : '<p class="small muted">Aucune manche : ajoutez-en une avec son heure de signal et son parcours.</p>'}
-    ${raceDraft ? raceFormHTML(r, raceDraft, raceErrors, choices) : '<div class="btns"><button type="button" class="btn small acc" id="rcNew">＋ Ajouter une manche</button></div>'}</div>
+    ${r.ic?.read === 'semee' ? `<div class="notice small" id="rgSemee" style="margin-top:6px">${r.ic.source === BAIE_SOURCE ? 'Fiche semée par l’app (avis de course et fiches de course 2026-2027) — à vérifier sur la fiche de course de chaque manche.' : semee ? escHTML(semee) : 'Fiche semée par l’app (IC 2026) — à vérifier avec les IC 2027.'}</div>` : ''}
+    <div class="rgraces"><h4>Manches</h4>${races.length ? races.map((m) => raceRowHTML(m, { courses, sansClasses, chosen: r.sel === m.n, editing: Number.isInteger(raceDraft?.edit) && (raceDraft.id != null ? raceDraft.id === m.id : raceDraft.edit === m.n) })).join('') : '<p class="small muted">Aucune manche : ajoutez-en une avec son heure de signal et son parcours.</p>'}
+    ${raceDraft ? raceFormHTML(r, raceDraft, raceErrors, choices, { sansClasses }) : '<div class="btns"><button type="button" class="btn small acc" id="rcNew">＋ Ajouter une manche</button></div>'}</div>
     ${marksSectionHTML(r, { markFix, nmOf })}
-    ${windSectionHTML(r, { now, courses })}
+    ${windSectionHTML(r, { now, courses, sansClasses })}
     ${tracesSectionHTML(r, { local })}
     ${downloadHTML(r, { local, daysLocal, me, tipHtml })}
-    ${historySectionHTML(r)}</div>`;
+    ${historySectionHTML(r, { sansClasses })}</div>`;
 }

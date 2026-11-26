@@ -104,13 +104,14 @@ test('bootVenue borné par l’espace : Naos comme la v43 pour toute entrée (Bo
 
 test('bornes de saisie de Bormes et de Toulon disjointes en longitude (ouest de Bormes ≥ est de Toulon, piège 6) ; Brest à part', () => {
   assert.ok(BORMES.inputBounds.west >= VENUES.toulon.inputBounds.east, `${BORMES.inputBounds.west} ≥ ${VENUES.toulon.inputBounds.east}`);
-  assert.deepEqual(BORMES.inputBounds, { south: 42.86, north: 43.30, west: 6.20, east: 6.70, nom: 'la rade de Bormes – Le Lavandou', exemple: '43°07.980N 006°22.860E' });
+  assert.deepEqual(BORMES.inputBounds, { south: 42.86, north: 43.30, west: 6.20, east: 6.70, nom: 'la rade de Bormes – Le Lavandou', exemple: '43°06.362N 006°24.252E' });
   // l’emprise est dans les bornes de saisie
   for (const k of ['south', 'west']) assert.ok(BORMES.inputBounds[k] <= BORMES.bounds[k], k);
   for (const k of ['north', 'east']) assert.ok(BORMES.inputBounds[k] >= BORMES.bounds[k], k);
   // l’exemple de saisie se lit avec les bornes de Bormes, pas avec celles de Toulon
   const p = parseLatLon(BORMES.exemple, BORMES.inputBounds);
-  assert.ok(Math.abs(p.lat - 43.133) < 1e-6 && Math.abs(p.lon - 6.381) < 1e-6, JSON.stringify(p));
+  // exemple = La Fourmigue (08-11, D-13 : 43°06,362′ N 006°24,252′ E), au lieu du point devant Le Lavandou
+  assert.ok(Math.abs(p.lat - 43.106033) < 1e-6 && Math.abs(p.lon - 6.4042) < 1e-6, JSON.stringify(p));
   assert.ok(parseLatLon(BORMES.exemple).error, 'bornes de Toulon : refusé');
 });
 

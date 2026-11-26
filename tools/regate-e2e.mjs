@@ -4,6 +4,7 @@
 //   E2E_ROOT=<dossier>    sert ce dossier au lieu du dépôt (extraction d’une ancienne version) ; en-têtes et liste blanche restent ceux du dépôt
 //   E2E_CAPTURE=<fichier> les scénarios toulon-vue et naos-cles écrivent leur capture dans ce fichier au lieu de comparer à
 //                         tests/fixtures/vue-toulon-v42.json et tests/fixtures/naos-cles-v43.json
+//   E2E_PILE=1            écrit la pile de chaque erreur de page (diagnostic ; le verdict ne change pas)
 //
 // Déroulé : petit serveur HTTP du dépôt sur 127.0.0.1 ; Chromium en émulation mobile 390 × 844 (fr-FR, fuseau Europe/Paris), service
 // worker bloqué, toute requête vers un autre hôte interrompue, dessin WebGL neutralisé (voir INIT), accueil désactivé. L’heure de la page
@@ -85,7 +86,7 @@ function ouvrePage(ctx) {
   return ctx.newPage().then((page) => {
     // bruits attendus du cadre sandboxé du rapport (aucun script, origine opaque) : l'init de l'outil (horloge, accueil) y est refusée par le navigateur ; ils ne viennent pas de l'app
     const BRUIT = /Failed to load resource|net::ERR|Failed to read the 'serviceWorker'.*sandboxed|Blocked script execution in 'about:srcdoc'/;
-    page.on('pageerror', (e) => { if (!BRUIT.test(e.message)) erreurs.push(e.message); });
+    page.on('pageerror', (e) => { if (process.env.E2E_PILE) console.log('PILE', e.stack); if (!BRUIT.test(e.message)) erreurs.push(e.message); });
     page.on('console', (m) => { if (m.type() === 'error' && !BRUIT.test(m.text())) erreurs.push(m.text()); });
     return { page, erreurs };
   });
@@ -4345,7 +4346,152 @@ async function tofinouIa({ browser, base: base0 }) {
   }
 }
 
-const SCENARIOS = { baie, accueil, 'jour-j': jourJ, 'deux-telephones': deuxTelephones, reprise, equipage, archive, 'archive-bouees': archiveBouees, archivehors: archiveHors, creer, manche, auteur, ic, 'depuis-ic': depuisIC, vraisemblance, gel, 'debrief-tardif': debriefTardif, gpx, 'gpx-choix': gpxChoix, ia, 'ia-erreurs': iaErreurs, arbitre, bouees, guide, entetes, 'retour-port': retourPort, banane, 'banane-manche': bananeManche, 'banane-debrief': bananeDebrief, 'porte-ic': porteIC, 'modifier-manche': modifierManche, 'toulon-vue': toulonVue, 'plan-eau': planEau, 'brest-avion': brestAvion, 'regate-brest': regateBrest, 'brest-courant': brestCourant, gpen, 'naos-cles': naosCles, 'tofinou-demarrage': tofinouDemarrage, 'espace-garde': espaceGarde, 'tofinou-bateau': tofinouBateau, 'tofinou-identite': tofinouIdentite, 'bormes-local': bormesLocal, 'tofinou-ia': tofinouIa };
+// 08-11, D-16 : Frédéric charge les IC de son club dans l’espace Tofinou (tofinou.localhost), de bout en bout. PDF d’essai fabriqué par
+// tests/helpers/pdfmini.mjs (aucune IC réelle) ; VRAIE fonction api/ic.js derrière la route, client simulé qui note la consigne, faux Blob
+// commun à l’IA et à l’archive ; en-têtes x-rt-membre et x-rt-espace « tofinou » posés comme par le middleware. Aucune requête /api/ic avant
+// « Lire avec l’IA » ; consigne d’IC du Tofinou ; compteur sous tofinou/preview/quota/ ; relecture bornée à Bormes (bouée de Toulon « position
+// à saisir ») ; bouées à confirmer puis confirmées ; parcours lu proposé et routé ; archive de l’espace relue par un second téléphone.
+// Le texte de l’onglet Régates ne contient jamais de mot de Naos.
+const MOTS_IC_NAOS = /CVAT|J80|Toulon|GPEN|Brest/;
+async function sansMotNaos(page, quand) {
+  const t = (await texte(page, 'section[data-tab=ic]')).replace(/\s+/g, ' ');
+  const m = MOTS_IC_NAOS.exec(t);
+  assert.equal(m, null, `onglet Régates de Tofinou (${quand}) : « ${m?.[0]} » dans « ${m ? t.slice(Math.max(0, m.index - 120), m.index + 60) : ''} »`);
+}
+async function serviIcEspace(ctx, m, { membre, espace }) {
+  process.env.OPENAI_API_KEY ||= 'cle-de-test';
+  const { createHandler } = await import('../api/ic.js');
+  const etat = { appels: [], demandes: 0, corps: [] };
+  const client = { responses: { create: async (args) => { etat.appels.push(args); return { status: 'completed', output_text: JSON.stringify(etat.sortie(args.input)) }; } } };
+  const handler = createHandler({ openai: client, blob: m.blob, now: () => m.t });
+  await ctx.route('**/api/ic', async (route) => {
+    const req = route.request(), body = JSON.parse(req.postData() || 'null');
+    etat.demandes++; etat.corps.push(body);
+    const r = await m.invoke(handler, { method: req.method(), url: '/api/ic', body, headers: { 'x-rt-membre': encodeURIComponent(membre), 'x-rt-espace': espace } });
+    await route.fulfill({ status: r.status, contentType: 'application/json', body: JSON.stringify(r.body ?? null) });
+  });
+  return etat;
+}
+async function tofinouIc({ browser, base: base0 }) {
+  const { CONSIGNES_TOFINOU } = await import('../api/_tofinou.js');
+  const { pdfMinimal, IC_ESSAI } = await import('../tests/helpers/pdfmini.mjs');
+  const base = baseSur(base0, HOTES_ESSAI.tofinou);
+  const m = await mondeArchive('2026-12-06T09:00:00Z');                       // dimanche 6/12/2026 10 h 00 à Paris
+  const telephone = async (nom) => {
+    const ctx = await ouvreContexte(browser, { heure: new Date(m.t).toISOString() }); m.ctxs.push(ctx);
+    await releveEtiquettes(ctx);
+    await membreEspace(ctx, { membre: nom, espace: 'tofinou' });
+    await archiveEspace(ctx, m, nom, { espace: 'tofinou' });
+    const ic = await serviIcEspace(ctx, m, { membre: nom, espace: 'tofinou' });
+    const { page, erreurs } = await ouvrePage(ctx);
+    await ouvreApp(page, base);
+    await membreGarde(page, nom);
+    return { nom, ctx, page, erreurs, ic };
+  };
+  try {
+    const A = await telephone('Frédéric');
+    A.ic.sortie = (input) => sortieIA({
+      event: { value: 'Régate d’essai du Lavandou', excerpt: copie(input, /Régate d’essai du Lavandou/) },
+      dateStart: { value: '2026-12-06', excerpt: copie(input, /dimanche 6 décembre 2026/) },
+      firstWarning: { value: '11:00', excerpt: copie(input, /Heure du premier signal d’avertissement : 11:00/) },
+      vhf: { value: '72', excerpt: copie(input, /Canal VHF 72 pendant toute la durée de la course\./) },
+      marks: ['Alpha', 'Bravo', 'Charlie', 'Delta', 'Echo'].map((n) => {
+        const l = copie(input, new RegExp(`Bouée ${n} : [^\\n]*?E`));
+        return { name: n, position: l.replace(/^Bouée \w+ : /, ''), excerpt: l };
+      }),
+      courses: [{
+        name: 'Parcours d’essai', excerpt: copie(input, /Parcours d’essai : départ, Alpha à bâbord, porte Bravo \/ Charlie, arrivée\./),
+        sequence: [{ mark: 'Départ', side: null, gate: null }, { mark: 'Alpha', side: 'b', gate: null }, { mark: 'Bravo', side: null, gate: 'Charlie' }, { mark: 'Arrivée', side: null, gate: null }],
+        finish: { kind: 'comite', mark: 'Delta', excerpt: copie(input, /La ligne d’arrivée est entre le bateau comité et la bouée Delta\./) },
+      }],
+      specialRules: [{ value: 'Pénalité d’un tour', excerpt: copie(input, /Pénalité : un tour, y compris un virement et un empannage\./) }],
+    });
+    assert.equal(await A.page.evaluate(async () => (await import('/js/espaces.js')).ESPACE.id), 'tofinou');
+    await sansMotNaos(A.page, 'ouverture');
+    // régate créée à la main : seul plan d’eau proposé, la rade de Bormes
+    await A.page.click('#tabs button[data-tab=ic]');
+    await A.page.click('#rgNew');
+    assert.deepEqual(await A.page.locator('#rgVenue option').evaluateAll((os) => os.map((o) => o.value)), ['bormes']);
+    await A.page.click('#rgCancel');
+    await creeRegate(A.page, { nom: 'Régate d’essai du Lavandou', debut: '2026-12-06', club: 'Club d’essai' });
+    const id = await idOuverte(A.page);
+    assert.ok(id, 'régate du jour ouverte');
+    assert.equal((await regateOuverte(A.page)).venue, 'bormes');
+    // PDF d’essai : lu par pdf.js dans la page, relecture par motifs avec le libellé de l’espace ; rien n’est parti vers /api/ic
+    await A.page.setInputFiles('#icFile', { name: 'ic-essai.pdf', mimeType: 'application/pdf', buffer: Buffer.from(pdfMinimal(IC_ESSAI)) });
+    await A.page.waitForSelector('#icReview', { timeout: 60000 });
+    assert.match(await texte(A.page, '#icReview'), /lecture par motifs \(hors réseau\)/);
+    await sansMotNaos(A.page, 'relecture par motifs');
+    assert.equal(A.ic.demandes, 0, 'aucune requête /api/ic avant le geste');
+    assert.equal(await A.page.locator('#icIa').isEnabled(), true, '« Lire avec l’IA » proposé');
+    await A.page.click('#icIa');
+    await A.page.waitForSelector('.icmark', { timeout: 30000 });
+    assert.equal(A.ic.demandes, 1, 'un seul appel');
+    assert.deepEqual(Object.keys(A.ic.corps[0]), ['text'], 'corps limité au texte');
+    const consigne = A.ic.appels[0].instructions;
+    assert.equal(consigne, CONSIGNES_TOFINOU.ic, 'consigne d’IC de l’espace Tofinou');
+    assert.match(consigne, /Tofinou 9\.5/);
+    console.log(`  tofinou-ic : consigne reçue (200 premiers caractères) : ${consigne.slice(0, 200).replace(/\s+/g, ' ')}`);
+    const quota = [...m.blob.store.keys()].filter((k) => /\/quota\//.test(k));
+    assert.equal(quota.length, 1, `un compteur : ${quota.join(', ')}`);
+    assert.match(quota[0], /^tofinou\/preview\/quota\//);
+    // relecture de l’IA : bouées de Bormes cochées, Echo (rade de Toulon) « position à saisir » non cochée ; parcours coché
+    const marques = await A.page.locator('.icmark').evaluateAll((l) => l.map((el) => ({ txt: el.textContent.replace(/\s+/g, ' '), coche: el.querySelector('input').checked })));
+    assert.equal(marques.length, 5);
+    for (let i = 0; i < 4; i++) { assert.equal(marques[i].coche, true, marques[i].txt); assert.match(marques[i].txt, /· 43°0[67]\.\d{3}N 006°2[34]\.\d{3}E/); }
+    assert.match(marques[4].txt, /Echo · position à saisir/); assert.equal(marques[4].coche, false, 'bouée de Toulon non cochée');
+    assert.equal(await A.page.locator('.iccourse input').isChecked(), true);
+    assert.match(await texte(A.page, '.iccourse'), /porte Bravo \/ Charlie[\s\S]*Arrivée : entre le Comité et Delta/);
+    await sansMotNaos(A.page, 'relecture de l’IA');
+    await A.page.click('#icValidate');
+    await A.page.waitForSelector('#icReview', { state: 'detached', timeout: 10000 });
+    let reg = await regateOuverte(A.page);
+    assert.deepEqual(reg.marks.map((x) => [x.id, x.name, x.status]), [['X1', 'Alpha', 'a_confirmer'], ['X2', 'Bravo', 'a_confirmer'], ['X3', 'Charlie', 'a_confirmer'], ['X4', 'Delta', 'a_confirmer']]);
+    assert.equal(reg.courses.length, 1);
+    assert.ok(!('jours' in reg), 'une régate lue depuis les IC n’a pas de jours (v43)');
+    assert.match(await texte(A.page, '#rgSheet [data-co-row="101"]'), /Parcours d’essai \(IC\)[\s\S]*en attente de : X1 Alpha, X2 Bravo, X3 Charlie, X4 Delta/);
+    await sansMotNaos(A.page, 'fiche, bouées à confirmer');
+    for (const k of ['X1', 'X2', 'X3', 'X4']) await A.page.click(`[data-mk-ok=${k}]`);
+    await A.page.waitForFunction(() => /proposé dans l’onglet Parcours/.test(document.querySelector('#rgSheet [data-co-row="101"]')?.textContent || ''), null, { timeout: 15000 });
+    reg = await regateOuverte(A.page);
+    assert.ok(reg.marks.every((x) => x.status === 'confirmee' && x.confirmed?.by === 'Frédéric'));
+    await sansMotNaos(A.page, 'bouées confirmées');
+    // onglet Parcours : le parcours lu, seul (la régate a ses parcours), routé avec sa porte et son arrivée
+    await A.page.click('#tabs button[data-tab=course]');
+    assert.deepEqual(await A.page.locator('#cSel option').allTextContents(), ['Parcours d’essai (IC)']);
+    await A.page.selectOption('#cSel', '101');
+    await attendBords(A.page, suite([/X1 Alpha/, /X[23] (Bravo|Charlie)/, /^Arrivée \(Comité – X4 Delta\)/]), 'parcours d’essai lu dans les IC');
+    sansErreur(A.erreurs, 'IC lues et parcours routé');
+    // archive de l’espace : la régate, ses bouées confirmées et son parcours sous tofinou/ ; rien sous prod/ ni preview/ de Naos
+    await avanceHeure(m, 60e3);
+    await synchronise(m, A);
+    const chemins = [...m.blob.store.keys()];
+    assert.ok(chemins.every((c) => c.startsWith('tofinou/')), `chemins du faux Blob : ${chemins.join(', ')}`);
+    console.log(`  tofinou-ic : chemins du faux Blob : ${chemins.join(', ')}`);
+    const leger = JSON.parse(m.blob.store.get('tofinou/preview/light.json')?.text || 'null');
+    const arch = leger?.regattas?.[id];
+    assert.ok(arch, 'régate dans l’archive de Tofinou');
+    assert.deepEqual(arch.marks.map((x) => [x.id, x.status]), [['X1', 'confirmee'], ['X2', 'confirmee'], ['X3', 'confirmee'], ['X4', 'confirmee']]);
+    assert.deepEqual(arch.courses.map((c) => [c.id, c.name]), [[101, 'Parcours d’essai']]);
+    assert.ok(m.vues.every((v) => v.espace === 'tofinou'));
+    // second téléphone de l’espace : il reçoit la régate, ses bouées et son parcours, proposé dans l’onglet Parcours
+    const B = await telephone('Romain');
+    await synchronise(m, B);
+    assert.ok((await indexRegates(B.page)).list.some((r) => r.id === id), 'régate reçue');
+    await ouvreRegate(B.page, id);
+    assert.match(await texte(B.page, '#rgSheet [data-co-row="101"]'), /proposé dans l’onglet Parcours/);
+    await sansMotNaos(B.page, 'second téléphone');
+    await B.page.click('#tabs button[data-tab=course]');
+    assert.deepEqual(await B.page.locator('#cSel option').allTextContents(), ['Parcours d’essai (IC)']);
+    assert.equal(B.ic.demandes, 0, 'second téléphone : aucune lecture par l’IA');
+    sansErreur(B.erreurs, 'second téléphone');
+    sansErreur(A.erreurs, 'fin du scénario');
+  } finally {
+    for (const c of m.ctxs) await c.close().catch(() => { /* déjà fermé */ });
+  }
+}
+
+const SCENARIOS = { baie, accueil, 'jour-j': jourJ, 'deux-telephones': deuxTelephones, reprise, equipage, archive, 'archive-bouees': archiveBouees, archivehors: archiveHors, creer, manche, auteur, ic, 'depuis-ic': depuisIC, vraisemblance, gel, 'debrief-tardif': debriefTardif, gpx, 'gpx-choix': gpxChoix, ia, 'ia-erreurs': iaErreurs, arbitre, bouees, guide, entetes, 'retour-port': retourPort, banane, 'banane-manche': bananeManche, 'banane-debrief': bananeDebrief, 'porte-ic': porteIC, 'modifier-manche': modifierManche, 'toulon-vue': toulonVue, 'plan-eau': planEau, 'brest-avion': brestAvion, 'regate-brest': regateBrest, 'brest-courant': brestCourant, gpen, 'naos-cles': naosCles, 'tofinou-demarrage': tofinouDemarrage, 'espace-garde': espaceGarde, 'tofinou-bateau': tofinouBateau, 'tofinou-identite': tofinouIdentite, 'bormes-local': bormesLocal, 'tofinou-ia': tofinouIa, 'tofinou-ic': tofinouIc };
 
 // ───────────────────────── lancement
 

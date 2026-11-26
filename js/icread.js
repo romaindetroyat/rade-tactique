@@ -264,8 +264,16 @@ function iaHTML(ia) {
   return `<div class="btns icia"><button type="button" class="btn alt small" id="icIa"${ia.enabled ? '' : ' disabled'}>${IA_LABEL}</button></div><div class="small muted" id="icIaMsg" aria-live="polite">${escHTML(ia.msg || '')}</div>`;
 }
 
+// Libellé long de la lecture. libelles (08-11, D-16) : { motifs, semee } d’un espace autre que Naos (sans le sigle du club de Toulon) ; sans eux,
+// libellés de la v43. La fiche du Challenge de la Baie garde le sien (08-08).
+function lectureLong(review, libelles) {
+  if (review.read === 'semee' && review.source === BAIE_SOURCE) return SEMEE_BAIE;
+  const propre = libelles && (review.read === 'motifs' || review.read === 'semee') && typeof libelles[review.read] === 'string' ? libelles[review.read] : '';
+  return propre || READ_LONG[review.read] || READ_LONG.saisie;
+}
+
 // Carte « Relecture des IC » ; checks : { clé: { level, msg } } (vide : pas de puces). Le bouton « Valider les IC » est désactivé si canValidate est faux.
-// opts.ia : bloc « Lire avec l’IA » (voir iaHTML).
+// opts.ia : bloc « Lire avec l’IA » (voir iaHTML) ; opts.libelles : libellés de lecture de l’espace (lectureLong).
 export function reviewHTML(review, checks = {}, opts = {}) {
   const ok = canValidate(review, checks);
   const rules = review.keyRules.length
@@ -298,7 +306,7 @@ export function reviewHTML(review, checks = {}, opts = {}) {
     : '';
   const tronque = review.truncated ? '<div class="small muted icex">Texte long : seuls les 50 000 premiers caractères ont été lus par l’IA.</div>' : '';
   return `<div class="card" id="icReview"><h3>Relecture des IC <small>rien n’est retenu avant « Valider les IC »</small></h3>`
-    + `<div class="small muted">Source : ${escHTML(review.source || 'saisie')} · lecture ${escHTML(review.read === 'semee' && review.source === BAIE_SOURCE ? SEMEE_BAIE : READ_LONG[review.read] || READ_LONG.saisie)}</div>`
+    + `<div class="small muted">Source : ${escHTML(review.source || 'saisie')} · lecture ${escHTML(lectureLong(review, opts.libelles))}</div>`
     + iaHTML(opts.ia)
     + tronque
     + review.fields.map((f) => fieldHTML(f, checks[f.key])).join('')

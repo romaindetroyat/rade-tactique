@@ -4,7 +4,7 @@
 // L’espace de la session est fixé au démarrage, de façon synchrone et hors réseau, AVANT le plan d’eau (js/app.js) : export vivant `ESPACE`.
 
 const gele = (e) => Object.freeze({ ...e, bateau: Object.freeze({ ...e.bateau }), venues: Object.freeze([...e.venues]), graines: Object.freeze([...e.graines]),
-  hotes: Object.freeze([...e.hotes]), caps: e.caps ? Object.freeze({ archive: Object.freeze({ ...e.caps.archive }), lourd: Object.freeze({ ...e.caps.lourd }) }) : null });
+  hotes: Object.freeze([...e.hotes]), textesIC: e.textesIC ? Object.freeze({ ...e.textesIC }) : null, caps: e.caps ? Object.freeze({ archive: Object.freeze({ ...e.caps.archive }), lourd: Object.freeze({ ...e.caps.lourd }) }) : null });
 
 export const ESPACES = Object.freeze({
   // Naos : la v43 telle quelle (plafonds de js/archsync.js et js/archheavy.js, graines de la Coupe SNPM et du GPEN, recalages du cahier CVAT)
@@ -26,6 +26,12 @@ export const ESPACES = Object.freeze({
     },
     venues: ['bormes'], venueDefaut: 'bormes', pack: 'bormes', graines: ['baie-2026-2027'], recalage: false,
     caps: { archive: { w: 20, r: 75 }, lourd: { up: 10, down: 20 } },
+    // textes du chemin des IC (08-11, D-16) : lecture par motifs et fiche semée sans le sigle du club de Toulon ; Naos garde ceux de la v43 (aucun texte ici)
+    textesIC: {
+      motifs: 'par motifs (hors réseau)',
+      semee: 'semée par l’app d’après les documents du club : à vérifier avec ceux en vigueur',
+      notice: 'Fiche semée par l’app d’après les documents du club — à vérifier avec ceux en vigueur.',
+    },
     hotes: ['tofinou-bormes.vercel.app', 'tofinou.localhost'],
   }),
 });
