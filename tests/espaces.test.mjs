@@ -5,7 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { creerMiddleware, ESPACES } from '../middleware.js';
+import { creerMiddleware, ESPACES, manifestePour } from '../middleware.js';
 import { ESPACE_IDS, espaceDe, prefixe, POLITIQUE, IA_ESPACES } from '../api/_espace.js';
 import { createHandler } from '../api/archive.js';
 import { emptyDoc } from '../js/archmerge.js';
@@ -110,6 +110,61 @@ test('le reste du site ne reçoit aucun en-tête posé, quel que soit l’espace
 });
 
 // ───────────────────────── archive
+
+// ───────────────────────── manifeste par espace (D-07)
+
+test('manifeste par hôte : Naos (avec, sans code, code inconnu) → transmis tel quel ; Tofinou → réécrit vers son manifeste ; hôte inconnu → Naos ; rien d’autre réécrit', async () => {
+  const sansRien = (f) => { assert.equal(f.setCookie, null); assert.equal(f.location, null); assert.equal(f.overrides, null); };
+  for (const hote of [H_NAOS, 'http://127.0.0.1:8080', 'http://localhost:8080', H_APERCU, 'https://inconnu.example']) {
+    for (const h of [{}, cookie(NAOS), cookie(INCONNU), cookie(TOFI), cookie(DOUBLE), { accept: 'text/html', 'sec-fetch-mode': 'navigate' }]) {
+      const r = await appel(hote + '/manifest.webmanifest', h);
+      const f = await forme(r);
+      assert.equal(f.status, 200, hote); assert.equal(f.next, '1', `${hote} ${JSON.stringify(h)} : transmis`);
+      assert.equal(r.headers.get('x-middleware-rewrite'), null, `${hote} : jamais réécrit`);
+      sansRien(f);
+    }
+  }
+  for (const hote of [H_TOFI, 'http://tofinou.localhost:8080', 'https://TOFINOU-BORMES.vercel.app']) {
+    for (const h of [{}, cookie(TOFI), cookie(NAOS), cookie(INCONNU), cookie(DOUBLE)]) {
+      for (const method of ['GET', 'HEAD']) {
+        const r = await mw(new Request(hote + '/manifest.webmanifest', { method, headers: h }));
+        const dest = new URL(r.headers.get('x-middleware-rewrite') || 'http://vide/');
+        assert.equal(dest.pathname, '/manifest-tofinou.webmanifest', `${hote} ${method} ${JSON.stringify(h)}`);
+        assert.equal(dest.host, new URL(hote).host, 'même hôte');
+        assert.equal(r.headers.get('x-middleware-next'), null);
+        sansRien(await forme(r));
+      }
+      // le manifeste de l’espace, demandé directement sur son hôte (réécriture réévaluée), est servi lui aussi sans code
+      const direct = await forme(await appel(hote + '/manifest-tofinou.webmanifest', h));
+      assert.equal(direct.next, '1'); sansRien(direct);
+    }
+  }
+  // ailleurs, le manifeste de Tofinou suit la règle de toute adresse de l’app : code exigé (comme un fichier inconnu de la v43 sur l’hôte de Naos)
+  for (const hote of [H_NAOS, H_APERCU]) {
+    assert.equal((await appel(hote + '/manifest-tofinou.webmanifest')).status, 401, hote);
+    assert.equal((await appel(hote + '/manifest-tofinou.webmanifest', cookie(INCONNU))).status, 401, hote);
+  }
+  assert.equal((await appel(H_NAOS + '/manifest-tofinou.webmanifest', cookie(NAOS))).headers.get('x-middleware-next'), '1', 'liste hors réseau servie avec le code');
+  // aucun autre chemin n’est réécrit, sur aucun hôte
+  for (const hote of [H_TOFI, H_NAOS, H_APERCU]) {
+    for (const chemin of ['/', '/index.html', '/acces.html', '/js/app.js', '/api/membre', '/Manifest.webmanifest', '/manifest.webmanifest.old', '/js/manifest.webmanifest']) {
+      for (const h of [{}, cookie(TOFI), cookie(NAOS)]) {
+        assert.equal((await appel(hote + chemin, h)).headers.get('x-middleware-rewrite'), null, `${hote}${chemin}`);
+      }
+    }
+  }
+  assert.equal((await appel(H_TOFI + '/manifest.webmanifest', {}, 'POST')).status, 401, 'autre méthode : déroulé ordinaire');
+});
+
+test('manifestePour : hôtes de Tofinou seulement (casse ignorée), sinon null ; le manifeste de Tofinou existe et nomme l’espace', () => {
+  for (const h of ESPACES.tofinou.hotes) { assert.equal(manifestePour(h), '/manifest-tofinou.webmanifest', h); assert.equal(manifestePour(h.toUpperCase()), '/manifest-tofinou.webmanifest'); }
+  for (const h of [...ESPACES.naos.hotes, 'rade-tactique-git-x.vercel.app', '', undefined, null, 'tofinou-bormes.vercel.app.evil.example', 'x.tofinou.localhost']) assert.equal(manifestePour(h), null, String(h));
+  const m = JSON.parse(readFileSync(ROOT + 'manifest-tofinou.webmanifest', 'utf8')), n = JSON.parse(readFileSync(ROOT + 'manifest.webmanifest', 'utf8'));
+  assert.equal(m.name, 'Tofinou — Bormes'); assert.equal(m.short_name, 'Tofinou Bormes'); assert.equal(m.lang, 'fr');
+  assert.match(m.description, /Bormes – Le Lavandou/); assert.doesNotMatch(JSON.stringify(m), /Toulon|CVAT|J80|Naos/);
+  for (const k of ['start_url', 'scope', 'display', 'orientation', 'background_color', 'theme_color', 'icons', 'lang']) assert.deepEqual(m[k], n[k], `${k} identique à Naos`);
+  assert.deepEqual(Object.keys(m), Object.keys(n), 'même forme');
+});
 
 test('T3 : archive sans x-rt-espace valide (absent, inconnu, __proto__, autre casse, liste) → 403 espace_inconnu, rien lu ni écrit', async () => {
   const blob = createFakeBlob(), handler = createHandler({ blob, now: () => 2_000_000 });
@@ -256,7 +311,9 @@ test('T10 : pack d’un autre espace → même 404 sans écho qu’un fichier in
   for (const [hote, code] of [[H_TOFI, TOFI], [H_NAOS, NAOS], [H_APERCU, DOUBLE], ['http://tofinou.localhost:8080', DOUBLE]]) {
     for (const chemin of shell) {
       const r = await appel(hote + chemin, cookie(code));
-      assert.equal(r.headers.get('x-middleware-next'), '1', `${hote}${chemin} doit rester servi`);
+      // sur un hôte de Tofinou, le manifeste est servi par réécriture (D-07)
+      const reecrit = chemin === '/manifest.webmanifest' && r.headers.get('x-middleware-rewrite');
+      assert.ok(r.headers.get('x-middleware-next') === '1' || reecrit, `${hote}${chemin} doit rester servi`);
     }
   }
   // les packs de son espace restent servis : Brest à Naos (manifeste des plans d’eau)

@@ -3,7 +3,7 @@
 // cookie de 400 jours. Seules les empreintes SHA-256 des codes sont ici, une table par espace : pour retirer un accès, supprimer sa ligne
 // (node tools/codes-acces.mjs --retirer <Prénom> --espace <espace>) et redéployer.
 // L’espace d’une requête est décidé ici, par le code et l’hôte, jamais par la page : les fonctions /api/ le reçoivent par x-rt-espace.
-import { next } from '@vercel/functions';
+import { next, rewrite } from '@vercel/functions';
 
 const EQUIPAGE = {
   '82d6f57ee27c4dd70d5998dc1a7a88954861050c82047d0184702ad30eff414f': 'Romain',
@@ -27,10 +27,11 @@ export const ESPACES = {
   tofinou: { table: TOFINOU, hotes: ['tofinou-bormes.vercel.app', 'tofinou.localhost'], packs: ['bormes'] },
 };
 
-// Restent publics : quatre noms EXACTS (page de connexion et son script, manifeste, service worker) et les dossiers icons/ et rapports/.
-// Les quatre noms sont ancrés par « $ » : /sw.js.map, /sw.jsx, /acces.html.bak, /acces.json… restent privés.
+// Vercel n’exécute le middleware que sur les chemins du matcher : trois noms publics exacts (acces.html, acces.js, sw.js) et deux dossiers
+// (icons/, rapports/) y échappent, chaque nom ancré par `$` (un nom voisin comme sw.js.map ou acces.html.bak passe par le middleware).
+// Les manifestes passent par le middleware, qui les traite en tout premier et sans code (manifestePour, creerMiddleware ; phase 8, D-07).
 export const config = {
-  matcher: ['/((?!acces\\.html$|acces\\.js$|manifest\\.webmanifest$|sw\\.js$|icons/|rapports/).*)'],
+  matcher: ['/((?!acces\\.html$|acces\\.js$|sw\\.js$|icons/|rapports/).*)'],
 };
 
 const lireCookie = (req) => {
@@ -50,7 +51,7 @@ const versApi = (chemin) => {
 // et ce fichier-ci (les empreintes des codes) y sont aussi. C'est donc une LISTE BLANCHE, jamais une liste noire : une liste noire laisserait
 // passer le prochain dossier interne (.vercel/, node_modules/, un nouveau fichier de notes). Le chemin est jugé tel que reçu (encodé) :
 // toute forme déguisée (%2F, %2e%2e, //, \, segment en point, majuscules, .js, _) est refusée avant le reste.
-const NOMS_PUBLICS = new Set(['/', '/index.html', '/guide.html', '/regles.html', '/styles.css', '/manifest.webmanifest', '/sw.js', '/acces.html', '/acces.js']);
+const NOMS_PUBLICS = new Set(['/', '/index.html', '/guide.html', '/regles.html', '/styles.css', '/manifest.webmanifest', '/manifest-tofinou.webmanifest', '/sw.js', '/acces.html', '/acces.js']);
 const FICHIER_DE_DOSSIER = /^\/(?:js|data|vendor|icons|rapports)\/[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const FONCTION_API = /^\/api\/[a-z0-9-]+$/;
 export function cheminDeLApp(chemin) {
@@ -102,7 +103,7 @@ function packDUnAutreEspace(chemin, espace, espaces) {
 }
 
 // Le déroulé du middleware pour des espaces donnés : l’export par défaut utilise ESPACES ; les tests passent des tables de faux codes
-export function creerMiddleware({ espaces }) {
+function deroule({ espaces }) {
   return async function middleware(req) {
     const url = new URL(req.url);
     const hote = url.hostname.toLowerCase();
@@ -151,6 +152,34 @@ export function creerMiddleware({ espaces }) {
       status: 401,
       headers: { 'Content-Type': api ? 'application/json' : 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' },
     });
+  };
+}
+
+// ───────────────────────── manifeste par espace (phase 8, D-07)
+// Le manifeste de l’app est traité en tout premier, avant le lien ?acces= et le cookie : jamais de 401 ni de redirection, avec ou sans code.
+// Sur un hôte de Tofinou, il est réécrit vers le manifeste de l’espace ; sur tout autre hôte (Naos, aperçu), le fichier de Naos tel quel.
+// Le manifeste de Tofinou n’est servi sans code que sur un hôte de Tofinou (si la plateforme réévaluait la réécriture) ; ailleurs il suit
+// la règle de toute adresse de l’app (code exigé). Seuls GET et HEAD sont concernés ; toute autre méthode suit le déroulé ordinaire.
+const MANIFESTE = '/manifest.webmanifest';
+const MANIFESTES = Object.freeze({ tofinou: '/manifest-tofinou.webmanifest' });
+
+// Chemin du manifeste propre à l’espace d’un hôte (nom sans port), ou null : celui de Naos
+export function manifestePour(hote, espaces = ESPACES) {
+  const h = String(hote || '').toLowerCase();
+  for (const [id, chemin] of Object.entries(MANIFESTES)) if (espaces[id]?.hotes?.includes(h)) return chemin;
+  return null;
+}
+
+export function creerMiddleware({ espaces }) {
+  const suite = deroule({ espaces });
+  return async function middleware(req) {
+    if (req.method === 'GET' || req.method === 'HEAD') {
+      const url = new URL(req.url);
+      const propre = manifestePour(url.hostname, espaces);
+      if (url.pathname === MANIFESTE) return propre ? rewrite(new URL(propre, req.url)) : next();
+      if (propre && url.pathname === propre) return next();
+    }
+    return suite(req);
   };
 }
 

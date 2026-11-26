@@ -10,7 +10,7 @@ import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const ROOT_FILES = ['index.html', 'styles.css', 'manifest.webmanifest', 'guide.html', 'regles.html'];
+const ROOT_FILES = ['index.html', 'styles.css', 'manifest.webmanifest', 'manifest-tofinou.webmanifest', 'guide.html', 'regles.html'];
 const DIRS = ['js', 'data', 'vendor', 'icons'];
 const SKIP = /\.(txt|md|py)$|(^|\/)\.|LICENSE/;
 const GENERATED = 'js/version.js';                      // dans le SHELL, hors hachage (il contient le hachage)

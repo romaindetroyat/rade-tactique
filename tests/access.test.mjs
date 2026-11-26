@@ -10,10 +10,12 @@ import middleware, { config, cheminDeLApp, ESPACES } from '../middleware.js';
 import { listShell } from '../tools/stamp.mjs';
 import { avecCodeSimule, tableEquipage, COOKIE_TEST, FAUX_CODE } from './helpers/codesimule.mjs';
 
-// Seuls ces noms exacts et ces dossiers sont publics ; tout le reste du dépôt passe par le middleware.
-const PUBLIC_EXACT = ['/acces.html', '/acces.js', '/manifest.webmanifest', '/sw.js'];
+// Seuls ces noms exacts et ces dossiers échappent au middleware ; tout le reste du dépôt passe par lui.
+const PUBLIC_EXACT = ['/acces.html', '/acces.js', '/sw.js'];
 const PUBLIC_PREFIX = ['/icons/', '/rapports/'];
-const estPublic = (p) => PUBLIC_EXACT.includes(p) || PUBLIC_PREFIX.some((x) => p.startsWith(x));
+// Phase 8 (D-07) : le manifeste passe par le middleware, qui le sert toujours sans code (réécrit sur un hôte de Tofinou)
+const PUBLIC_MIDDLEWARE = ['/manifest.webmanifest'];
+const estPublic = (p) => PUBLIC_EXACT.includes(p) || PUBLIC_PREFIX.some((x) => p.startsWith(x)) || PUBLIC_MIDDLEWARE.includes(p);
 
 // Émulation du matcher de Vercel : il décrit les chemins que le middleware intercepte
 const matcher = new RegExp('^' + config.matcher[0] + '[/#?]?$', 'i');
@@ -38,12 +40,46 @@ const refuse = (res) => res.status === 401 || (res.status === 302 && (res.header
 const espacesDe = (hex) => Object.keys(ESPACES).filter((id) => Object.hasOwn(ESPACES[id].table, hex));
 const corpsMembre = (hex, prenom) => ({ membre: prenom, espace: espacesDe(hex)[0], espaces: espacesDe(hex) });
 
-test('seuls acces.html, acces.js, manifest.webmanifest, sw.js, icons/ et rapports/ échappent au middleware', () => {
+test('seuls acces.html, acces.js, sw.js, icons/ et rapports/ échappent au middleware ; les manifestes passent par lui', () => {
   const tous = fichiers();
   const hors = tous.filter((p) => !interceptee(p));
-  assert.deepEqual(hors.filter((p) => !estPublic(p)), [], 'fichiers du dépôt servis sans code alors qu’ils ne sont pas dans la liste publique');
-  for (const p of PUBLIC_EXACT) assert.ok(tous.includes(p), `${p} devrait exister dans le dépôt`);
-  assert.deepEqual(tous.filter((p) => estPublic(p) && interceptee(p)), [], 'fichiers publics attendus mais interceptés par le middleware');
+  assert.deepEqual(hors.filter((p) => !PUBLIC_EXACT.includes(p) && !PUBLIC_PREFIX.some((x) => p.startsWith(x))), [],
+    'fichiers du dépôt servis sans code alors qu’ils ne sont pas dans la liste publique');
+  for (const p of [...PUBLIC_EXACT, ...PUBLIC_MIDDLEWARE, '/manifest-tofinou.webmanifest']) assert.ok(tous.includes(p), `${p} devrait exister dans le dépôt`);
+  assert.deepEqual(tous.filter((p) => (PUBLIC_EXACT.includes(p) || PUBLIC_PREFIX.some((x) => p.startsWith(x))) && interceptee(p)), [],
+    'fichiers publics attendus mais interceptés par le middleware');
+  for (const p of ['/manifest.webmanifest', '/manifest-tofinou.webmanifest']) assert.ok(interceptee(p), `${p} passe par le middleware`);
+  assert.equal(config.matcher.length, 1, 'un seul motif');
+  assert.equal(config.matcher[0], '/((?!acces\\.html$|acces\\.js$|sw\\.js$|icons/|rapports/).*)', 'exclusions exactes du matcher');
+});
+
+test('manifeste : intercepté mais jamais refusé, sur tout hôte, avec ou sans code, GET et HEAD ; noms voisins et autres méthodes privés', async () => {
+  for (const hote of ['https://rade.test', 'https://rade-tactique.vercel.app', 'http://127.0.0.1:8080', 'https://tofinou-bormes.vercel.app', 'http://tofinou.localhost:8080']) {
+    for (const h of [...VISITEURS, { cookie: COOKIE_TEST }]) {
+      for (const method of ['GET', 'HEAD']) {
+        const res = await middleware(new Request(hote + '/manifest.webmanifest?v=1', { method, headers: h }));
+        assert.equal(res.status, 200, `${hote} ${method} ${JSON.stringify(Object.keys(h))}`);
+        assert.equal(res.headers.get('set-cookie'), null);
+        assert.equal(res.headers.get('location'), null);
+        assert.ok(res.headers.get('x-middleware-next') === '1' || res.headers.get('x-middleware-rewrite'), 'transmis ou réécrit');
+      }
+    }
+  }
+  for (const p of ['/manifest.webmanifest.old', '/manifest.webmanifestx', '/Manifest.webmanifest', '/manifest.webmanifest/', '/manifest.webmanifest/x', '/xmanifest.webmanifest',
+    '/manifest-tofinou.webmanifest.old', '/manifest-tofinou.webmanifestx', '/js/manifest.webmanifest']) {
+    for (const hote of ['https://rade.test', 'https://tofinou-bormes.vercel.app']) {
+      for (const h of VISITEURS) {
+        const res = await middleware(new Request(hote + p, { headers: h }));
+        assert.equal(res.headers.get('x-middleware-next'), null, `${hote}${p} transmis sans code`);
+        assert.equal(res.headers.get('x-middleware-rewrite'), null, `${hote}${p} réécrit`);
+        assert.ok(refuse(res), `${hote}${p} : ${res.status}`);
+      }
+    }
+  }
+  for (const method of ['POST', 'PUT', 'DELETE']) {
+    const res = await middleware(new Request('https://tofinou-bormes.vercel.app/manifest.webmanifest', { method, body: '{}' }));
+    assert.equal(res.status, 401, `${method} sans code : déroulé ordinaire`);
+  }
 });
 
 test('noms voisins des fichiers publics : interceptés (sw.js.map, sw.jsx, acces.html.bak, manifest.webmanifest.old)', () => {
