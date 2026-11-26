@@ -80,11 +80,11 @@ addBanane(COURSES);
 
 // Réglages propres à un plan d’eau, rangés dans S.byVenue[<id>] quand on le quitte ; la polaire et les réglages du bateau sont communs
 const VENUE_KEYS = ['courseId', 'cls', 'laps', 'linePreset', 'lineLen', 'lineMode', 'lineBrg', 'lineOverride', 'obs', 'manual', 'src', 'modelSel'];
-// premier passage : défauts du plan d’eau (Brest : parcours 1 du GPEN, 91 ; ligne au centre de la zone A, vent d’ouest ; Bormes : la banane,
-// ligne devant Le Lavandou)
+// premier passage : défauts du plan d’eau (Brest : parcours 1 du GPEN, 91 ; ligne au centre de la zone A, vent d’ouest ; Bormes : la banane
+// n° 4 du Challenge de la Baie, ligne par défaut devant Le Lavandou, la banane partant du milieu de la baie, 08-08)
 const VENUE_DEF = {
   brest: { courseId: 91, linePreset: 'zoneA', lineOverride: null, obs: [], manual: { dir: 270, spd: 12, gust: 17 } },
-  bormes: { courseId: 90, linePreset: 'lavandou', lineOverride: null, obs: [] },
+  bormes: { courseId: 4, linePreset: 'lavandou', lineOverride: null, obs: [] },
 };
 const pickVenueKeys = (o) => Object.fromEntries(VENUE_KEYS.filter((k) => o && typeof o === 'object' && Object.hasOwn(o, k)).map((k) => [k, structuredClone(o[k])]));
 const DEF = {
@@ -624,7 +624,8 @@ async function runAnalysis() {
   const course = COURSES.find((c) => c.id === S.courseId);
   const cls = course.seq[S.cls] ? S.cls : 'G';
   computeField(S.day, S.startTime);
-  const preset = LINE_PRESETS[course.line && S.linePreset === 'vignettes' ? course.line : S.linePreset] || LINE_PRESETS.vignettes || Object.values(LINE_PRESETS)[0];
+  // ligne par défaut du plan d’eau gardée → ligne propre au parcours (Toulon : « Rade des Vignettes », v42 ; Bormes : « Devant Le Lavandou », 08-08)
+  const preset = LINE_PRESETS[course.line && S.linePreset === (VENUE.lineDefaut ?? 'vignettes') ? course.line : S.linePreset] || LINE_PRESETS.vignettes || Object.values(LINE_PRESETS)[0];
   const ctr = toXY(preset.lat, preset.lon);
   const wLine = F.sample(ctr.x, ctr.y);
   const ov = S.lineOverride ? { cb: toXY(S.lineOverride.cb.lat, S.lineOverride.cb.lon), pin: toXY(S.lineOverride.pin.lat, S.lineOverride.pin.lon) } : null;
@@ -716,7 +717,8 @@ function bindShell() {
   $('#shareBtn').addEventListener('click', () => {
     const base = location.origin + location.pathname;
     const c = COURSES.find((x) => x.id === S.courseId);
-    openShare({ base, courseLink: `${base}#p=${S.courseId}-${S.cls}-${S.laps}-${S.day}`, courseLabel: `${c.title}${c.laps ? ', ' + S.laps + (S.laps > 1 ? ' tours' : ' tour') : ''}, ${S.cls === 'P' ? 'P1–P2' : 'C–R3'}, ${dayName(S.day)}` });
+    // classes du CVAT nommées à Toulon et à Brest seulement (Bormes : parcours communs à tous les groupes du Challenge, 08-08)
+    openShare({ base, courseLink: `${base}#p=${S.courseId}-${S.cls}-${S.laps}-${S.day}`, courseLabel: `${c.title}${c.laps ? ', ' + S.laps + (S.laps > 1 ? ' tours' : ' tour') : ''}, ${VENUE.sansClasses ? '' : `${S.cls === 'P' ? 'P1–P2' : 'C–R3'}, `}${dayName(S.day)}` });
   });
   $('#tabs').addEventListener('click', (e) => {
     const b = e.target.closest('button'); if (!b) return;
@@ -1010,7 +1012,7 @@ function renderCourse() {
   const nObs = dayObs().length;
   let html = `<details class="card obsbox" ${S.obsOpen !== false ? 'open' : ''}><summary><span>🌬 Relevé de vent sur l’eau ${tip('Réglez la direction d’où vient le vent (compas) et sa force mesurée, puis Enregistrer. L’app compare votre relevé aux 6 modèles, garde celui qui colle le mieux et recale la prévision autour de cette heure. Plusieurs relevés dans la journée affinent le choix.')}</span><small>${S.src === 'manual' ? 'mode manuel' : `${nObs ? nObs + ' relevé(s) · ' : ''}modèle : ${esc(modelLabel(selectedModel()))}`}</small></summary><div class="obs-card"></div></details>
   <div class="card"><div class="row2"><div><label class="f">${openReg() ? `Parcours — ${esc(openReg().name)}` : VENUE.id === 'toulon' ? 'Parcours (cahier CVAT)' : `Parcours (${esc(VENUE.nom)})`}</label><select id="cSel">${(proposes().some((x) => x.id === S.courseId) ? proposes() : [...proposes(), c]).map((x) => `<option value="${x.id}" ${x.id === S.courseId ? 'selected' : ''}>${esc(x.title)}</option>`).join('')}</select></div>
-    <div><label class="f">Classes</label><select id="cCls"><option value="G" ${S.cls === 'G' ? 'selected' : ''}>C–D–L–R1-R3 (grand)</option><option value="P" ${S.cls === 'P' ? 'selected' : ''}>P1–P2 (petit)</option></select></div></div>
+    ${VENUE.sansClasses ? '' : `<div><label class="f">Classes</label><select id="cCls"><option value="G" ${S.cls === 'G' ? 'selected' : ''}>C–D–L–R1-R3 (grand)</option><option value="P" ${S.cls === 'P' ? 'selected' : ''}>P1–P2 (petit)</option></select></div>`}</div>
     <div class="row3">${c.laps ? `<div><label class="f">Tours</label><input id="cLaps" type="number" min="1" max="5" value="${S.laps}"></div>` : ''}${c.built === 'WL' ? `<div><label class="f">Dist. B (Nq)</label><input id="cWl" type="number" min="0.3" max="2" step="0.1" value="${S.wlNm}"></div>` : ''}
     <div><label class="f">Heure de départ</label><input id="cStart" type="text" inputmode="numeric" value="${hhmm(S.startTime)}"></div></div>
     ${c.built === 'BAN' ? banPanel(c) : ''}
@@ -1021,7 +1023,7 @@ function renderCourse() {
     if (A.horsEau?.length) html += `<div class="card" id="banEau" style="border:2px solid var(--bad)"><b>⚠ ${esc(horsEauText(A.horsEau, distLabel(c)))}</b></div>`;
     if (A.horsZone?.length) html += `<div class="card" id="banZone" style="border:2px solid var(--bad)"><b>⚠ ${esc(horsZoneText(A.horsZone))}</b></div>`;
     if (A.horsFond?.length) html += `<div class="card" id="banFond" style="border:2px solid var(--bad)"><b>⚠ ${esc(horsFondText(A.horsFond, distLabel(c)))}</b></div>`;
-    html += `<div class="card"><div class="kpis"><div class="kpi"><b>${(A.dist / NM).toFixed(1)}</b><span>Nq route directe${c.nm ? ` (cahier : ${c.nm[A.cls]})` : c.lapNm ? ` (${c.lapNm} Nq/tour)` : ''}</span></div><div class="kpi"><b>${summarizeTime(A.total * 3600)}</b><span>temps ${esc(CLASSE)} estimé</span></div><div class="kpi"><b>${man}</b><span>virements / empannages</span></div></div>
+    html += `<div class="card"><div class="kpis"><div class="kpi"><b>${(A.dist / NM).toFixed(1)}</b><span>Nq route directe${c.nm ? ` (cahier : ${c.nm[A.cls]})` : c.annonce ? ` (annoncée : ${esc(c.annonce)})` : c.lapNm ? ` (${c.lapNm} Nq/tour)` : ''}</span></div><div class="kpi"><b>${summarizeTime(A.total * 3600)}</b><span>temps ${esc(CLASSE)} estimé</span></div><div class="kpi"><b>${man}</b><span>virements / empannages</span></div></div>
       <div class="small muted" style="margin-top:6px">Arrivée estimée ≈ ${hhmm(S.startTime + A.total)}. Chaque bord est calculé avec le vent prévu à l’heure où vous le courez, depuis le meilleur point de la ligne de départ.</div><button class="btn acc" id="playCourse" style="width:100%;margin-top:8px">▶ Animer le parcours</button></div>`;
     html += `<div class="legs">` + A.legs.map((l, i) => {
       const chip = l.type.id === 'pres' ? 'pres' : l.type.sail.startsWith('Spi') ? 'spi' : 'reach';
@@ -1041,7 +1043,8 @@ function renderCourse() {
   renderObsAll();
   $('.obsbox', el).addEventListener('toggle', (e) => { S.obsOpen = e.target.open; persist(); });
   $('#cSel').onchange = (e) => { S.courseId = +e.target.value; preselect = null; selLeg = null; S.lineOverride = null; autoReplay = true; persist(); scheduleAnalysis(); renderCourse(); };
-  $('#cCls').onchange = (e) => { S.cls = e.target.value; autoReplay = true; persist(); scheduleAnalysis(); };
+  const cCls = $('#cCls');                                     // absent à Bormes (classes du cahier CVAT sans objet, 08-08)
+  if (cCls) cCls.onchange = (e) => { S.cls = e.target.value; autoReplay = true; persist(); scheduleAnalysis(); };
   $('#playCourse')?.addEventListener('click', () => startReplay());
   if ($('#cLaps')) $('#cLaps').onchange = (e) => { S.laps = Math.max(1, Math.min(5, +e.target.value || 1)); persist(); scheduleAnalysis(); };
   if ($('#cWl')) $('#cWl').onchange = (e) => { S.wlNm = +e.target.value || 0.8; persist(); scheduleAnalysis(); };
@@ -1781,7 +1784,7 @@ function bananeOfTrace(tr, src) {
   const course = gpen ? { course: K } : {};
   if (Number(rec.id) === K.id && okLL && Number.isFinite(rec.axe) && recBan && JSON.stringify(recBan) === JSON.stringify(ban)) return { ban, cls, c: { lat: lig.lat, lon: lig.lon }, dir: norm360(rec.axe), fit: false, prefer: true, from, ...course };
   // ligne de l’app, comme runAnalysis pour la banane (ligne pinguée comprise)
-  const preset = LINE_PRESETS[K.line && S.linePreset === 'vignettes' ? K.line : S.linePreset] || LINE_PRESETS.vignettes || Object.values(LINE_PRESETS)[0];
+  const preset = LINE_PRESETS[K.line && S.linePreset === (VENUE.lineDefaut ?? 'vignettes') ? K.line : S.linePreset] || LINE_PRESETS.vignettes || Object.values(LINE_PRESETS)[0];
   const ov = S.lineOverride;
   let c = ov ? toLL(...(({ cb, pin }) => [(cb.x + pin.x) / 2, (cb.y + pin.y) / 2])({ cb: toXY(ov.cb.lat, ov.cb.lon), pin: toXY(ov.pin.lat, ov.pin.lon) })) : { lat: preset.lat, lon: preset.lon };
   // vent du moment : au signal de la manche s’il tombe ce jour-là, sinon au début de la trace

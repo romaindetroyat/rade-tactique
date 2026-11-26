@@ -2512,6 +2512,8 @@ async function attendBords(page, ok, quoi, delai = 90000) {
 // Les bords dans l’ordre attendu : une expression par bord
 const suite = (attendus) => (b) => b.length === attendus.length && attendus.every((re, i) => re.test(b[i]));
 const BAN_B = /B \(au vent\)/, BAN_C = /C \(dégagement\)/, BAN_PORTE = /Porte (gauche|droite)/;
+// banane n° 4 du Challenge de la Baie (Bormes, 08-08) : bouée 1, bouée sous le vent, bouée 1, arrivée sur la ligne de départ
+const BANANE_4 = [/n°1(?!\d)/, /Bouée sous le vent/, /n°1(?!\d)/, /^Arrivée \(ligne de départ\)/];
 // Relevé des étiquettes dessinées sur la carte (texte de chaque sprite), remis à zéro avant chaque étape
 const releveEtiquettes = (ctx) => ctx.addInitScript(() => {
   window.__labels = [];
@@ -3628,10 +3630,10 @@ async function tofinouDemarrage({ browser }) {
     await pret(page);
     const st = await etatApp(page);
     assert.equal(st.venue, 'bormes');
-    assert.equal(st.courseId, 90, 'premier démarrage : la banane');
+    assert.equal(st.courseId, 4, 'premier démarrage : la banane n° 4 du Challenge de la Baie (08-08)');
     assert.equal(st.linePreset, 'lavandou', 'premier démarrage : ligne devant Le Lavandou');
     await page.click('#tabs button[data-tab=course]');
-    await attendBords(page, suite([BAN_B, BAN_C, BAN_PORTE, BAN_B, BAN_C, /^Arrivée \(ligne de départ\)/]), 'banane de Bormes');
+    await attendBords(page, suite(BANANE_4), 'banane de Bormes');
     sansErreur(erreurs, 'en ligne à Bormes');
     // mode avion : serveur arrêté pour de bon
     serveur.closeAllConnections?.();
@@ -3645,7 +3647,7 @@ async function tofinouDemarrage({ browser }) {
     assert.equal(await page.evaluate(() => !!navigator.serviceWorker.controller), true, 'page servie par le worker');
     assert.equal(await texte(page, '#regBar .regname'), 'Entraînement libre · Bormes – Le Lavandou', 'Bormes hors réseau');
     await page.click('#tabs button[data-tab=course]');
-    await attendBords(page, suite([BAN_B, BAN_C, BAN_PORTE, BAN_B, BAN_C, /^Arrivée \(ligne de départ\)/]), 'banane de Bormes hors réseau');
+    await attendBords(page, suite(BANANE_4), 'banane de Bormes hors réseau');
     await cartePlanEau(page, 'ready');
     assert.equal(await texte(page, '#pkState'), `${NOM_BORMES} : Prêt hors réseau`);
     sansErreur(erreurs, 'hors réseau à Bormes');
@@ -3674,7 +3676,8 @@ async function tofinouBateau({ browser }) {
     await cartePlanEau(page, 'ready');
     await page.evaluate(() => {
       const s = JSON.parse(localStorage.getItem('rade.state') || '{}');
-      localStorage.setItem('rade.state', JSON.stringify({ ...s, src: 'manual', manual: { dir: 180, spd: 6, gust: 8 } }));
+      // banane de l’app (90) choisie : le parcours par défaut de Bormes est la banane n° 4 du Challenge (08-08)
+      localStorage.setItem('rade.state', JSON.stringify({ ...s, courseId: 90, src: 'manual', manual: { dir: 180, spd: 6, gust: 8 } }));
     });
     await page.reload({ waitUntil: 'load' });
     await pret(page);
@@ -4167,6 +4170,32 @@ async function baie({ browser, base: base0 }) {
     const leger = JSON.parse(m.blob.store.get('tofinou/preview/light.json')?.text || 'null');
     assert.deepEqual(leger?.regattas?.['baie-2026-2027']?.jours, JOURS, 'jours de course gardés par l’archive');
     assert.ok(m.vues.every((v) => v.espace === 'tofinou'));
+    // catalogue du Challenge dans l’onglet Parcours : 1 à 10 sans 8 et leurs « R », banane n° 4 par défaut, aucune classe du CVAT
+    await A.page.click('#tabs button[data-tab=course]');
+    await attendBords(A.page, suite(BANANE_4), 'banane n° 4 au premier démarrage');
+    const options = await A.page.locator('#cSel option').evaluateAll((os) => os.map((o) => [+o.value, o.textContent]));
+    assert.deepEqual(options.map(([v]) => v), [1, 2, 3, 4, 5, 25, 6, 7, 9, 10, 51, 52, 53, 55, 75, 56, 57, 59, 60, 90], `parcours proposés : ${JSON.stringify(options)}`);
+    assert.ok(!options.some(([, t]) => /Parcours 8\b/.test(t)), 'pas de parcours 8');
+    assert.equal(options.find(([v]) => v === 51)[1], 'Parcours 1 R (sens inverse)');
+    assert.equal(await A.page.locator('#cCls').count(), 0, 'aucune classe du cahier CVAT à Bormes');
+    assert.equal(await A.page.locator('#banEau').count(), 0, 'banane n° 4 en mer');
+    let vue = (await texte(A.page, 'section[data-tab=course]')).replace(/\s+/g, ' ');
+    assert.match(vue, /Parcours 4 — banane \(construite\)/);
+    assert.doesNotMatch(vue, MOTS_TOULON, 'onglet Parcours sans texte de Toulon');
+    // parcours 6 : tour de Port-Cros, La Dame et les points de passage à tribord
+    await A.page.selectOption('#cSel', '6');
+    await attendBords(A.page, suite([/FOU La Fourmigue/, /DAM La Dame/, /PCS Sud de la Gabinière/, /BAG Ouest de Bagaud/, /^Arrivée/]), 'parcours 6 autour de Port-Cros', 150000);
+    vue = (await texteStable(A.page, 'course')).replace(/\s+/g, ' ');
+    assert.match(vue, /Longueur annoncée : 20 M/); assert.match(vue, /\(annoncée : 20 M\)/);
+    const dist = +(/([\d.]+) Nq route directe/.exec(vue)?.[1]);
+    assert.ok(dist >= 18 && dist <= 22, `parcours 6 : ${dist} Nq en route directe`);
+    assert.doesNotMatch(vue, MOTS_TOULON);
+    // partage : libellé du parcours sans classe du CVAT
+    await A.page.click('#shareBtn');
+    const partage = (await texte(A.page, '#modal')).replace(/\s+/g, ' ');
+    assert.match(partage, /Ce parcours \(Parcours 6 — tour de Port-Cros, dimanche 13 décembre\)/, `partage : ${partage.slice(0, 300)}`);
+    assert.ok(!/C–R3|P1–P2/.test(partage), 'partage sans classe du CVAT');
+    await fermeAide(A.page);
     sansErreur(A.erreurs, 'manche 3, Frédéric');
     // (2)
     const B = await telephone('Romain', () => { try { localStorage.setItem('rade.seed.baie.v1', '1'); } catch { /* stockage refusé */ } });

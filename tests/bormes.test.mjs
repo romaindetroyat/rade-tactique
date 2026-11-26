@@ -327,7 +327,9 @@ test('lieux de Bormes : les 46 nœuds du tableau de l’étude § 2.4, dans l’
 const FIXES_B = new Set(['tourelle', 'ilot', 'balise', 'amer']);
 test('marques de Bormes : La Fourmigue et coffre 1 fixes aux positions de l’étude, bouées mouillées « position à confirmer », clés courtes non numériques', () => {
   const M = BORMES.MARKS;
-  assert.deepEqual(Object.keys(M), ['FOU', 'COF', 'DAM', 'CNE', 'BEN', 'CAV', 'ORA']);
+  assert.deepEqual(Object.keys(M), ['FOU', 'COF', 'DAM', 'CNE', 'BEN', 'CAV', 'ORA', 'PCS', 'BAG']);
+  // points de passage du tour de Port-Cros (08-08) : jamais présentés comme des bouées ni comme « position à confirmer »
+  for (const k of ['PCS', 'BAG']) { assert.equal(M[k].kind, 'passage'); assert.notEqual(M[k].src, 'approx'); assert.match(M[k].note, /ce n’est pas une bouée/); }
   assert.ok(Math.abs(M.FOU.lat - 43.10603) < 1e-5 && Math.abs(M.FOU.lon - 6.40420) < 1e-5, 'La Fourmigue 43,10603° N 6,40420° E');
   assert.ok(Math.abs(M.COF.lat - 43.08522) < 1e-5 && Math.abs(M.COF.lon - 6.27945) < 1e-5, 'coffre 1 43,08522° N 6,27945° E');
   assert.ok(ecartB(M.FOU, parseLatLon('43°06.362N 006°24.252E', BORMES.inputBounds)) < 1, 'La Fourmigue : degrés-minutes de l’arrêté');
@@ -512,4 +514,128 @@ test('type de bord : voile d’avant du bateau (« Génois » au Tofinou) ; sans
   assert.equal(naos.type.id, 'pres');
   assert.equal(naos.type.sail, 'Foc');
   assert.equal(tof.type.sail, 'Génois');
+});
+
+// ───────── Catalogue du Challenge de la Baie 2026-2027 (08-08, D-13) : annexe « Parcours 1 à 10 », étude § 2.2
+
+import { buildLegs } from '../js/tactics.js';
+import { courseBan, courseLaps, banHorsEau, BANANE_ID } from '../js/banane.js';
+
+const CAT = Object.fromEntries(BORMES.COURSES.map((c) => [c.id, c]));
+const ligneB = (k) => ({ center: BORMES.LINE_PRESETS[k], lengthNm: 0.12, mode: 'wind', bearing: 0 });
+const bords = (c, windDir = 270, S = {}) => buildLegs(c, 'G', { laps: courseLaps(c, { laps: 2, ...S }), windDir, wlLengthNm: 0.8, ban: courseBan(c, S), line: ligneB(c.line) });
+const nmB = (B) => B.legs.reduce((a, l) => a + l.dist, 0) / NM;
+const echange = (seq) => [...seq].reverse().map(([m, c]) => [m, c === 'b' ? 't' : 'b']);
+// Annexe : marques et côtés de chaque parcours direct (PCS, BAG : points de passage du tour de Port-Cros et de Bagaud, île à tribord)
+const ANNEXE = {
+  1: { nom: 'parcours 1 : bouée de cap Nègre à tribord, La Fourmigue à tribord', seq: [['CNE', 't'], ['FOU', 't']] },
+  2: { nom: 'parcours 2 : bouée de Bénat à bâbord, La Fourmigue à bâbord', seq: [['BEN', 'b'], ['FOU', 'b']] },
+  3: { nom: 'parcours 3 : La Fourmigue à tribord, bouée orange à tribord, La Fourmigue à tribord', seq: [['FOU', 't'], ['ORA', 't'], ['FOU', 't']] },
+  5: { nom: 'parcours 5, groupe régate : La Fourmigue à tribord, coffre 1 à bâbord, La Fourmigue à bâbord', seq: [['FOU', 't'], ['COF', 'b'], ['FOU', 'b']] },
+  25: { nom: 'parcours 5, groupe croisière : coffre 1 à bâbord, retour direct', seq: [['COF', 'b']] },
+  6: { nom: 'parcours 6 : La Fourmigue à tribord, Port-Cros et sa cardinale à tribord (tour de Port-Cros et de Bagaud)', seq: [['FOU', 't'], ['DAM', 't'], ['PCS', 't'], ['BAG', 't']] },
+  7: { nom: 'parcours 7 : La Fourmigue à tribord, coffre 1 à tribord, La Fourmigue à bâbord', seq: [['FOU', 't'], ['COF', 't'], ['FOU', 'b']] },
+  9: { nom: 'parcours 9 : bouée Cavalaire à tribord, La Fourmigue à tribord', seq: [['CAV', 't'], ['FOU', 't']] },
+  10: { nom: 'parcours 10 : Port-Cros et sa cardinale à tribord, bouée orange à tribord, La Fourmigue à tribord', seq: [['DAM', 't'], ['PCS', 't'], ['BAG', 't'], ['ORA', 't'], ['FOU', 't']] },
+};
+
+test('catalogue du Challenge de la Baie : parcours 1 à 10 sans 8, banane n° 4, variante croisière du 5, sens inverse « R » de chaque côtier ; identifiants entiers, uniques, sous 90', () => {
+  const ids = BORMES.COURSES.map((c) => c.id);
+  assert.deepEqual(ids, [1, 2, 3, 4, 5, 25, 6, 7, 9, 10, 51, 52, 53, 55, 75, 56, 57, 59, 60]);
+  assert.equal(new Set(ids).size, ids.length, 'identifiants uniques');
+  assert.ok(ids.every((id) => Number.isInteger(id) && id > 0 && id < 90 && id !== BANANE_ID));
+  assert.ok(!ids.includes(8) && !ids.includes(58), 'pas de parcours 8 (absent de l’annexe)');
+  for (const c of BORMES.COURSES) {
+    assert.ok(c.title && c.text && c.seq.G && c.both, `${c.id} : forme`);
+    assert.deepEqual(c.seq.G, c.seq.P, `${c.id} : même parcours pour tous les groupes`);
+    assert.ok(!/'/.test(c.title + c.text), `${c.id} : apostrophe typographique`);
+    assert.ok(!/CVAT|Toulon|J80|Naos|cahier/i.test(c.title + c.text), `${c.id} : aucun texte de Toulon`);
+    if (!c.built) {
+      assert.equal(c.line, 'lavandou');
+      for (const [m] of c.seq.G) assert.ok(Object.hasOwn(BORMES.MARKS, m), `${c.id} : marque ${m} connue`);
+      assert.match(c.text, /Départ entre le bateau comité et la bouée cylindrique orange/);
+      assert.match(c.text, /arrivée sur la ligne de départ \(entre bateau comité et bouée cylindrique orange\)/);
+      assert.match(c.text, /Pavillon D : bouée de dégagement ; pavillon vert : dégagement à laisser à tribord/);
+    }
+  }
+  assert.equal(CAT[1].title, 'Parcours 1 — cap Nègre, La Fourmigue');
+  assert.equal(CAT[51].title, 'Parcours 1 R (sens inverse)');
+  for (const [id, a] of [[1, '7,8 M'], [2, '6,2 M'], [3, '4 à 8 M'], [6, '20 M'], [7, '16,5 M'], [9, 'environ 20 M']]) {
+    assert.equal(CAT[id].annonce, a); assert.match(CAT[id].text, new RegExp(`Longueur annoncée : ${a}\\.`));
+  }
+});
+
+for (const [id, { nom, seq }] of Object.entries(ANNEXE)) {
+  test(`${nom} ; sens inverse : marques dans l’ordre inverse, côtés échangés`, () => {
+    const c = CAT[id], r = CAT[+id + 50];
+    assert.deepEqual(c.seq.G, seq, 'sens direct');
+    assert.deepEqual(r.seq.G, echange(seq), 'sens inverse');
+    const n = [5, 25].includes(+id) ? 5 : +id;
+    assert.match(r.text, new RegExp(`^Sens inverse du parcours ${n}( du groupe « (régate|croisière) »)? \\(« ${n} R » affiché par le comité\\)`));
+    assert.ok(c.text.includes(seq.map(([m, s]) => `${BORMES.MARKS[m].name} à ${s === 'b' ? 'bâbord' : 'tribord'}`).join(', ')), 'texte : marques et côtés dans l’ordre');
+  });
+}
+
+test('parcours 4 : banane construite au vent — bouée 1 au vent, bouée 2 sous le vent, bouée 1, arrivée sur la ligne de départ ; ligne au milieu de la baie', () => {
+  const c = CAT[4];
+  assert.equal(c.built, 'BAN'); assert.equal(c.fixedLaps, 2); assert.equal(c.line, 'baie');
+  assert.deepEqual(c.ban, { off: false, side: 'b', gate: false, fin: 'depart' });
+  assert.equal(BORMES.lineDefaut, 'lavandou');
+  assert.match(BORMES.LINE_PRESETS.baie.label, /position à confirmer/);
+  const B = bords(c, 260);
+  assert.deepEqual(B.legs.map((l) => l.to.name), ['1', 'Bouée sous le vent', '1', 'Arrivée (ligne de départ)']);
+  assert.ok(!CAT[54], 'pas de sens inverse pour la banane');
+});
+
+test('banane n° 4 : bouées et ligne en mer, hors des zones interdites, par 36 directions de vent à 0,8 M ; alerte « à terre » quand la distance réglée met une bouée à terre', { skip: sansPack }, async () => {
+  const t = await terrain(), polys = zonesXY(BORMES.FORBIDDEN_ZONES, xy);
+  const bloque = (p) => !t.inside(p.x, p.y) || t.isLand(p.x, p.y) || polys.some((poly) => pointInPolygon(p, poly));
+  for (let d = 0; d < 360; d += 10) {
+    const B = bords(CAT[4], d, { banNm: 0.8 });
+    assert.deepEqual(banHorsEau(B, bloque), [], `vent du ${d}° : bouées en mer`);
+    for (const p of [B.line.cb, B.line.pin]) assert.ok(!bloque(p), `vent du ${d}° : ligne en mer`);
+  }
+  // l’équipier règle 1,5 M par vent d’ouest : la bouée 1 tombe à terre, l’alerte la nomme
+  assert.deepEqual(banHorsEau(bords(CAT[4], 280, { banNm: 1.5 }), bloque), ['1']);
+});
+
+test('buildLegs de chaque parcours depuis la ligne « Devant Le Lavandou » : bords non vides, dernier bord vers la ligne ; longueurs annoncées (1 : 7 à 9 M, 2 : 5,5 à 7 M, 6 : 18 à 22 M, 7 : 15 à 18 M)', () => {
+  const c0 = xy(BORMES.LINE_PRESETS.lavandou.lat, BORMES.LINE_PRESETS.lavandou.lon);
+  const nm = {};
+  for (const c of BORMES.COURSES.filter((x) => !x.built)) {
+    const B = bords(c);
+    assert.equal(B.legs.length, c.seq.G.length + 1, `${c.id} : un bord par marque puis l’arrivée`);
+    assert.equal(B.legs.at(-1).mark, 'FINISH');
+    assert.ok(Math.hypot(B.legs.at(-1).to.x - c0.x, B.legs.at(-1).to.y - c0.y) < 10, `${c.id} : arrivée sur la ligne de départ`);
+    assert.ok(B.legs.every((l) => l.dist > 100), `${c.id} : bords non vides`);
+    nm[c.id] = nmB(B);
+  }
+  for (const [id, lo, hi] of [[1, 7, 9], [2, 5.5, 7], [6, 18, 22], [7, 15, 18], [51, 7, 9], [52, 5.5, 7], [56, 18, 22], [57, 15, 18]]) assert.ok(nm[id] >= lo && nm[id] <= hi, `parcours ${id} : ${nm[id].toFixed(2)} M`);
+  assert.ok(nm[3] >= 4 && nm[3] <= 8, `parcours 3 : ${nm[3].toFixed(2)} M (4 à 8 M annoncés)`);
+});
+
+test('routage du tour de Port-Cros (parcours 6) par la passe des Grottes, hors du Levant militaire ; parcours 7 (coffre 1) hors de Brégançon ; chaque route jusqu’à sa marque', { skip: sansPack }, async () => {
+  const t = await terrain(), F = await champ270B(), polys = zonesXY(BORMES.FORBIDDEN_ZONES, xy), grottes = xy(REP.grottes.lat, REP.grottes.lon);
+  for (const id of [6, 7]) {
+    for (const [i, l] of bords(CAT[id]).legs.entries()) {
+      const r = route(l.from, l.to, F, { terrain: t, forbidden: polys, perf: 1 });
+      assert.ok(r && r.path.length >= 2, `parcours ${id}, bord ${i + 1} : route trouvée`);
+      const prof = horsZonesB(r.path, polys, `parcours ${id}, bord ${i + 1}`);
+      assert.ok(prof < 25, `parcours ${id}, bord ${i + 1} : un pas rogne une zone de ${prof.toFixed(0)} m`);
+      const fin = r.path.at(-1);
+      assert.ok(Math.hypot(fin.x - l.to.x, fin.y - l.to.y) <= 40, `parcours ${id}, bord ${i + 1} : arrivée sur la marque`);
+      if (id === 6 && l.mark === 'DAM') assert.ok(Math.min(...r.path.map((p) => Math.hypot(p.x - grottes.x, p.y - grottes.y))) < 0.6 * NM, 'La Fourmigue → La Dame par la passe des Grottes');
+    }
+  }
+});
+
+test('js/app.js : ligne propre au parcours quand la ligne par défaut du plan d’eau est gardée (Toulon : « vignettes » de la v42) ; classes du CVAT masquées à Bormes ; longueur annoncée', () => {
+  const app = readFileSync(join(ROOT, 'js/app.js'), 'utf8');
+  assert.equal((app.match(/S\.linePreset === \(VENUE\.lineDefaut \?\? 'vignettes'\)/g) || []).length, 2);
+  assert.ok(!/S\.linePreset === 'vignettes'/.test(app));
+  assert.match(app, /\$\{VENUE\.sansClasses \? '' : `<div><label class="f">Classes<\/label><select id="cCls">/);
+  assert.match(app, /\$\{VENUE\.sansClasses \? '' : `\$\{S\.cls === 'P' \? 'P1–P2' : 'C–R3'\}, `\}\$\{dayName\(S\.day\)\}/);
+  assert.match(app, /c\.annonce \? ` \(annoncée : \$\{esc\(c\.annonce\)\}\)`/);
+  assert.match(app, /bormes: \{ courseId: 4, linePreset: 'lavandou'/);
+  for (const v of [VENUES.toulon, VENUES.brest]) { assert.equal(v.lineDefaut, undefined); assert.equal(v.sansClasses, undefined); }
 });

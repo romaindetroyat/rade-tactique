@@ -112,6 +112,59 @@ const MARKS = {
     note: `Parcours 3 et 10 : aucune position publiée ; placée au milieu du segment ligne du Lavandou – La Fourmigue. ${MOUILLEE}` },
 };
 
+// Points de passage de l’app (08-08) : PAS des bouées. Les parcours 6 et 10 font le tour de Port-Cros et de Bagaud en laissant l’île et sa
+// cardinale (La Dame) à tribord ; le routage ne connaît que des points à rejoindre : sans eux, il reviendrait par la passe des Grottes.
+// Placés au large de la Gabinière (sud) et de Bagaud (ouest), en mer, hors des zones interdites : l’équipage passe où il veut au large de l’île.
+const PASSAGE = 'Point de passage placé par l’app pour faire le tour de Port-Cros et de Bagaud en laissant l’île à tribord (parcours 6 et 10) : ce n’est pas une bouée, l’île se contourne au large selon la mer et le vent.';
+MARKS.PCS = { name: 'Sud de la Gabinière (passage)', lat: 42.975, lon: 6.400, kind: 'passage', color: '#9aa5b1', src: 'Point de passage de l’app', note: PASSAGE };
+MARKS.BAG = { name: 'Ouest de Bagaud (passage)', lat: 43.012, lon: 6.335, kind: 'passage', color: '#9aa5b1', src: 'Point de passage de l’app', note: PASSAGE };
+
+// ───────── Catalogue du Challenge de la Baie 2026-2027 (08-08, D-13) : annexe « Parcours 1 à 10 » (28 septembre 2024, en ligne pour 2026-2027),
+// étude § 2.2. Le comité affiche le numéro au signal d’avertissement ; suivi de « R », le parcours se court en sens inverse (marques dans
+// l’ordre inverse, côtés échangés). Pas de parcours 8 (absent de l’annexe). Identifiants : numéro officiel ; sens inverse = numéro + 50 ;
+// parcours 5 du groupe croisière = 25 (sens inverse 75) ; tous entiers, inférieurs à 90 (banane de l’app) et uniques à Bormes.
+// Séquences : [marque, côté] comme le cahier de Toulon (assistant `s()` de js/courses.js, recopié ici : ce fichier-là est figé).
+const s = (str) => str.split(',').map((x) => x.trim()).map((x) => [x.slice(0, -1), x.slice(-1)]);
+const inverse = (seq) => [...seq].reverse().map(([m, c]) => [m, c === 'b' ? 't' : 'b']);
+const DEPART = 'Départ entre le bateau comité et la bouée cylindrique orange';
+const ARRIVEE = 'arrivée sur la ligne de départ (entre bateau comité et bouée cylindrique orange)';
+const PAVILLONS = 'Pavillon D : bouée de dégagement ; pavillon vert : dégagement à laisser à tribord. Bouées mouillées : positions à confirmer.';
+const COTE = { b: 'bâbord', t: 'tribord' };
+const decrit = (seq) => seq.map(([m, c]) => `${MARKS[m].name} à ${COTE[c]}`).join(', ');
+const COTIERS = [
+  { n: 1, titre: 'cap Nègre, La Fourmigue', seq: s('CNEt,FOUt'), annonce: '7,8 M' },
+  { n: 2, titre: 'Bénat, La Fourmigue', seq: s('BENb,FOUb'), annonce: '6,2 M' },
+  { n: 3, titre: 'La Fourmigue, bouée orange', seq: s('FOUt,ORAt,FOUt'), annonce: '4 à 8 M' },
+  { n: 5, id: 5, titre: 'coffre 1 (groupe régate)', seq: s('FOUt,COFb,FOUb'), groupe: 'régate' },
+  { n: 5, id: 25, titre: 'coffre 1 (groupe croisière)', seq: s('COFb'), groupe: 'croisière' },
+  { n: 6, titre: 'tour de Port-Cros', seq: s('FOUt,DAMt,PCSt,BAGt'), annonce: '20 M', note: 'Port-Cros et sa cardinale (La Dame) à tribord : tour de Port-Cros et de Bagaud.' },
+  { n: 7, titre: 'La Fourmigue, coffre 1', seq: s('FOUt,COFt,FOUb'), annonce: '16,5 M' },
+  { n: 9, titre: 'Cavalaire, La Fourmigue', seq: s('CAVt,FOUt'), annonce: 'environ 20 M' },
+  { n: 10, titre: 'Port-Cros, bouée orange, La Fourmigue', seq: s('DAMt,PCSt,BAGt,ORAt,FOUt'), note: 'Port-Cros et sa cardinale (La Dame) à tribord : tour de Port-Cros et de Bagaud.' },
+];
+const cotier = ({ n, id = n, titre, seq, annonce, groupe, note }, sens) => {
+  const R = sens === 'R', q = R ? inverse(seq) : seq;
+  return {
+    id: R ? id + 50 : id, title: R ? `Parcours ${n} R (sens inverse${groupe ? `, groupe ${groupe}` : ''})` : `Parcours ${n} — ${titre}`,
+    both: true, line: 'lavandou', ...(annonce ? { annonce } : {}), seq: { G: q, P: q },
+    text: `${R ? `Sens inverse du parcours ${n}${groupe ? ` du groupe « ${groupe} »` : ''} (« ${n} R » affiché par le comité). ` : groupe ? `Parcours ${n} du groupe « ${groupe} »${groupe === 'croisière' ? ' (retour direct)' : ''}. ` : ''}${DEPART}, ${decrit(q)}, ${ARRIVEE}.`
+      + `${note ? ' ' + note + ' Sud de la Gabinière et ouest de Bagaud : points de passage de l’app, pas des bouées.' : ''}${annonce ? ` Longueur annoncée : ${annonce}.` : ''} ${PAVILLONS}`,
+  };
+};
+// Parcours 4 : banane construite au vent (départ – bouée 1 au vent – bouée 2 – bouée 1 – arrivée), par le mécanisme de Brest (`built: 'BAN'`) :
+// bouée 1 à la distance réglée (Dist. 1), sans dégagement, une seule bouée sous le vent (la bouée 2), deux tours, arrivée sur la ligne de départ.
+// Côté des bouées : bâbord dans l’app (l’annexe ne le dit pas). Ligne : milieu de la baie (voir LINE_PRESETS).
+const BANANE_4 = {
+  id: 4, title: 'Parcours 4 — banane (construite)', laps: false, fixedLaps: 2, both: true, built: 'BAN', line: 'baie',
+  ban: { off: false, side: 'b', gate: false, fin: 'depart' }, names: { B: '1', finish: 'Arrivée (ligne de départ)' },
+  seq: { G: [['B', 'b'], ['S', 'b']], P: [['B', 'b'], ['S', 'b']] },
+  text: `Construit au vent : ${DEPART}, bouée 1 au vent, bouée 2 sous le vent (« Bouée sous le vent »), bouée 1, ${ARRIVEE}. Dist. 1 : distance annoncée par le comité. Côté des bouées : bâbord dans l’app, à vérifier sur la fiche de course. Ligne au milieu de la baie (position à confirmer) tant que la ligne par défaut est gardée dans l’onglet Départ. ${PAVILLONS}`,
+};
+const COURSES = [
+  ...COTIERS.slice(0, 3).map((c) => cotier(c)), BANANE_4, ...COTIERS.slice(3).map((c) => cotier(c)),
+  ...COTIERS.map((c) => cotier(c, 'R')),
+];
+
 // ───────── Dangers (étude § 2.5, § 2.6) : { name, lat, lon, note }. Sèche de Gouron (« devant Bormes », nom lu sur l’extrait de carte du parcours 9) :
 // aucune position relevée, non placée : à lire sur la carte marine.
 const DANGERS = [
@@ -197,10 +250,15 @@ const PRESETS = [
   ['Brise de sud-est', 130, 7, 9], ['Brise de sud-ouest', 220, 10, 13], ['Vent de terre', 330, 5, 8], ['Petit temps', 110, 4, 6],
 ];
 
-// Lignes de départ : positions à confirmer sur l’eau (aucune n’est tirée d’une IC)
+// Lignes de départ : positions à confirmer sur l’eau (aucune n’est tirée d’une IC). « Devant Le Lavandou » est la ligne par défaut du plan
+// d’eau (`lineDefaut`) : gardée, chaque parcours part de sa propre ligne (`line`), comme « Rade des Vignettes (défaut) » à Toulon.
+// Milieu de la baie (08-08) : ligne de la banane n° 4, que l’étude ne place pas. Choisie au milieu de la baie (point de référence du vent) :
+// à 1,1 M au moins de toute terre du pack dans toutes les directions, elle garde la marque au vent et la bouée sous le vent en mer par tous
+// les vents à la distance par défaut (0,8 M) ; testé dans tests/bormes.test.mjs. Au-delà, l’alerte « tombe à terre » reste affichée.
 const LINE_PRESETS = {
-  lavandou: { label: 'Devant Le Lavandou (position à confirmer)', lat: 43.133, lon: 6.381 },
+  lavandou: { label: 'Devant Le Lavandou (défaut, position à confirmer)', lat: 43.133, lon: 6.381 },
   faviere: { label: 'Devant Bormes – La Favière (position à confirmer)', lat: 43.123, lon: 6.376 },
+  baie: { label: 'Milieu de la baie (banane n° 4, position à confirmer)', lat: 43.120, lon: 6.392 },
 };
 
 // Emprise des données (data/bormes.meta.json)
@@ -228,10 +286,13 @@ export const BORMES = Object.freeze({
   // cadrage initial de la 3D, en mètres depuis l’origine : milieu de la baie
   scene: { home: { target: { x: -650, y: 2200 }, dist: 16000, portrait: { target: { x: -650, y: 0 }, dist: 30000, tilt: 0.5 } } },
   windRef: { lat: 43.120, lon: 6.392 },
-  // catalogue (non gelé : applyRegattaMarks et addBanane le modifient sur place) : la banane seule jusqu’au Challenge de la Baie (08-08)
+  // catalogue (non gelé : applyRegattaMarks et addBanane le modifient sur place) : parcours du Challenge de la Baie (08-08) puis la banane
   MARKS,
-  COURSES: [],
+  COURSES,
   LINE_PRESETS,
+  lineDefaut: 'lavandou',
+  // classes du cahier CVAT de Toulon sans objet : tous les parcours du Challenge sont les mêmes pour tous les groupes (choix masqué)
+  sansClasses: true,
   PLACES,
   FORBIDDEN_ZONES: ZONES,
   DANGERS,
