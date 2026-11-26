@@ -104,7 +104,7 @@ Ajoutés le 2026-11-26 à la demande de Romain (« créer la même chose pour un
 - [ ] **ESPACE-05**: Naos identique à la v43 : gel capturé sur 5e9b8a5 avant toute modification (réponses du middleware, chemins Blob, consignes d'IA, clés de stockage, liste hors réseau, pack de Brest), gardes Toulon et garde SNPM vertes, même URL, même archive, mêmes clés locales
 - [ ] **ESPACE-06**: Nom, textes et manifeste par espace (« Tofinou — Bormes », app « Tofinou Bormes ») : page d'accès, titre, aide, débrief, manifeste réécrit par le middleware sur l'adresse de Tofinou ; installable à part
 - [x] **ESPACE-07**: Outil de création des codes : affiche le code une seule fois avec le lien personnel et n'écrit que l'empreinte ; aucun code d'accès dans le dépôt, les tests, les journaux ni la PR ; le code de Frédéric, créé par l'orchestrateur, n'y entre que par son empreinte
-- [ ] **TOF-01**: Bateau Tofinou 9.5 : polaire tirée du certificat ORC Club 2026 du sister-ship (génois par défaut, variante foc estimée), polaire par défaut de l'espace recalable (performance, polaire personnelle), longueur 9,47 m, pertes 11 s / 8 s, tirant d'eau 2,20 / 1,20 m à confirmer, confiance affichée comme estimation
+- [x] **TOF-01**: Bateau Tofinou 9.5 : polaire tirée du certificat ORC Club 2026 du sister-ship (génois par défaut, variante foc estimée), polaire par défaut de l'espace recalable (performance, polaire personnelle), longueur 9,47 m, pertes 11 s / 8 s, tirant d'eau 2,20 / 1,20 m à confirmer, confiance affichée comme estimation
 - [ ] **TOF-02**: Pack « Bormes » hors réseau (relief, côte, fond de carte, instantané météo) construit par les outils du dépôt : emprise 6,22–6,60° E, 42,96–43,20° N, maille 30 m, Levant militaire non urbain, borne ouest de saisie 6,20° E, seuil « mer dégagée » par défaut
 - [ ] **TOF-03**: Savoir local de Bormes : lieux, marques fixes (La Fourmigue, coffre 1) et bouées « position à confirmer », dangers, zones interdites (Levant militaire, Brégançon) évitées par le routage et règles de Port-Cros, « à compléter sur carte marine » ; régimes de vent propres (mistral d'ouest) et vents prédéfinis marqués selon leur origine ; ni marée ni modèle de courant (courant d'ouest en information) ; plus aucun texte de Toulon à Bormes
 - [ ] **TOF-04**: Challenge de la Baie 2026-2027 : catalogue (neuf parcours dont la banane n° 4, sens inverse), fiche semée dans l'espace Tofinou (sept manches, manche 1 le dimanche 11/10, VHF 72, un tour, RIR), arbitre, débrief, dictée et lecture des IC avec les consignes du Tofinou
@@ -177,7 +177,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | ESPACE-05 | Phase 8 | Pending (08-01, preuve finale 08-10) |
 | ESPACE-06 | Phase 8 | Pending (08-06) |
 | ESPACE-07 | Phase 8 | Complete (08-02) |
-| TOF-01 | Phase 8 | Pending (08-05) |
+| TOF-01 | Phase 8 | Complete (08-05 : polaire du certificat 03510004F1O, génois par défaut et foc estimé au choix, défaut de l’espace recalable, 9,47 m, pertes 11 s / 8 s, tirant d’eau « à confirmer » ; voile et tirant à confirmer avec le skipper) |
 | TOF-02 | Phase 8 | Partiel : pack construit (08-03) ; borne ouest de saisie (08-04) et instantané météo (08-09) à faire |
 | TOF-03 | Phase 8 | Pending (08-07) |
 | TOF-04 | Phase 8 | Pending (08-08, 08-09) |

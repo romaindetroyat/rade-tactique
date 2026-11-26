@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 08
 current_phase_name: "Espace Tofinou : rade de Bormes – Le Lavandou, Tofinou 9.5, accès séparé"
 status: in_progress
-stopped_at: Completed 08-04-PLAN.md
-last_updated: "2026-11-26T20:34:44.281Z"
+stopped_at: Completed 08-05-PLAN.md
+last_updated: "2026-11-26T21:14:57.259Z"
 last_activity: 2026-11-26
-last_activity_desc: "Plan 08-04 — app consciente de son espace : registre js/espaces.js, Tofinou sur la rade de Bormes, graines et plans d’eau par espace, garde de synchronisation, plafonds de Tofinou"
-state_head: 8f3a7de10eb11c66fed3ed2adce4b6084b4d7e07
+last_activity_desc: "Plan 08-05 — bateau Tofinou 9.5 : polaire du certificat ORC du sister-ship (génois, foc estimé), défaut de l’espace, pertes 11 s / 8 s, onglet « Tofinou »"
+state_head: 1383c20dbfc160514f2ee3324c8ac1b78e92c5e8
 progress:
   total_phases: 8
   completed_phases: 6
   total_plans: 49
-  completed_plans: 42
+  completed_plans: 43
   percent: 75
 ---
 
@@ -28,9 +28,9 @@ See: .planning/PROJECT.md (updated 2026-10-19)
 ## Current Position
 
 Phase: 08 (Espace Tofinou : rade de Bormes – Le Lavandou, Tofinou 9.5, accès séparé) — EN COURS
-Plan: 4 of 11 terminés (08-01, 08-02, 08-03, 08-04)
+Plan: 5 of 11 terminés (08-01, 08-02, 08-03, 08-04, 08-05)
 Status: aperçu apercu-phase-08 ; v43 en production (PR #17)
-Last activity: 2026-11-26 — Plan 08-04 : js/espaces.js (registre public, parité avec le middleware et les fonctions), espace fixé avant le plan d’eau, js/venue-bormes.js, l’espace Tofinou s’ouvre sur Bormes (pack téléchargé, hors réseau), graines et plans d’eau par espace (T11 contre la v43), garde de synchronisation sur hôte inconnu (T12), plafonds de Tofinou à la moitié ; 915 tests (913 verts, 2 sautés), gardes et gel de Naos verts, 39/39 scénarios OK, ouverture de Naos 405 ms
+Last activity: 2026-11-26 — Plan 08-05 : polaire du Tofinou 9.5 tirée du certificat ORC Club 2026 du sister-ship (03510004F1O, outil tools/build_polar_tofinou.mjs, cibles de l’étude à l’identique), génois par défaut et foc estimé au choix (rade.bateau.v1), polaire par défaut de l’espace, pertes 11 s / 8 s dans le routage, onglet « Tofinou » (9,47 m, tirant d’eau à confirmer) ; onglet de Naos identique à la v43 ; 933 tests (931 verts, 2 sautés), gardes et gel de Naos verts, 40/40 scénarios OK
 
 Progress: [████████░░] 75%
 
@@ -100,6 +100,7 @@ Progress: [████████░░] 75%
 | Phase 08 P02 | 17min | 3 tasks | 17 files |
 | Phase 08 P03 | 18min | 2 tasks | 16 files |
 | Phase 08 P04 | 41min | 3 tasks | 23 files |
+| Phase 08 P05 | 75min | 2 tasks | 19 files |
 
 ## Accumulated Context
 
@@ -218,6 +219,9 @@ Décisions récentes qui orientent le travail en cours :
 - [Phase 08]: 08-04 : espace de la session fixé avant le plan d’eau (js/espaces.js, hôte connu → espace, sinon rade.espace.v1, sinon Naos) ; Naos sans clé ni requête nouvelle
 - [Phase 08]: 08-04 : graines par paramètre (migrate, seedNorm, seedGpen) et valeurs communes du CVAT par setCommuns ; T11 contre une fixture capturée sur 5e9b8a5 (pas de git pendant npm test)
 - [Phase 08]: 08-04 : garde de synchronisation sur hôte inconnu (aucun /api/archive avant /api/membre ; appareil vierge → adoption et rechargement ; sinon arrêt) ; plafonds de Tofinou à la moitié de ceux de Naos
+- [Phase 08]: Polaire du Tofinou 9.5 : certificat ORC Club 2026 du sister-ship 03510004F1O, méthode de tools/build_polar.mjs sans extrapolation ; génois par défaut, foc estimé au choix (rade.bateau.v1, jamais pour Naos)
+- [Phase 08]: Pertes 11 s / 8 s par routeOpts seulement quand ctx.bateau est posé (hors de Naos) ; tirant d’eau 2,20 / 1,20 m affiché « à confirmer », sans calcul
+- [Phase 08]: js/bateau.js (polaire et voile par espace) ajouté au SHELL ; onglet de Naos comparé à la v43 par tests/fixtures/j80-v43.json
 
 ### Pending Todos
 
@@ -259,6 +263,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-11-26T20:34:44.133Z
-Stopped at: Completed 08-04-PLAN.md
+Last session: 2026-11-26T21:14:57.100Z
+Stopped at: Completed 08-05-PLAN.md
 Resume file: None
