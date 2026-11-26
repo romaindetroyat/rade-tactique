@@ -329,10 +329,20 @@ test('avec un code valide simulé : chaque chemin interne reçoit 404, sans éch
 });
 
 test('avec un code valide simulé : tout ce que l’app sert est transmis ; /api/membre répond le prénom ; les fonctions reçoivent x-rt-membre', async () => {
-  await avecCodeSimule(async ({ prenom }) => {
+  await avecCodeSimule(async ({ hex, prenom }) => {
+    // packs des autres espaces (08-03 : data/bormes.*) : 404 du middleware pour l’espace du code, vérifié par T10 (tests/espaces.test.mjs)
+    const espace = espacesDe(hex)[0];
+    const autres = Object.keys(ESPACES).filter((id) => id !== espace).flatMap((id) => ESPACES[id].packs)
+      .filter((id) => !ESPACES[espace].packs.includes(id));
+    assert.ok(ESPACES[espace].packs.includes('brest'), 'le pack de Brest reste à l’espace du code simulé');
     for (const chemin of cheminsDeLApp()) {
       if (!interceptee(chemin)) continue;
       const res = await appeler(chemin, { cookie: COOKIE_TEST });
+      if (autres.some((id) => chemin.startsWith(`/data/${id}.`))) {
+        assert.equal(res.status, 404, `${chemin} : pack d’un autre espace, 404 attendu`);
+        assert.equal(res.headers.get('x-middleware-next'), null, `${chemin} transmis à un autre espace`);
+        continue;
+      }
       if (chemin === '/api/membre') { assert.equal(res.status, 200); continue; }
       assert.equal(res.headers.get('x-middleware-next'), '1', `${chemin} doit rester servi (réponse ${res.status})`);
       if (chemin.startsWith('/api/')) assert.equal(decodeURIComponent(res.headers.get('x-middleware-request-x-rt-membre')), prenom, `${chemin} : auteur posé`);

@@ -1,6 +1,42 @@
 {
  "v": 1,
  "venues": {
+  "bormes": {
+   "pack": "b5ccb2acd6",
+   "bytes": 3604097,
+   "files": [
+    {
+     "path": "data/bormes.basemap.jpg",
+     "bytes": 639587,
+     "sha256": "a6bcc82e9efe6caf792002284d3f36681840f40ff48d29b749009af89b3d2d43"
+    },
+    {
+     "path": "data/bormes.coast.json",
+     "bytes": 92212,
+     "sha256": "ee25c5af862c879b80928b3e957067db4b55bba1ae3651f2f75462a8be7f23c3"
+    },
+    {
+     "path": "data/bormes.cover.bin",
+     "bytes": 911550,
+     "sha256": "d0ecf265dc7bcbe48a264944c8269be8dffbe05cc68e09b528f4bf61862c8ec3"
+    },
+    {
+     "path": "data/bormes.meta.json",
+     "bytes": 314,
+     "sha256": "1e8504471c5667997850a4521c274b2f098ea0ab84b16f894d4201f5de6bdfc9"
+    },
+    {
+     "path": "data/bormes.seamask.png",
+     "bytes": 137334,
+     "sha256": "04030257a21a6fd296fa4a964ccbfd0bf672c63f96884cf02e8e9659ab5ad444"
+    },
+    {
+     "path": "data/bormes.terrain.bin",
+     "bytes": 1823100,
+     "sha256": "1e0b272f1ef2260cda04dad71ed79290c621e0d83b264e44f8cace998bf7be98"
+    }
+   ]
+  },
   "brest": {
    "pack": "fc8e2a0d85",
    "bytes": 4673496,
