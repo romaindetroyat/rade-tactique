@@ -12,8 +12,10 @@ import { readFileSync, writeFileSync, readdirSync, statSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { pathToFileURL, fileURLToPath } from 'node:url';
-import { avecCodeSimule, COOKIE_TEST, FAUX_CODE } from './codesimule.mjs';
 import { createFakeBlob, invoke } from './fakeblob.mjs';
+// tests/helpers/codesimule.mjs (et donc tests/helpers/setup.mjs, qui remplace fetch) n’est chargé qu’au calcul des sections : tools/regate-e2e.mjs
+// importe AJOUTS_SHELL d’ici sans ces cales
+const simule = () => import('./codesimule.mjs');
 
 export const FROM = '5e9b8a5';
 const DEPOT = fileURLToPath(new URL('../../', import.meta.url));
@@ -61,13 +63,13 @@ export function fichiersDepot(racine, dir = '') {
 
 export const HOTES = Object.freeze(['https://rade.test', 'https://rade-tactique.vercel.app']);
 const HOTE_NAOS = 'https://rade-tactique.vercel.app';
-const ETATS = {
+const etats = ({ FAUX_CODE, COOKIE_TEST }) => ({
   'sans-code': {},
   'lien-faux-code': { acces: FAUX_CODE },
   'lien-inconnu': { acces: 'inconnu-de-test' },
   'cookie-faux-code': { cookie: COOKIE_TEST },
   'cookie-inconnu': { cookie: 'rt_acces=inconnu-de-test' },
-};
+});
 const REQUETES = [
   ['GET', '/'], ['GET', '/index.html'], ['GET', '/js/app.js'], ['GET', '/data/meta.json'], ['GET', '/data/brest.meta.json'], ['GET', '/regles.html'],
   ['GET', '/middleware.js'], ['GET', '/.planning/STATE.md'], ['GET', '/api/membre'], ['GET', '/api/archive?k=light'], ['PUT', '/api/archive?k=light'],
@@ -101,9 +103,9 @@ async function reponse(mw, url, methode, headers) {
 }
 
 async function casMiddleware(m) {
-  const mw = m.middleware.default, out = {};
-  await avecEnv('VERCEL_ENV', null, () => avecCodeSimule(async () => {
-    for (const hote of HOTES) for (const [etat, e] of Object.entries(ETATS)) for (const [methode, chemin] of REQUETES) for (const [variante, v] of Object.entries(VARIANTES)) {
+  const mw = m.middleware.default, out = {}, cs = await simule();
+  await avecEnv('VERCEL_ENV', null, () => cs.avecCodeSimule(async () => {
+    for (const hote of HOTES) for (const [etat, e] of Object.entries(etats(cs))) for (const [methode, chemin] of REQUETES) for (const [variante, v] of Object.entries(VARIANTES)) {
       const url = hote + chemin + (e.acces ? `${chemin.includes('?') ? '&' : '?'}acces=${encodeURIComponent(e.acces)}` : '');
       out[`${hote} | ${etat} | ${methode} ${chemin} | ${variante}`] = await reponse(mw, url, methode, { ...v, ...(e.cookie ? { cookie: e.cookie } : {}) });
     }

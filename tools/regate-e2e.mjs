@@ -2,7 +2,8 @@
 //
 //   node tools/regate-e2e.mjs [scénario…]      (tous les scénarios si aucun nom n’est donné)
 //   E2E_ROOT=<dossier>    sert ce dossier au lieu du dépôt (extraction d’une ancienne version) ; en-têtes et liste blanche restent ceux du dépôt
-//   E2E_CAPTURE=<fichier> le scénario toulon-vue écrit sa capture dans ce fichier au lieu de comparer à tests/fixtures/vue-toulon-v42.json
+//   E2E_CAPTURE=<fichier> les scénarios toulon-vue et naos-cles écrivent leur capture dans ce fichier au lieu de comparer à
+//                         tests/fixtures/vue-toulon-v42.json et tests/fixtures/naos-cles-v43.json
 //
 // Déroulé : petit serveur HTTP du dépôt sur 127.0.0.1 ; Chromium en émulation mobile 390 × 844 (fr-FR, fuseau Europe/Paris), service
 // worker bloqué, toute requête vers un autre hôte interrompue, dessin WebGL neutralisé (voir INIT), accueil désactivé. L’heure de la page
@@ -3004,6 +3005,90 @@ async function toulonVue({ browser, base }) {
   }
 }
 
+// ───────────────────────── gel de Naos v43 (08-01, D-01) : clés, bases, caches et adresses de l’app
+
+const NAOS_CLES = join(ROOT, 'tests/fixtures/naos-cles-v43.json');
+// Adresse de même origine demandée par la page, sans ce qui varie d’une version ou d’un échange à l’autre : chemin seul, plus `k` pour l’archive
+const adresseNaos = (url) => { const u = new URL(url); return u.pathname + (u.pathname === '/api/archive' && u.searchParams.has('k') ? `?k=${u.searchParams.get('k')}` : ''); };
+const releveStockage = (page) => page.evaluate(async () => ({
+  cles: Object.keys(localStorage).sort(),
+  bases: (await indexedDB.databases()).map((d) => d.name).sort(),
+}));
+
+// Appareil neuf à l’adresse habituelle de l’outil (127.0.0.1), samedi 05/12/2026 à 10 h (Paris) : /api/membre rend le prénom comme aujourd’hui,
+// l’archive est la vraie fonction sur faux Blob (x-rt-membre ET x-rt-espace: naos, comme le posera la v44). Ouverture, onglets Briefing, Parcours,
+// Régates, Traces et J80, une régate de Toulon créée par l’interface, une synchronisation. Puis, service worker autorisé (sans route : Playwright ne
+// route pas le worker), ouverture jusqu’à ce que l’app soit en cache. Relevés : clés de localStorage, bases IndexedDB, caches (identifiant de version
+// → <id>), adresses de même origine demandées par la page. E2E_CAPTURE=<fichier> : écrit la capture (à faire en servant l’extraction de 5e9b8a5,
+// E2E_ROOT) ; sinon comparaison à tests/fixtures/naos-cles-v43.json : clés, bases et caches identiques, adresses de la v43 toutes présentes, adresses
+// nouvelles limitées à AJOUTS_SHELL (tests/helpers/naos.mjs).
+async function naosCles({ browser, base }) {
+  const HEURE = '2026-12-05T09:00:00Z';
+  const m = await mondeArchive(HEURE);
+  const ctx = await ouvreContexte(browser, { heure: HEURE });
+  m.ctxs.push(ctx);
+  await simuleMembre(ctx, 'Romain');
+  const recus = [];
+  await ctx.route('**/api/archive*', async (route) => {
+    const req = route.request(), u = new URL(req.url());
+    const r = await m.invoke(m.handler, { method: req.method(), url: u.pathname + u.search, body: req.postData() ? JSON.parse(req.postData()) : undefined, headers: { 'x-rt-membre': encodeURIComponent('Romain'), 'x-rt-espace': 'naos' } });
+    recus.push(`${req.method()} ${u.searchParams.get('k')} ${r.status}`);
+    await route.fulfill({ status: r.status, contentType: 'application/json', headers: { 'cache-control': 'no-store' }, body: JSON.stringify(r.body ?? null) });
+  });
+  const { page, erreurs } = await ouvrePage(ctx);
+  const requetes = new Set();
+  page.on('request', (r) => { const u = new URL(r.url()); if (u.hostname === '127.0.0.1') requetes.add(adresseNaos(r.url())); });
+  await ouvreApp(page, base);
+  await membreGarde(page, 'Romain');
+  // rattrapage des anciennes traces (js/reprise.js, 1,5 s après la carte) : sa clé fait partie de ce qu’un appareil neuf écrit
+  await page.waitForFunction(() => localStorage.getItem('rade.reprise.v1'), null, { timeout: 30000, polling: 100 });
+  for (const tab of ['brief', 'course', 'ic', 'tracks', 'j80']) {
+    await page.click(`#tabs button[data-tab=${tab}]`);
+    await page.waitForSelector(`section[data-tab=${tab}].on`, { timeout: 30000 });
+  }
+  await creeRegate(page, { nom: 'Coupe de Noël', debut: '2026-12-05', club: 'CVAT' });
+  await avanceHeure(m, 60e3);
+  await synchronise(m, { nom: 'Romain', page });
+  assert.ok(recus.some((x) => /^PUT light 200$/.test(x)), `la régate est envoyée à l’archive (${recus.join(', ')})`);
+  assert.equal((await m.invoke(m.handler, { method: 'GET', url: '/api/archive?k=light', headers: { 'x-rt-membre': 'Romain', 'x-rt-espace': 'naos' } })).body.env, 'preview', 'archive de l’aperçu');
+  await page.waitForLoadState('networkidle');
+  const { cles, bases } = await releveStockage(page);
+  sansErreur(erreurs, 'pendant le parcours de l’app');
+  await ctx.close();
+
+  // caches : service worker autorisé, attente de la liste hors réseau complète du dossier servi
+  const servie = process.env.E2E_ROOT ? resolve(process.env.E2E_ROOT) + '/' : ROOT;
+  const n = JSON.parse(/const SHELL = (\[.*?\]);/s.exec(readFileSync(join(servie, 'sw.js'), 'utf8'))[1]).length;
+  const ctxW = await ouvreContexte(browser, { heure: HEURE, worker: true });
+  const W = await ouvrePage(ctxW);
+  await ouvreApp(W.page, base);
+  const fin = Date.now() + 90000;
+  while (!(await W.page.evaluate(async (k) => {
+    if (!navigator.serviceWorker.controller) return false;
+    for (const c of (await caches.keys()).filter((x) => /^rade-[0-9a-f]+$/.test(x))) if ((await (await caches.open(c)).keys()).length >= k) return true;
+    return false;
+  }, n).catch(() => false))) {
+    if (Date.now() > fin) throw new Error('le service worker n’a pas mis toute l’app en cache');
+    await new Promise((r) => setTimeout(r, 300));
+  }
+  const caches_ = (await W.page.evaluate(() => caches.keys())).map((c) => c.replace(/^rade-[0-9a-f]+$/, 'rade-<id>')).sort();
+  sansErreur(W.erreurs, 'avec le service worker');
+  await ctxW.close();
+
+  const releve = { cles, bases, caches: caches_, requetes: [...requetes].sort() };
+  if (process.env.E2E_CAPTURE) {
+    writeFileSync(process.env.E2E_CAPTURE, JSON.stringify({ v: 43, from: '5e9b8a5', ...releve }) + '\n');
+    console.log(`  capture écrite : ${process.env.E2E_CAPTURE} (${cles.length} clés, ${bases.length} bases, ${caches_.length} caches, ${releve.requetes.length} adresses)`);
+    return;
+  }
+  const { AJOUTS_SHELL } = await import('../tests/helpers/naos.mjs');
+  const ref = JSON.parse(readFileSync(NAOS_CLES, 'utf8'));
+  assert.equal(ref.from, '5e9b8a5', 'capture de la v43');
+  for (const k of ['cles', 'bases', 'caches']) assert.deepEqual(releve[k], ref[k], `${k} différentes de la v43`);
+  assert.deepEqual(ref.requetes.filter((a) => !releve.requetes.includes(a)), [], 'adresses de la v43 qui ne sont plus demandées');
+  assert.deepEqual(releve.requetes.filter((a) => !ref.requetes.includes(a) && !AJOUTS_SHELL.includes(a.slice(1))), [], 'adresses nouvelles hors de AJOUTS_SHELL');
+}
+
 // ───────────────────────── plans d’eau (07-04)
 
 const MANIFESTE = JSON.parse(readFileSync(join(ROOT, 'data/venues.json'), 'utf8'));
@@ -3554,7 +3639,7 @@ async function regateBrest({ browser, base }) {
   await A.ctx.close(); await B.ctx.close();
 }
 
-const SCENARIOS = { accueil, 'jour-j': jourJ, 'deux-telephones': deuxTelephones, reprise, equipage, archive, 'archive-bouees': archiveBouees, archivehors: archiveHors, creer, manche, auteur, ic, 'depuis-ic': depuisIC, vraisemblance, gel, 'debrief-tardif': debriefTardif, gpx, 'gpx-choix': gpxChoix, ia, 'ia-erreurs': iaErreurs, arbitre, bouees, guide, entetes, 'retour-port': retourPort, banane, 'banane-manche': bananeManche, 'banane-debrief': bananeDebrief, 'porte-ic': porteIC, 'modifier-manche': modifierManche, 'toulon-vue': toulonVue, 'plan-eau': planEau, 'brest-avion': brestAvion, 'regate-brest': regateBrest, 'brest-courant': brestCourant, gpen };
+const SCENARIOS = { accueil, 'jour-j': jourJ, 'deux-telephones': deuxTelephones, reprise, equipage, archive, 'archive-bouees': archiveBouees, archivehors: archiveHors, creer, manche, auteur, ic, 'depuis-ic': depuisIC, vraisemblance, gel, 'debrief-tardif': debriefTardif, gpx, 'gpx-choix': gpxChoix, ia, 'ia-erreurs': iaErreurs, arbitre, bouees, guide, entetes, 'retour-port': retourPort, banane, 'banane-manche': bananeManche, 'banane-debrief': bananeDebrief, 'porte-ic': porteIC, 'modifier-manche': modifierManche, 'toulon-vue': toulonVue, 'plan-eau': planEau, 'brest-avion': brestAvion, 'regate-brest': regateBrest, 'brest-courant': brestCourant, gpen, 'naos-cles': naosCles };
 
 // ───────────────────────── lancement
 
