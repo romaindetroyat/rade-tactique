@@ -3,7 +3,7 @@
 // `rade.bateau.v1` (`{ voile }`), jamais dans `rade.state`.
 
 import { setDefaultPolar } from './polar.js';
-import { TOF_TWS, TOF_TWA, TOF_BSP, TOF_SOURCES } from './polar-tofinou95.js';
+import { TOF_TWS, TOF_TWA, TOF_BSP, TOF_BSP_FOC, TOF_SOURCES } from './polar-tofinou95.js';
 
 export const BATEAU_KEY = 'rade.bateau.v1';
 
@@ -13,6 +13,7 @@ const POLAIRES = Object.freeze({
     tws: TOF_TWS, twa: TOF_TWA,
     variantes: Object.freeze({
       genois: Object.freeze({ bsp: TOF_BSP, source: TOF_SOURCES.genois, fichier: 'data/tofinou95.pol' }),
+      foc: Object.freeze({ bsp: TOF_BSP_FOC, source: TOF_SOURCES.foc, fichier: 'data/tofinou95-foc.pol' }),
     }),
   }),
 });
@@ -28,6 +29,20 @@ export function voileDe(espace, storage) {
   let v = null;
   try { v = JSON.parse(storage?.getItem(BATEAU_KEY) ?? 'null')?.voile ?? null; } catch { v = null; /* valeur illisible : voile par défaut */ }
   return voiles.includes(v) ? v : defaut;
+}
+
+// Choix de l’équipier : écrit rade.bateau.v1 (`{ voile }`) pour une voile proposée par l’espace ; Naos ou voile inconnue : rien lu ni écrit.
+// Rend vrai si le choix est gardé (stockage plein ou indisponible : faux, sans exception).
+export function choisirVoile(espace, storage, voile) {
+  const p = polaireDe(espace);
+  if (!p || typeof voile !== 'string' || !(espace.bateau.voiles || []).includes(voile) || !Object.hasOwn(p.variantes, voile)) return false;
+  try { storage.setItem(BATEAU_KEY, JSON.stringify({ voile })); return true; } catch { return false; /* stockage plein ou indisponible */ }
+}
+
+// Variantes proposées par l’espace (ordre du registre) : [{ voile, source, fichier }] ; Naos : []
+export function variantesDe(espace) {
+  const p = polaireDe(espace);
+  return p ? (espace.bateau.voiles || []).filter((v) => Object.hasOwn(p.variantes, v)).map((v) => ({ voile: v, source: p.variantes[v].source, fichier: p.variantes[v].fichier })) : [];
 }
 
 // Variante (tableaux, source, fichier) d’une voile de l’espace ; null pour Naos

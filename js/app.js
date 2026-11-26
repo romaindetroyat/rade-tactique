@@ -24,7 +24,7 @@ import { buildLegs, analyzeLeg, markAdvice, analyzeStart, trendOf, rankCourses, 
 import { BANANE_ID, BANANE, addBanane, banOf, banToState, cleanBan, courseMarkUse, legReached, banHorsEau, banHorsZone, courseBan, courseLaps } from './banane.js';
 import { optimalAngles, boatSpeed, trimAdvice, spiMinTwa, getPolar, setPolar, resetPolar, parsePolar } from './polar.js';
 import { renderJ80 } from './j80.js';
-import { appliquerPolaireEspace } from './bateau.js';
+import { appliquerPolaireEspace, choisirVoile, voileDe } from './bateau.js';
 import { modelPoints, modelAt, idwAt, scoreModels, renderObsCard } from './obs.js';
 import { initTips, maybeWelcome, openGuide, openShare, tip, SYNC_TIP, DL_TIP } from './help.js';
 import { parseWind, listen, say } from './voice.js';
@@ -155,6 +155,10 @@ const persist = () => store.set('rade.state', Object.fromEntries(Object.keys(DEF
 let T, F, scene, data = null, series = [], live = [], analysis = null, selLeg = null, gps = null, follow = false, nextIdx = 0;
 const forbidden = zonesXY(FORBIDDEN_ZONES, toXY);            // zones interdites du plan d’eau en mètres (Toulon : la zone de Saint-Mandrier de la v42)
 
+// Bateau de l’espace (08-05, D-09) : hors de Naos, ses pertes aux manœuvres dans chaque routage (ctx.bateau → routeOpts) ; Naos : contexte de la v43
+const BATEAU = ESPACE.id === 'naos' ? {} : { bateau: ESPACE.bateau };
+const CLASSE = ESPACE.bateau.classe;                        // « J80 » pour Naos : textes de la v43
+if (ESPACE.bateau.onglet) { const b = $('#tabs button[data-tab=j80]'); if (b) b.textContent = ESPACE.bateau.onglet; }      // Naos : « J80 » de index.html
 appliquerPolaireEspace(ESPACE, localStore());              // polaire par défaut de l’espace (Naos : aucune, J80), avant la polaire personnelle
 if (S.polar) { try { setPolar(S.polar.tws, S.polar.twa, S.polar.bsp, S.polar.source); } catch (e) { S.polar = null; report('polaire', e); } }
 
@@ -620,7 +624,7 @@ async function runAnalysis() {
   // parcours du GPEN : bouées hors du cercle de la zone A (l’arrivée devant la chapelle en est dehors par construction)
   const horsZone = course.zone === 'A' && VENUE.zoneA ? banHorsZone(B, ((z) => (p) => distXY(p, z) <= VENUE.zoneA.rayonNm * NM)(toXY(VENUE.zoneA.lat, VENUE.zoneA.lon)), { finish: !course.arrivee }) : [];
   const trend = S.src === 'forecast' && data ? trendOf(series, Math.max(0, seriesIndex(S.day, S.startTime)), Math.max(0, seriesIndex(S.day, S.startTime + 4))) : 0;
-  const ctx = { terrain: T, forbidden, perf: S.perf, trend, memo: new Map() };          // memo : routes de cette analyse (routeOf), jamais recalculées
+  const ctx = { terrain: T, forbidden, perf: S.perf, trend, memo: new Map(), ...BATEAU };          // memo : routes de cette analyse (routeOf), jamais recalculées
   // Brest : courant de l’atlas et hauteur d’eau dans le routage, à l’heure de chaque bord (D-13, D-14c) ; Toulon : contexte de la v42
   const cur = VENUE.courant ? await courantCtx(S.day, S.startTime) : null;
   if (token !== anaToken) return;
@@ -887,7 +891,7 @@ function renderBrief() {
         ? `Vos relevés tranchent pour <b>${esc(best.label)}</b> (écart moyen ${Math.round(best.ddir)}° et ${Math.abs(best.dspd).toFixed(1)} nd)${ranking[1] ? `, devant ${esc(ranking[1].label)} (${Math.round(ranking[1].ddir)}°)` : ''}.`
         : 'Faites un relevé dès l’arrivée sur zone (onglet Parcours) : l’app retiendra le modèle qui colle.'));
     }
-    tips.push(`${VENUE.id === 'toulon' ? `Parcours ${analysis.course.id}` : esc(analysis.course.title)} estimé à <b>${summarizeTime(analysis.total * 3600)}</b> pour un J80 (${(analysis.dist / NM).toFixed(1)} Nq route directe).`);
+    tips.push(`${VENUE.id === 'toulon' ? `Parcours ${analysis.course.id}` : esc(analysis.course.title)} estimé à <b>${summarizeTime(analysis.total * 3600)}</b> pour un ${esc(CLASSE)} (${(analysis.dist / NM).toFixed(1)} Nq route directe).`);
     if (analysis.courant) tips.push(analysis.courant.ok ? 'Temps de parcours avec le courant de marée (atlas du Shom).' : `<b>${esc(analysis.courant.raison)}</b>`);
     const c0 = analysis.legs[0]?.courant?.advice;           // Brest : ce que le courant change au premier bord (renverse : carte du courant)
     if (c0?.length) tips.push(`Premier bord : ${esc(c0.map(tipText).join(' · '))}`);
@@ -907,7 +911,7 @@ function renderBrief() {
   }
   // Toulon : conseils en chaînes, affichage de la v42 ; ailleurs { t, o } : origine en tête, hypothèse « à confirmer sur l’eau », ligne d’origine (D-14)
   if (reg) html += `<div class="card"><h3>Effets locaux — ${esc(reg.name)} <small>connaissance de la rade</small></h3><ul class="tips">${reg.tips.map((t) => `<li>${typeof t === 'string' ? '' : `<small class="muted">${esc(ORIGINES[t.o] ?? '')}</small> `}${esc(tipText(t))}</li>`).join('')}</ul>${VENUE.texts?.origine ? `<div class="small muted">${esc(VENUE.texts.origine)}</div>` : ''}</div>`;
-  if (w?.spd != null) { const ta = trimAdvice(w.spd, w.gust); html += `<div class="card"><h3>Réglages J80 — ${ta.mode}</h3><ul class="tips"><li><b>Gréement</b> : ${ta.rig} Haubans / intermédiaires / bas-haubans (North, jauge Loos B) : <b>${shroudsFor(w.gust ? (w.spd + w.gust) / 2 : w.spd)}</b>.</li><li><b>Voiles</b> : ${ta.sails}</li><li><b>Équipage</b> : ${ta.crew}</li><li><b>Tactique</b> : ${ta.tactic}</li></ul><div class="small muted">Valeurs chiffrées (haubans, points de tir) : onglet J80.</div></div>`; }
+  if (w?.spd != null && ESPACE.bateau.reglages !== false) { const ta = trimAdvice(w.spd, w.gust); html += `<div class="card"><h3>Réglages J80 — ${ta.mode}</h3><ul class="tips"><li><b>Gréement</b> : ${ta.rig} Haubans / intermédiaires / bas-haubans (North, jauge Loos B) : <b>${shroudsFor(w.gust ? (w.spd + w.gust) / 2 : w.spd)}</b>.</li><li><b>Voiles</b> : ${ta.sails}</li><li><b>Équipage</b> : ${ta.crew}</li><li><b>Tactique</b> : ${ta.tactic}</li></ul><div class="small muted">Valeurs chiffrées (haubans, points de tir) : onglet J80.</div></div>`; }
   // modèles à l'heure affichée
   const ih = seriesIndex(S.day, S.hour);
   if (ih >= 0) {
@@ -1005,7 +1009,7 @@ function renderCourse() {
     if (A.horsEau?.length) html += `<div class="card" id="banEau" style="border:2px solid var(--bad)"><b>⚠ ${esc(horsEauText(A.horsEau, distLabel(c)))}</b></div>`;
     if (A.horsZone?.length) html += `<div class="card" id="banZone" style="border:2px solid var(--bad)"><b>⚠ ${esc(horsZoneText(A.horsZone))}</b></div>`;
     if (A.horsFond?.length) html += `<div class="card" id="banFond" style="border:2px solid var(--bad)"><b>⚠ ${esc(horsFondText(A.horsFond, distLabel(c)))}</b></div>`;
-    html += `<div class="card"><div class="kpis"><div class="kpi"><b>${(A.dist / NM).toFixed(1)}</b><span>Nq route directe${c.nm ? ` (cahier : ${c.nm[A.cls]})` : c.lapNm ? ` (${c.lapNm} Nq/tour)` : ''}</span></div><div class="kpi"><b>${summarizeTime(A.total * 3600)}</b><span>temps J80 estimé</span></div><div class="kpi"><b>${man}</b><span>virements / empannages</span></div></div>
+    html += `<div class="card"><div class="kpis"><div class="kpi"><b>${(A.dist / NM).toFixed(1)}</b><span>Nq route directe${c.nm ? ` (cahier : ${c.nm[A.cls]})` : c.lapNm ? ` (${c.lapNm} Nq/tour)` : ''}</span></div><div class="kpi"><b>${summarizeTime(A.total * 3600)}</b><span>temps ${esc(CLASSE)} estimé</span></div><div class="kpi"><b>${man}</b><span>virements / empannages</span></div></div>
       <div class="small muted" style="margin-top:6px">Arrivée estimée ≈ ${hhmm(S.startTime + A.total)}. Chaque bord est calculé avec le vent prévu à l’heure où vous le courez, depuis le meilleur point de la ligne de départ.</div><button class="btn acc" id="playCourse" style="width:100%;margin-top:8px">▶ Animer le parcours</button></div>`;
     html += `<div class="legs">` + A.legs.map((l, i) => {
       const chip = l.type.id === 'pres' ? 'pres' : l.type.sail.startsWith('Spi') ? 'spi' : 'reach';
@@ -1019,7 +1023,7 @@ function renderCourse() {
         ${ma.length ? `<div class="mark">${ma.map(esc).join('<br>')}</div>` : ''}
       </div>`;
     }).join('') + '</div>';
-    html += `<div class="card small muted">Route optimale (pointillés bleus) : routage par isochrones sur le champ de vent local avec la polaire J80 (pénalité ~9 s par virement, ~6 s par empannage), évitement de la terre et de la zone interdite. Touchez un bord pour l’afficher seul avec ses lay-lines.</div>`;
+    html += `<div class="card small muted">Route optimale (pointillés bleus) : routage par isochrones sur le champ de vent local avec la polaire ${esc(CLASSE)} (pénalité ~${ESPACE.bateau.virement_s ?? 9} s par virement, ~${ESPACE.bateau.empannage_s ?? 6} s par empannage), évitement de la terre et de la zone interdite. Touchez un bord pour l’afficher seul avec ses lay-lines.</div>`;
   }
   el.innerHTML = html;
   renderObsAll();
@@ -1597,7 +1601,7 @@ async function planRest() {
   const pos = gps?.pos || (obsPos && toXY(obsPos.lat, obsPos.lon));
   if (!pos) { toast('Activez le GPS (ou touchez la carte → « Relevé de vent ici ») pour situer le bateau.'); return; }
   const t0 = S.day === today() ? nowHour() : analysis.legs[nextIdx].eta0;
-  const ctx = { terrain: T, forbidden, perf: S.perf, trend: analysis.trend, memo: new Map() };
+  const ctx = { terrain: T, forbidden, perf: S.perf, trend: analysis.trend, memo: new Map(), ...BATEAU };
   const cur = VENUE.courant ? await courantCtx(S.day, t0) : null;          // Brest : courant à l’heure de chaque bord ; Toulon : v42
   if (cur?.current) Object.assign(ctx, { current: cur.current, depth: cur.depth });
   const legs = []; let t = t0, lastH = -1;
@@ -1787,7 +1791,7 @@ async function runDebrief(tr) {
   // parcours proposés : ceux de la régate de la trace quand c’est la régate ouverte (seuls ses parcours sont chargés), sinon le cahier CVAT
   const courses = allowedCourses(COURSES, reg && reg.id === openReg()?.id ? reg.id : null);
   const api = {
-    F, ctx: { terrain: T, forbidden, perf: S.perf ?? 1 }, localFx: S.localFx ?? 1, forecastAt: (t) => forecastIn(src.ser, t), toast, meta: T.meta, files: VENUE.files, eventName: reg?.name || IC?.event || '', courseHint: manche?.courseId ?? null, courses,
+    F, ctx: { terrain: T, forbidden, perf: S.perf ?? 1, ...BATEAU }, localFx: S.localFx ?? 1, forecastAt: (t) => forecastIn(src.ser, t), toast, meta: T.meta, files: VENUE.files, eventName: reg?.name || IC?.event || '', courseHint: manche?.courseId ?? null, courses,
     // relevé saisi ce jour-là le plus proche du départ (figé, si le jour l'est), sinon la prévision (figée de même)
     windGuess: (t) => {
       const near = src.obs.filter((o) => o.t && Math.abs(o.t - t) < 3 * 3600e3).sort((a, b) => Math.abs(a.t - t) - Math.abs(b.t - t))[0];
@@ -1997,7 +2001,7 @@ function planBananeTrace(ban, bo, day, src) {
   const cxy = toXY(bo.c.lat, bo.c.lon), spd = Math.max(3, trackWindAt(day, src)(cxy.x, cxy.y, ban.mc.hit[0].t).spd);
   const prev = F.base ? { base: F.base, fx: F.fx } : null;
   F.compute({ points: [{ x: 0, y: 0, dir: ban.dir, spd, gust: spd * 1.35 }] }, { localEffects: S.localFx ?? 1 });
-  try { return planBanane(ban.B, F, { terrain: T, forbidden, perf: S.perf ?? 1, trend: 0 }); }
+  try { return planBanane(ban.B, F, { terrain: T, forbidden, perf: S.perf ?? 1, trend: 0, ...BATEAU }); }
   finally { if (prev) F.compute(prev.base, { localEffects: prev.fx }); else fieldKey = null; }
 }
 function renderTraceDetail() {
@@ -2106,6 +2110,14 @@ function renderJ80Tab() {
     perf: S.perf,
     onPerf: (v) => { S.perf = v; persist(); scheduleAnalysis(); },
     wind: analysis?.legs?.[0]?.wind,
+    bateau: ESPACE.bateau,
+    // voile d’avant (hors de Naos) : gardée dans rade.bateau.v1, nouvelle polaire par défaut, la polaire personnelle garde la priorité
+    ...(BATEAU.bateau ? { voile: voileDe(ESPACE, localStore()), onVoile: (v) => {
+      if (!choisirVoile(ESPACE, localStore(), v)) { toast('Choix de la voile d’avant non enregistré sur ce téléphone'); return; }
+      appliquerPolaireEspace(ESPACE, localStore());
+      if (S.polar) { try { setPolar(S.polar.tws, S.polar.twa, S.polar.bsp, S.polar.source); } catch (e) { S.polar = null; report('polaire', e); } }
+      renderJ80Tab(); scheduleAnalysis();
+    } } : {}),
   });
 }
 

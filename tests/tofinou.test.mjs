@@ -10,9 +10,12 @@ import { createHash } from 'node:crypto';
 import { ROOT } from './helpers/setup.mjs';
 import { getPolar, setPolar, resetPolar, parsePolar, polarSource, boatSpeed, optimalAngles, DEFAULT_TWS, DEFAULT_TWA, DEFAULT_BSP } from '../js/polar.js';
 import { ORC_TWS, ORC_TWA, ORC_BSP } from '../js/polar-orc.js';
-import { TOF_TWS, TOF_TWA, TOF_BSP, TOF_SOURCES } from '../js/polar-tofinou95.js';
+import { TOF_TWS, TOF_TWA, TOF_BSP, TOF_BSP_FOC, TOF_SOURCES } from '../js/polar-tofinou95.js';
 import { ESPACES } from '../js/espaces.js';
-import { BATEAU_KEY, voileDe, varianteDe, appliquerPolaireEspace } from '../js/bateau.js';
+import { BATEAU_KEY, voileDe, varianteDe, appliquerPolaireEspace, choisirVoile } from '../js/bateau.js';
+import { routeOpts } from '../js/tactics.js';
+import { renderJ80 } from '../js/j80.js';
+import { parseHTML } from 'linkedom';
 import { setVenue } from '../js/lieu.js';
 import { Terrain, toXY } from '../js/geo.js';
 import { WindField } from '../js/wind.js';
@@ -126,4 +129,125 @@ test('route de Bormes (La Fourmigue → ligne du Lavandou) : plus rapide avec la
     assert.ok(j80 && tof, 'deux routes');
     assert.ok(tof.time < j80.time, `${dir}° : Tofinou ${tof.time.toFixed(0)} s, J80 ${j80.time.toFixed(0)} s`);
   }
+});
+
+// ───────────────────────── 08-05 tâche 2 : variante foc, voile d’avant, pertes aux manœuvres, onglet du bateau
+
+const FACT_PRES = [0.85, 0.88, 0.90, 0.93, 0.98, 1, 1, 1, 1];          // lignes de 30 à 75°, colonnes de 4 à 24 nd (§ 5.4, § 5.5)
+const FACT_90 = [0.94, 0.99, 1, 1, 1, 1, 1, 1, 1];
+
+test('variante foc : lignes de 30 à 75° et 90° multipliées par les facteurs de l’étude, lignes de 110 à 180° identiques ; data/tofinou95-foc.pol relu = TOF_BSP_FOC', () => {
+  assert.equal(TOF_BSP_FOC.length, TOF_BSP.length);
+  TOF_TWA.forEach((a, i) => {
+    const f = a === 0 ? null : a <= 75 ? FACT_PRES : a === 90 ? FACT_90 : null;
+    TOF_BSP[i].forEach((v, j) => assert.equal(TOF_BSP_FOC[i][j], f ? +(v * f[j]).toFixed(2) : v, `${a}° · ${TOF_TWS[j]} nd`));
+  });
+  const p = parsePolar(lire('data/tofinou95-foc.pol'));
+  assert.deepEqual(p.tws, TOF_TWS);
+  assert.deepEqual([TOF_TWS.map(() => 0), ...p.bsp], TOF_BSP_FOC);
+  assert.ok(statSync(join(ROOT, 'data/tofinou95-foc.pol')).size < 1200);
+  assert.equal(TOF_SOURCES.foc, 'foc d’origine (estimée d’après le Tofinou 9.7) — à recaler');
+});
+
+test('voile d’avant : « foc » écrit rade.bateau.v1 = { voile: "foc" } et devient la polaire par défaut ; Naos : rien écrit, polaire J80', () => {
+  const s = espion();
+  assert.equal(choisirVoile(ESPACES.tofinou, s, 'foc'), true);
+  assert.deepEqual(JSON.parse(s.valeur(BATEAU_KEY)), { voile: 'foc' });
+  assert.equal(appliquerPolaireEspace(ESPACES.tofinou, s), 'foc');
+  assert.equal(polarSource, TOF_SOURCES.foc);
+  assert.deepEqual(getPolar().bsp, TOF_BSP_FOC);
+  pres(optimalAngles(6).up.vmg, 3.59 * 0.88, 0.15, 'foc : VMG près par 6 nd plus bas qu’au génois');
+  resetPolar();
+  assert.equal(polarSource, TOF_SOURCES.foc, '« Polaire par défaut » : la variante choisie');
+  assert.equal(choisirVoile(ESPACES.tofinou, s, 'spi'), false, 'voile inconnue refusée');
+  assert.deepEqual(JSON.parse(s.valeur(BATEAU_KEY)), { voile: 'foc' });
+  assert.equal(choisirVoile(ESPACES.tofinou, s, 'genois'), true);
+  assert.equal(appliquerPolaireEspace(ESPACES.tofinou, s), 'genois');
+  const n = espion();
+  assert.equal(choisirVoile(ESPACES.naos, n, 'foc'), false);
+  assert.deepEqual(n.journal, [], 'Naos : aucune clé lue ni écrite');
+  assert.equal(choisirVoile(ESPACES.tofinou, { setItem: () => { throw new Error('plein'); }, getItem: () => null }, 'foc'), false, 'stockage plein : refus sans exception');
+});
+
+test('bateau de l’espace Tofinou : 9,47 m, pertes 11 s / 8 s, tirant d’eau 2,20 / 1,20 m, onglet « Tofinou », réglages du J80 masqués ; Naos sans ces champs', () => {
+  const b = ESPACES.tofinou.bateau;
+  assert.deepEqual([b.classe, b.longueur, b.virement_s, b.empannage_s, b.tirant?.bas, b.tirant?.haut, b.onglet, b.reglages], ['Tofinou 9.5', 9.47, 11, 8, 2.2, 1.2, 'Tofinou', false]);
+  assert.deepEqual(ESPACES.naos.bateau, { classe: 'J80', longueur: 8 });
+});
+
+test('routeOpts : sans ctx.bateau, options de la v43 ; avec le bateau du Tofinou, 11 s au virement et 8 s à l’empannage', () => {
+  const ctx = { terrain: 'T', forbidden: 'Z', perf: 0.93 };
+  assert.deepEqual(routeOpts(ctx), { terrain: 'T', forbidden: 'Z', perf: 0.93 });
+  assert.deepEqual(Object.keys(routeOpts(ctx)), ['terrain', 'forbidden', 'perf']);
+  assert.deepEqual(routeOpts({ ...ctx, bateau: ESPACES.tofinou.bateau }), { terrain: 'T', forbidden: 'Z', perf: 0.93, tackLoss: 11, gybeLoss: 8 });
+  assert.deepEqual(routeOpts({ ...ctx, current: 'C', t0: 5 }), { terrain: 'T', forbidden: 'Z', perf: 0.93, current: 'C', depth: null, t0: 5 });
+  // un bateau sans pertes (Naos) n’en ajoute aucune
+  assert.deepEqual(routeOpts({ ...ctx, bateau: ESPACES.naos.bateau }), { terrain: 'T', forbidden: 'Z', perf: 0.93 });
+});
+
+test('pertes aux manœuvres : même route plus longue avec 11 s / 8 s qu’avec 9 s / 6 s (au plus 2 s par manœuvre et un pas d’isochrone de plus) ; travers sans manœuvre identique', () => {
+  appliquerPolaireEspace(ESPACES.tofinou, espion());
+  const F = { sample: () => ({ dir: 0, spd: 10 }), gen: 0 };
+  for (const [de, vers] of [[{ x: 0, y: 0 }, { x: 0, y: 3000 }], [{ x: 0, y: 3000 }, { x: 0, y: 0 }]]) {
+    const j = route(de, vers, F, { perf: 1 }), t = route(de, vers, F, routeOpts({ perf: 1, bateau: ESPACES.tofinou.bateau }));
+    assert.ok(j.maneuvers >= 1 && t.maneuvers === j.maneuvers, `manœuvres ${j.maneuvers} / ${t.maneuvers}`);
+    const d = t.time - j.time, pas = Math.min(90, Math.max(10, 3000 / (Math.max(2, boatSpeed(10, 90) * 0.7) * 1852 / 3600) / 45));
+    assert.ok(d > 0 && d <= 2 * t.maneuvers + pas, `écart ${d.toFixed(2)} s`);
+  }
+  const a = route({ x: 0, y: 0 }, { x: 3000, y: 0 }, F, { perf: 1 }), b = route({ x: 0, y: 0 }, { x: 3000, y: 0 }, F, routeOpts({ perf: 1, bateau: ESPACES.tofinou.bateau }));
+  assert.equal(a.maneuvers, 0);
+  assert.equal(b.time, a.time);
+});
+
+test('onglet de Naos identique à la v43 : HTML de renderJ80 = tests/fixtures/j80-v43.json (capturé sur 5e9b8a5) pour les mêmes états', async () => {
+  const ref = JSON.parse(lire('tests/fixtures/j80-v43.json'));
+  const now = JSON.parse(execFileSync(process.execPath, ['tests/helpers/j80v43.mjs', '--rendu', ROOT], { cwd: ROOT, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 }));
+  assert.deepEqual(Object.keys(now), Object.keys(ref));
+  for (const k of Object.keys(ref)) assert.equal(now[k], ref[k], k);
+});
+
+// Onglet du bateau de l’espace Tofinou rendu par js/j80.js, polaire de l’espace appliquée
+function ongletTofinou({ voile = 'genois', wind = { spd: 6, dir: 260 }, perf = 0.95 } = {}) {
+  const s = espion({ [BATEAU_KEY]: JSON.stringify({ voile }) });
+  appliquerPolaireEspace(ESPACES.tofinou, s);
+  const { document } = parseHTML('<html><body><section data-tab="j80"></section></body></html>');
+  const el = document.querySelector('section'), appels = [];
+  renderJ80(el, { onImport() {}, onReset: () => appels.push('reset'), perf, onPerf() {}, wind, bateau: ESPACES.tofinou.bateau, voile, onVoile: (v) => appels.push(v) });
+  return { el, appels };
+}
+
+test('onglet du Tofinou : « Tofinou 9.5 », voile d’avant au choix, 9,47 m, tirant d’eau « à confirmer », pertes « estimation », deux polaires téléchargeables, source ; ni « J80 » ni réglages du J80', () => {
+  for (const voile of ['genois', 'foc']) {
+    const { el, appels } = ongletTofinou({ voile });
+    const t = el.textContent.replace(/\s+/g, ' ');
+    assert.ok(!/J80|J-80|Réglages|haubans|North|Loos/i.test(el.innerHTML), `aucune mention du J80 : ${t.slice(0, 200)}`);
+    for (const m of ['Tofinou 9.5', 'Voile d’avant', 'Génois', 'Foc', '9,47 m', '2,20 m quille basse', '1,20 m quille relevée', 'à confirmer', '11 s', '8 s', 'estimation',
+      'Télécharger la polaire', 'Performance de l’équipage', TOF_SOURCES[voile]]) assert.ok(t.includes(m), `${voile} : « ${m} » absent`);
+    const liens = [...el.querySelectorAll('a[download]')].map((a) => a.getAttribute('href'));
+    assert.deepEqual(liens, ['data/tofinou95.pol', 'data/tofinou95-foc.pol']);
+    const on = [...el.querySelectorAll('[data-voile]')].map((b) => [b.getAttribute('data-voile'), b.classList.contains('on')]);
+    assert.deepEqual(on, [['genois', voile === 'genois'], ['foc', voile === 'foc']]);
+    el.querySelector(`[data-voile="${voile === 'genois' ? 'foc' : 'genois'}"]`).click();
+    el.querySelector(`[data-voile="${voile}"]`).click();
+    assert.deepEqual(appels, [voile === 'genois' ? 'foc' : 'genois'], 'un clic sur la voile déjà choisie ne fait rien');
+  }
+});
+
+test('onglet du Tofinou : polaire personnelle importée — source affichée et rappel que « Polaire par défaut » revient au Tofinou', () => {
+  appliquerPolaireEspace(ESPACES.tofinou, espion());
+  setPolar([6, 10, 14], [40, 90, 150], [[4, 5, 5.5], [5, 6.5, 7], [4.5, 6, 7.5]], 'ma-polaire.pol');
+  const { document } = parseHTML('<html><body><section></section></body></html>');
+  const el = document.querySelector('section');
+  renderJ80(el, { onImport() {}, onReset() {}, perf: 1, onPerf() {}, bateau: ESPACES.tofinou.bateau, voile: 'genois', onVoile() {} });
+  const t = el.textContent.replace(/\s+/g, ' ');
+  assert.ok(t.includes('ma-polaire.pol'));
+  assert.match(t, /polaire personnelle/i);
+  resetPolar();
+});
+
+test('textes du bateau dans js/app.js : temps estimés et routage au nom de la classe et avec les pertes de l’espace ; carte « Réglages J80 » seulement si le bateau a ses réglages', () => {
+  const src = lire('js/app.js');
+  assert.ok(!/pour un J80 \(/.test(src) && !/temps J80 estimé/.test(src) && !/polaire J80 \(pénalité ~9 s/.test(src), 'textes du bateau calculés');
+  assert.match(src, /reglages !== false/);
+  assert.match(src, /appliquerPolaireEspace\(ESPACE, localStore\(\)\);[^\n]*\nif \(S\.polar\)/, 'polaire de l’espace juste avant la polaire personnelle');
 });

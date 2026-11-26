@@ -3,7 +3,8 @@
 // Méthode de tools/build_polar.mjs (outil du J80, non modifié) : vitesse = 3600 / temps au mille du certificat, mêmes lignes d’angles,
 // angles au-dessous du près optimal, entre le près et 52°, et au-delà de 150° (165° et 180°) par les mêmes formules ; AUCUNE extrapolation :
 // le certificat couvre déjà 4 et 24 nd (au-delà de 24 nd, boatSpeed garde la dernière colonne).
-//   node tools/build_polar_tofinou.mjs           écrit data/tofinou95.pol et js/polar-tofinou95.js
+// Deux variantes de voile d’avant : « génois » (celui du certificat, 26,4 m²) et « foc d’origine » (16 m² d’après la fiche de série), estimée.
+//   node tools/build_polar_tofinou.mjs           écrit data/tofinou95.pol, data/tofinou95-foc.pol et js/polar-tofinou95.js
 //   node tools/build_polar_tofinou.mjs --check   régénère en mémoire ; code 1 si un fichier écrit diffère
 import fs from 'node:fs';
 
@@ -45,19 +46,29 @@ function col(k) {
 const cols = TWS.map((_, k) => col(k));
 const BSP = ROWS.map((_, i) => cols.map((c) => c[i]));               // BSP[angle][vent], génois du certificat
 
-export const SOURCES = { genois: 'ORC Club 2026 (Tofinou 9.5, sister-ship) — à recaler' };
+// Variante « foc d’origine (estimée) » (08-RESEARCH-PLAN-EAU.md § 5.4, § 5.5) : rapport mesuré entre le certificat d’un Tofinou 9.7 sous foc
+// de 18 m² et celui du 9.5 sous génois (près : 0,853 ; 0,877 ; 0,895 ; 0,931 ; 0,976 ; 0,994 ; 0,998 de 4 à 16 nd ; 1,00 à 1,01 de 110 à 180°),
+// arrondi et transposé au 9.5 : une ESTIMATION (carènes différentes, bau de 3,00 m contre 2,45 m). Facteurs par colonne de vent (4 à 24 nd) :
+const FOC_PRES = [0.85, 0.88, 0.90, 0.93, 0.98, 1, 1, 1, 1];             // lignes de 30 à 75°
+const FOC_90 = [0.94, 0.99, 1, 1, 1, 1, 1, 1, 1];                         // ligne 90° ; lignes de 110 à 180° inchangées (spi)
+const BSP_FOC = ROWS.map((a, i) => (a <= 75 ? BSP[i].map((v, j) => +(v * FOC_PRES[j]).toFixed(2)) : a === 90 ? BSP[i].map((v, j) => +(v * FOC_90[j]).toFixed(2)) : BSP[i]));
+
+export const SOURCES = { genois: 'ORC Club 2026 (Tofinou 9.5, sister-ship) — à recaler', foc: 'foc d’origine (estimée d’après le Tofinou 9.7) — à recaler' };
 
 const pol = (bsp) => `TWA\\TWS\t${TWS.join('\t')}\n` + ROWS.map((a, i) => `${a}\t${bsp[i].join('\t')}\n`).join('');
 const zero = TWS.map(() => 0);
 const js = `// Généré par tools/build_polar_tofinou.mjs — ne pas modifier à la main. Polaire du Tofinou 9.5 de l’espace Tofinou : certificat ORC Club 2026
-// d’un sister-ship (référence ${CERT.RefNo}, émis le ${CERT.IssueDate.slice(0, 10)}), méthode de tools/build_polar.mjs, sans extrapolation (4 à 24 nd).
+// d’un sister-ship (référence ${CERT.RefNo}, émis le ${CERT.IssueDate.slice(0, 10)}), méthode de tools/build_polar.mjs, sans extrapolation (4 à 24 nd) ;
+// TOF_BSP : génois du certificat ; TOF_BSP_FOC : foc d’origine, estimé.
 export const TOF_TWS = ${JSON.stringify(TWS)};
 export const TOF_TWA = ${JSON.stringify([0, ...ROWS])};
 export const TOF_BSP = ${JSON.stringify([zero, ...BSP])};
+// Variante « foc d’origine (estimée) » : lignes de 30 à 75° et 90° réduites par petit temps (voir l’outil)
+export const TOF_BSP_FOC = ${JSON.stringify([zero, ...BSP_FOC])};
 export const TOF_SOURCES = ${JSON.stringify(SOURCES)};
 `;
 
-const SORTIES = [['data/tofinou95.pol', pol(BSP)], ['js/polar-tofinou95.js', js]];
+const SORTIES = [['data/tofinou95.pol', pol(BSP)], ['data/tofinou95-foc.pol', pol(BSP_FOC)], ['js/polar-tofinou95.js', js]];
 if (process.argv.includes('--check')) {
   const faux = SORTIES.filter(([f, t]) => { try { return fs.readFileSync(ICI(f), 'utf8') !== t; } catch { return true; } }).map(([f]) => f);
   if (faux.length) { console.error(`À régénérer (node tools/build_polar_tofinou.mjs) : ${faux.join(', ')}`); process.exit(1); }

@@ -260,9 +260,11 @@ export function routeOf(from, to, field, opts, ctx) {
 }
 
 // Options de routage d’une analyse : celles de la v42 ; à Brest seulement (ctx.current, ctx.depth), le courant, la hauteur d’eau et
-// l’instant de départ du bord (ms UTC, ctx.t0 sauf t0 donné)
+// l’instant de départ du bord (ms UTC, ctx.t0 sauf t0 donné) ; hors de Naos (ctx.bateau, 08-05), les pertes aux manœuvres du bateau de
+// l’espace (Naos ne pose jamais ctx.bateau : pertes du J80 de js/router.js, clés des routes mémorisées inchangées)
 export function routeOpts(ctx, t0 = ctx?.t0) {
   const o = { terrain: ctx.terrain, forbidden: ctx.forbidden, perf: ctx.perf ?? 1 };
+  if (Number.isFinite(ctx.bateau?.virement_s) && Number.isFinite(ctx.bateau?.empannage_s)) { o.tackLoss = ctx.bateau.virement_s; o.gybeLoss = ctx.bateau.empannage_s; }
   if (ctx.current || ctx.depth) { o.current = ctx.current ?? null; o.depth = ctx.depth ?? null; o.t0 = t0 ?? 0; }
   return o;
 }

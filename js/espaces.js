@@ -17,8 +17,13 @@ export const ESPACES = Object.freeze({
   // (le quota Blob est commun aux deux espaces : un dépassement bloquerait aussi l’archive de Naos)
   tofinou: gele({
     id: 'tofinou', nom: 'Tofinou — Bormes', app: 'Tofinou Bormes',
-    // polaire du sister-ship (js/bateau.js) : génois du certificat par défaut, foc estimé au choix de l’équipier (à confirmer avec le skipper)
-    bateau: { classe: 'Tofinou 9.5', longueur: 9.47, polaire: 'tofinou95', voiles: Object.freeze(['genois', 'foc']), voileDefaut: 'genois' },
+    // polaire du sister-ship (js/bateau.js) : génois du certificat par défaut, foc estimé au choix de l’équipier (à confirmer avec le skipper) ;
+    // pertes aux manœuvres estimées (bateau trois fois plus lourd que le J80), utilisées par le routage ; tirant d’eau affiché seulement (Bormes :
+    // ni fonds ni marée dans le routage), à confirmer ; réglages du J80 (carte du briefing, guide de réglage) masqués
+    bateau: {
+      classe: 'Tofinou 9.5', longueur: 9.47, polaire: 'tofinou95', voiles: Object.freeze(['genois', 'foc']), voileDefaut: 'genois',
+      virement_s: 11, empannage_s: 8, tirant: Object.freeze({ bas: 2.2, haut: 1.2 }), onglet: 'Tofinou', reglages: false,
+    },
     venues: ['bormes'], venueDefaut: 'bormes', pack: 'bormes', graines: [], recalage: false,
     caps: { archive: { w: 20, r: 75 }, lourd: { up: 10, down: 20 } },
     hotes: ['tofinou-bormes.vercel.app', 'tofinou.localhost'],

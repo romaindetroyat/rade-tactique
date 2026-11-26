@@ -3652,6 +3652,69 @@ async function tofinouDemarrage({ browser }) {
   }
 }
 
+// 08-05, D-09 : bateau de l’espace Tofinou (hôte connu, pack de Bormes comme tofinou-demarrage). Onglet « Tofinou » (ni « J80 » ni réglages
+// du J80), banane analysée par 6 nd de sud (180° : bouées dans la baie) avec le génois par défaut ; « Foc d’origine » choisi : rade.bateau.v1 = { voile: "foc" } (rien
+// dans rade.state), temps estimé de la banane plus long ; rechargement : le choix et le temps restent.
+const minutes = (t) => { const m = /(?:(\d+) h (\d+))|(?:(\d+) min)/.exec(t || ''); return m ? (m[1] ? +m[1] * 60 + +m[2] : +m[3]) : NaN; };
+const tempsBanane = async (page) => minutes(await page.locator('section[data-tab=course] .kpi', { hasText: 'estimé' }).first().locator('b').textContent());
+async function tofinouBateau({ browser }) {
+  const { serveur, base: base0 } = await demarreServeur({ root: ROOT });
+  const base = baseSur(base0, HOTES_ESSAI.tofinou);
+  let ctx;
+  try {
+    ctx = await ouvreContexte(browser, { heure: '2026-12-05T09:00:00Z', worker: true });
+    await membreEspace(ctx, { membre: 'Frédéric', espace: 'tofinou' });
+    const { page, erreurs } = await ouvrePage(ctx);
+    await ouvreApp(page, base);
+    await cartePlanEau(page, 'ready');
+    await page.evaluate(() => {
+      const s = JSON.parse(localStorage.getItem('rade.state') || '{}');
+      localStorage.setItem('rade.state', JSON.stringify({ ...s, src: 'manual', manual: { dir: 180, spd: 6, gust: 8 } }));
+    });
+    await page.reload({ waitUntil: 'load' });
+    await pret(page);
+    assert.equal((await texte(page, '#tabs button[data-tab=j80]')).trim(), 'Tofinou', 'bouton d’onglet « Tofinou »');
+    await page.click('#tabs button[data-tab=course]');
+    await attendBords(page, suite([BAN_B, BAN_C, BAN_PORTE, BAN_B, BAN_C, /^Arrivée \(ligne de départ\)/]), 'banane de Bormes au génois');
+    const genois = await tempsBanane(page);
+    assert.ok(Number.isFinite(genois) && genois > 0, `temps estimé au génois : ${genois}`);
+    assert.match(await texte(page, 'section[data-tab=course]'), /temps Tofinou 9\.5 estimé/);
+    assert.equal(await page.locator('#banEau').count(), 0, 'banane en mer par vent du sud');
+    await page.click('#tabs button[data-tab=j80]');
+    const onglet = async () => (await texte(page, 'section[data-tab=j80]')).replace(/\s+/g, ' ');
+    let t = await onglet();
+    assert.ok(!/J80|J-80/.test(await page.locator('section[data-tab=j80]').innerHTML()), 'aucune mention « J80 » dans l’onglet du Tofinou');
+    for (const m of ['Tofinou 9.5', '9,47 m', '2,20 m quille basse', '1,20 m quille relevée', 'à confirmer', '11 s · 8 s', 'estimation', 'ORC Club 2026 (Tofinou 9.5, sister-ship) — à recaler'])
+      assert.ok(t.includes(m), `onglet : « ${m} »`);
+    assert.equal(await page.locator('section[data-tab=j80] [data-voile=genois].on').count(), 1, 'génois par défaut');
+    assert.equal(await page.evaluate(() => localStorage.getItem('rade.bateau.v1')), null, 'aucune clé avant le choix');
+    await page.click('section[data-tab=j80] [data-voile=foc]');
+    await page.waitForFunction(() => localStorage.getItem('rade.bateau.v1') === '{"voile":"foc"}', null, { timeout: 10000 });
+    await page.waitForSelector('section[data-tab=j80] [data-voile=foc].on', { timeout: 10000 });
+    t = await onglet();
+    assert.ok(t.includes('foc d’origine (estimée d’après le Tofinou 9.7) — à recaler'), 'source de la variante foc');
+    assert.ok(!/"voile"/.test(await page.evaluate(() => localStorage.getItem('rade.state') || '')), 'rien dans rade.state');
+    await page.click('#tabs button[data-tab=course]');
+    const fin = Date.now() + 60000;
+    let foc = genois;
+    while (Date.now() < fin) { foc = await tempsBanane(page).catch(() => NaN); if (foc > genois) break; await new Promise((r) => setTimeout(r, 250)); }
+    assert.ok(foc > genois, `au foc, banane plus longue par 6 nd : ${genois} min au génois, ${foc} min au foc`);
+    await page.reload({ waitUntil: 'load' });
+    await pret(page);
+    assert.equal(await page.evaluate(() => localStorage.getItem('rade.bateau.v1')), '{"voile":"foc"}', 'choix gardé');
+    await page.click('#tabs button[data-tab=course]');
+    await attendBords(page, suite([BAN_B, BAN_C, BAN_PORTE, BAN_B, BAN_C, /^Arrivée \(ligne de départ\)/]), 'banane de Bormes au foc');
+    assert.equal(await tempsBanane(page), foc, 'après rechargement : temps au foc');
+    await page.click('#tabs button[data-tab=j80]');
+    assert.equal(await page.locator('section[data-tab=j80] [data-voile=foc].on').count(), 1, 'foc toujours choisi');
+    sansErreur(erreurs, 'bateau du Tofinou');
+    console.log(`  banane par 6 nd de 180° : ${genois} min au génois, ${foc} min au foc`);
+  } finally {
+    await ctx?.close().catch(() => { /* déjà fermé */ });
+    serveur.closeAllConnections?.(); serveur.close();
+  }
+}
+
 // Archive sur faux Blob pour un téléphone d’aperçu : l’espace de chaque requête est celui que poserait le middleware (`srv.espace`, réglable),
 // jamais une valeur de la page ; chaque requête vue est notée avec l’instant et l’espace
 async function archiveEspace(ctx, m, nom, srv) {
@@ -3862,7 +3925,7 @@ async function regateBrest({ browser, base }) {
   await A.ctx.close(); await B.ctx.close();
 }
 
-const SCENARIOS = { accueil, 'jour-j': jourJ, 'deux-telephones': deuxTelephones, reprise, equipage, archive, 'archive-bouees': archiveBouees, archivehors: archiveHors, creer, manche, auteur, ic, 'depuis-ic': depuisIC, vraisemblance, gel, 'debrief-tardif': debriefTardif, gpx, 'gpx-choix': gpxChoix, ia, 'ia-erreurs': iaErreurs, arbitre, bouees, guide, entetes, 'retour-port': retourPort, banane, 'banane-manche': bananeManche, 'banane-debrief': bananeDebrief, 'porte-ic': porteIC, 'modifier-manche': modifierManche, 'toulon-vue': toulonVue, 'plan-eau': planEau, 'brest-avion': brestAvion, 'regate-brest': regateBrest, 'brest-courant': brestCourant, gpen, 'naos-cles': naosCles, 'tofinou-demarrage': tofinouDemarrage, 'espace-garde': espaceGarde };
+const SCENARIOS = { accueil, 'jour-j': jourJ, 'deux-telephones': deuxTelephones, reprise, equipage, archive, 'archive-bouees': archiveBouees, archivehors: archiveHors, creer, manche, auteur, ic, 'depuis-ic': depuisIC, vraisemblance, gel, 'debrief-tardif': debriefTardif, gpx, 'gpx-choix': gpxChoix, ia, 'ia-erreurs': iaErreurs, arbitre, bouees, guide, entetes, 'retour-port': retourPort, banane, 'banane-manche': bananeManche, 'banane-debrief': bananeDebrief, 'porte-ic': porteIC, 'modifier-manche': modifierManche, 'toulon-vue': toulonVue, 'plan-eau': planEau, 'brest-avion': brestAvion, 'regate-brest': regateBrest, 'brest-courant': brestCourant, gpen, 'naos-cles': naosCles, 'tofinou-demarrage': tofinouDemarrage, 'espace-garde': espaceGarde, 'tofinou-bateau': tofinouBateau };
 
 // ───────────────────────── lancement
 
