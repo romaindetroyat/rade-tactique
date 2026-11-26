@@ -3564,6 +3564,23 @@ async function membreEspace(ctx, { membre, espace = null, espaces = null, delai 
   return servi;
 }
 
+// D-05 : onglet Régates de l’espace Tofinou ouvert — ni Coupe SNPM ni GPEN (ni marqueur de graine), carte « Plan d’eau » avec la seule rade
+// de Bormes (aucune bascule), formulaire de régate limité à Bormes, aucun pavillon de classe du CVAT
+async function tofinouSansNaos(page) {
+  await page.click('#tabs button[data-tab=ic]');
+  const ic = (await texte(page, 'section[data-tab=ic]')).replace(/\s+/g, ' ');
+  assert.ok(!/Coupe SNPM|GPEN|CVAT/.test(ic), `aucune fiche ni valeur de Naos dans l’onglet Régates : ${ic.slice(0, 300)}`);
+  assert.ok(!/Pavillons de classe/.test(ic), 'aucun pavillon de classe du CVAT');
+  assert.ok(!/Toulon|Brest/.test(await texte(page, '#pkCard')), 'carte « Plan d’eau » : la rade de Bormes seule');
+  assert.equal(await page.locator('#pkGo').count(), 0, 'aucune bascule vers un autre plan d’eau');
+  const index = await page.evaluate(() => JSON.parse(localStorage.getItem('rade.regates.v1') || 'null'));
+  assert.deepEqual(index?.list?.map((r) => r.id) ?? [], [], 'index sans graine');
+  assert.equal(await page.evaluate(() => localStorage.getItem('rade.seed.gpen.v1')), null, 'aucun marqueur de graine');
+  await page.click('#rgNew');
+  assert.deepEqual(await page.locator('#rgVenue option').evaluateAll((os) => os.map((o) => [o.value, o.selected])), [['bormes', true]], 'formulaire : Bormes seul');
+  await page.click('#rgCancel');
+}
+
 // D-03, D-05, D-07 : un téléphone neuf ouvre l’app à l’adresse de l’espace Tofinou (hôte connu, origine propre). Serveur propre au scénario,
 // service worker autorisé. L’app démarre sur la rade de Bormes : pack `bormes` téléchargé et vérifié une fois (« Prêt hors réseau »), carte de
 // Bormes (data/bormes.*), aucune clé d’espace écrite (l’hôte suffit), banane analysée (bords affichés) ; serveur ARRÊTÉ pour de bon, puis
@@ -3596,6 +3613,7 @@ async function tofinouDemarrage({ browser }) {
     await cartePlanEau(page, 'ready');
     assert.match(await texte(page, '#pkHere'), new RegExp(`Ce téléphone : ${NOM_BORMES}`));
     assert.equal(await texte(page, '#pkState'), `${NOM_BORMES} : Prêt hors réseau`);
+    await tofinouSansNaos(page);
     // banane analysée au vent manuel d’ouest (260°) : bords affichés
     await page.evaluate(() => {
       const s = JSON.parse(localStorage.getItem('rade.state') || '{}');

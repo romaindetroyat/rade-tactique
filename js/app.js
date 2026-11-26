@@ -10,7 +10,7 @@ import { packStatus, downloadPack, prunePacks, fmtMo } from './pack.js';
 import { pdfText, parseIC, cleanText } from './events.js';
 import { IA_IC, iaOffer, iaErrorMessage, reviewFromParse, reviewFromRegatta, reviewFromApi, setValue, setKeep, setKeepRace, setKeepMark, setKeepCourse, courseReady, canValidate, checksFor, applyReview, reviewHTML, chipOf, validatedHTML } from './icread.js';
 import { stampState, markDirty, canon, legacyStamp } from './archmerge.js';
-import { migrate, seedNorm, seedGpen, KEY as REG_KEY, saveRegattas, createRegatta, upsertRegatta, removeRegatta, openRegatta, openAtBoot, openOnNewDay, regattaStatus, STATUS_LABEL, todayRegatta, icOf, groupByStatus, lockDates, daysOf, addRace, updateRace, removeRace, raceSettings, membre, saveMembre, backfillAuthor } from './regates.js';
+import { migrate, seedNorm, seedGpen, setCommuns, KEY as REG_KEY, saveRegattas, createRegatta, upsertRegatta, removeRegatta, openRegatta, openAtBoot, openOnNewDay, regattaStatus, STATUS_LABEL, todayRegatta, icOf, groupByStatus, lockDates, daysOf, addRace, updateRace, removeRace, raceSettings, membre, saveMembre, backfillAuthor } from './regates.js';
 import { THROTTLE_MS, slotKey, freezeAction, obsNeedsCopy, stratNeedsCopy, sliceDays, freezeSummary, strategySummary, compactStrategy, windSourceKind, frozenLabel, parisInstant, clockOf } from './gel.js';
 import { extremes, coefApproche, hauteur } from './maree.js';
 import { chargeAtlas, courantXY, profondeurOk } from './courant.js';
@@ -91,12 +91,14 @@ const DEF = {
 const S = { ...DEF, ...(ESPACE.id !== 'naos' && store.get('rade.state', null) == null ? pickVenueKeys(VENUE_DEF[VENUE.id]) : {}), ...store.get('rade.state', {}) };
 S.venue = VENUE.id;                                   // valeur inconnue ou hostile ramenée au plan d’eau retenu par bootVenue
 if (!S.byVenue || typeof S.byVenue !== 'object' || Array.isArray(S.byVenue)) S.byVenue = {};
-// Régates : l’index (petit) se lit de façon synchrone au chargement ; IC garde la forme d’avant (icOf)
-let REG = migrate({ storage: localStore(), now: Date.now(), by: who() });
+// Régates : l’index (petit) se lit de façon synchrone au chargement ; IC garde la forme d’avant (icOf). Graines et valeurs communes du CVAT :
+// celles de l’espace (08-04, D-05) — Naos sème la Coupe SNPM et le GPEN comme en v43 ; Tofinou ne sème rien et n’a aucune valeur du CVAT
+setCommuns(ESPACE.id === 'naos');
+let REG = migrate({ storage: localStore(), now: Date.now(), by: who(), graines: ESPACE.graines });
 // la Coupe SNPM semée est la même fiche sur les trois téléphones (instant commun) : une graine d'avant ramenée à cet instant, index réécrit seulement si l'objet change
-{ const seeded = seedNorm(REG); if (seeded !== REG) { REG = seeded; saveRegattas(localStore(), REG); } }
+{ const seeded = seedNorm(REG, { graines: ESPACE.graines }); if (seeded !== REG) { REG = seeded; saveRegattas(localStore(), REG); } }
 // fiche « GPEN 2027 — J80 » semée une seule fois (07-09, D-08) : même fiche partout, jamais ressemée après une suppression (pierre tombale, marqueur)
-{ const g = seedGpen(REG, { storage: localStore() }); if (g !== REG) { REG = g; saveRegattas(localStore(), REG); } }
+{ const g = seedGpen(REG, { storage: localStore(), graines: ESPACE.graines }); if (g !== REG) { REG = g; saveRegattas(localStore(), REG); } }
 // D-A3, D-A4 : régate du jour, sinon entraînement libre ; jamais lue dans l’index, jamais écrite, jamais partagée. `OPEN` ne change que dans setOpen.
 // Plan d’eau d’une régate (D-05, D-06) : la régate du jour d’un autre plan d’eau n’est jamais ouverte ici en silence (bandeau « Régate du jour en … ») ;
 // après « Passer » sur une régate d’un autre plan d’eau, `rade.venue.reopen` (lue une seule fois, effacée tout de suite) la rouvre au rechargement.
@@ -1942,7 +1944,7 @@ async function openTraceDebrief(id) {
 // Plan d’eau d’une trace (07-05) : celui qui contient la majorité de ses points (venueAt), sinon null (hors de tout plan d’eau connu)
 function traceVenue(tr) {
   const n = {}, pts = tr?.pts || [];
-  for (const p of pts) { const v = Array.isArray(p) ? venueAt(p[1], p[2]) : null; if (v) n[v] = (n[v] || 0) + 1; }
+  for (const p of pts) { const v = Array.isArray(p) ? venueAt(p[1], p[2], ESPACE.venues) : null; if (v) n[v] = (n[v] || 0) + 1; }      // plans d’eau de l’espace seulement
   const best = Object.keys(n).sort((a, b) => n[b] - n[a])[0];
   return best && n[best] * 2 > pts.length ? best : null;
 }
@@ -2432,7 +2434,7 @@ const PACK = { man: null, status: null, busy: null, error: null };
 const cacheStore = () => (typeof caches === 'undefined' ? null : caches);
 const venueIn = (id) => VENUES[id].nom.replace(/^Rade /, 'rade ');      // « la rade de Brest »
 // VENUE_KEYS, VENUE_DEF et pickVenueKeys : en tête du module (défauts du premier démarrage hors de Naos)
-const packView = () => ({ venueId: VENUE.id, venues: VENUES, status: PACK.status, busy: PACK.busy, error: PACK.error, locked: raceActive(Date.now()), packId: PACK_ID });
+const packView = () => ({ venueId: VENUE.id, venues: VENUES, status: PACK.status, busy: PACK.busy, error: PACK.error, locked: raceActive(Date.now()), packId: PACK_ID, ids: ESPACE.venues });
 async function loadManifest() {
   if (PACK.man) return PACK.man;
   try { const r = await fetch('data/venues.json'); if (r.ok) PACK.man = await r.json(); } catch (e) { report('pack', e); }
@@ -2475,7 +2477,7 @@ async function packDownload() {
 // « Passer à la rade de Brest » télécharge d’abord le pack s’il n’est pas sur ce téléphone ; « Revenir à la rade de Toulon » bascule tout de suite
 // reopen / retrace : régate ou trace du plan d’eau visé à rouvrir après le rechargement (ouverture d’une régate ou d’une trace d’un autre plan d’eau, D-06)
 async function packGo(id, { reopen = null, retrace = null } = {}) {
-  if (!Object.hasOwn(VENUES, id) || id === VENUE.id) return;
+  if (!Object.hasOwn(VENUES, id) || id === VENUE.id || !ESPACE.venues.includes(id)) return;          // plans d’eau de l’espace seulement
   if (raceActive(Date.now())) { toast('Pas pendant une course : terminez-la d’abord'); paintPack(); return; }
   if (id !== 'toulon') {
     const st = (await refreshPack())?.state;
@@ -2487,7 +2489,7 @@ async function packGo(id, { reopen = null, retrace = null } = {}) {
 }
 // Change de plan d’eau : range les réglages du plan d’eau quitté, reprend ceux du nouveau (ou ses défauts), enregistre et recharge (D-05)
 function switchVenue(id) {
-  if (!Object.hasOwn(VENUES, id) || id === VENUE.id) return false;
+  if (!Object.hasOwn(VENUES, id) || id === VENUE.id || !ESPACE.venues.includes(id)) return false;
   if (raceActive(Date.now())) { toast('Pas pendant une course : terminez-la d’abord'); return false; }
   const by = { ...S.byVenue, [VENUE.id]: pickVenueKeys(S) };
   Object.assign(S, pickVenueKeys(DEF), pickVenueKeys(VENUE_DEF[id]), pickVenueKeys(S.byVenue[id]), { venue: id, byVenue: by });
@@ -2508,20 +2510,22 @@ async function venueReady() {
   if (!net.online) return false;
   return packDownload();
 }
-// Pas de pack et pas de réseau : la carte le dit, avec « Revenir à la rade de Toulon » ; onglets, chrono et mode départ restent utilisables
+// Pas de pack et pas de réseau : la carte le dit, avec « Revenir à la rade de Toulon » si Toulon est un plan d’eau de l’espace (Naos) ;
+// onglets, chrono et mode départ restent utilisables
 function venueMissing() {
+  const toulon = ESPACE.venues.includes('toulon');
   note('pack', 'plan d’eau absent de ce téléphone');
   const mk = (tag, txt, id) => { const e = document.createElement(tag); if (txt) e.textContent = txt; if (id) e.id = id; return e; };
   const box = mk('div', '', 'pkMissing'); box.className = 'card';
   box.style.cssText = 'position:absolute;left:12px;right:12px;top:72px;max-width:460px;margin:0 auto;z-index:5';
-  const p = mk('p', `La ${venueIn(VENUE.id)} n’est pas encore sur ce téléphone : connectez-vous pour la télécharger (${fmtMo(PACK.status?.bytes)}), ou revenez à Toulon.`);
+  const p = mk('p', `La ${venueIn(VENUE.id)} n’est pas encore sur ce téléphone : connectez-vous pour la télécharger (${fmtMo(PACK.status?.bytes)})${toulon ? ', ou revenez à Toulon' : ''}.`);
   p.className = 'small';
   const btns = mk('div'); btns.className = 'btns';
   const back = mk('button', 'Revenir à la rade de Toulon', 'pkBack'); back.type = 'button'; back.className = 'btn acc';
   back.addEventListener('click', () => packGo('toulon'));
   const retry = mk('button', 'Télécharger le plan d’eau', 'pkRetry'); retry.type = 'button'; retry.className = 'btn alt';
   retry.addEventListener('click', async () => { if (await packDownload()) location.reload(); });
-  btns.append(back, retry);
+  if (toulon) btns.append(back, retry); else { retry.className = 'btn acc'; btns.append(retry); }
   box.append(p, btns);
   $('#view').replaceChildren(box);
   status(`${VENUES[VENUE.id].nom} absente de ce téléphone`);
@@ -2630,7 +2634,7 @@ function renderIC() {
     ${IC.firstWarning && IC.date ? `<button class="btn small alt" id="evUse">Caler le départ sur ces IC (${esc(dayName(IC.date))}, ${esc(IC.firstWarning)} + 5 min)</button>` : ''}</div>`;
   html += `<div class="card"><h3>Règles de course <small>RCV / RRS 2025-2028</small></h3><p class="small">Départs (P, I, U, Z, noir), priorités, bouées, arrivée et pénalités, en langage simple avec schémas et textes officiels FR / EN.</p>
     <div class="btns" style="margin:0"><a class="btn acc small" href="regles.html" target="_blank" rel="noopener">📘 Ouvrir les règles</a><a class="btn alt small" href="regles.html#depart" target="_blank" rel="noopener">Pavillons de départ</a><a class="btn alt small" href="regles.html#bouees" target="_blank" rel="noopener">Bouées</a><a class="btn alt small" href="regles.html#arbitre" target="_blank" rel="noopener">💬 Demander à l’arbitre</a></div></div>
-  <div class="card"><h3>Pavillons de classe${toulon ? ' <small>habituels CVAT</small>' : ''}</h3><table class="t">${IC.classes.map((c) => `<tr><td>${esc(c[0])}</td><td>${esc(c[1])}</td></tr>`).join('')}</table></div>`;
+  ${ESPACE.id !== 'naos' && !IC.classes.length ? '' : `<div class="card"><h3>Pavillons de classe${toulon ? ' <small>habituels CVAT</small>' : ''}</h3><table class="t">${IC.classes.map((c) => `<tr><td>${esc(c[0])}</td><td>${esc(c[1])}</td></tr>`).join('')}</table></div>`}`;
   if (cur) html += `<div class="card"><h3>Points clés</h3><ul class="tips small">${(IC.keyRules || []).map((r) => `<li>${esc(r)}</li>`).join('') || '<li>Aucun point clé enregistré.</li>'}</ul>
     ${IC.text ? `<details><summary class="small">Texte complet des IC</summary><pre class="ictext">${esc(IC.text)}</pre></details>` : ''}
     <button class="btn small alt" id="evDel" style="margin-top:8px">Supprimer cette régate</button></div>`;

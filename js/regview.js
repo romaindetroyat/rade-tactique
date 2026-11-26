@@ -68,10 +68,14 @@ export function noRegattaHTML() {
 // error : message du dernier échec ; locked : course en cours (chrono, mode départ, trace, GPS) : le changement est refusé.
 export const PACK_STATE = { ready: 'Prêt hors réseau', stale: 'Mise à jour à télécharger', absent: 'À télécharger' };
 export const BREST_SOURCES = 'Rade de Brest : © contributeurs OpenStreetMap (ODbL), EMODnet Bathymetry, AWS Terrain Tiles (Terrarium). Ne remplace pas les cartes et ouvrages nautiques officiels.';
-export function venueCardHTML({ venueId = 'toulon', venues = {}, status = null, busy = null, error = null, locked = false, packId = 'brest' } = {}) {
+export const BORMES_SOURCES = 'Rade de Bormes – Le Lavandou : © contributeurs OpenStreetMap (ODbL), EMODnet Bathymetry, AWS Terrain Tiles (Terrarium). Ne remplace pas les cartes et ouvrages nautiques officiels.';
+const SOURCES = { brest: BREST_SOURCES, bormes: BORMES_SOURCES };
+// ids : plans d’eau de l’espace (Naos : Toulon et Brest, carte de la v43) ; la bascule n’est proposée que vers un plan d’eau de l’espace
+export function venueCardHTML({ venueId = 'toulon', venues = {}, status = null, busy = null, error = null, locked = false, packId = 'brest', ids = ESPACE.venues } = {}) {
   const nom = (id) => venues[id]?.nom || id;
   const ici = venueId === packId;
   const target = ici ? 'toulon' : packId;
+  const bascule = ids.includes(target) && ids.includes(venueId);              // espace à un seul plan d’eau (Tofinou) : aucune bascule
   const st = status?.state && Object.hasOwn(PACK_STATE, status.state) ? status.state : null;
   const taille = status?.bytes ? ` (${fmtMo(status.bytes)})` : '';
   const etat = st ? `${PACK_STATE[st]}${st === 'ready' ? '' : taille}` : 'état en cours de lecture…';
@@ -84,9 +88,9 @@ export function venueCardHTML({ venueId = 'toulon', venues = {}, status = null, 
     <p class="small" id="pkHere">Ce téléphone : <b>${escHTML(nom(venueId))}</b>${venueId === 'toulon' ? '' : ' · entraînement libre sur ce plan d’eau'}</p>
     <p class="small" id="pkState">${escHTML(nom(packId))} : <b>${escHTML(etat)}</b>${st === 'stale' ? ' · l’ancienne version reste utilisable hors réseau' : ''}</p>
     ${error ? `<div class="notice small" id="pkErr">Téléchargement impossible : ${escHTML(error)}. Rien n’a été enregistré ; l’ancienne version, s’il y en a une, reste utilisable.</div>` : ''}
-    <div class="btns" style="margin:6px 0 0">${dl}<button type="button" class="btn small ${ici ? 'alt' : 'acc'}" id="pkGo" data-to="${escHTML(target)}"${locked || busy ? ' disabled' : ''}>${escHTML(go)}</button></div>
-    ${locked ? '<div class="small muted" id="pkLock">Pas pendant une course : changer de plan d’eau recharge l’app.</div>' : '<div class="small muted">Changer de plan d’eau recharge l’app ; parcours, ligne, relevés et vent manuel sont gardés par plan d’eau, la polaire et les réglages du bateau sont communs.</div>'}
-    <div class="small muted" style="margin-top:4px">${escHTML(BREST_SOURCES)}</div></div>`;
+    <div class="btns" style="margin:6px 0 0">${dl}${bascule ? `<button type="button" class="btn small ${ici ? 'alt' : 'acc'}" id="pkGo" data-to="${escHTML(target)}"${locked || busy ? ' disabled' : ''}>${escHTML(go)}</button>` : ''}</div>
+    ${!bascule ? '' : locked ? '<div class="small muted" id="pkLock">Pas pendant une course : changer de plan d’eau recharge l’app.</div>' : '<div class="small muted">Changer de plan d’eau recharge l’app ; parcours, ligne, relevés et vent manuel sont gardés par plan d’eau, la polaire et les réglages du bateau sont communs.</div>'}
+    <div class="small muted" style="margin-top:4px">${escHTML(SOURCES[packId] ?? BREST_SOURCES)}</div></div>`;
 }
 
 // Formulaire de création : nom, premier jour, club ; dernier jour facultatif ; plan d’eau (D-06, défaut : celui du téléphone, `draft.venue`).

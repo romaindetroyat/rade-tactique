@@ -15,8 +15,16 @@ const EVENTS_KEY = 'rade.events.v1';            // ancienne clé des fiches IC :
 export const STATUS_LABEL = { avenir: 'En préparation', aujourdhui: 'En cours', passee: 'Terminée' };
 export const GROUP_LABEL = { avenir: 'En préparation', aujourdhui: 'En cours', passee: 'Terminées' };
 export const MAX_NAME = 80, MAX_CLUB = 40, MAX_NOTE = 200, MAX_IC_TEXT = 20000;
-// Valeurs communes aux régates CVAT (signaux de départ règle 26, pavillons de classe habituels), comme js/events.js
+// Valeurs communes aux régates CVAT (signaux de départ règle 26, pavillons de classe habituels), comme js/events.js : mêlées aux fiches de
+// l’espace Naos seulement (08-04, D-05). Réglage du module posé une fois par js/app.js (`setCommuns`), Naos par défaut ; hors de Naos, une fiche
+// n’a que ce que ses IC disent (listes vides sinon).
 const COMMON = { sequence: SNPM.sequence, classes: SNPM.classes, groups: SNPM.groups };
+const SANS_COMMUN = { sequence: [], classes: [], groups: [] };
+let communs = true;
+export const setCommuns = (oui) => { communs = oui !== false; };
+// Graines de l’espace (identifiants des fiches semées) : celles de Naos par défaut (js/espaces.js, ESPACES.naos.graines)
+const GRAINES_NAOS = ['snpm-2026', 'gpen-2027'];
+const seme = (graines, id) => (Array.isArray(graines) ? graines : GRAINES_NAOS).includes(id);
 
 // ───────────────────────── dates
 
@@ -97,7 +105,8 @@ export function fromEvent(ev, now, by = null) {
 }
 // Une graine déjà présente sur un téléphone et jamais revalidée (`ic.read === 'reprise'`) est ramenée à la graine commune ; une fiche relue
 // (autre lecture) et toute autre régate restent le même objet, un état inchangé aussi.
-export function seedNorm(st) {
+export function seedNorm(st, { graines } = {}) {
+  if (!seme(graines, SEED_ID)) return st;                    // espace sans la Coupe SNPM : sans effet
   let changed = false;
   const list = (st?.list || []).map((r) => {
     if (r.id !== SEED_ID || r.ic?.read !== 'reprise') return r;
@@ -159,7 +168,8 @@ export function gpenSeed() {
 }
 // Sème la fiche si elle manque, si l’index n’en porte pas la pierre tombale et si le marqueur local n’est pas posé (une fiche supprimée par
 // l’équipage ne revient jamais) ; pose le marqueur ensuite (et quand la fiche est déjà là ou supprimée). Rend le même objet si rien ne change.
-export function seedGpen(st, { storage = null } = {}) {
+export function seedGpen(st, { storage = null, graines } = {}) {
+  if (!seme(graines, GPEN_ID)) return st;                    // espace sans le GPEN : ni fiche ni marqueur
   const list = st?.list || [];
   const has = list.some((r) => r.id === GPEN_ID), tomb = !!(st?.tomb?.[GPEN_ID] || st?.tomb?.[`regatta:${GPEN_ID}`]);
   let mark = null;
@@ -181,7 +191,8 @@ export function saveRegattas(storage, st) {
 // Lit l’index ; sinon le crée une seule fois depuis rade.events.v1 (jamais modifiée), sinon sème la Coupe SNPM comme le faisait js/events.js.
 // L’état rendu n’a jamais de clé `current` : un index d’avant (v36) qui en portait une est réécrit une seule fois sans elle, donc plus aucune
 // régate n’est ouverte d’office (D-A4, D-A5). Les régates, elles, ne bougent pas.
-export function migrate({ storage, now = Date.now(), by = null }) {
+// Hors de Naos (`graines` sans la Coupe SNPM) : ni graine ni reprise des fiches rade.events.v1 (fiches CVAT de Naos), index vide.
+export function migrate({ storage, now = Date.now(), by = null, graines }) {
   const cur = readJSON(storage, KEY);
   if (cur && cur.v === VERSION && Array.isArray(cur.list)) {
     if (!('current' in cur)) return cur;
@@ -189,6 +200,7 @@ export function migrate({ storage, now = Date.now(), by = null }) {
     saveRegattas(storage, index);
     return index;
   }
+  if (!seme(graines, SEED_ID)) { const vide = { v: VERSION, list: [] }; saveRegattas(storage, vide); return vide; }
   const ev = readJSON(storage, EVENTS_KEY);
   const fiches = Array.isArray(ev?.list) && ev.list.length ? ev.list : [{ id: 'snpm-2026', ...SNPM, source: 'IC fournies (PDF)' }];
   const list = fiches.map((e) => fromEvent(e, now, by));
@@ -232,7 +244,7 @@ export function removeRegatta(st, id) {
 export function icOf(r) {
   const f = r?.ic?.fields || {};
   return {
-    ...COMMON, firstWarning: '', lastFinishSignal: '', vhf: null, committee: '', zone: '', keyRules: [],
+    ...(communs ? COMMON : SANS_COMMUN), firstWarning: '', lastFinishSignal: '', vhf: null, committee: '', zone: '', keyRules: [],
     ...f,
     id: r?.id, event: r?.name || '', date: r?.dateStart || '', dateEnd: r?.dateEnd || '', text: r?.ic?.text || '', source: r?.ic?.source || '',
   };
