@@ -2,9 +2,9 @@
 schema_version: 1
 open_count: 7
 waived_count: 0
-fixed_count: 7
-total_count: 14
-last_updated: 2026-11-26T22:13:54.015Z
+fixed_count: 8
+total_count: 15
+last_updated: 2026-11-26T22:45:06.695Z
 ---
 
 # Broken Windows Ledger
@@ -28,7 +28,8 @@ last_updated: 2026-11-26T22:13:54.015Z
 | 11 | 08 | stub | js/venue-bormes.js |  | Descripteur de Bormes sans marques, lieux, zones interdites, dangers, régimes ni vents prédéfinis (formes vides, banane seule) : à remplir en 08-07 (savoir local) et 08-08 (Challenge de la Baie) | fixed |  | 2026-11-26T20:23:23.397Z | 2026-11-26T22:13:53.885Z |
 | 12 | 08 | stub | js/help.js |  | Aide de Tofinou : la note de version affichée est celle de la v43 (« … GPEN ») jusqu’à la release v44 (08-10) ; lien du guide complet et rubrique IA de l’espace absents (08-10, 08-09) | open |  | 2026-11-26T21:36:35.725Z |  |
 | 13 | 08 | todo | js/app.js | 989 | Message « pas un parcours du cahier CVAT » possible dans l’espace Tofinou sans régate ouverte (pickHTML) : texte du plan d’eau à rendre propre à Bormes (08-07/08-08) | fixed |  | 2026-11-26T21:36:35.832Z | 2026-11-26T22:13:54.015Z |
-| 14 | 08 | stub | js/venue-bormes.js |  | Catalogue du Challenge de la Baie absent (COURSES vide, banane seule) ; libellés de classes du CVAT (« C–D–L–R1-R3 », « P1–P2 ») dans l’onglet Parcours et le texte de partage à Bormes : 08-08 | open |  | 2026-11-26T22:13:49.386Z |  |
+| 14 | 08 | stub | js/venue-bormes.js |  | Catalogue du Challenge de la Baie absent (COURSES vide, banane seule) ; libellés de classes du CVAT (« C–D–L–R1-R3 », « P1–P2 ») dans l’onglet Parcours et le texte de partage à Bormes : 08-08 | fixed |  | 2026-11-26T22:13:49.386Z | 2026-11-26T22:45:06.569Z |
+| 15 | 08 | todo | js/regview.js | 139 | Formulaire de manche : « Classe G (grand) / P (petit) » du CVAT encore proposé à Bormes (onglet Régates) ; à masquer ou remplacer par les groupes du Challenge (08-09/08-10) | open |  | 2026-11-26T22:45:06.695Z |  |
 
 ````json
 [
@@ -208,9 +209,22 @@ last_updated: 2026-11-26T22:13:54.015Z
     "file": "js/venue-bormes.js",
     "line": null,
     "description": "Catalogue du Challenge de la Baie absent (COURSES vide, banane seule) ; libellés de classes du CVAT (« C–D–L–R1-R3 », « P1–P2 ») dans l’onglet Parcours et le texte de partage à Bormes : 08-08",
-    "status": "open",
+    "status": "fixed",
     "reason": "",
     "recorded_at": "2026-11-26T22:13:49.386Z",
+    "resolved_at": "2026-11-26T22:45:06.569Z",
+    "milestone": null
+  },
+  {
+    "id": 15,
+    "kind": "todo",
+    "phase": "08",
+    "file": "js/regview.js",
+    "line": 139,
+    "description": "Formulaire de manche : « Classe G (grand) / P (petit) » du CVAT encore proposé à Bormes (onglet Régates) ; à masquer ou remplacer par les groupes du Challenge (08-09/08-10)",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-11-26T22:45:06.695Z",
     "resolved_at": null,
     "milestone": null
   }
