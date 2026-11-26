@@ -695,3 +695,80 @@ test('ETag faible du CDN (W/"…") : la révision lue sert à ifMatch sans le pr
   assert.equal(deux.body.changed, true);
   assert.ok(!String(deux.body.rev).startsWith('W/'));
 });
+
+// ───────────────────────── politique de l’archive par espace (phase 8, D-04, D-05) : T7
+
+function installeEspace(espace, opts = {}) {
+  const blob = createFakeBlob(opts.blob), handler = createHandler({ blob, now: () => T });
+  const phone = (nom) => (method, url, body) => invoke(handler, { method, url, body, headers: { 'x-rt-membre': encodeURIComponent(nom), 'x-rt-espace': espace } });
+  return { blob, handler, romain: phone('Romain'), frederic: phone('Frédéric') };
+}
+const RECALAGE = { 7: { lat: 43.0712, lon: 5.9341, src: 'trace', t: 1600 } };
+
+test('T7 : archive Tofinou — régate sans plan d’eau (Toulon), d’un autre plan d’eau ou de Brest → 400 plan_d_eau_refuse, rien d’écrit', async () => {
+  const { blob, frederic } = installeEspace('tofinou');
+  for (const over of [{}, { venue: 'toulon' }, { venue: 'brest', vu: 1200 }, { venue: 'lorient' }, { venue: 'Bormes' }, { venue: ['bormes'] }, { venue: '__proto__' }]) {
+    const r = await frederic('PUT', PUT, { doc: doc(regatta(over)) });
+    assert.equal(r.status, 400, JSON.stringify(over));
+    assert.deepEqual(r.body, { error: 'plan_d_eau_refuse' });
+  }
+  // une seule régate hors plan d’eau suffit à refuser tout le document
+  const mix = await frederic('PUT', PUT, { doc: doc(regatta({ id: 'rgB', venue: 'bormes' }), regatta({ id: 'rgT' })) });
+  assert.equal(mix.status, 400);
+  assert.equal(blob.ops.put, 0, 'rien d’écrit');
+});
+
+test('T7 : archive Tofinou — graines de Naos (snpm-2026, gpen-2027) → 400 regate_reservee, même au plan d’eau de Bormes ; rien d’écrit', async () => {
+  const { blob, frederic } = installeEspace('tofinou');
+  for (const id of ['snpm-2026', 'gpen-2027']) {
+    for (const over of [{ venue: 'bormes' }, {}, { venue: 'brest' }]) {
+      const r = await frederic('PUT', PUT, { doc: doc(regatta({ id, ...over })) });
+      assert.equal(r.status, 400, `${id} ${JSON.stringify(over)}`);
+      assert.ok(['regate_reservee', 'plan_d_eau_refuse'].includes(r.body.error));
+      if (over.venue === 'bormes') assert.deepEqual(r.body, { error: 'regate_reservee' });
+    }
+  }
+  assert.equal(blob.ops.put, 0, 'rien d’écrit');
+});
+
+test('T7 : archive Tofinou — régate de Bormes acceptée, rangée sous tofinou/, recalages de bouées vidés, bouées de la régate gardées', async () => {
+  for (const env of [undefined, 'production']) {
+    await avecEnv(env, async () => {
+      const P = env === 'production' ? 'prod' : 'preview';
+      const { blob, frederic } = installeEspace('tofinou');
+      const marques = [{ id: 'B1', name: 'B1', lat: 43.12, lon: 6.40, src: 'ic', u: 1500 }];
+      const r = await frederic('PUT', PUT, { doc: { ...doc(regatta({ venue: 'bormes', vu: 1200, marks: marques })), marks: RECALAGE } });
+      assert.equal(r.status, 200);
+      assert.equal(r.body.env, P, 'env reste prod ou preview');
+      assert.deepEqual(r.body.doc.marks, {}, 'recalages vidés hors de Naos');
+      assert.equal(r.body.doc.regattas.rgA.venue, 'bormes');
+      assert.equal(r.body.doc.regattas.rgA.marks.length, 1, 'les bouées de la régate (IC) restent');
+      assert.equal(r.body.doc.regattas.rgA.by, 'Frédéric');
+      assert.deepEqual([...blob.store.keys()], [`tofinou/${P}/light.json`]);
+      assert.ok(blob.ops.log.every((o) => o.path.startsWith(`tofinou/${P}/`)));
+    });
+  }
+});
+
+test('T7 : archive Naos — politique de la v43 : « bormes » retiré comme un plan d’eau inconnu, recalages gardés, graines acceptées', async () => {
+  const { blob, romain } = installeEspace('naos');
+  const r = await romain('PUT', PUT, { doc: { ...doc(regatta({ venue: 'bormes', vu: 1200 }), regatta({ id: 'snpm-2026' }), regatta({ id: 'gpen-2027', venue: 'brest', vu: 1200 })), marks: RECALAGE } });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.doc.regattas.rgA.venue, undefined, 'plan d’eau inconnu de Naos retiré sans refuser la régate');
+  assert.equal(r.body.doc.regattas.rgA.vu, undefined);
+  assert.equal(r.body.doc.regattas['gpen-2027'].venue, 'brest');
+  assert.ok(r.body.doc.regattas['snpm-2026']);
+  assert.deepEqual(Object.keys(r.body.doc.marks), ['7'], 'recalages de Naos gardés');
+  assert.deepEqual([...blob.store.keys()], ['preview/light.json']);
+});
+
+test('cleanDoc : politique lue par espace (Naos par défaut = v43), erreurs nommées hors de Naos', () => {
+  const d = { ...doc(regatta({ venue: 'bormes' })), marks: RECALAGE };
+  assert.equal(cleanDoc(d, T).regattas.rgA.venue, undefined, 'défaut : Naos');
+  assert.deepEqual(Object.keys(cleanDoc(d, T, 'naos').marks), ['7']);
+  const t = cleanDoc(d, T, 'tofinou');
+  assert.equal(t.regattas.rgA.venue, 'bormes');
+  assert.deepEqual(t.marks, {});
+  assert.throws(() => cleanDoc(doc(regatta()), T, 'tofinou'), (e) => e.message === 'plan_d_eau_refuse' && e.status === 400);
+  assert.throws(() => cleanDoc(doc(regatta({ id: 'gpen-2027', venue: 'bormes' })), T, 'tofinou'), (e) => e.message === 'regate_reservee' && e.status === 400);
+});

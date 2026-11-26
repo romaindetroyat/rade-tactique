@@ -49,8 +49,12 @@ const mark = (v, now) => {                                                      
   return o;
 };
 
-// Document reçu → document propre : limites, clés refusées, `sel` retiré, dates futures ramenées à maintenant
-export function cleanDoc(doc, now) {
+// Document reçu → document propre : limites, clés refusées, `sel` retiré, dates futures ramenées à maintenant.
+// `espace` (posé par le middleware) choisit la politique d’api/_espace.js : Naos = v43 ; ailleurs, régate d’un autre plan d’eau ou graine de
+// Naos refusée (400, rien n’est écrit), recalages de bouées vidés.
+export function cleanDoc(doc, now, espace = 'naos') {
+  const pol = POLITIQUE[espace];
+  if (!pol) throw fail('espace_inconnu', 403);
   if (!isObj(doc)) throw fail('document illisible', 400);
   if (doc.v != null && doc.v !== 1) throw fail('version de format inconnue : mettez l’app à jour', 400);
   if (JSON.stringify(doc).length > MAX_LIGHT) throw fail('document trop volumineux', 413);
@@ -59,6 +63,12 @@ export function cleanDoc(doc, now) {
   for (const id of ids) {
     const r = doc.regattas[id];
     if (!ID.test(id) || !isObj(r) || r.id !== id) throw fail(`régate invalide : ${id.slice(0, 20)}`, 400);
+    if (espace !== 'naos') {
+      // plan d’eau absent = Toulon (régates de Naos d’avant la v43) ; une graine de Naos n’entre jamais dans un autre espace
+      const venue = r.venue === undefined ? 'toulon' : r.venue;
+      if (pol.reserves.includes(id)) throw fail('regate_reservee', 400);
+      if (!(typeof venue === 'string' && pol.venues.includes(venue))) throw fail('plan_d_eau_refuse', 400);
+    }
     if (JSON.stringify(r).length > MAX_REGATTA) throw fail('régate trop volumineuse', 413);
     const c = { ...r }; for (const k of LOCAL_ONLY) delete c[k];
     for (const key of Object.values(LISTS)) {
@@ -69,13 +79,13 @@ export function cleanDoc(doc, now) {
     c.tomb = tombs(c.tomb, now);
     c.hist = (Array.isArray(c.hist) ? c.hist : []).filter((x) => isObj(x) && Number.isFinite(x.t) && typeof x.kind === 'string').slice(0, MAX_HIST);
     // plan d’eau (07-05) : liste blanche ; une valeur inconnue (téléphone plus récent, objet, nom hostile) est retirée sans refuser la régate
-    if (!(typeof c.venue === 'string' && POLITIQUE.naos.venues.includes(c.venue))) { delete c.venue; delete c.vu; }
+    if (!(typeof c.venue === 'string' && pol.venues.includes(c.venue))) { delete c.venue; delete c.vu; }
     else if (!Number.isFinite(c.vu)) delete c.vu;
     else c.vu = clampT(c.vu, now);
     out.regattas[id] = clampU(c, now);
   }
   out.tomb = tombs(doc.tomb, now);
-  for (const [k, v] of Object.entries(isObj(doc.marks) ? doc.marks : {})) if (!DANGER.has(k) && MARK_KEY.test(k) && isObj(v) && Number.isFinite(v.t)) out.marks[k] = mark(v, now);
+  if (pol.recalage) for (const [k, v] of Object.entries(isObj(doc.marks) ? doc.marks : {})) if (!DANGER.has(k) && MARK_KEY.test(k) && isObj(v) && Number.isFinite(v.t)) out.marks[k] = mark(v, now);
   return out;
 }
 
@@ -252,7 +262,7 @@ export function createHandler({ blob, now = Date.now } = {}) {
         try { doc = { ...emptyDoc(), ...JSON.parse(await readText(r.stream)) }; } catch { throw fail('document stocké illisible', 502); }
         return res.status(200).json({ rev: revision(r.blob.etag), doc, env: E });
       }
-      const t = now(), incoming = cleanDoc(req.body?.doc, t);
+      const t = now(), incoming = cleanDoc(req.body?.doc, t, espace);
       const out = await mutateLight(B, path, (stored) => {
         const merged = mergeDoc(stored, attribute(incoming, stored, who));
         const trash = Object.keys(stored.regattas || {}).filter((id) => !merged.regattas[id]).map((id) => ({ id, t, value: stored.regattas[id] }));

@@ -503,3 +503,74 @@ test('clients : venue ajouté au corps seulement hors de Toulon (arbitre, débri
   assert.match(lire('js/app.js'), /body: JSON\.stringify\(\{ alts, last, tack, \.\.\.venueBody\(\) \}\)/);
   assert.match(lire('js/lieu.js'), /export const venueBody = \(\) => \(VENUE\.id === 'toulon' \? \{\} : \{ venue: VENUE\.id \}\);/);
 });
+
+// ── IA par espace (phase 8, D-06) : refus sans espace valide, IA fermée hors IA_ESPACES, quota par espace + prénom (T8)
+import { prefixe } from '../api/_espace.js';
+import { createHandler as creeLecture } from '../api/ic.js';
+const CORPS_ESPACE = { ...CORPS, ic: { text: 'INSTRUCTIONS DE COURSE — Challenge de la Baie, dimanche 11 octobre 2026. Premier signal à 11 h. VHF 72. '.repeat(4) } };
+const CREE_ESPACE = { ...CREE, ic: creeLecture };
+
+test('IA : sans x-rt-espace valide (absent, inconnu, __proto__, autre casse) → 403 espace_inconnu, sans compteur ni appel, pour les quatre fonctions', async () => {
+  for (const f of ['rules', 'debrief', 'voice', 'ic']) {
+    const { client, appels } = faux(SORTIES[f] || {});
+    const blob = createFakeBlob(), h = CREE_ESPACE[f]({ openai: client, blob, now: () => T });
+    for (const v of [undefined, '', 'inconnu', '__proto__', 'Naos', 'NAOS', 'naos ', ['naos']]) {
+      const headers = { 'x-rt-membre': 'Romain', ...(v === undefined ? {} : { 'x-rt-espace': v }) };
+      const r = await invoke(h, { method: 'POST', url: '/api/' + f, body: CORPS_ESPACE[f], headers });
+      assert.equal(r.status, 403, `${f} ${JSON.stringify(v)}`);
+      assert.deepEqual(r.body, { error: 'espace_inconnu' });
+    }
+    assert.equal(blob.ops.log.length, 0, `${f} : compteur jamais touché`);
+    assert.equal(appels.length, 0, `${f} : aucun appel`);
+  }
+});
+
+test('IA : espace sans IA ouverte (Tofinou) → 503 ia_espace avec message, sans appel au fournisseur ni écriture de compteur — jamais les consignes de Naos', async () => {
+  for (const f of ['rules', 'debrief', 'voice', 'ic']) {
+    const { client, appels } = faux(SORTIES[f] || {});
+    const blob = createFakeBlob(), h = CREE_ESPACE[f]({ openai: client, blob, now: () => T });
+    for (const venue of [undefined, 'brest', 'bormes']) {
+      const r = await invoke(h, { method: 'POST', url: '/api/' + f, body: { ...CORPS_ESPACE[f], ...(venue ? { venue } : {}) }, headers: { 'x-rt-membre': 'Frédéric', 'x-rt-espace': 'tofinou' } });
+      assert.equal(r.status, 503, f);
+      assert.deepEqual(r.body, { error: 'ia_espace', message: 'L’IA n’est pas ouverte dans cet espace.' });
+      assert.equal(r.headers['cache-control'], 'no-store');
+    }
+    assert.equal(appels.length, 0, `${f} : aucun appel au fournisseur`);
+    assert.equal(blob.ops.log.length, 0, `${f} : aucun compteur lu ni écrit`);
+  }
+  assert.equal(MESSAGES.ia_espace, 'L’IA n’est pas ouverte dans cet espace.');
+});
+
+test('T8 : quota par espace + prénom — « Romain » de Tofinou et Romain de Naos ont deux compteurs ; le 31e appel Tofinou est refusé sans toucher Naos', async () => {
+  for (const env of [undefined, 'production']) {
+    await avecEnv(env, async () => {
+      const P = env === 'production' ? 'prod' : 'preview';
+      const blob = createFakeBlob();
+      // IA ouverte aux deux espaces pour ce test (en production, Tofinou n’y entre qu’avec ses consignes propres)
+      const ia = createIA({ openai: faux().client, blob, now: () => T, espacesIA: ['naos', 'tofinou'] });
+      const garde = async (espace) => { const r = await invoke(async (req, res) => { if (await ia.garde(req, res)) res.status(200).json({ ok: true }); }, { method: 'POST', url: '/api/rules', body: {}, headers: { 'x-rt-membre': 'Romain', 'x-rt-espace': espace } }); return r; };
+      for (let i = 0; i < 5; i++) assert.equal((await garde('naos')).status, 200);
+      const naos = `${P}/quota/${JOUR}/romain.json`, tofi = `tofinou/${P}/quota/${JOUR}/romain.json`;
+      assert.equal(cheminQuota(prefixe('naos'), 'Romain', T), naos);
+      assert.equal(cheminQuota(prefixe('tofinou'), 'Romain', T), tofi);
+      const avantNaos = blob.store.get(naos).text;
+      for (let i = 0; i < QUOTA; i++) assert.equal((await garde('tofinou')).status, 200, `appel Tofinou ${i + 1}`);
+      const r31 = await garde('tofinou');
+      assert.equal(r31.status, 429);
+      assert.equal(r31.body.error, 'quota_equipier');
+      assert.equal(JSON.parse(blob.store.get(tofi).text).n, QUOTA);
+      assert.equal(blob.store.get(naos).text, avantNaos, 'compteur de Naos intact');
+      assert.equal(JSON.parse(avantNaos).n, 5);
+      assert.equal((await garde('naos')).status, 200, 'Naos continue');
+      assert.deepEqual([...blob.store.keys()].sort(), [naos, tofi].sort());
+    });
+  }
+});
+
+test('IA de Naos : consignes = section ia du gel de la v43 (tests/fixtures/naos-v43.json)', async () => {
+  const gel = JSON.parse(readFileSync(ROOT + 'tests/fixtures/naos-v43.json', 'utf8')).ia;
+  for (const f of ['rules', 'debrief', 'voice']) {
+    assert.equal(sha((await consigne(f, {})).instructions), gel[f].toulon, `${f} Toulon`);
+    assert.equal(sha((await consigne(f, { venue: 'brest' })).instructions), gel[f].brest, `${f} Brest`);
+  }
+});
