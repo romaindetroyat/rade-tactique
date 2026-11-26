@@ -1055,3 +1055,147 @@ test('carte « Plan d’eau » : Naos identique avec ou sans la liste de l’esp
   assert.match(txt, /Rade de Bormes – Le Lavandou : © contributeurs OpenStreetMap \(ODbL\), EMODnet Bathymetry, AWS Terrain Tiles \(Terrarium\)\. Ne remplace pas les cartes et ouvrages nautiques officiels\./);
   assert.equal(tof({ status: { state: 'absent', bytes: 3604097 } }).querySelector('#pkDl') !== null, true, 'pack absent : « Télécharger le plan d’eau »');
 });
+
+// ───────────────────────── jours de course et Challenge de la Baie 2026-2027 (08-08, D-13)
+
+const REF_JOURS = JSON.parse(readFileSync(join(ROOT, 'tests/fixtures/jours-v43.json'), 'utf8'));
+const JOURS_BAIE = ['2026-10-11', '2026-11-08', '2026-12-13', '2027-01-17', '2027-02-14', '2027-03-14', '2027-04-10', '2027-04-11'];
+const saison = (over = {}) => regate({ id: 'saison', dateStart: '2026-10-11', dateEnd: '2027-04-11', jours: [...JOURS_BAIE], ...over });
+// midi de Paris le jour d (heure d’hiver ou d’été sans effet sur le jour)
+const midi = (d) => Date.parse(`${d}T10:00:00Z`);
+
+test('jours : sans jours, statut, régate du jour, verrou, ouverture, jours, sceau et rattachement d’une trace identiques à la v43 (tests/fixtures/jours-v43.json, capturé sur 5e9b8a5)', async () => {
+  assert.equal(REF_JOURS.from, '5e9b8a5');
+  const { releve: releveJours } = await import('./helpers/jours.mjs');
+  const r = await releveJours(ROOT);
+  for (const k of ['statut', 'jour', 'ouverture', 'jours', 'sceau', 'trace']) assert.deepEqual(r[k], REF_JOURS[k], k);
+});
+
+test('jours : « En cours » les jours de course seulement, « En préparation » entre deux, « Terminée » après le dernier ; minuit de Paris', () => {
+  const r = saison();
+  assert.equal(regattaStatus(r, midi('2026-12-13')), 'aujourdhui');
+  assert.equal(regattaStatus(r, midi('2026-12-14')), 'avenir');
+  assert.equal(regattaStatus(r, midi('2026-10-10')), 'avenir', 'le samedi 10 octobre n’est pas un jour de course');
+  assert.equal(regattaStatus(r, midi('2026-10-11')), 'aujourdhui');
+  assert.equal(regattaStatus(r, midi('2027-04-10')), 'aujourdhui');
+  assert.equal(regattaStatus(r, midi('2027-04-11')), 'aujourdhui');
+  assert.equal(regattaStatus(r, midi('2027-04-12')), 'passee');
+  assert.equal(regattaStatus(r, t('2026-12-12T22:59:00Z')), 'avenir', '23 h 59 le 12/12 à Paris');
+  assert.equal(regattaStatus(r, t('2026-12-12T23:00:00Z')), 'aujourdhui', 'minuit le 13/12 à Paris');
+  assert.equal(regattaStatus(r, t('2026-12-13T23:00:00Z')), 'avenir', 'minuit le 14/12 à Paris');
+  // liste mal formée : dates impossibles, doublons, désordre → jours valides triés ; vide → règles de la v43
+  const R = { joursOf: null };
+  return import('../js/regates.js').then((M) => {
+    R.joursOf = M.joursOf;
+    assert.deepEqual(R.joursOf({ jours: ['2027-01-17', '2026-02-30', '2026-12-13', '2026-12-13', 7, null] }), ['2026-12-13', '2027-01-17']);
+    assert.equal(R.joursOf({ jours: [] }), null); assert.equal(R.joursOf({ jours: 'x' }), null); assert.equal(R.joursOf({}), null);
+    assert.equal(regattaStatus(saison({ jours: [] }), midi('2026-12-14')), 'aujourdhui', 'jours vides : toute la période, comme en v43');
+    assert.deepEqual(M.daysOf(r), JOURS_BAIE, 'manches possibles : les jours de course');
+  });
+});
+
+test('jours : verrou « journée de régate » et ouverture au démarrage le jour d’une manche seulement', () => {
+  const list = [saison()];
+  assert.deepEqual(lockDates({ now: midi('2027-01-17'), list }), { raceFrom: '2027-01-17', raceTo: '2027-01-17' });
+  assert.deepEqual(lockDates({ now: midi('2027-01-18'), list }), { raceFrom: null, raceTo: null });
+  assert.deepEqual(lockDates({ now: midi('2027-04-10'), list }), { raceFrom: '2027-04-10', raceTo: '2027-04-10' });
+  assert.equal(isRaceDay({ now: midi('2027-01-17'), ...lockDates({ now: midi('2027-01-17'), list }) }), true);
+  assert.equal(isRaceDay({ now: midi('2026-12-20'), ...lockDates({ now: midi('2026-12-20'), list }) }), false, 'pas de verrou un dimanche sans manche');
+  assert.equal(openAtBoot({ now: midi('2026-12-13'), list }), 'saison');
+  assert.equal(openAtBoot({ now: midi('2026-12-14'), list }), null, 'entraînement libre le lendemain');
+  assert.equal(todayRegatta({ now: midi('2026-11-01'), list }), null);
+  assert.deepEqual(openOnNewDay({ now: midi('2026-12-13'), list, openId: null, day: '2026-12-12' }), { day: '2026-12-13', openId: 'saison' });
+  assert.deepEqual(openOnNewDay({ now: midi('2026-12-14'), list, openId: 'saison', day: '2026-12-13' }), { day: '2026-12-14', openId: 'saison' }, 'l’écran n’est pas retiré');
+});
+
+test('jours : sceau du vent du jour au premier signal des IC CHAQUE jour de course, sinon à la fin du jour ; trace rangée dans la régate de son jour seulement', async () => {
+  const { sealAt, parisInstant } = await import('../js/gel.js');
+  const { matchRegattas } = await import('../js/attach.js');
+  const r = saison({ ic: { fields: { firstWarning: '11:00' } } });
+  assert.deepEqual(sealAt(r, '2027-01-17'), { at: parisInstant('2027-01-17', 11, 0), signal: 'ic' });
+  assert.equal(sealAt(r, '2027-01-18'), null, 'hors des jours de course');
+  assert.deepEqual(sealAt(saison(), '2027-01-17'), { at: parisInstant('2027-01-18', 0, 0), signal: 'inconnu' }, 'sans heure : fin de CE jour, pas de la saison');
+  const pts = (d) => Array.from({ length: 61 }, (_, i) => [Date.parse(`${d}T10:00:00Z`) + i * 60e3, 43.12, 6.39, 5, 90, 5]);
+  assert.equal(matchRegattas(pts('2027-01-17'), [r]).how, 'unique');
+  assert.equal(matchRegattas(pts('2027-01-18'), [r]).how, 'proche', 'lendemain d’une manche : proposition');
+  assert.equal(matchRegattas(pts('2026-12-01'), [r]).how, 'aucune', 'un jour de la saison sans manche : aucune régate');
+});
+
+test('seedBaie : fiche baie-2026-2027 semée une seule fois dans l’espace Tofinou (marqueur rade.seed.baie.v1), jamais ressemée après suppression ; sans effet chez Naos', async () => {
+  const R = await import('../js/regates.js'), M = await import('../js/archmerge.js');
+  assert.equal(R.BAIE_ID, 'baie-2026-2027'); assert.equal(R.BAIE_SEED_KEY, 'rade.seed.baie.v1');
+  const g = { graines: ESPACES.tofinou.graines };
+  const s = mem(), st = migrate({ storage: s, now: t('2026-11-27T08:00:00Z'), by: 'Frédéric', ...g });
+  assert.deepEqual(st.list, []);
+  const n = R.seedBaie(st, { storage: s, ...g });
+  assert.deepEqual(n.list.map((r) => r.id), ['baie-2026-2027']);
+  assert.equal(s.getItem('rade.seed.baie.v1'), '1', 'marqueur posé');
+  assert.equal(R.seedBaie(n, { storage: mem(), ...g }), n, 'déjà là : même objet');
+  // supprimée : pierre tombale, marqueur ; rien n’est ressemé
+  const sans = M.stampState(n, removeRegatta(n, 'baie-2026-2027'), { now: t('2026-11-28T08:00:00Z'), by: 'Frédéric' }).st;
+  assert.ok(sans.tomb['baie-2026-2027']);
+  assert.equal(R.seedBaie(sans, { storage: mem(), ...g }), sans);
+  const vide = { v: 1, list: [] };
+  assert.equal(R.seedBaie(vide, { storage: mem({ 'rade.seed.baie.v1': '1' }), ...g }), vide, 'marqueur posé : rien');
+  // Naos (graines de Naos, ou défaut) : ni fiche ni marqueur
+  for (const opts of [{}, { graines: ESPACES.naos.graines }]) {
+    const m = memoire(), s0 = { v: 1, list: [] };
+    assert.equal(R.seedBaie(s0, { storage: m, ...opts }), s0); assert.deepEqual(m.ecrits, []);
+  }
+  // stockage illisible : semée quand même, sans exception
+  const casse = { getItem() { throw new Error('refus'); }, setItem() { throw new Error('refus'); } };
+  assert.ok(R.seedBaie(vide, { storage: casse, ...g }).list.some((r) => r.id === 'baie-2026-2027'));
+  // deux téléphones : même fiche (canon), la fusion n’en garde qu’une, avec ses jours
+  const a = R.seedBaie(vide, { storage: mem(), ...g }), b = R.seedBaie({ v: 1, list: [] }, { storage: mem(), ...g });
+  assert.equal(M.canon(M.toShared(a.list[0])), M.canon(M.toShared(b.list[0])));
+  const Y = await import('../js/archsync.js');
+  const doc = M.mergeDoc(Y.buildDoc(M.legacyStamp(a), { marks: {} }), Y.buildDoc(M.legacyStamp(b), { marks: {} }));
+  assert.deepEqual(Object.keys(doc.regattas), ['baie-2026-2027']);
+  assert.deepEqual(doc.regattas['baie-2026-2027'].jours, JOURS_BAIE);
+  assert.equal(M.legacyStamp(a).list[0].ub, null, 'graine sans auteur');
+});
+
+test('fiche du Challenge de la Baie : sept manches (huit jours), manche 1 le dimanche 11/10, Bormes, règles de l’avis et des fiches de course, aucun nom de personne', async () => {
+  const R = await import('../js/regates.js');
+  const f = R.baieSeed();
+  assert.notEqual(f, R.baieSeed(), 'objet neuf à chaque appel');
+  assert.deepEqual(f.jours, JOURS_BAIE);
+  assert.equal(f.dateStart, '2026-10-11'); assert.equal(f.dateEnd, '2027-04-11'); assert.equal(f.season, '2026'); assert.equal(f.venue, 'bormes');
+  assert.equal(f.name, 'Challenge de la Baie 2026-2027');
+  assert.equal(f.club, 'Yacht Club du Lavandou · École de voile municipale du Lavandou · Club de voile de Bormes');
+  assert.equal(f.at, R.BAIE_AT); assert.equal(f.by, null); assert.equal(f.u, R.BAIE_AT); assert.equal(f.ub, null); assert.equal(f.vu, R.BAIE_AT);
+  assert.equal(f.ic.read, 'semee'); assert.equal(f.ic.source, 'Avis de course et fiches de course du Challenge de la Baie 2026-2027');
+  assert.deepEqual(f.ic.validated, { by: null, at: R.BAIE_AT });
+  // dimanches
+  for (const d of JOURS_BAIE.filter((x) => x !== '2027-04-10')) assert.equal(new Date(`${d}T12:00:00Z`).getUTCDay(), 0, `${d} est un dimanche`);
+  assert.equal(new Date('2027-04-10T12:00:00Z').getUTCDay(), 6, 'finale : samedi 10 et dimanche 11 avril');
+  // manches : une par jour, sans heure inventée, identifiant fixe, lieux
+  assert.deepEqual(f.races.map((m) => [m.n, m.id, m.date, m.time]), JOURS_BAIE.map((d, i) => [i + 1, `m${d.replace(/-/g, '')}`, d, '']));
+  assert.ok(f.races.every((m) => m.courseId === null && m.u === R.BAIE_AT && m.ub === null && m.by === null && m.note.length <= 200));
+  assert.match(f.races[0].note, /^Manche 1 — Le Lavandou/); assert.match(f.races[2].note, /^Manche 3 — Bormes/); assert.match(f.races[4].note, /^Manche 5 — Bormes/);
+  assert.match(f.races[5].note, /^Manche 6 — Le Lavandou/); assert.match(f.races[6].note, /^Finale \(manche 7\), premier jour/); assert.match(f.races[7].note, /^Finale \(manche 7\), second jour/);
+  const ic = icOf(f), regles = ic.keyRules.join('\n');
+  assert.equal(ic.vhf, 72); assert.equal(ic.firstWarning, '11:00');
+  for (const re of [/VHF 72/, /Règles d’introduction à la régate \(RIR\)/, /pénalité d’un tour/, /Briefing à 10 h, premier signal à 11 h/, /4 minutes[^\n]*DNS/, /Bout-dehors[^\n]*spinnaker/,
+    /entre le bateau comité et une bouée cylindrique orange/, /bouée cylindrique rouge siglée Le Lavandou/, /« R »[^\n]*sens inverse/, /Pavillon D[^\n]*pavillon vert : dégagement à laisser à tribord/,
+    /groupe 4/, /dimanche 11 octobre/, /devant Le Lavandou[^\n]*devant Bormes – La Favière/]) assert.match(regles, re);
+  // aucun « 10 octobre » comme date de manche : seulement cité comme la coquille de l’avis
+  const tout = JSON.stringify(f);
+  assert.equal((tout.match(/10 octobre/g) || []).length, 1); assert.match(regles, /écrit « dimanche 10 octobre » : coquille/);
+  assert.ok(!/'/.test(tout.replace(/"[a-zA-Z]+":/g, '')), 'apostrophe typographique ’');
+  assert.ok(!/CVAT|Toulon|J80|Naos|SNPM|GPEN/.test(tout), 'rien de Naos');
+  // vue : « En cours » le 13/12, « En préparation » le 14/12, mention de la fiche semée propre au Challenge
+  const { document } = parseHTML(`<div>${sheetHTML(f, { now: midi('2026-12-13') })}</div>`);
+  const txt = document.querySelector('#rgSheet').textContent.replace(/\s+/g, ' ');
+  assert.match(txt, /Challenge de la Baie 2026-2027/); assert.match(txt, /En cours/); assert.match(txt, /8 jours de course, du dim\. 11 oct\. au dim\. 11 avr\. 2027/);
+  assert.match(txt, /Fiche semée par l’app \(avis de course et fiches de course 2026-2027\) — à vérifier sur la fiche de course de chaque manche\./);
+  assert.ok(!/IC 2027/.test(txt));
+  assert.equal(document.querySelectorAll('script, img, iframe').length, 0);
+  assert.equal(regattaStatus(f, midi('2026-12-14')), 'avenir');
+});
+
+test('câblage : seedBaie appelé juste après seedGpen (même forme), marqueur retiré à l’adoption d’un autre espace avec celui du GPEN', () => {
+  const app = readFileSync(ROOT + 'js/app.js', 'utf8');
+  assert.match(app, /\{ const g = seedGpen\(REG, \{ storage: localStore\(\), graines: ESPACE\.graines \}\); if \(g !== REG\) \{ REG = g; saveRegattas\(localStore\(\), REG\); \} \}\n\/\/ [^\n]*\n\{ const g = seedBaie\(REG, \{ storage: localStore\(\), graines: ESPACE\.graines \}\); if \(g !== REG\) \{ REG = g; saveRegattas\(localStore\(\), REG\); \} \}/);
+  assert.match(app, /for \(const k of \[REG_KEY, GPEN_SEED_KEY, BAIE_SEED_KEY, 'rade\.state'\]\) localStorage\.removeItem\(k\);/);
+});

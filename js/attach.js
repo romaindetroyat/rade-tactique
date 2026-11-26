@@ -5,7 +5,7 @@
 import { parisClock } from './racelock.js';
 import { segmentBreaks } from './segments.js';
 import { parisInstant } from './gel.js';
-import { isTime, lastDay } from './regates.js';
+import { isTime, lastDay, joursOf } from './regates.js';
 
 const DAY_MS = 864e5;
 const HEURE_AVANT_MS = 3600e3;     // le signal précède souvent le début de l’enregistrement : une heure de marge avant la trace
@@ -32,9 +32,12 @@ export function raceOfTrack(r, w) {
   return null;
 }
 
-const inDays = (r, day) => !!r.dateStart && day >= r.dateStart && day <= lastDay(r);
+// régate à jours de course (08-08) : ses jours seulement, et la veille ou le lendemain de l’un d’eux ; sans jours (Naos) : règles de la v43
+const inDays = (r, day) => { const j = joursOf(r); return j ? j.includes(day) : !!r.dateStart && day >= r.dateStart && day <= lastDay(r); };
 const nearDays = (r, day) => {
   if (!r.dateStart) return false;
+  const j = joursOf(r);
+  if (j) return !j.includes(day) && j.some((x) => Math.abs(Date.parse(x) - Date.parse(day)) <= DAY_MS);
   const a = Date.parse(r.dateStart), b = Date.parse(lastDay(r)), d = Date.parse(day);
   return (d < a && a - d <= DAY_MS) || (d > b && d - b <= DAY_MS);
 };

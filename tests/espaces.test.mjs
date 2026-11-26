@@ -353,7 +353,10 @@ test('parité app ↔ middleware ↔ fonctions : mêmes identifiants, mêmes hô
   }
   // graines de Naos = identifiants réservés hors de Naos
   assert.deepEqual([...POLITIQUE.tofinou.reserves], [...app.ESPACES.naos.graines]);
-  assert.deepEqual([...app.ESPACES.tofinou.graines], []);
+  // graine de Tofinou (08-08) : le Challenge de la Baie, jamais un identifiant de Naos ; Naos ne réserve rien (politique de la v43)
+  assert.deepEqual([...app.ESPACES.tofinou.graines], ['baie-2026-2027']);
+  assert.ok(!app.ESPACES.tofinou.graines.some((g) => app.ESPACES.naos.graines.includes(g)));
+  assert.deepEqual([...POLITIQUE.naos.reserves], []);
   // table hôte → espace
   for (const id of ESPACE_IDS) for (const h of ESPACES[id].hotes) assert.equal(app.HOTES[h], id, h);
   assert.equal(Object.keys(app.HOTES).length, ESPACE_IDS.reduce((n, id) => n + ESPACES[id].hotes.length, 0));

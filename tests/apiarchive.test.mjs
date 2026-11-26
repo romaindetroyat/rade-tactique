@@ -772,3 +772,39 @@ test('cleanDoc : politique lue par espace (Naos par défaut = v43), erreurs nomm
   assert.throws(() => cleanDoc(doc(regatta()), T, 'tofinou'), (e) => e.message === 'plan_d_eau_refuse' && e.status === 400);
   assert.throws(() => cleanDoc(doc(regatta({ id: 'gpen-2027', venue: 'bormes' })), T, 'tofinou'), (e) => e.message === 'regate_reservee' && e.status === 400);
 });
+
+// ───────────────────────── jours de course et fiche du Challenge de la Baie (08-08, D-13, T-08-27, T-08-28)
+
+test('cleanDoc : jours de course gardés (1 à 30 dates AAAA-MM-JJ réelles), sinon retirés sans refuser la régate ; Naos sans jours inchangé', () => {
+  const ok = ['2026-10-11', '2026-11-08', '2027-04-11'];
+  for (const esp of ['tofinou', 'naos']) {
+    const v = esp === 'tofinou' ? { venue: 'bormes', vu: 1200 } : {};
+    assert.deepEqual(cleanDoc(doc(regatta({ ...v, jours: ok })), T, esp).regattas.rgA.jours, ok, esp);
+    assert.deepEqual(cleanDoc(doc(regatta({ ...v, jours: Array.from({ length: 30 }, (_, i) => `2027-01-${String(i + 1).padStart(2, '0')}`) })), T, esp).regattas.rgA.jours.length, 30);
+    for (const mauvais of [[], Array.from({ length: 31 }, (_, i) => `2027-01-${String(i + 1).padStart(2, '0')}`), ['2026-02-30'], ['2026-10-11', 'demain'], ['2026-10-11T00:00'], '2026-10-11', { 0: '2026-10-11' }, [20261011], null]) {
+      const c = cleanDoc(doc(regatta({ ...v, jours: mauvais })), T, esp).regattas.rgA;
+      assert.ok(!('jours' in c), `${esp} : ${JSON.stringify(mauvais)?.slice(0, 40)} retiré`);
+      assert.equal(c.name, 'Coupe test', 'la régate reste');
+    }
+  }
+  // régate de Naos sans jours : document propre identique (aucune clé ajoutée)
+  assert.ok(!('jours' in cleanDoc(doc(regatta()), T, 'naos').regattas.rgA));
+});
+
+test('fiche du Challenge de la Baie : acceptée par l’archive Tofinou (rangée sous tofinou/, jours relus par un second téléphone), jamais vue par l’archive de Naos', async () => {
+  const { baieSeed } = await import('../js/regates.js');
+  const blob = createFakeBlob(), handler = createHandler({ blob, now: () => T });
+  const tel = (nom, espace) => (method, url, body) => invoke(handler, { method, url, body, headers: { 'x-rt-membre': encodeURIComponent(nom), 'x-rt-espace': espace } });
+  const f = baieSeed(), d = { ...emptyDoc(), regattas: { [f.id]: f } };
+  const r = await tel('Frédéric', 'tofinou')('PUT', PUT, { doc: d });
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.body.doc.regattas[f.id].jours, f.jours);
+  assert.equal(r.body.doc.regattas[f.id].venue, 'bormes');
+  assert.equal(r.body.doc.regattas[f.id].races.length, 8);
+  assert.deepEqual([...blob.store.keys()], ['tofinou/preview/light.json']);
+  const lu = await tel('Romain', 'tofinou')('GET', GET);
+  assert.deepEqual(lu.body.doc.regattas[f.id].jours, f.jours, 'second téléphone Tofinou : jours relus');
+  const naos = await tel('Romain', 'naos')('GET', GET);
+  assert.ok(!naos.body.doc?.regattas?.[f.id], 'archive de Naos : aucune fiche du Challenge');
+  assert.ok(![...blob.store.keys()].some((k) => k.startsWith('preview/') || k.startsWith('prod/')), 'rien sous les préfixes de Naos');
+});

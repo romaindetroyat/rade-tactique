@@ -13,7 +13,7 @@ export const ESPACES = Object.freeze({
     venues: ['toulon', 'brest'], venueDefaut: 'toulon', pack: 'brest', graines: ['snpm-2026', 'gpen-2027'], recalage: true, caps: null,
     hotes: ['rade-tactique.vercel.app', '127.0.0.1', 'localhost'],
   }),
-  // Tofinou — Bormes : rade de Bormes – Le Lavandou seule, aucune graine de Naos, plafonds d’archive par téléphone à la moitié de ceux de Naos
+  // Tofinou — Bormes : rade de Bormes – Le Lavandou seule, aucune graine de Naos (sa graine : le Challenge de la Baie 2026-2027, 08-08), plafonds d’archive par téléphone à la moitié de ceux de Naos
   // (le quota Blob est commun aux deux espaces : un dépassement bloquerait aussi l’archive de Naos)
   tofinou: gele({
     id: 'tofinou', nom: 'Tofinou — Bormes', app: 'Tofinou Bormes',
@@ -24,7 +24,7 @@ export const ESPACES = Object.freeze({
       classe: 'Tofinou 9.5', longueur: 9.47, polaire: 'tofinou95', voiles: Object.freeze(['genois', 'foc']), voileDefaut: 'genois',
       virement_s: 11, empannage_s: 8, tirant: Object.freeze({ bas: 2.2, haut: 1.2 }), onglet: 'Tofinou', reglages: false,
     },
-    venues: ['bormes'], venueDefaut: 'bormes', pack: 'bormes', graines: [], recalage: false,
+    venues: ['bormes'], venueDefaut: 'bormes', pack: 'bormes', graines: ['baie-2026-2027'], recalage: false,
     caps: { archive: { w: 20, r: 75 }, lourd: { up: 10, down: 20 } },
     hotes: ['tofinou-bormes.vercel.app', 'tofinou.localhost'],
   }),

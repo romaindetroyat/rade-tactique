@@ -29,6 +29,10 @@ const DANGER = new Set(['__proto__', 'constructor', 'prototype']);
 const fail = (message, status) => Object.assign(new Error(message), { status });
 const validId = (id) => (typeof id === 'string' || Number.isFinite(id)) && ID.test(String(id));    // un identifiant absent ne devient pas la chaîne « undefined »
 const isObj = (x) => x && typeof x === 'object' && !Array.isArray(x);
+// date calendaire réelle AAAA-MM-JJ (le 30 février est refusé), comme isDate de js/regates.js (non importé : la fonction n’embarque que js/archmerge.js)
+const dateReelle = (s) => { const m = typeof s === 'string' ? /^(\d{4})-(\d{2})-(\d{2})$/.exec(s) : null; if (!m) return false; const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3])); return d.getUTCFullYear() === +m[1] && d.getUTCMonth() === +m[2] - 1 && d.getUTCDate() === +m[3]; };
+export const MAX_JOURS = 30;
+const joursValides = (j) => Array.isArray(j) && j.length >= 1 && j.length <= MAX_JOURS && j.every(dateReelle);
 // Les données d’un aperçu ne se mélangent jamais à celles de la production (le même magasin est branché aux deux environnements) ;
 // gardée pour la parité avec api/_ia.js : c’est le préfixe de Naos et la valeur `env` des réponses
 export const prefix = env;
@@ -82,6 +86,8 @@ export function cleanDoc(doc, now, espace = 'naos') {
     if (!(typeof c.venue === 'string' && pol.venues.includes(c.venue))) { delete c.venue; delete c.vu; }
     else if (!Number.isFinite(c.vu)) delete c.vu;
     else c.vu = clampT(c.vu, now);
+    // jours de course (08-08, D-13) : liste de 1 à 30 dates AAAA-MM-JJ réelles, sinon retirée sans refuser la régate (aucune régate de Naos n’en a)
+    if ('jours' in c && !joursValides(c.jours)) delete c.jours;
     out.regattas[id] = clampU(c, now);
   }
   out.tomb = tombs(doc.tomb, now);

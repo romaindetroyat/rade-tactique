@@ -2,7 +2,7 @@
 // tout texte venu d’une régate (nom, club, note, auteur) passe par escHTML ; les attributs sont toujours entre guillemets doubles.
 
 import { parisClock } from './racelock.js';
-import { regattaStatus, STATUS_LABEL, MAX_NAME, MAX_CLUB, MAX_NOTE, daysOf } from './regates.js';
+import { regattaStatus, STATUS_LABEL, MAX_NAME, MAX_CLUB, MAX_NOTE, daysOf, joursOf, BAIE_SOURCE } from './regates.js';
 import { clockOf } from './gel.js';
 import { MODELS } from './weather.js';
 import { STATUS, waitingFor, fmtPos, sideTxt } from './regmarks.js';
@@ -27,6 +27,8 @@ const DAY_Y = new Intl.DateTimeFormat('fr-FR', { weekday: 'short', day: 'numeric
 const at12 = (s) => new Date(s + 'T12:00:00Z');
 export function datesLabel(r) {
   if (!r?.dateStart) return 'date à préciser';
+  const j = joursOf(r);                                    // régate en saison (08-08) : le nombre de jours de course, puis la saison
+  if (j) return `${j.length} jour${j.length > 1 ? 's' : ''} de course, du ${DAY.format(at12(j[0]))} au ${DAY_Y.format(at12(j[j.length - 1]))}`;
   return r.dateEnd && r.dateEnd > r.dateStart ? `du ${DAY.format(at12(r.dateStart))} au ${DAY_Y.format(at12(r.dateEnd))}` : DAY_Y.format(at12(r.dateStart));
 }
 const CHIP = { avenir: 'chip pres', aujourdhui: 'chip good', passee: 'chip' };
@@ -326,7 +328,7 @@ export function sheetHTML(r, { now = Date.now(), courses = [], choices = courses
   return `<div class="card" id="rgSheet"><h3><span>${escHTML(r.name)}</span><small>${escHTML(r.club || 'club à préciser')}</small></h3>
     <div class="small">${escHTML(datesLabel(r))} ${statusChip(r, now)}${venueChip(r)}</div>
     <div class="small muted" style="margin-top:4px">Créée ${byLine(r.by, r.at)}</div>
-    ${r.ic?.read === 'semee' ? '<div class="notice small" id="rgSemee" style="margin-top:6px">Fiche semée par l’app (IC 2026) — à vérifier avec les IC 2027.</div>' : ''}
+    ${r.ic?.read === 'semee' ? `<div class="notice small" id="rgSemee" style="margin-top:6px">${r.ic.source === BAIE_SOURCE ? 'Fiche semée par l’app (avis de course et fiches de course 2026-2027) — à vérifier sur la fiche de course de chaque manche.' : 'Fiche semée par l’app (IC 2026) — à vérifier avec les IC 2027.'}</div>` : ''}
     <div class="rgraces"><h4>Manches</h4>${races.length ? races.map((m) => raceRowHTML(m, { courses, chosen: r.sel === m.n, editing: Number.isInteger(raceDraft?.edit) && (raceDraft.id != null ? raceDraft.id === m.id : raceDraft.edit === m.n) })).join('') : '<p class="small muted">Aucune manche : ajoutez-en une avec son heure de signal et son parcours.</p>'}
     ${raceDraft ? raceFormHTML(r, raceDraft, raceErrors, choices) : '<div class="btns"><button type="button" class="btn small acc" id="rcNew">＋ Ajouter une manche</button></div>'}</div>
     ${marksSectionHTML(r, { markFix, nmOf })}

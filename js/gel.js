@@ -5,7 +5,7 @@
 // Les instants sont toujours des instants de Paris (parisClock) : le fuseau du téléphone ne compte pas.
 
 import { parisClock } from './racelock.js';
-import { isTime, lastDay, daysOf } from './regates.js';
+import { isTime, lastDay, daysOf, joursOf } from './regates.js';
 
 export const THROTTLE_MS = 10 * 60e3;          // au plus une copie complète toutes les 10 minutes
 export const MAX_STRATEGY_BYTES = 12000;       // la route conseillée figée tient en moins de 12 Ko
@@ -33,10 +33,13 @@ export const clockOf = (ms) => { const c = parisClock(ms); return `${pad(c.hour)
 export function sealAt(r, day) {
   if (!r || !daysOf(r).includes(day)) return null;
   const heures = (r.races || []).filter((m) => (m.date || r.dateStart) === day && isTime(m.time)).map((m) => m.time).sort();
+  // régate à jours de course (08-08) : chaque jour est un jour de course à part (premier signal des IC chaque jour, sceau à la fin de CE jour) ;
+  // sans jours (Naos) : règles de la v43
+  const saison = !!joursOf(r);
   let hh = heures[0], signal = 'manche';
-  if (!hh && day === r.dateStart && isTime(r.ic?.fields?.firstWarning)) { hh = r.ic.fields.firstWarning; signal = 'ic'; }
+  if (!hh && (saison || day === r.dateStart) && isTime(r.ic?.fields?.firstWarning)) { hh = r.ic.fields.firstWarning; signal = 'ic'; }
   if (hh) { const [h, m] = hh.split(':').map(Number); return { at: parisInstant(day, h, m), signal }; }
-  return { at: parisInstant(nextDay(lastDay(r)), 0, 0), signal: 'inconnu' };
+  return { at: parisInstant(nextDay(saison ? day : lastDay(r)), 0, 0), signal: 'inconnu' };
 }
 
 // Que faire maintenant ? 'rien' | 'gel' (copie à jour) | 'sceau' (dernière copie, au signal) | 'tard' (première copie après le signal).

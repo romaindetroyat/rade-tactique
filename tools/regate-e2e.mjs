@@ -3578,8 +3578,9 @@ async function tofinouSansNaos(page) {
   assert.ok(!/Toulon|Brest/.test(await texte(page, '#pkCard')), 'carte « Plan d’eau » : la rade de Bormes seule');
   assert.equal(await page.locator('#pkGo').count(), 0, 'aucune bascule vers un autre plan d’eau');
   const index = await page.evaluate(() => JSON.parse(localStorage.getItem('rade.regates.v1') || 'null'));
-  assert.deepEqual(index?.list?.map((r) => r.id) ?? [], [], 'index sans graine');
-  assert.equal(await page.evaluate(() => localStorage.getItem('rade.seed.gpen.v1')), null, 'aucun marqueur de graine');
+  assert.deepEqual(index?.list?.map((r) => r.id) ?? [], ['baie-2026-2027'], 'index : la seule graine de Tofinou (Challenge de la Baie, 08-08)');
+  assert.equal(await page.evaluate(() => localStorage.getItem('rade.seed.gpen.v1')), null, 'aucun marqueur de graine de Naos');
+  assert.equal(await page.evaluate(() => localStorage.getItem('rade.seed.baie.v1')), '1', 'marqueur de la graine de Tofinou');
   await page.click('#rgNew');
   assert.deepEqual(await page.locator('#rgVenue option').evaluateAll((os) => os.map((o) => [o.value, o.selected])), [['bormes', true]], 'formulaire : Bormes seul');
   await page.click('#rgCancel');
@@ -3789,7 +3790,7 @@ async function espaceGarde({ browser, base: base0 }) {
     const chemins = [...m.blob.store.keys()];
     assert.ok(chemins.length && chemins.every((c) => c.startsWith('tofinou/')), `archive de Tofinou seulement : ${chemins.join(', ')}`);
     const leger = JSON.parse(m.blob.store.get('tofinou/preview/light.json')?.text || 'null');
-    assert.deepEqual(Object.values(leger?.regattas || {}).map((r) => [r.name, r.venue]), [['Manche de la Baie', 'bormes']], 'régate de Bormes dans l’archive de Tofinou');
+    assert.deepEqual(Object.values(leger?.regattas || {}).map((r) => [r.name, r.venue]).sort(), [['Challenge de la Baie 2026-2027', 'bormes'], ['Manche de la Baie', 'bormes']], 'régates de Bormes (dont la graine du Challenge, 08-08) dans l’archive de Tofinou');
     sansErreur(erreurs, 'appareil neuf adopté');
     await ctx.close();
   }
@@ -4124,7 +4125,79 @@ async function bormesLocal({ browser }) {
   }
 }
 
-const SCENARIOS = { accueil, 'jour-j': jourJ, 'deux-telephones': deuxTelephones, reprise, equipage, archive, 'archive-bouees': archiveBouees, archivehors: archiveHors, creer, manche, auteur, ic, 'depuis-ic': depuisIC, vraisemblance, gel, 'debrief-tardif': debriefTardif, gpx, 'gpx-choix': gpxChoix, ia, 'ia-erreurs': iaErreurs, arbitre, bouees, guide, entetes, 'retour-port': retourPort, banane, 'banane-manche': bananeManche, 'banane-debrief': bananeDebrief, 'porte-ic': porteIC, 'modifier-manche': modifierManche, 'toulon-vue': toulonVue, 'plan-eau': planEau, 'brest-avion': brestAvion, 'regate-brest': regateBrest, 'brest-courant': brestCourant, gpen, 'naos-cles': naosCles, 'tofinou-demarrage': tofinouDemarrage, 'espace-garde': espaceGarde, 'tofinou-bateau': tofinouBateau, 'tofinou-identite': tofinouIdentite, 'bormes-local': bormesLocal };
+// 08-08, D-13 : fiche « Challenge de la Baie 2026-2027 » semée dans l’espace Tofinou (hôte tofinou.localhost), faux Blob de l’archive Tofinou.
+// (1) Dimanche 13/12/2026, 10 h à Paris (manche 3) : Frédéric ouvre l’app neuve → fiche semée, ouverte au démarrage, « En cours », manche du jour,
+//     journée de régate (« Course finie ») ; synchronisée avec l’archive de Tofinou (chemins tofinou/… seulement), jours de course gardés.
+// (2) Romain, second téléphone Tofinou dont la graine est déjà marquée (rien de semé) : la fiche vient de l’archive, avec ses jours ; relancée,
+//     elle s’ouvre au démarrage le jour de la manche.
+// (3) Lundi 14/12, 10 h : entraînement libre, fiche « En préparation », plus de journée de régate.
+async function baie({ browser, base: base0 }) {
+  const base = baseSur(base0, HOTES_ESSAI.tofinou);
+  const m = await mondeArchive('2026-12-13T09:00:00Z');
+  const JOURS = ['2026-10-11', '2026-11-08', '2026-12-13', '2027-01-17', '2027-02-14', '2027-03-14', '2027-04-10', '2027-04-11'];
+  const telephone = async (nom, init = null) => {
+    const ctx = await ouvreContexte(browser, { heure: new Date(m.t).toISOString() }); m.ctxs.push(ctx);
+    if (init) await ctx.addInitScript(init);
+    await membreEspace(ctx, { membre: nom, espace: 'tofinou' });
+    await archiveEspace(ctx, m, nom, { espace: 'tofinou' });
+    const { page, erreurs } = await ouvrePage(ctx);
+    await ouvreApp(page, base);
+    await membreGarde(page, nom);
+    return { nom, ctx, page, erreurs };
+  };
+  try {
+    // (1)
+    const A = await telephone('Frédéric');
+    const b = await bandeau(A.page);
+    assert.equal(b.ouverte, 'baie-2026-2027', 'ouverte au démarrage le jour de la manche 3');
+    assert.match(b.texte, /Challenge de la Baie 2026-2027/); assert.match(b.texte, /En cours/);
+    assert.equal(await A.page.evaluate(() => localStorage.getItem('rade.seed.baie.v1')), '1');
+    await ongletIC(A.page);
+    const fiche = (await texte(A.page, '#rgSheet')).replace(/\s+/g, ' ');
+    assert.match(fiche, /Manche 3 — Bormes, ligne devant Bormes – La Favière/, 'manche du jour');
+    assert.match(fiche, /8 jours de course, du dim\. 11 oct\. au dim\. 11 avr\. 2027/);
+    assert.match(fiche, /Fiche semée par l’app \(avis de course et fiches de course 2026-2027\)/);
+    assert.ok(!/10 oct/.test(fiche), 'aucune manche le 10 octobre');
+    await A.page.click('#tabs button[data-tab=live]');
+    assert.equal(await A.page.locator('#raceDone').count(), 1, 'journée de régate le 13/12 : « Course finie »');
+    await avanceHeure(m, 60e3);
+    await synchronise(m, A);
+    const chemins = [...m.blob.store.keys()];
+    assert.ok(chemins.length && chemins.every((c) => c.startsWith('tofinou/')), `archive de Tofinou seulement : ${chemins.join(', ')}`);
+    const leger = JSON.parse(m.blob.store.get('tofinou/preview/light.json')?.text || 'null');
+    assert.deepEqual(leger?.regattas?.['baie-2026-2027']?.jours, JOURS, 'jours de course gardés par l’archive');
+    assert.ok(m.vues.every((v) => v.espace === 'tofinou'));
+    sansErreur(A.erreurs, 'manche 3, Frédéric');
+    // (2)
+    const B = await telephone('Romain', () => { try { localStorage.setItem('rade.seed.baie.v1', '1'); } catch { /* stockage refusé */ } });
+    assert.deepEqual((await indexRegates(B.page))?.list?.map((r) => r.id) ?? [], [], 'graine déjà marquée : rien de semé');
+    await synchronise(m, B);
+    const recue = (await indexRegates(B.page)).list.find((r) => r.id === 'baie-2026-2027');
+    assert.deepEqual(recue?.jours, JOURS, 'second téléphone : jours relus de l’archive');
+    await B.page.reload({ waitUntil: 'load' });
+    await pret(B.page);
+    assert.equal((await bandeau(B.page)).ouverte, 'baie-2026-2027', 'second téléphone : ouverte au démarrage le jour de la manche');
+    sansErreur(B.erreurs, 'manche 3, Romain');
+    await B.ctx.close(); m.ctxs.splice(m.ctxs.indexOf(B.ctx), 1);
+    // (3)
+    await avanceHeure(m, 24 * 3600e3);
+    await A.page.reload({ waitUntil: 'load' });
+    await pret(A.page);
+    const b2 = await bandeau(A.page);
+    assert.equal(b2.ouverte, '', 'lundi 14/12 : entraînement libre');
+    await ongletIC(A.page);
+    const liste = await lireListe(A.page);
+    const ligne = liste.find((g) => g.rows.some((r) => r.id === 'baie-2026-2027'));
+    assert.equal(ligne?.status, 'En préparation', `groupe de la fiche le 14/12 : ${JSON.stringify(liste.map((g) => g.status))}`);
+    await A.page.click('#tabs button[data-tab=live]');
+    assert.equal(await A.page.locator('#raceDone').count(), 0, 'plus de journée de régate le 14/12');
+    sansErreur(A.erreurs, 'lendemain');
+  } finally {
+    for (const c of m.ctxs) await c.close().catch(() => { /* déjà fermé */ });
+  }
+}
+
+const SCENARIOS = { baie, accueil, 'jour-j': jourJ, 'deux-telephones': deuxTelephones, reprise, equipage, archive, 'archive-bouees': archiveBouees, archivehors: archiveHors, creer, manche, auteur, ic, 'depuis-ic': depuisIC, vraisemblance, gel, 'debrief-tardif': debriefTardif, gpx, 'gpx-choix': gpxChoix, ia, 'ia-erreurs': iaErreurs, arbitre, bouees, guide, entetes, 'retour-port': retourPort, banane, 'banane-manche': bananeManche, 'banane-debrief': bananeDebrief, 'porte-ic': porteIC, 'modifier-manche': modifierManche, 'toulon-vue': toulonVue, 'plan-eau': planEau, 'brest-avion': brestAvion, 'regate-brest': regateBrest, 'brest-courant': brestCourant, gpen, 'naos-cles': naosCles, 'tofinou-demarrage': tofinouDemarrage, 'espace-garde': espaceGarde, 'tofinou-bateau': tofinouBateau, 'tofinou-identite': tofinouIdentite, 'bormes-local': bormesLocal };
 
 // ───────────────────────── lancement
 
