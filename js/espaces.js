@@ -11,6 +11,8 @@ export const ESPACES = Object.freeze({
   naos: gele({
     id: 'naos', nom: 'Naos', app: 'Rade Tactique', bateau: { classe: 'J80', longueur: 8 },
     venues: ['toulon', 'brest'], venueDefaut: 'toulon', pack: 'brest', graines: ['snpm-2026', 'gpen-2027'], recalage: true, caps: null,
+    // éditeur de parcours (08-11, D-17) : fermé à Naos (vues de la v43) ; il pourra être ouvert en changeant ce seul drapeau, sur décision du skipper de Naos
+    editeurParcours: false,
     hotes: ['rade-tactique.vercel.app', '127.0.0.1', 'localhost'],
   }),
   // Tofinou — Bormes : rade de Bormes – Le Lavandou seule, aucune graine de Naos (sa graine : le Challenge de la Baie 2026-2027, 08-08), plafonds d’archive par téléphone à la moitié de ceux de Naos
@@ -24,7 +26,7 @@ export const ESPACES = Object.freeze({
       classe: 'Tofinou 9.5', longueur: 9.47, polaire: 'tofinou95', voiles: Object.freeze(['genois', 'foc']), voileDefaut: 'genois',
       virement_s: 11, empannage_s: 8, tirant: Object.freeze({ bas: 2.2, haut: 1.2 }), onglet: 'Tofinou', reglages: false,
     },
-    venues: ['bormes'], venueDefaut: 'bormes', pack: 'bormes', graines: ['baie-2026-2027'], recalage: false,
+    venues: ['bormes'], venueDefaut: 'bormes', pack: 'bormes', graines: ['baie-2026-2027'], recalage: false, editeurParcours: true,
     caps: { archive: { w: 20, r: 75 }, lourd: { up: 10, down: 20 } },
     // textes du chemin des IC (08-11, D-16) : lecture par motifs et fiche semée sans le sigle du club de Toulon ; Naos garde ceux de la v43 (aucun texte ici)
     textesIC: {

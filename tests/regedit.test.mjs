@@ -289,3 +289,84 @@ test('archive Tofinou : régate de Bormes avec bouées et parcours saisis accept
   assert.ok([...lu.marks, ...lu.courses].every((e) => e.ub === 'Frédéric'), 'auteur signé par le serveur, élément par élément');
   assert.equal(normName(lu.courses[0].name), normName('Parcours d’entraînement'));
 });
+
+// ───────────────────────── vues de l’éditeur (linkedom)
+
+const { parseHTML } = await import('linkedom');
+const { marksSectionHTML, sheetHTML, markAddHTML, courseFormHTML } = await import('../js/regview.js');
+const dom = (html) => parseHTML(`<div id="racine">${html}</div>`).document;
+const PIEGE = '<img src=x onerror=alert(1)>';
+
+test('marksSectionHTML avec l’éditeur : section toujours affichée, « ＋ Ajouter une bouée », « Créer un parcours », « Modifier le parcours », « Supprimer le parcours » ; tout inactif en course', () => {
+  let d = dom(marksSectionHTML(regate(), { editeur: true }));
+  assert.match(d.querySelector('#rgEdit h4').textContent, /^Bouées et parcours de la régate/);
+  assert.equal(d.querySelector('#mkNew').textContent, '＋ Ajouter une bouée');
+  assert.equal(d.querySelector('#coNew').textContent, 'Créer un parcours');
+  assert.equal(marksSectionHTML(regate(), {}), '', 'sans éditeur : rien pour une régate sans bouée (v43)');
+  const r = saveCourseDraft(quatre(), brouillon(), { by: 'Frédéric', at: T0, rnd: () => 0 }).regatta;
+  d = dom(marksSectionHTML(r, { editeur: true }));
+  const row = d.querySelector('[data-co-row="1000"]');
+  assert.match(row.textContent, /Parcours d’entraînement \(saisi\)/);
+  assert.match(row.textContent, /Alpha tribord → porte Bravo \/ Charlie/);
+  assert.match(row.textContent, /Arrivée : entre le Comité et Delta/);
+  assert.match(row.textContent, /2 tours · entre deux tours : sans repasser la ligne/);
+  assert.match(row.textContent, /Saisi par Frédéric le 06\/12/);
+  assert.match(row.textContent, /proposé dans l’onglet Parcours/);
+  assert.equal(row.querySelector('[data-co-edit]').textContent, 'Modifier le parcours');
+  assert.equal(row.querySelector('[data-co-del]').textContent, 'Supprimer le parcours');
+  assert.match(d.querySelector('[data-mk-row="X1001"]').textContent, /Confirmée par Frédéric/);
+  const pend = quatre({ confirmer: false });
+  assert.match(dom(marksSectionHTML(pend, { editeur: true })).querySelector('[data-mk-row="X1001"]').textContent, /Ajoutée par Frédéric le 06\/12/);
+  assert.match(dom(marksSectionHTML(pend, {})).querySelector('[data-mk-row="X1001"]').textContent, /Lue par Frédéric/, 'sans éditeur : « Lue » de la v43');
+  // en course : boutons inactifs, mention de la course
+  d = dom(marksSectionHTML({ ...r, marks: [...r.marks, ...pend.marks.map((m) => ({ ...m, id: m.id.replace('X1', 'X2') }))] }, { editeur: true, locked: true }));
+  for (const b of d.querySelectorAll('#mkNew, #coNew, [data-co-edit], [data-co-del], [data-mk-ok], [data-mk-fix], [data-mk-ign]')) assert.ok(b.hasAttribute('disabled'), b.outerHTML);
+  assert.ok(d.querySelectorAll('[data-mk-ok]').length > 0);
+  assert.match(d.querySelector('#rgEditLock').textContent, /Course en cours : parcours et bouées modifiables après la course/);
+  assert.ok(!d.querySelector('[data-mk-voir]').hasAttribute('disabled'), '« Voir sur la carte » reste possible');
+});
+
+test('formulaires : ajout de bouée (exemple de Bormes) ; parcours avec les seules bouées confirmées, étapes, arrivée, tours, erreurs sous chaque champ', () => {
+  let d = dom(markAddHTML({ name: 'Alpha', txt: '43°07.200N 006°24.000E', err: 'Position hors de…' }, { exemple: '43°06.362N 006°24.252E' }));
+  assert.equal(d.querySelector('#mkaName').getAttribute('value'), 'Alpha');
+  assert.equal(d.querySelector('#mkaPos').getAttribute('placeholder'), '43°06.362N 006°24.252E');
+  assert.ok(d.querySelector('#mkaOk') && d.querySelector('#mkaNo'));
+  assert.equal(d.querySelector('#mkaErr').textContent, 'Position hors de…');
+  // la section passe l’exemple du plan d’eau de la régate
+  assert.equal(dom(marksSectionHTML(regate(), { editeur: true, markAdd: { name: '', txt: '' } })).querySelector('#mkaPos').getAttribute('placeholder'), '43°06.362N 006°24.252E');
+  let r = quatre({ confirmer: false });
+  r = confirmMark(confirmMark(r, 'X1001', {}), 'X1002', {});
+  const dr = { ...brouillon(), steps: [{ kind: 'mark', mark: 'X1001', side: 't' }, { kind: 'gate', mark: 'X1002', gate: '' }] };
+  d = dom(courseFormHTML(r, dr, checkCourseDraft(r, dr)));
+  const opts = [...d.querySelectorAll('[data-st-mark="0"] option')].map((o) => o.getAttribute('value'));
+  assert.deepEqual(opts, ['', 'X1001', 'X1002'], 'seules les bouées confirmées sont proposées');
+  assert.equal(d.querySelector('[data-st-side="0"] option[selected]').getAttribute('value'), 't');
+  assert.ok(d.querySelector('[data-st-gate="1"]'), 'porte : deux bouées');
+  assert.match(d.querySelector('[data-err="step.1"]').textContent, /deux bouées confirmées/);
+  assert.match(d.querySelector('[data-err="finish"]').textContent, /bouée confirmée/, 'Delta n’est pas confirmée');
+  assert.deepEqual([...d.querySelectorAll('#coFin option')].map((o) => o.textContent), ['Sur la ligne de départ', 'Entre le Comité et une bouée', 'Près d’une bouée']);
+  assert.deepEqual([...d.querySelectorAll('#coLaps option')].map((o) => o.textContent), ['1', '2', '3', '4']);
+  assert.deepEqual([...d.querySelectorAll('#coLapLine option')].map((o) => [o.textContent, o.hasAttribute('selected')]), [['par la ligne de départ', false], ['sans repasser la ligne', true]]);
+  assert.ok(d.querySelector('#coStepAdd') && d.querySelector('#coSave') && d.querySelector('#coCancel'));
+  assert.equal(d.querySelector('#coForm h4').textContent, 'Créer un parcours');
+  assert.equal(dom(courseFormHTML(r, { ...dr, id: 1000 })).querySelector('#coForm h4').textContent, 'Modifier le parcours');
+  assert.equal(dom(courseFormHTML(r, { ...dr, laps: 1 })).querySelector('#coLapLine'), null, 'un tour : pas de passage entre les tours');
+  d = dom(courseFormHTML(quatre({ confirmer: false }), courseDraft(regate(), null)));
+  assert.match(d.querySelector('#coNone').textContent, /confirmez d’abord une bouée/);
+});
+
+test('noms venus d’un membre ou d’un autre téléphone échappés (bouée, parcours, porte, arrivée) ; sans option, sheetHTML sans éditeur', () => {
+  const r0 = quatre();
+  const r = { ...saveCourseDraft(r0, brouillon(), { rnd: () => 0 }).regatta };
+  r.marks = r.marks.map((m) => (m.id === 'X1003' || m.id === 'X1004' ? { ...m, name: `${m.name}${PIEGE}` } : m));
+  r.courses = r.courses.map((c) => ({ ...c, name: `Parcours ${PIEGE}` }));
+  for (const html of [marksSectionHTML(r, { editeur: true, markAdd: { name: PIEGE, txt: PIEGE, err: PIEGE }, courseEdit: { ...courseDraft(r, 1000), name: PIEGE }, courseErr: { name: PIEGE } }), courseFormHTML(r, courseDraft(r, 1000), { 'step.0': PIEGE }), sheetHTML(r, { now: T0, editeur: { locked: false, markAdd: null, courseEdit: null, courseErr: {} } })]) {
+    assert.equal(dom(html).querySelectorAll('img, script').length, 0, html.slice(0, 200));
+    assert.match(html, /&lt;img src=x onerror=alert\(1\)&gt;/);
+  }
+  const avec = dom(sheetHTML(r, { now: T0, editeur: { locked: false } }));
+  assert.ok(avec.querySelector('#coNew') && avec.querySelector('[data-co-edit]'));
+  const sans = dom(sheetHTML(r, { now: T0 }));
+  assert.equal(sans.querySelectorAll('#mkNew, #coNew, [data-co-edit], [data-co-del], #rgEdit').length, 0, 'Naos : aucun élément de l’éditeur');
+  assert.match(sans.querySelector('[data-co-row="1000"]').textContent, /\(IC\)/, 'sans éditeur : la vue de la v43');
+});

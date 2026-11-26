@@ -247,11 +247,14 @@ export function downloadHTML(r, opts) {
 // markFix : saisie de correction en cours { id, txt, err, ask } (état de la page) ; tout texte venu des IC passe par escHTML.
 const MK_STATE = { a_confirmer: 'chip mid', confirmee: 'chip good', ignoree: 'chip' };
 const MK_LABEL = { a_confirmer: 'à confirmer', confirmee: 'confirmée', ignoree: 'ignorée' };
-function markRowHTML(m, markFix, { nmOf, exemple }) {
+// editeur (08-11, espace Tofinou) : bouée ajoutée à la main dite « Ajoutée … », boutons inactifs pendant une course (`locked`) ; sans lui, vue de la v43
+const HAND_ORIG = new Set(['saisie', 'carte']);
+function markRowHTML(m, markFix, { nmOf, exemple, editeur = false, locked = false }) {
   const id = escHTML(m.id), fix = markFix?.id === m.id ? markFix : null, hasPos = Number.isFinite(m.lat) && Number.isFinite(m.lon);
-  const pend = m.status === STATUS.A_CONFIRMER;
+  const pend = m.status === STATUS.A_CONFIRMER, dis = editeur && locked ? ' disabled' : '';
+  const lue = editeur && HAND_ORIG.has(m.origine) ? 'Ajoutée' : 'Lue';
   const who = m.status === STATUS.CONFIRMEE && m.confirmed ? `Confirmée ${byLine(m.confirmed.by, m.confirmed.at)}`
-    : m.status === STATUS.IGNOREE && m.ignored ? `Ignorée ${byLine(m.ignored.by, m.ignored.at)}` : `Lue ${byLine(m.by, m.at)}`;
+    : m.status === STATUS.IGNOREE && m.ignored ? `Ignorée ${byLine(m.ignored.by, m.ignored.at)}` : `${lue} ${byLine(m.by, m.at)}`;
   const moved = m.moved ? ` · position corrigée ${byLine(m.moved.by, m.moved.at)}` : '';
   let html = `<div class="rgmk${m.status === STATUS.IGNOREE ? ' off' : ''}" data-mk-row="${id}"><div class="rgh"><span class="rgdn">${id} ${escHTML(m.name)}${pend ? ' ?' : ''}</span> <span class="${MK_STATE[m.status] || 'chip'}">${escHTML(MK_LABEL[m.status] || m.status)}</span></div>`
     + `<div class="small">${hasPos ? `${escHTML(fmtPos(m.lat, m.lon))}` : '<b>position à saisir</b>'} · ${escHTML(m.src || 'IC')}</div>`
@@ -262,12 +265,12 @@ function markRowHTML(m, markFix, { nmOf, exemple }) {
       + `<div class="small rgerr" id="mkxErr">${escHTML(fix.err || '')}</div><div class="btns" style="margin:6px 0 0"><button type="button" class="btn small acc" id="mkxOk">${ask}</button><button type="button" class="btn small alt" id="mkxNo">Annuler</button></div>`;
   } else if (m.status !== STATUS.IGNOREE) {
     html += `<div class="btns" style="margin-top:6px">${hasPos ? `<button type="button" class="btn small alt" data-mk-voir="${id}">Voir sur la carte</button>` : ''}`
-      + `${pend && hasPos ? `<button type="button" class="btn small acc" data-mk-ok="${id}">Confirmer</button>` : ''}`
-      + `<button type="button" class="btn small alt" data-mk-fix="${id}">${hasPos ? 'Corriger la position' : 'Saisir la position'}</button><button type="button" class="btn small alt" data-mk-ign="${id}">Ignorer</button></div>`;
+      + `${pend && hasPos ? `<button type="button" class="btn small acc" data-mk-ok="${id}"${dis}>Confirmer</button>` : ''}`
+      + `<button type="button" class="btn small alt" data-mk-fix="${id}"${dis}>${hasPos ? 'Corriger la position' : 'Saisir la position'}</button><button type="button" class="btn small alt" data-mk-ign="${id}"${dis}>Ignorer</button></div>`;
   }
   return html + '</div>';
 }
-function courseRowHTML(r, c) {
+function courseRowHTML(r, c, ed = null) {
   const name = new Map((r.marks || []).map((m) => [m.id, m]));
   const nm = (id) => escHTML(name.get(id)?.name || id);
   // une porte s’écrit « porte 4s / 4p » ; l’arrivée distincte du départ, sous la suite (noms des bouées de la régate, sinon l’identifiant)
@@ -277,11 +280,66 @@ function courseRowHTML(r, c) {
   const etat = c.incomplete ? `<span class="chip low">incomplet : ${c.missing?.length ? `bouée inconnue (${escHTML(c.missing.join(', '))})` : 'aucune bouée lue'}</span>`
     : wait.length ? `<span class="chip mid">en attente de : ${wait.map((id) => escHTML(`${id} ${name.get(id)?.name || ''}`.trim())).join(', ')}</span>`
       : '<span class="chip good">proposé dans l’onglet Parcours</span>';
+  if (ed) return courseRowEdHTML(r, c, { seq, fin, etat, ed });
   return `<div class="rgmk" data-co-row="${escHTML(c.id)}"><div class="rgh"><span class="rgdn">${escHTML(c.name)} (IC)</span> ${etat}</div><div class="small">${seq}</div>${fin}`
     + `${c.excerpt ? `<div class="small muted">Extrait : « ${escHTML(c.excerpt)} »</div>` : ''}<div class="small muted">Lu ${byLine(c.by, c.at)}</div></div>`;
 }
-// Section « Bouées » de la fiche : rien tant que la régate n’a ni bouée ni parcours lus dans ses IC
-export function marksSectionHTML(r, { markFix = null, nmOf = (d) => `${(d / 1852).toFixed(1).replace('.', ',')} Nq` } = {}) {
+// Ligne d’un parcours avec l’éditeur (08-11, D-17) : « (saisi) » ou « (IC) », tours et passage entre les tours, « Modifier le parcours » et
+// « Supprimer le parcours » (deux touches), inactifs pendant une course ; masqués pendant sa propre modification
+function courseRowEdHTML(r, c, { seq, fin, etat, ed }) {
+  const saisi = c.origine === 'saisie', id = escHTML(c.id), dis = ed.locked ? ' disabled' : '';
+  const n = Number.isInteger(c.laps) && c.laps > 1 ? c.laps : 1;
+  const tours = n > 1 ? `<div class="small">${n} tours · entre deux tours : ${c.lapLine === false ? 'sans repasser la ligne' : 'par la ligne de départ'}</div>` : '';
+  const auteur = saisi ? `Saisi ${byLine(c.by, c.at)}${c.edited ? ` · modifié ${byLine(c.edited.by, c.edited.at)}` : ''}` : `Lu ${byLine(c.by, c.at)}`;
+  const enCours = ed.courseEdit?.id != null && ed.courseEdit.id === c.id;
+  const btns = enCours ? '<div class="small muted">Modification en cours, ci-dessous.</div>'
+    : `<div class="btns" style="margin-top:6px"><button type="button" class="btn small alt" data-co-edit="${id}"${dis}>Modifier le parcours</button><button type="button" class="btn small alt" data-co-del="${id}"${dis}>Supprimer le parcours</button></div>`;
+  return `<div class="rgmk" data-co-row="${id}"><div class="rgh"><span class="rgdn">${escHTML(c.name)} (${saisi ? 'saisi' : 'IC'})</span> ${etat}</div><div class="small">${seq}</div>${fin}${tours}`
+    + `${c.excerpt ? `<div class="small muted">Extrait : « ${escHTML(c.excerpt)} »</div>` : ''}<div class="small muted">${auteur}</div>${btns}</div>`;
+}
+// Formulaire « Ajouter une bouée » (08-11) : markAdd = { name, txt, err } (état de la page) ; position d’exemple du plan d’eau de la régate
+export function markAddHTML(markAdd, { exemple, locked = false } = {}) {
+  const d = markAdd || {};
+  return `<div class="rgrform" id="mkaForm"><h4>Nouvelle bouée <small>elle restera « à confirmer » jusqu’à votre confirmation</small></h4>`
+    + `<label class="f" for="mkaName">Nom</label><input id="mkaName" type="text" maxlength="40" autocomplete="off" value="${escHTML(d.name)}">`
+    + `<label class="f" for="mkaPos">Position</label><input id="mkaPos" type="text" inputmode="text" autocomplete="off" placeholder="${escHTML(exemple)}" value="${escHTML(d.txt)}">`
+    + `<div class="small muted">Degrés et minutes, par exemple ${escHTML(exemple)}, ou touchez la carte puis « Bouée de régate ici… ».</div>`
+    + `<div class="small rgerr" id="mkaErr">${escHTML(d.err || '')}</div>`
+    + `<div class="btns" style="margin:6px 0 0"><button type="button" class="btn small acc" id="mkaOk"${locked ? ' disabled' : ''}>Ajouter la bouée</button><button type="button" class="btn small alt" id="mkaNo">Annuler</button></div></div>`;
+}
+const FIN_LABEL = { ligne: 'Sur la ligne de départ', comite: 'Entre le Comité et une bouée', pres: 'Près d’une bouée' };
+// Formulaire du parcours (08-11, D-17) : d = brouillon de courseDraft (js/regedit.js), errors = sortie de checkCourseDraft. Seules les bouées
+// CONFIRMÉES de la régate sont proposées.
+export function courseFormHTML(r, d, errors = {}, { locked = false } = {}) {
+  const err = (k) => (errors[k] ? `<div class="rgerr" data-err="${escHTML(k)}">${escHTML(errors[k])}</div>` : '');
+  const conf = (r?.marks || []).filter((m) => m.status === STATUS.CONFIRMEE && Number.isFinite(m.lat) && Number.isFinite(m.lon));
+  const opt = (v, cur, txt) => `<option value="${escHTML(v)}"${String(cur ?? '') === String(v) ? ' selected' : ''}>${escHTML(txt)}</option>`;
+  const marques = (cur, attr, i, quoi) => `<select ${attr}="${i}" aria-label="${escHTML(quoi)}">${opt('', cur, '— bouée —')}${conf.map((m) => opt(m.id, cur, `${m.id} ${m.name}`)).join('')}</select>`;
+  const steps = (d.steps || []).map((s, i) => {
+    const corps = s.kind === 'gate'
+      ? `porte ${marques(s.mark, 'data-st-mark', i, `Première bouée de la porte ${i + 1}`)} / ${marques(s.gate, 'data-st-gate', i, `Seconde bouée de la porte ${i + 1}`)}`
+      : `${marques(s.mark, 'data-st-mark', i, `Bouée de l’étape ${i + 1}`)}<select data-st-side="${i}" aria-label="Côté de l’étape ${i + 1}">${opt('', s.side, '— côté —')}${opt('b', s.side, 'à bâbord')}${opt('t', s.side, 'à tribord')}</select>`;
+    return `<div class="rgstep" data-step="${i}"><span class="small"><b>${i + 1}</b></span> <select data-st-kind="${i}" aria-label="Type de l’étape ${i + 1}">${opt('mark', s.kind, 'bouée')}${opt('gate', s.kind, 'porte')}</select> ${corps}`
+      + ` <button type="button" class="btn small alt" data-st-up="${i}" aria-label="Monter l’étape ${i + 1}"${i === 0 ? ' disabled' : ''}>↑</button><button type="button" class="btn small alt" data-st-down="${i}" aria-label="Descendre l’étape ${i + 1}"${i === d.steps.length - 1 ? ' disabled' : ''}>↓</button><button type="button" class="btn small alt" data-st-del="${i}" aria-label="Retirer l’étape ${i + 1}">✕</button>${err(`step.${i}`)}</div>`;
+  });
+  const f = d.finish || { kind: 'ligne', mark: '' }, n = Number(d.laps) || 1;
+  const finMark = f.kind === 'ligne' ? '' : `<select id="coFinMark" aria-label="Bouée de l’arrivée">${opt('', f.mark, '— bouée —')}${conf.map((m) => opt(m.id, f.mark, `${m.id} ${m.name}`)).join('')}</select>`;
+  const edit = d.id != null;
+  return `<div class="rgrform" id="coForm"${edit ? ` data-edit="${escHTML(d.id)}"` : ''}><h4>${edit ? 'Modifier le parcours' : 'Créer un parcours'}</h4>${err('course')}`
+    + (conf.length ? '' : '<p class="small notice" id="coNone">Aucune bouée confirmée dans la régate : confirmez d’abord une bouée (ou ajoutez-en une, puis confirmez-la).</p>')
+    + `<label class="f" for="coName">Nom</label><input id="coName" type="text" maxlength="60" autocomplete="off" value="${escHTML(d.name)}">${err('name')}`
+    + `<label class="f">Étapes <small>dans l’ordre, après le départ</small></label>${steps.join('')}${err('steps')}`
+    + `<div class="btns" style="margin:4px 0"><button type="button" class="btn small alt" id="coStepAdd">＋ Ajouter une étape</button></div>`
+    + `<label class="f" for="coFin">Arrivée</label><select id="coFin">${['ligne', 'comite', 'pres'].map((k) => opt(k, f.kind, FIN_LABEL[k])).join('')}</select> ${finMark}${err('finish')}`
+    + `<div class="row2"><div><label class="f" for="coLaps">Tours</label><select id="coLaps">${[1, 2, 3, 4].map((k) => opt(k, n, String(k))).join('')}</select>${err('laps')}</div>`
+    + `<div>${n > 1 ? `<label class="f" for="coLapLine">Entre deux tours</label><select id="coLapLine">${opt('1', d.lapLine === false ? '0' : '1', 'par la ligne de départ')}${opt('0', d.lapLine === false ? '0' : '1', 'sans repasser la ligne')}</select>` : ''}${err('lapLine')}</div></div>`
+    + `<div class="btns"><button type="button" class="btn acc" id="coSave"${locked ? ' disabled' : ''}>Enregistrer le parcours</button><button type="button" class="btn alt" id="coCancel">Annuler</button></div></div>`;
+}
+// Section « Bouées » de la fiche : rien tant que la régate n’a ni bouée ni parcours lus dans ses IC.
+// editeur (08-11, D-17, espace Tofinou seulement) : section « Bouées et parcours de la régate » toujours affichée, avec l’éditeur (voir
+// editorSectionHTML) ; sans lui, HTML de la v43.
+export function marksSectionHTML(r, { markFix = null, nmOf = (d) => `${(d / 1852).toFixed(1).replace('.', ',')} Nq`, editeur = false, locked = false, markAdd = null, courseEdit = null, courseErr = {} } = {}) {
+  if (editeur) return editorSectionHTML(r, { markFix, nmOf, locked, markAdd, courseEdit, courseErr });
   const ms = r?.marks || [], cs = r?.courses || [];
   if (!ms.length && !cs.length) return '';
   const pend = ms.filter((m) => m.status === STATUS.A_CONFIRMER).length;
@@ -289,6 +347,22 @@ export function marksSectionHTML(r, { markFix = null, nmOf = (d) => `${(d / 1852
   return `<div class="rgmarks"><h4>Bouées <small>lues dans les IC${pend ? ` · ${pend} à confirmer` : ''}</small></h4>`
     + `<p class="small muted">Une bouée « à confirmer » n’est ni dans le routage, ni dans le mode départ, ni dans le débrief. Vérifiez-la sur zone : le Comité fait foi.</p>`
     + `${ms.map((m) => markRowHTML(m, markFix, { nmOf, exemple })).join('')}${cs.length ? `<h4>Parcours lus</h4>${cs.map((c) => courseRowHTML(r, c)).join('')}` : ''}</div>`;
+}
+
+function editorSectionHTML(r, { markFix, nmOf, locked, markAdd, courseEdit, courseErr }) {
+  const ms = r?.marks || [], cs = r?.courses || [];
+  const pend = ms.filter((m) => m.status === STATUS.A_CONFIRMER).length;
+  const exemple = VENUES[venueOf(r)].exemple || '43°05.845N 005°56.049E';
+  const dis = locked ? ' disabled' : '';
+  const ed = { locked, courseEdit };
+  return `<div class="rgmarks" id="rgEdit"><h4>Bouées et parcours de la régate <small>${pend ? `${pend} bouée${pend > 1 ? 's' : ''} à confirmer` : 'lus dans les IC ou saisis dans l’app'}</small></h4>`
+    + `<p class="small muted">Une bouée « à confirmer » n’est ni dans le routage, ni dans le mode départ, ni dans le débrief, ni dans un parcours. Vérifiez-la sur zone : le Comité fait foi.</p>`
+    + (locked ? '<div class="small notice" id="rgEditLock">Course en cours : parcours et bouées modifiables après la course.</div>' : '')
+    + ms.map((m) => markRowHTML(m, markFix, { nmOf, exemple, editeur: true, locked })).join('')
+    + (markAdd ? markAddHTML(markAdd, { exemple, locked }) : `<div class="btns" style="margin:6px 0"><button type="button" class="btn small acc" id="mkNew"${dis}>＋ Ajouter une bouée</button></div>`)
+    + `<h4>Parcours</h4>${cs.length ? cs.map((c) => courseRowHTML(r, c, ed)).join('') : '<p class="small muted">Aucun parcours dans la régate : ceux du plan d’eau restent proposés dans l’onglet Parcours.</p>'}`
+    + (courseEdit ? courseFormHTML(r, courseEdit, courseErr || {}, { locked }) : `<div class="btns" style="margin:6px 0"><button type="button" class="btn small acc" id="coNew"${dis}>Créer un parcours</button></div>`)
+    + '</div>';
 }
 
 // ───────────────────────── historique des valeurs écrasées (D-04)
@@ -325,7 +399,7 @@ export function historySectionHTML(r, { sansClasses = false } = {}) {
 // Fiche de la régate ouverte : nom, club, dates, statut, auteur, puis les manches (courses = parcours connus [{ id, title }], pour les libellés ;
 // choices = parcours proposés dans « Ajouter une manche », ceux de la régate quand elle en a) et le vent du jour
 // semee (08-11) : notice d’une fiche semée propre à l’espace (sans elle, celle de la v43 ; la fiche du Challenge garde la sienne)
-export function sheetHTML(r, { now = Date.now(), courses = [], choices = courses, raceDraft = null, raceErrors = {}, markFix = null, nmOf, local = null, daysLocal = null, me = null, tipHtml = '', semee = null, sansClasses = false } = {}) {
+export function sheetHTML(r, { now = Date.now(), courses = [], choices = courses, raceDraft = null, raceErrors = {}, markFix = null, nmOf, local = null, daysLocal = null, me = null, tipHtml = '', semee = null, sansClasses = false, editeur = null } = {}) {
   if (!r) return '';
   const races = r.races || [];
   return `<div class="card" id="rgSheet"><h3><span>${escHTML(r.name)}</span><small>${escHTML(r.club || 'club à préciser')}</small></h3>
@@ -334,7 +408,7 @@ export function sheetHTML(r, { now = Date.now(), courses = [], choices = courses
     ${r.ic?.read === 'semee' ? `<div class="notice small" id="rgSemee" style="margin-top:6px">${r.ic.source === BAIE_SOURCE ? 'Fiche semée par l’app (avis de course et fiches de course 2026-2027) — à vérifier sur la fiche de course de chaque manche.' : semee ? escHTML(semee) : 'Fiche semée par l’app (IC 2026) — à vérifier avec les IC 2027.'}</div>` : ''}
     <div class="rgraces"><h4>Manches</h4>${races.length ? races.map((m) => raceRowHTML(m, { courses, sansClasses, chosen: r.sel === m.n, editing: Number.isInteger(raceDraft?.edit) && (raceDraft.id != null ? raceDraft.id === m.id : raceDraft.edit === m.n) })).join('') : '<p class="small muted">Aucune manche : ajoutez-en une avec son heure de signal et son parcours.</p>'}
     ${raceDraft ? raceFormHTML(r, raceDraft, raceErrors, choices, { sansClasses }) : '<div class="btns"><button type="button" class="btn small acc" id="rcNew">＋ Ajouter une manche</button></div>'}</div>
-    ${marksSectionHTML(r, { markFix, nmOf })}
+    ${marksSectionHTML(r, { markFix, nmOf, ...(editeur ? { editeur: true, ...editeur } : {}) })}
     ${windSectionHTML(r, { now, courses, sansClasses })}
     ${tracesSectionHTML(r, { local })}
     ${downloadHTML(r, { local, daysLocal, me, tipHtml })}

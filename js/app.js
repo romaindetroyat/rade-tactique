@@ -16,7 +16,8 @@ import { extremes, coefApproche, hauteur } from './maree.js';
 import { chargeAtlas, courantXY, profondeurOk } from './courant.js';
 import { putSlot, getSlot } from './regstore.js';
 import { listHTML, noRegattaHTML, newRegattaFormHTML, sheetHTML, venueCardHTML } from './regview.js';
-import { applyRegattaMarks, pendingMarks, confirmMark, moveMark, ignoreMark, allowedCourses, courseFallback, courseMismatch } from './regmarks.js';
+import { applyRegattaMarks, pendingMarks, confirmMark, moveMark, ignoreMark, allowedCourses, courseFallback, courseMismatch, fmtPos } from './regmarks.js';
+import { addHandMark, courseDraft, saveCourseDraft, removeCourse } from './regedit.js';
 import { trackDay, matchRegattas, raceOfTrack, sameTrack, attachTrace, detachTrace, traceSummary, setTraceSummary, setTraceReport } from './attach.js';
 import { breaksOf } from './segments.js';
 import { fetchAll, cached, snapshot, consensus, gridPoints, marineAt, fetchLive, coversDay, MODELS, WMO, CENTER, configureWeather } from './weather.js';
@@ -718,7 +719,7 @@ function bindShell() {
     const base = location.origin + location.pathname;
     const c = COURSES.find((x) => x.id === S.courseId);
     // classes du CVAT nommées à Toulon et à Brest seulement (Bormes : parcours communs à tous les groupes du Challenge, 08-08)
-    openShare({ base, courseLink: `${base}#p=${S.courseId}-${S.cls}-${S.laps}-${S.day}`, courseLabel: `${c.title}${c.laps ? ', ' + S.laps + (S.laps > 1 ? ' tours' : ' tour') : ''}, ${VENUE.sansClasses ? '' : `${S.cls === 'P' ? 'P1–P2' : 'C–R3'}, `}${dayName(S.day)}` });
+    openShare({ base, courseLink: `${base}#p=${S.courseId}-${S.cls}-${S.laps}-${S.day}`, courseLabel: `${c.title}${c.laps ? ', ' + courseLaps(c, S) + (courseLaps(c, S) > 1 ? ' tours' : ' tour') : ''}, ${VENUE.sansClasses ? '' : `${S.cls === 'P' ? 'P1–P2' : 'C–R3'}, `}${dayName(S.day)}` });
   });
   $('#tabs').addEventListener('click', (e) => {
     const b = e.target.closest('button'); if (!b) return;
@@ -794,7 +795,7 @@ function onPick(p, screen) {
     <div class="row"><span>Rafales</span><b>${w.gust.toFixed(0)} nd</b></div>
     <div class="row"><span>Dévent relief</span><b>${Math.round(w.shelter * 100)} %</b></div>
     <div class="row"><span>Oscillations</span><b>±${F.shiftAmplitude(w.spd, w.shelter)}°</b></div>${legInfo}`}
-    <div class="acts">${land ? '' : `<button class="btn small alt" data-a="cb">Comité ici</button><button class="btn small alt" data-a="pin">Bouée ici</button><button class="btn small alt" data-a="obs">Relevé de vent ici…</button>`}<button class="btn small" data-a="close">✕</button></div>`;
+    <div class="acts">${land ? '' : `<button class="btn small alt" data-a="cb">Comité ici</button><button class="btn small alt" data-a="pin">Bouée ici</button><button class="btn small alt" data-a="obs">Relevé de vent ici…</button>${ESPACE.editeurParcours && openReg() && !racing() ? '<button class="btn small alt" data-a="mkreg">Bouée de régate ici…</button>' : ''}`}<button class="btn small" data-a="close">✕</button></div>`;
   const vw = $('#stage').clientWidth;
   pop.style.left = Math.min(vw - 230, Math.max(8, screen.clientX + 12)) + 'px';
   pop.style.top = Math.max(8, screen.clientY - 20) + 'px';
@@ -804,6 +805,7 @@ function onPick(p, screen) {
     if (a === 'close') { pop.hidden = true; scene.clearPick(); return; }
     if (a === 'cb' || a === 'pin') setLineEnd(a, p);
     if (a === 'obs') { pop.hidden = true; obsPos = { lat: p.lat, lon: p.lon }; openTab('course'); renderObsAll(); $('.obs-card')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
+    if (a === 'mkreg') { pop.hidden = true; scene.clearPick(); openMarkAdd(fmtPos(p.lat, p.lon)); return; }       // éditeur de parcours (08-11)
     pop.hidden = true; scene.clearPick();
   };
 }
@@ -1013,7 +1015,7 @@ function renderCourse() {
   let html = `<details class="card obsbox" ${S.obsOpen !== false ? 'open' : ''}><summary><span>🌬 Relevé de vent sur l’eau ${tip('Réglez la direction d’où vient le vent (compas) et sa force mesurée, puis Enregistrer. L’app compare votre relevé aux 6 modèles, garde celui qui colle le mieux et recale la prévision autour de cette heure. Plusieurs relevés dans la journée affinent le choix.')}</span><small>${S.src === 'manual' ? 'mode manuel' : `${nObs ? nObs + ' relevé(s) · ' : ''}modèle : ${esc(modelLabel(selectedModel()))}`}</small></summary><div class="obs-card"></div></details>
   <div class="card"><div class="row2"><div><label class="f">${openReg() ? `Parcours — ${esc(openReg().name)}` : VENUE.id === 'toulon' ? 'Parcours (cahier CVAT)' : `Parcours (${esc(VENUE.nom)})`}</label><select id="cSel">${(proposes().some((x) => x.id === S.courseId) ? proposes() : [...proposes(), c]).map((x) => `<option value="${x.id}" ${x.id === S.courseId ? 'selected' : ''}>${esc(x.title)}</option>`).join('')}</select></div>
     ${VENUE.sansClasses ? '' : `<div><label class="f">Classes</label><select id="cCls"><option value="G" ${S.cls === 'G' ? 'selected' : ''}>C–D–L–R1-R3 (grand)</option><option value="P" ${S.cls === 'P' ? 'selected' : ''}>P1–P2 (petit)</option></select></div>`}</div>
-    <div class="row3">${c.laps ? `<div><label class="f">Tours</label><input id="cLaps" type="number" min="1" max="5" value="${S.laps}"></div>` : ''}${c.built === 'WL' ? `<div><label class="f">Dist. B (Nq)</label><input id="cWl" type="number" min="0.3" max="2" step="0.1" value="${S.wlNm}"></div>` : ''}
+    <div class="row3">${c.laps && c.fixedLaps == null ? `<div><label class="f">Tours</label><input id="cLaps" type="number" min="1" max="5" value="${S.laps}"></div>` : ''}${c.built === 'WL' ? `<div><label class="f">Dist. B (Nq)</label><input id="cWl" type="number" min="0.3" max="2" step="0.1" value="${S.wlNm}"></div>` : ''}
     <div><label class="f">Heure de départ</label><input id="cStart" type="text" inputmode="numeric" value="${hhmm(S.startTime)}"></div></div>
     ${c.built === 'BAN' ? banPanel(c) : ''}
     <p class="small muted" style="margin:8px 0 0">${esc(c.text)}</p>${pickHTML()}</div>`;
@@ -1085,7 +1087,10 @@ function raceTick() {
   if (active) syncCtl?.abort();
   if (wasRaceActive && !active) scheduleSync(60000);
   if (wasRaceActive && !active) reprise();         // le rattrapage reporté pendant la course repart à sa fin (D-03)
-  if (active !== wasRaceActive) { wasRaceActive = active; paintSync(); }
+  if (active !== wasRaceActive) {
+    wasRaceActive = active; paintSync();
+    if (ESPACE.editeurParcours && !(rgDraft || icDraft || raceDraft || markFix)) renderIC();      // éditeur de parcours (08-11) : inactif en course, Tofinou seulement
+  }
   const lk = raceLock(now), locked = lk.locked;
   const raison = locked ? (lk.reason === 'course' ? 'en course' : 'journée de régate') : 'libre';
   if (raison !== lockReason) { lockReason = raison; note('verrou', raison); }      // pourquoi une mise à jour attend : lisible au journal (aucune position, aucun secret)
@@ -2431,7 +2436,9 @@ function iaState() {
 let rgDraft = null, rgErr = {};              // formulaire « Nouvelle régate » ouvert : sa saisie survit à un redessin
 let raceDraft = null, raceErr = {};          // formulaire « Nouvelle manche » ouvert ; `edit` (rang) et `id` : formulaire « Modifier la manche »
 let markFix = null;                          // correction de la position d’une bouée de régate en cours : { id, txt, err, ask }
-const icBusy = () => !!(rgDraft || icDraft || raceDraft || markFix);
+// éditeur de parcours (08-11, D-17, espace Tofinou seulement) : bouée en cours d’ajout { name, txt, from, origine, err } et brouillon de parcours
+let markAdd = null, courseEdit = null, courseErr = {};
+const icBusy = () => !!(rgDraft || icDraft || raceDraft || markFix || markAdd || courseEdit);
 const courseList = () => COURSES.map(({ id, title }) => ({ id, title }));
 // ── Régate ouverte (D-A1 à D-A4) : un état de la page, en mémoire. setOpen est le SEUL endroit où OPEN change après le chargement ; il n’écrit rien
 // (ni index, ni file d’envoi, ni synchronisation) : ouvrir ou fermer une régate n’échange rien et ne change rien chez les autres (D-03 phase 4).
@@ -2445,7 +2452,7 @@ function openGesture(id) {
   const autre = id != null ? openRegatta(REG.list, id) : null;
   if (autre && venueOf(autre) !== VENUE.id) { askVenue(autre); return; }        // régate d’un autre plan d’eau : jamais ouverte sur la mauvaise carte (D-05)
   iaCtl?.abort(); iaBusy = false; iaMsg = '';
-  icDraft = null; raceDraft = null; markFix = null;
+  icDraft = null; raceDraft = null; markFix = null; markAdd = null; courseEdit = null; courseErr = {};
   setOpen(id);
   const r = openReg();
   toast(r ? `Régate ouverte : ${r.name}` : 'Retour à l’entraînement libre');
@@ -2645,7 +2652,7 @@ function repairVenues() {
   note('plan-eau', `${n} régate${n > 1 ? 's' : ''} : plan d’eau retrouvé par les bouées`);
 }
 // Après un changement de régate ouverte ou de ses données : tout ce qui lit IC ou le verrou est redessiné
-function afterRegChange() { markFix = null; paintRegBar(); refreshRegMarks(); renderIC(); renderDaySeg(); renderBrief(); renderLive(); }
+function afterRegChange() { markFix = null; markAdd = null; courseEdit = null; courseErr = {}; paintRegBar(); refreshRegMarks(); renderIC(); renderDaySeg(); renderBrief(); renderLive(); }
 // Bouées et parcours de la régate ouverte (D-04) : retire ceux de la précédente, ajoute les seules bouées CONFIRMÉES et les parcours dont toutes les bouées le sont.
 // Puis le parcours choisi doit être proposé (courseFallback) : sinon, AVANT tout calcul (Pitfall 7), celui de la manche choisie, le parcours 3 ou le
 // premier de la régate, présélectionné et dit. Jamais pendant une course (`active`) : l’avertissement #courseMismatch le dit ; un parcours qui
@@ -2703,7 +2710,8 @@ function renderIC() {
     <div class="btns" style="margin:6px 0 0"><button type="button" class="btn small alt" id="rgSyncBtn"${SYNC.off ? ' disabled' : ''}>Synchroniser</button><button type="button" class="btn small alt" id="rgSyncOff">${SYNC.off ? 'Réactiver la synchronisation' : 'Désactiver la synchronisation'}</button>${tip(SYNC_TIP)}</div></div>`;
   if (rgDraft) html += newRegattaFormHTML(rgDraft, rgErr);
   // textes des IC de l’espace (08-11, D-16) et classes masquées à Bormes (WINDOWS n° 15) : options posées hors de Naos seulement (vues de la v43 sinon)
-  const propres = { ...(ESPACE.textesIC ? { semee: ESPACE.textesIC.notice } : {}), ...(cur && VENUES[venueOf(cur)].sansClasses ? { sansClasses: true } : {}) };
+  const propres = { ...(ESPACE.textesIC ? { semee: ESPACE.textesIC.notice } : {}), ...(cur && VENUES[venueOf(cur)].sansClasses ? { sansClasses: true } : {}),
+    ...(ESPACE.editeurParcours ? { editeur: { locked: racing(), markAdd, courseEdit, courseErr } } : {}) };          // éditeur de parcours (D-17) : Tofinou seulement
   html += cur ? sheetHTML(cur, { now, courses: courseList(), choices: raceChoices(cur), raceDraft, raceErrors: raceErr, markFix, nmOf: fmtNm, local: LOCAL?.traces ?? null, daysLocal: LOCAL?.days ?? null, me: who(), tipHtml: tip(DL_TIP), ...propres }) : noRegattaHTML();
   if (icDraft) html += reviewHTML(icDraft, icChecks(), { ia: iaState(), isLand: T ? (x, y) => T.isLand(x, y) : undefined, ...(ESPACE.textesIC ? { libelles: ESPACE.textesIC } : {}) });
   if (cur) html += `<div class="card"><h3>Instructions de course <small>${cur.ic ? 'validées' : 'à importer'}</small></h3>
@@ -2859,12 +2867,13 @@ function paintMarksReview() {
 // ───────────────────────── bouées d’une régate (autre club) : voir, confirmer, corriger, ignorer (D-04, REG-04)
 // Chaque geste range le résultat dans la régate (auteur et instant gardés), réinjecte les bouées confirmées et redessine la carte et le calcul.
 function commitRegMarks(next, msg) {
-  saveReg(upsertRegatta(REG, next)); markFix = null;
+  saveReg(upsertRegatta(REG, next)); markFix = null; markAdd = null; courseEdit = null; courseErr = {};
   if (msg) toast(msg);
   refreshRegMarks(); renderIC();                           // un parcours présélectionné (la régate a désormais ses parcours) : son message passe en dernier
 }
 function submitRegMark(cur) {
   const fx = markFix; if (!fx) return;
+  if (editLocked()) return;
   const mk = cur.marks.find((m) => m.id === fx.id); if (!mk) { markFix = null; renderIC(); return; }
   const same = fx.ask && fx.ask.txt === fx.txt;                                            // deuxième touche sur la même saisie : déplacement confirmé
   const r = moveMark(cur, fx.id, fx.txt, { by: who(), at: Date.now(), confirmFar: !!same });
@@ -2881,20 +2890,106 @@ function bindRegMarks(el, cur) {
     setSheet('min'); setTimeout(() => scene.focus([toXY(m.lat, m.lon)], 3), 320);       // le panneau se replie, puis la carte se centre sur la bouée
   }));
   $$('[data-mk-ok]', el).forEach((b) => b.addEventListener('click', () => {
+    if (editLocked()) return;
     const m = mark(b.dataset.mkOk), next = confirmMark(cur, b.dataset.mkOk, { by: who(), at: Date.now() });
     if (m && next !== cur) commitRegMarks(next, `Bouée ${m.id} ${m.name} confirmée`);
   }));
   $$('[data-mk-ign]', el).forEach((b) => b.addEventListener('click', () => {
+    if (editLocked()) return;
     if (b.dataset.c !== '1') { b.dataset.c = '1'; b.textContent = 'Ignorer ?'; return; }
     const m = mark(b.dataset.mkIgn);
     if (m) commitRegMarks(ignoreMark(cur, m.id, { by: who(), at: Date.now() }), `Bouée ${m.id} ${m.name} ignorée`);
   }));
-  $$('[data-mk-fix]', el).forEach((b) => b.addEventListener('click', () => { markFix = { id: b.dataset.mkFix, txt: '', err: '', ask: null }; renderIC(); $('#mkxTxt')?.focus(); }));
+  $$('[data-mk-fix]', el).forEach((b) => b.addEventListener('click', () => { if (editLocked()) return; markFix = { id: b.dataset.mkFix, txt: '', err: '', ask: null }; renderIC(); $('#mkxTxt')?.focus(); }));
+  if (ESPACE.editeurParcours) bindEditor(el, cur);
   if (!markFix || !$('#mkxTxt')) return;
   $('#mkxTxt').addEventListener('input', (e) => { markFix.txt = e.target.value; markFix.err = ''; if (markFix.ask) { markFix.ask = null; $('#mkxOk').textContent = 'Valider'; } $('#mkxErr').textContent = ''; });
   $('#mkxTxt').addEventListener('keydown', (e) => { if (e.key === 'Enter') submitRegMark(cur); });
   $('#mkxOk').addEventListener('click', () => submitRegMark(cur));
   $('#mkxNo').addEventListener('click', () => { markFix = null; renderIC(); });
+}
+
+// ───────────────────────── éditeur de parcours de la régate (08-11, D-17) : espace Tofinou seulement (ESPACE.editeurParcours)
+// Chaque geste est refusé pendant une course (racing() : chrono, mode départ, trace ou GPS ; la seule journée verrouillée ne bloque pas), comme
+// la modification d’une manche. Bouées et parcours enregistrés dans la régate (commitRegMarks → saveReg → archive de l’espace).
+const EDIT_LOCK_MSG = 'Course en cours : parcours et bouées modifiables après la course';
+// vrai (et message) si un geste de l’éditeur doit être refusé ; jamais chez Naos (gestes de la v43)
+function editLocked() {
+  if (!ESPACE.editeurParcours || !racing()) return false;
+  toast(EDIT_LOCK_MSG);
+  return true;
+}
+// « Bouée de régate ici… » (fenêtre « Point choisi ») ou « ＋ Ajouter une bouée » : formulaire d’ajout, prérempli par le point touché
+function openMarkAdd(txt = '') {
+  if (editLocked()) return;
+  markAdd = { name: '', txt, from: txt, origine: txt ? 'carte' : 'saisie', err: '' };
+  markFix = null;
+  openTab('ic'); renderIC();
+  $('#mkaForm')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  $('#mkaName')?.focus();
+}
+function submitMarkAdd(cur) {
+  if (!markAdd || editLocked()) return;
+  const origine = markAdd.txt.trim() === String(markAdd.from || '').trim() && markAdd.from ? 'carte' : 'saisie';     // retouchée : position saisie
+  const r = addHandMark(cur, { name: markAdd.name, txt: markAdd.txt, origine }, { by: who(), at: Date.now() });
+  if (!r.ok) { markAdd.err = r.error; const e = $('#mkaErr'); if (e) e.textContent = r.error; return; }
+  const m = r.regatta.marks.find((x) => x.id === r.id), q = toXY(m.lat, m.lon);
+  const terre = T && T.isLand(q.x, q.y) ? ' (position sur terre : vérifiez)' : '';
+  commitRegMarks(r.regatta, `Bouée ${m.id} ${m.name} ajoutée : à confirmer${terre}`);
+}
+// Brouillon du parcours relu depuis le formulaire, sans reconstruire la carte (le curseur reste dans le nom)
+function readCourseForm() {
+  if (!courseEdit || !$('#coForm')) return courseEdit;
+  const steps = courseEdit.steps.map((s, i) => {
+    const kind = $(`#coForm [data-st-kind="${i}"]`)?.value || s.kind, mark = $(`#coForm [data-st-mark="${i}"]`)?.value ?? s.mark ?? '';
+    return kind === 'gate' ? { kind, mark, gate: $(`#coForm [data-st-gate="${i}"]`)?.value ?? s.gate ?? '' } : { kind, mark, side: $(`#coForm [data-st-side="${i}"]`)?.value ?? s.side ?? '' };
+  });
+  const fk = $('#coFin')?.value || 'ligne', laps = Number($('#coLaps')?.value) || 1;
+  courseEdit = { ...courseEdit, name: $('#coName')?.value ?? courseEdit.name, steps, finish: { kind: fk, mark: fk === 'ligne' ? '' : $('#coFinMark')?.value ?? courseEdit.finish?.mark ?? '' }, laps, lapLine: $('#coLapLine') ? $('#coLapLine').value !== '0' : courseEdit.lapLine };
+  return courseEdit;
+}
+function bindEditor(el, cur) {
+  $('#mkNew')?.addEventListener('click', () => openMarkAdd(''));
+  $('#coNew')?.addEventListener('click', () => { if (editLocked()) return; courseEdit = courseDraft(cur, null); courseErr = {}; renderIC(); $('#coForm')?.scrollIntoView({ behavior: 'smooth', block: 'center' }); $('#coName')?.focus(); });
+  $$('[data-co-edit]', el).forEach((b) => b.addEventListener('click', () => {
+    if (editLocked()) return;
+    const d = courseDraft(cur, Number(b.dataset.coEdit));
+    if (!d) return;
+    courseEdit = d; courseErr = {}; renderIC(); $('#coForm')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }));
+  $$('[data-co-del]', el).forEach((b) => b.addEventListener('click', () => {
+    if (editLocked()) return;
+    if (b.dataset.c !== '1') { b.dataset.c = '1'; b.textContent = 'Supprimer ?'; return; }
+    const c = cur.courses.find((x) => x.id === Number(b.dataset.coDel));
+    if (c) commitRegMarks(removeCourse(cur, c.id), `Parcours ${c.name} supprimé`);
+  }));
+  if (markAdd && $('#mkaForm')) {
+    $('#mkaName').addEventListener('input', (e) => { markAdd.name = e.target.value; markAdd.err = ''; $('#mkaErr').textContent = ''; });
+    $('#mkaPos').addEventListener('input', (e) => { markAdd.txt = e.target.value; markAdd.err = ''; $('#mkaErr').textContent = ''; });
+    for (const id of ['#mkaName', '#mkaPos']) $(id).addEventListener('keydown', (e) => { if (e.key === 'Enter') submitMarkAdd(cur); });
+    $('#mkaOk').addEventListener('click', () => submitMarkAdd(cur));
+    $('#mkaNo').addEventListener('click', () => { markAdd = null; renderIC(); });
+  }
+  if (courseEdit && $('#coForm')) {
+    const redraw = () => { readCourseForm(); renderIC(); };
+    $('#coName').addEventListener('input', () => { readCourseForm(); });
+    for (const sel of ['[data-st-mark]', '[data-st-gate]', '[data-st-side]', '#coFinMark', '#coLapLine']) $$(`#coForm ${sel}`).forEach((x) => x.addEventListener('change', () => { readCourseForm(); }));
+    for (const sel of ['[data-st-kind]', '#coFin', '#coLaps']) $$(`#coForm ${sel}`).forEach((x) => x.addEventListener('change', redraw));       // la forme du formulaire change
+    const move = (i, j) => { readCourseForm(); const st = [...courseEdit.steps]; [st[i], st[j]] = [st[j], st[i]]; courseEdit = { ...courseEdit, steps: st }; renderIC(); };
+    $$('#coForm [data-st-up]').forEach((b) => b.addEventListener('click', () => { const i = +b.dataset.stUp; if (i > 0) move(i, i - 1); }));
+    $$('#coForm [data-st-down]').forEach((b) => b.addEventListener('click', () => { const i = +b.dataset.stDown; if (i < courseEdit.steps.length - 1) move(i, i + 1); }));
+    $$('#coForm [data-st-del]').forEach((b) => b.addEventListener('click', () => { readCourseForm(); courseEdit = { ...courseEdit, steps: courseEdit.steps.filter((_, k) => k !== +b.dataset.stDel) }; renderIC(); }));
+    $('#coStepAdd').addEventListener('click', () => { readCourseForm(); courseEdit = { ...courseEdit, steps: [...courseEdit.steps, { kind: 'mark', mark: '', side: '' }] }; renderIC(); });
+    $('#coCancel').addEventListener('click', () => { courseEdit = null; courseErr = {}; renderIC(); });
+    $('#coSave').addEventListener('click', () => {
+      if (editLocked()) return;
+      const d = readCourseForm();
+      const r = saveCourseDraft(cur, d, { by: who(), at: Date.now(), taken: COURSES.map((c) => c.id) });
+      if (!r.ok) { courseErr = r.errors; renderIC(); $('#coForm')?.scrollIntoView({ behavior: 'smooth', block: 'center' }); return; }
+      const nom = r.regatta.courses.find((c) => c.id === r.id)?.name || '';
+      commitRegMarks(r.regatta, `${nom} ${d.id != null ? 'modifié' : 'enregistré'} : proposé dans l’onglet Parcours`);
+    });
+  }
 }
 
 // Met à jour le bouton « Lire avec l’IA » et son message sans reconstruire la carte

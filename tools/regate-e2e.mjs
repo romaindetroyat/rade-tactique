@@ -4491,7 +4491,227 @@ async function tofinouIc({ browser, base: base0 }) {
   }
 }
 
-const SCENARIOS = { baie, accueil, 'jour-j': jourJ, 'deux-telephones': deuxTelephones, reprise, equipage, archive, 'archive-bouees': archiveBouees, archivehors: archiveHors, creer, manche, auteur, ic, 'depuis-ic': depuisIC, vraisemblance, gel, 'debrief-tardif': debriefTardif, gpx, 'gpx-choix': gpxChoix, ia, 'ia-erreurs': iaErreurs, arbitre, bouees, guide, entetes, 'retour-port': retourPort, banane, 'banane-manche': bananeManche, 'banane-debrief': bananeDebrief, 'porte-ic': porteIC, 'modifier-manche': modifierManche, 'toulon-vue': toulonVue, 'plan-eau': planEau, 'brest-avion': brestAvion, 'regate-brest': regateBrest, 'brest-courant': brestCourant, gpen, 'naos-cles': naosCles, 'tofinou-demarrage': tofinouDemarrage, 'espace-garde': espaceGarde, 'tofinou-bateau': tofinouBateau, 'tofinou-identite': tofinouIdentite, 'bormes-local': bormesLocal, 'tofinou-ia': tofinouIa, 'tofinou-ic': tofinouIc };
+// 08-11, D-17 : éditeur de parcours de l’espace Tofinou. (A) Frédéric (tofinou.localhost, archive de l’espace) ajoute des bouées par position
+// saisie et par un point touché sur la carte (« Bouée de régate ici… »), les confirme, crée puis modifie un parcours (côté, porte, arrivée entre
+// le Comité et une bouée, tours sans repasser la ligne), routé dans l’onglet Parcours avec le catalogue du Challenge ; (B) Romain le reçoit par
+// l’archive, puis modifications concurrentes hors réseau : la plus récente partout, l’autre dans l’historique ; (C) chrono lancé : éditeur
+// inactif, gestes refusés, rien d’enregistré ; (D) Naos (127.0.0.1) : aucun élément de l’éditeur, fenêtre « Point choisi » de la v43.
+const LOCK_EDIT = 'Course en cours : parcours et bouées modifiables après la course';
+async function ajouteBouee(page, nom, pos) {
+  await page.click('#mkNew');
+  await page.fill('#mkaName', nom);
+  await page.fill('#mkaPos', pos);
+  await page.click('#mkaOk');
+  await page.waitForSelector('#mkaForm', { state: 'detached', timeout: 10000 });
+}
+const boueeDe = async (page, nom) => (await regateOuverte(page)).marks.find((x) => x.name === nom);
+async function centreCarte(page) {
+  // centre de la zone visible de la carte (le panneau replié en couvre le bas) : point touché comme un doigt
+  const b = await page.locator('#stage canvas').first().boundingBox();
+  const bas = await page.evaluate(() => { const p = document.querySelector('#panel'); return p ? p.getBoundingClientRect().top : innerHeight; });
+  const y = b.y + (Math.min(b.y + b.height, bas) - b.y) / 2;
+  await page.mouse.click(b.x + b.width / 2, y);
+  await page.waitForSelector('#pickPop:not([hidden])', { timeout: 10000 });
+}
+const boutonsPick = (page) => page.locator('#pickPop .acts button').allTextContents();
+async function tofinouParcours({ browser, base: base0 }) {
+  const base = baseSur(base0, HOTES_ESSAI.tofinou);
+  const m = await mondeArchive('2026-12-06T09:00:00Z');
+  const telephone = async (nom) => {
+    const ctx = await ouvreContexte(browser, { heure: new Date(m.t).toISOString() }); m.ctxs.push(ctx);
+    await membreEspace(ctx, { membre: nom, espace: 'tofinou' });
+    await archiveEspace(ctx, m, nom, { espace: 'tofinou' });
+    const { page, erreurs } = await ouvrePage(ctx);
+    await ouvreApp(page, base);
+    await membreGarde(page, nom);
+    return { nom, ctx, page, erreurs };
+  };
+  const ctxN = await ouvreContexte(browser, { heure: '2026-12-06T09:00:00Z' });
+  try {
+    // ───── (A)
+    const A = await telephone('Frédéric'), P = A.page;
+    await creeRegate(P, { nom: 'Entraînement du club', debut: '2026-12-06', club: 'Club' });
+    const id = await idOuverte(P);
+    assert.ok(id);
+    assert.match(await texte(P, '#rgEdit h4'), /^Bouées et parcours de la régate/);
+    await ajouteBouee(P, 'Alpha', '43°07.200N 006°24.000E');
+    await toastVu(P, 'Bouée X\\d{4} Alpha ajoutée : à confirmer', 10000);
+    const alpha = await boueeDe(P, 'Alpha');
+    assert.match(alpha.id, /^X\d{4}$/); assert.equal(alpha.status, 'a_confirmer'); assert.equal(alpha.origine, 'saisie');
+    // position de Toulon refusée avec le message de Bormes
+    await P.click('#mkNew');
+    await P.fill('#mkaName', 'Echo'); await P.fill('#mkaPos', '43°05.845N 005°56.049E'); await P.click('#mkaOk');
+    assert.match(await texte(P, '#mkaErr'), /hors de la rade de Bormes – Le Lavandou/);
+    assert.equal((await regateOuverte(P)).marks.length, 1, 'rien d’ajouté');
+    await P.click('#mkaNo');
+    // « Voir sur la carte » sur Alpha, puis un point touché au centre de la carte → « Bouée de régate ici… » → formulaire prérempli
+    await P.click(`[data-mk-voir="${alpha.id}"]`);
+    await P.waitForFunction(() => document.body.dataset.sheet === 'min', null, { timeout: 5000 });
+    await P.waitForTimeout(800);
+    await centreCarte(P);
+    assert.deepEqual(await boutonsPick(P), ['Comité ici', 'Bouée ici', 'Relevé de vent ici…', 'Bouée de régate ici…', '✕']);
+    await P.click('#pickPop [data-a=mkreg]');
+    await P.waitForSelector('#mkaForm', { timeout: 10000 });
+    const pre = await P.locator('#mkaPos').inputValue();
+    const pp = await P.evaluate(async (t) => { const { parseLatLon } = await import('/js/marks.js'); const { VENUES } = await import('/js/venues.js'); return parseLatLon(t, VENUES.bormes.inputBounds); }, pre);
+    const ecart = await P.evaluate(async ([a, b]) => { const g = await import('/js/geo.js'); return g.distXY(g.toXY(a.lat, a.lon), g.toXY(b.lat, b.lon)); }, [alpha, pp]);
+    assert.ok(ecart < 300, `point touché à ${Math.round(ecart)} m d’Alpha (${pre})`);
+    assert.equal(await P.evaluate(() => document.activeElement?.id), 'mkaName', 'curseur sur le nom');
+    await P.fill('#mkaName', 'Bravo'); await P.click('#mkaOk');
+    await P.waitForSelector('#mkaForm', { state: 'detached', timeout: 10000 });
+    assert.equal((await boueeDe(P, 'Bravo')).origine, 'carte', 'position touchée sur la carte, non retouchée');
+    await ajouteBouee(P, 'Charlie', '43°06.600N 006°23.700E');
+    await ajouteBouee(P, 'Delta', '43°07.800N 006°23.700E');
+    const ids = {};
+    for (const n of ['Alpha', 'Bravo', 'Charlie', 'Delta']) ids[n] = (await boueeDe(P, n)).id;
+    assert.equal(new Set(Object.values(ids)).size, 4);
+    // « Créer un parcours » sans bouée confirmée : la mention le dit
+    await P.click('#coNew');
+    assert.match(await texte(P, '#coNone'), /confirmez d’abord une bouée/);
+    await P.click('#coCancel');
+    // l’horloge des téléphones est figée : elle avance entre deux gestes, comme sur l’eau (sinon une copie envoyée entre-temps aurait la même date)
+    await avanceHeure(m, 60e3);
+    for (const n of ['Alpha', 'Bravo', 'Charlie', 'Delta']) await P.click(`[data-mk-ok="${ids[n]}"]`);
+    await avanceHeure(m, 60e3);
+    assert.ok((await regateOuverte(P)).marks.every((x) => x.status === 'confirmee'));
+    // « Créer un parcours » : nom vide refusé, porte Bravo / Bravo refusée
+    await P.click('#coNew');
+    await P.click('#coSave');
+    assert.match(await texte(P, '#coForm [data-err=name]'), /Nom du parcours à saisir/);
+    await P.fill('#coName', 'Parcours d’entraînement');
+    await P.selectOption('#coForm [data-st-mark="0"]', ids.Alpha); await P.selectOption('#coForm [data-st-side="0"]', 't');
+    await P.click('#coStepAdd');
+    await P.selectOption('#coForm [data-st-kind="1"]', 'gate');
+    await P.selectOption('#coForm [data-st-mark="1"]', ids.Bravo); await P.selectOption('#coForm [data-st-gate="1"]', ids.Bravo);
+    await P.selectOption('#coFin', 'comite');
+    await P.selectOption('#coFinMark', ids.Delta);
+    await P.selectOption('#coLaps', '2');
+    await P.selectOption('#coLapLine', '0');
+    await P.click('#coSave');
+    assert.match(await texte(P, '#coForm [data-err="step.1"]'), /deux bouées différentes/);
+    assert.equal(await P.locator('#coName').inputValue(), 'Parcours d’entraînement', 'saisie gardée après le refus');
+    await P.selectOption('#coForm [data-st-gate="1"]', ids.Charlie);
+    await P.click('#coSave');
+    await P.waitForSelector('#coForm', { state: 'detached', timeout: 10000 });
+    await toastVu(P, 'Parcours d’entraînement enregistré : proposé dans l’onglet Parcours', 10000);
+    let reg = await regateOuverte(P);
+    assert.equal(reg.courses.length, 1);
+    const co = reg.courses[0];
+    assert.ok(Number.isInteger(co.id) && co.id >= 1000 && co.id <= 9999, `identifiant ${co.id}`);
+    assert.deepEqual([co.origine, co.laps, co.lapLine, co.finish], ['saisie', 2, false, { kind: 'comite', mark: ids.Delta }]);
+    assert.deepEqual(co.seq, [{ mark: ids.Alpha, side: 't' }, { mark: ids.Bravo, side: null, gate: ids.Charlie }]);
+    assert.match(await texte(P, `#rgSheet [data-co-row="${co.id}"]`), /Parcours d’entraînement \(saisi\)[\s\S]*proposé dans l’onglet Parcours[\s\S]*2 tours · entre deux tours : sans repasser la ligne/);
+    // onglet Parcours : le parcours saisi avec le catalogue du Challenge ; routé sans bord vers la ligne entre les tours
+    await P.click('#tabs button[data-tab=course]');
+    const options = await P.locator('#cSel option').evaluateAll((os) => os.map((o) => [+o.value, o.textContent]));
+    assert.ok(options.some(([v]) => v === 4) && options.some(([v]) => v === 51), 'catalogue du Challenge toujours proposé');
+    assert.deepEqual(options.at(-1), [co.id, 'Parcours d’entraînement (saisi)']);
+    await P.selectOption('#cSel', String(co.id));
+    const A1 = /Alpha/, PO = /Bravo|Charlie/, FIN = /^Arrivée \(Comité – X\d{4} Delta\)/;
+    await attendBords(P, suite([A1, PO, A1, PO, FIN]), 'parcours saisi, 2 tours sans repasser la ligne');
+    assert.equal(await P.locator('#cLaps').count(), 0, 'tours imposés par le parcours : pas d’entrée « Tours »');
+    assert.doesNotMatch((await texte(P, 'section[data-tab=course]')).replace(/\s+/g, ' '), MOTS_TOULON);
+    // « Modifier le parcours » : Alpha à bâbord, 3 tours → même identifiant, bords recalculés
+    await avanceHeure(m, 60e3);
+    await P.click('#tabs button[data-tab=ic]');
+    await P.click(`[data-co-edit="${co.id}"]`);
+    assert.equal(await texte(P, '#coForm h4'), 'Modifier le parcours');
+    await P.selectOption('#coForm [data-st-side="0"]', 'b');
+    await P.selectOption('#coLaps', '3');
+    await P.click('#coSave');
+    await P.waitForSelector('#coForm', { state: 'detached', timeout: 10000 });
+    reg = await regateOuverte(P);
+    assert.deepEqual([reg.courses.length, reg.courses[0].id, reg.courses[0].laps, reg.courses[0].seq[0].side, reg.courses[0].edited?.by], [1, co.id, 3, 'b', 'Frédéric']);
+    await P.click('#tabs button[data-tab=course]');
+    await attendBords(P, suite([A1, PO, A1, PO, A1, PO, FIN]), 'parcours modifié, 3 tours');
+    sansErreur(A.erreurs, 'éditeur, Frédéric');
+    // ───── (B)
+    await avanceHeure(m, 60e3);
+    await synchronise(m, A);
+    const leger = JSON.parse(m.blob.store.get('tofinou/preview/light.json')?.text || 'null');
+    assert.deepEqual(leger?.regattas?.[id]?.courses?.map((c) => [c.id, c.laps]), [[co.id, 3]], 'parcours dans l’archive de Tofinou');
+    assert.ok(leger.regattas[id].marks.every((x) => x.status === 'confirmee'), 'bouées confirmées dans l’archive');
+    assert.ok([...m.blob.store.keys()].every((k) => k.startsWith('tofinou/')));
+    const B = await telephone('Romain'), Q = B.page;
+    await synchronise(m, B);
+    await ouvreRegate(Q, id);
+    assert.equal((await regateOuverte(Q)).marks.length, 4);
+    assert.match(await texte(Q, `#rgSheet [data-co-row="${co.id}"]`), /Parcours d’entraînement \(saisi\)[\s\S]*proposé dans l’onglet Parcours/);
+    await Q.click('#tabs button[data-tab=course]');
+    assert.ok((await Q.locator('#cSel option').allTextContents()).includes('Parcours d’entraînement (saisi)'));
+    // modifications concurrentes hors réseau : A à 2 tours, puis B (plus tard) à 4 tours
+    const histCo = async (page) => ((await regateOuverte(page)).hist || []).filter((h) => h.kind === 'course' && h.id === String(co.id));
+    for (const t of [A, B]) { await t.ctx.setOffline(true); await t.page.waitForFunction(() => !navigator.onLine); }
+    const modifie = async (page, tours) => {
+      await page.click('#tabs button[data-tab=ic]');
+      await page.click(`[data-co-edit="${co.id}"]`);
+      await page.selectOption('#coLaps', tours);
+      await page.click('#coSave');
+      await page.waitForSelector('#coForm', { state: 'detached', timeout: 10000 });
+    };
+    await modifie(P, '2');
+    await avanceHeure(m, 60e3);
+    await modifie(Q, '4');
+    for (const t of [A, B]) await t.ctx.setOffline(false);
+    await avanceHeure(m, 60e3); await synchronise(m, A); await avanceHeure(m, 60e3); await synchronise(m, B); await avanceHeure(m, 60e3); await synchronise(m, A);
+    for (const t of [A, B]) {
+      const c = (await regateOuverte(t.page)).courses.find((x) => x.id === co.id);
+      assert.deepEqual([c.laps, c.edited?.by], [4, 'Romain'], `${t.nom} : la plus récente partout`);
+      // la version écrasée (2 tours, A) entre dans l’historique de la fiche : une ligne « Parcours » de plus
+      const h = await histCo(t.page);
+      assert.ok(h.some((x) => x.v?.laps === 2 && x.by === 'Frédéric'), `${t.nom} : la version de Frédéric (2 tours) est dans l’historique`);
+      await t.page.click('#tabs button[data-tab=ic]');
+      assert.ok(await t.page.locator('#rgSheet .rghl[data-kind=course]').count() >= 1, `${t.nom} : une ligne « Parcours » dans l’historique de la fiche`);
+      assert.match(await t.page.locator('#rgSheet .rghl[data-kind=course]').first().textContent(), /^Parcours · /);
+    }
+    sansErreur(B.erreurs, 'éditeur, Romain');
+    // ───── (C) chrono de départ lancé : éditeur inactif, gestes refusés, rien d’enregistré ni envoyé
+    const envois = () => m.vues.filter((v) => v.nom === 'Frédéric' && v.method === 'PUT').length;
+    const avant = JSON.stringify(await regateOuverte(P)), puts = envois();
+    await P.click('#tabs button[data-tab=start]'); await P.click('#t5');
+    await P.click('#tabs button[data-tab=ic]');
+    await P.waitForSelector('#rgEditLock', { timeout: 10000 });
+    for (const sel of ['#mkNew', '#coNew', `[data-co-edit="${co.id}"]`, `[data-co-del="${co.id}"]`, `[data-mk-fix="${ids.Alpha}"]`]) assert.equal(await P.locator(sel).isDisabled(), true, `${sel} inactif en course`);
+    // geste forcé (bouton réactivé à la main) : refusé par l’app avec son message
+    await P.evaluate((s) => { const b = document.querySelector(s); b.disabled = false; b.click(); }, '#coNew');
+    await toastVu(P, LOCK_EDIT, 5000);
+    assert.equal(await P.locator('#coForm').count(), 0, 'aucun formulaire ouvert');
+    await P.evaluate((s) => { const b = document.querySelector(s); b.disabled = false; b.click(); b.click(); }, `[data-co-del="${co.id}"]`);
+    assert.equal(JSON.stringify(await regateOuverte(P)), avant, 'rien d’enregistré pendant la course');
+    await P.click(`[data-mk-voir="${ids.Alpha}"]`);
+    await P.waitForFunction(() => document.body.dataset.sheet === 'min', null, { timeout: 5000 });
+    await P.waitForTimeout(800);
+    await centreCarte(P);
+    assert.deepEqual(await boutonsPick(P), ['Comité ici', 'Bouée ici', 'Relevé de vent ici…', '✕'], 'pas de « Bouée de régate ici… » en course');
+    await P.click('#pickPop [data-a=close]');
+    await P.click('#tabs button[data-tab=start]'); await P.click('#tstop');
+    assert.equal(envois(), puts, 'rien envoyé à l’archive pendant la course');
+    sansErreur(A.erreurs, 'chrono');
+    // ───── (D) Naos : régate de Toulon à bouées lues (confirmées, à confirmer) et parcours lu ; aucun élément de l’éditeur
+    const N = await ouvrePage(ctxN);
+    const lue = (mid, name, lat, lon, status) => ({ id: mid, name, text: `${lat} N ; ${lon} E`, lat, lon, excerpt: `${name} : ${lat} N ; ${lon} E`, status, src: 'IC Club test', by: 'Teiva', at: 0, ...(status === 'confirmee' ? { confirmed: { by: 'Teiva', at: 0 } } : {}) });
+    const rg = { ...regateSemee('rg-naos', 'Régate lue', '2026-12-06'), club: 'SNM',
+      marks: [lue('X1', 'Alpha', 43.0905, 5.9587, 'confirmee'), lue('X2', 'Bravo', 43.0835, 5.97, 'confirmee'), lue('X3', 'Charlie', 43.095, 5.98, 'a_confirmer')],
+      courses: [{ id: 101, name: 'Parcours A', seq: [{ mark: 'X1', side: 'b' }, { mark: 'X2', side: 't' }], excerpt: 'Parcours A : Alpha bâbord, Bravo tribord', incomplete: false, missing: [], by: 'Teiva', at: 0 }] };
+    await sème(N.page, base0, [rg]);
+    if (await idOuverte(N.page) !== 'rg-naos') await ouvreRegate(N.page, 'rg-naos');       // régate du jour : ouverte au démarrage
+    await N.page.click('#tabs button[data-tab=ic]');
+    assert.equal(await N.page.locator('#mkNew, #coNew, [data-co-edit], [data-co-del], #rgEdit, #mkaForm, #coForm').count(), 0, 'Naos : aucun élément de l’éditeur');
+    assert.doesNotMatch(await texte(N.page, 'body'), /Créer un parcours|Modifier le parcours|Bouée de régate ici/);
+    assert.match(await texte(N.page, '#rgSheet [data-co-row="101"]'), /Parcours A \(IC\)[\s\S]*Lu par Teiva/);
+    await N.page.click('[data-mk-voir="X1"]');
+    await N.page.waitForFunction(() => document.body.dataset.sheet === 'min', null, { timeout: 5000 });
+    await N.page.waitForTimeout(800);
+    await centreCarte(N.page);
+    assert.deepEqual(await boutonsPick(N.page), ['Comité ici', 'Bouée ici', 'Relevé de vent ici…', '✕'], 'Naos : fenêtre « Point choisi » de la v43');
+    sansErreur(N.erreurs, 'Naos');
+  } finally {
+    for (const c of m.ctxs) await c.close().catch(() => { /* déjà fermé */ });
+    await ctxN.close().catch(() => { /* déjà fermé */ });
+  }
+}
+
+const SCENARIOS = { baie, accueil, 'jour-j': jourJ, 'deux-telephones': deuxTelephones, reprise, equipage, archive, 'archive-bouees': archiveBouees, archivehors: archiveHors, creer, manche, auteur, ic, 'depuis-ic': depuisIC, vraisemblance, gel, 'debrief-tardif': debriefTardif, gpx, 'gpx-choix': gpxChoix, ia, 'ia-erreurs': iaErreurs, arbitre, bouees, guide, entetes, 'retour-port': retourPort, banane, 'banane-manche': bananeManche, 'banane-debrief': bananeDebrief, 'porte-ic': porteIC, 'modifier-manche': modifierManche, 'toulon-vue': toulonVue, 'plan-eau': planEau, 'brest-avion': brestAvion, 'regate-brest': regateBrest, 'brest-courant': brestCourant, gpen, 'naos-cles': naosCles, 'tofinou-demarrage': tofinouDemarrage, 'espace-garde': espaceGarde, 'tofinou-bateau': tofinouBateau, 'tofinou-identite': tofinouIdentite, 'bormes-local': bormesLocal, 'tofinou-ia': tofinouIa, 'tofinou-ic': tofinouIc, 'tofinou-parcours': tofinouParcours };
 
 // ───────────────────────── lancement
 
