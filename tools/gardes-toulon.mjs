@@ -1,9 +1,12 @@
-// Gardes « Toulon ne change pas d’un bord » (phase 7, D-01, D-02), d’une seule commande : chaque plan de la phase l’appelle.
+// Gardes « Toulon ne change pas d’un bord » (phase 7, D-01, D-02) et « Naos ne change pas » (phase 8, D-01), d’une seule commande :
+// chaque plan des phases 7 et 8 l’appelle.
 //   node tools/gardes-toulon.mjs [--racine <dossier>]
 // (a) garde SNPM : js/courses.js et tests/reference/ identiques à f80c365 ;
 // (b) données de Toulon identiques à 56f6625 (v42) ;
 // (c) modules du mode départ identiques à 56f6625 ;
-// (d) tests figés : gel v42 de Toulon, banane, routes mémorisées, référence SNPM.
+// (d) tests figés : gel v42 de Toulon, banane, routes mémorisées, référence SNPM ;
+// (e) gel de Naos v43 (phase 8, D-01) : tests/naos.test.mjs (middleware, archive, compteur d’IA, consignes, liste hors réseau, pack de Brest) ;
+// (f) pack de Brest identique à 5e9b8a5 (v43).
 // Écrit « OK <garde> » ou « ÉCHEC <garde> » ; code de sortie 0 si tout est OK, 1 sinon. Aucune variable d’environnement ne désactive une garde.
 // --racine : dossier où jouer les gardes (une copie du dépôt, pour les contrôles négatifs) ; par défaut, le dépôt de ce fichier.
 
@@ -20,6 +23,8 @@ const GARDES = [
   ['données de Toulon (data/ = 56f6625)', 'git', ['diff', '--quiet', '56f6625', '--', ...DATA]],
   ['modules du mode départ (= 56f6625)', 'git', ['diff', '--quiet', '56f6625', '--', ...DEPART]],
   ['tests figés (Toulon v42, banane, routes mémorisées, référence SNPM)', process.execPath, ['--test', '--import', './tests/helpers/setup.mjs', ...TESTS]],
+  ['gel de Naos v43 (tests/naos.test.mjs)', process.execPath, ['--test', '--import', './tests/helpers/setup.mjs', 'tests/naos.test.mjs']],
+  ['pack de Brest (data/brest.* = 5e9b8a5)', 'git', ['diff', '--quiet', '5e9b8a5', '--', 'data/brest.*']],
 ];
 
 const args = process.argv.slice(2);

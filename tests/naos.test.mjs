@@ -4,7 +4,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ROOT, fixture } from './helpers/setup.mjs';
-import { naosCases, modulesNaos, fichiersDepot, differencesAdmises, canon, FROM } from './helpers/naos.mjs';
+import { statSync, existsSync } from 'node:fs';
+import { naosCases, modulesNaos, fichiersDepot, differencesAdmises, canon, FROM, AJOUTS_SHELL, TAILLE_AJOUT_MAX } from './helpers/naos.mjs';
 import { sameDeep } from './helpers/toulon.mjs';
 import { tableEquipage, FAUX_CODE } from './helpers/codesimule.mjs';
 
@@ -29,6 +30,38 @@ for (const section of ['middleware', 'publics', 'archive', 'quota']) {
     assert.equal(d, null, d);
   });
 }
+
+for (const section of ['ia', 'brest']) {
+  test(`Naos v43 : ${section} identique à la capture`, async () => {
+    assert.ok(F[section], `section ${section} absente de la fixture`);
+    const d = ecart(section, (await cas())[section]);
+    assert.equal(d, null, d);
+  });
+}
+
+test('Naos v43 : consignes de Toulon de la v43 = empreintes de la v42 (tests/fixtures/ia-toulon-v42.json)', () => {
+  const v42 = JSON.parse(fixture('ia-toulon-v42.json'));
+  for (const f of ['rules', 'debrief', 'voice']) assert.equal(F.ia?.[f]?.toulon, v42[f], f);
+  for (const f of ['rules', 'debrief', 'voice']) assert.match(F.ia[f].brest, /^[0-9a-f]{64}$/);
+  assert.match(F.ia.ic, /^[0-9a-f]{64}$/);
+});
+
+test('Naos v43 : liste hors réseau — tout le SHELL de la v43 reste, ajouts limités à AJOUTS_SHELL (64 Ko au plus chacun), aucun pack', async () => {
+  assert.ok(Array.isArray(F.shell) && F.shell.length > 20, 'section shell absente de la fixture');
+  const c = (await cas()).shell, v43 = new Set(F.shell);
+  const manque = F.shell.filter((f) => !c.includes(f));
+  assert.deepEqual(manque, [], 'fichiers de la v43 retirés de la liste hors réseau');
+  const ajouts = c.filter((f) => !v43.has(f));
+  assert.deepEqual(ajouts.filter((f) => !AJOUTS_SHELL.includes(f)), [], 'fichiers ajoutés hors de AJOUTS_SHELL');
+  for (const f of ajouts) {
+    assert.ok(existsSync(ROOT + f), `${f} absent du dépôt`);
+    assert.ok(statSync(ROOT + f).size <= TAILLE_AJOUT_MAX, `${f} dépasse 64 Ko`);
+  }
+  const packs = fichiersDepot(ROOT, 'data/').map((p) => /^\/data\/([a-z0-9-]+)\.meta\.json$/.exec(p)?.[1]).filter(Boolean);
+  assert.ok(packs.includes('brest'));
+  assert.deepEqual(c.filter((f) => packs.some((id) => f.startsWith(`data/${id}.`))), [], 'un fichier de pack dans la liste hors réseau');
+  assert.equal(ecart('shell', c), null, ecart('shell', c));
+});
 
 test('Naos v43 : les différences admises ne masquent rien (un écart ailleurs reste visible)', async () => {
   const c = structuredClone((await cas()).middleware);

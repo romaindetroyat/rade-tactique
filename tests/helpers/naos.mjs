@@ -10,6 +10,7 @@
 
 import { readFileSync, writeFileSync, readdirSync, statSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import { avecCodeSimule, COOKIE_TEST, FAUX_CODE } from './codesimule.mjs';
 import { createFakeBlob, invoke } from './fakeblob.mjs';
@@ -39,8 +40,9 @@ async function avecEnv(nom, valeur, fn) {
 export async function modulesNaos(racine) {
   const base = racine.replace(/\/?$/, '/');
   const imp = (f) => import(pathToFileURL(base + f).href);
-  const [middleware, archive, ia] = await Promise.all([imp('middleware.js'), imp('api/archive.js'), imp('api/_ia.js')]);
-  return { racine: base, middleware, archive, ia };
+  const noms = ['middleware', 'archive', 'ia', 'rules', 'debrief', 'voice', 'ic'];
+  const mods = await Promise.all(['middleware.js', 'api/archive.js', 'api/_ia.js', 'api/rules.js', 'api/debrief.js', 'api/voice.js', 'api/ic.js'].map(imp));
+  return { racine: base, ...Object.fromEntries(noms.map((n, i) => [n, mods[i]])) };
 }
 
 // Fichiers d’un dossier (chemins « /… »), comme tests/access.test.mjs : node_modules, .git et .vercel exclus
@@ -216,6 +218,59 @@ async function casQuota(m) {
   return out;
 }
 
+// ───────────────────────── consignes d’IA, liste hors réseau, pack de Brest
+
+const sha = (x) => createHash('sha256').update(x).digest('hex');
+const SORTIES = {
+  rules: { verdict: 'B doit s’écarter', explication: 'B est au vent.', regles: [], ic: '', attention: '' },
+  debrief: { resume: { bien: 'b', coute: 'c', meteo: 'm' }, bords: [], retenir: [] },
+  voice: { understood: true, direction: { mode: 'unchanged', value: null }, speed: { mode: 'unchanged', value: null }, gust: null, confidence: 'high', summary: 's', question: null },
+  ic: {},
+};
+const CORPS = {
+  rules: { question: 'Bâbord / tribord ?' }, debrief: { bords: [{ n: 1 }] }, voice: { alts: ['vent au 300, 14 nœuds'] },
+  ic: { text: 'INSTRUCTIONS DE COURSE — Coupe de Noël du CVAT, samedi 5 décembre 2026. Premier signal d’avertissement à 10 h 55. VHF 72. '.repeat(4) },
+};
+
+// SHA-256 des consignes (`instructions`) reçues par un faux client OpenAI propre à chaque appel : aucun réseau, aucune clé réelle ; la fausse
+// clé et l’environnement sont rendus dans un try/finally (avecEnv)
+async function casIA(m) {
+  const consigne = async (f, corps) => {
+    const appels = [];
+    const client = { responses: { create: async (args) => { appels.push(args); return { status: 'completed', output_text: JSON.stringify(SORTIES[f]) }; } } };
+    const h = m[f].createHandler({ openai: client, blob: createFakeBlob(), now: () => T });
+    await invoke(h, { method: 'POST', url: '/api/' + f, body: corps, headers: ENTETES() });
+    if (appels.length !== 1) throw new Error(`${f} : ${appels.length} appel(s) au faux client au lieu d’un`);
+    return sha(appels[0].instructions);
+  };
+  return avecEnv('OPENAI_API_KEY', 'cle-de-test', () => avecEnv('OPENAI_MODEL', null, () => avecEnv('VERCEL_ENV', null, async () => {
+    const out = {};
+    for (const f of ['rules', 'debrief', 'voice']) out[f] = { toulon: await consigne(f, CORPS[f]), brest: await consigne(f, { ...CORPS[f], venue: 'brest' }) };
+    out.ic = await consigne('ic', CORPS.ic);
+    return out;
+  })));
+}
+
+// Liste SHELL du bloc généré de <racine>/sw.js, lue dans le texte (le worker n’est jamais exécuté)
+export function shellDe(racine) {
+  const sw = readFileSync(racine.replace(/\/?$/, '/') + 'sw.js', 'utf8');
+  const a = sw.indexOf('/* stamp:begin'), z = sw.indexOf('/* stamp:end */');
+  if (a < 0 || z < a) throw new Error('sw.js : bloc généré introuvable');
+  const l = /const SHELL = (\[[^\n]*\]);/.exec(sw.slice(a, z));
+  if (!l) throw new Error('sw.js : SHELL introuvable dans le bloc généré');
+  return JSON.parse(l[1]);
+}
+
+// Taille et SHA-256 de chaque data/brest.*, entrée « brest » du manifeste des plans d’eau
+function casBrest(m) {
+  const data = m.racine + 'data/', fichiers = {};
+  for (const f of readdirSync(data).filter((n) => n.startsWith('brest.')).sort()) {
+    const buf = readFileSync(data + f);
+    fichiers['data/' + f] = { bytes: buf.length, sha256: sha(buf) };
+  }
+  return { fichiers, venues: JSON.parse(readFileSync(data + 'venues.json', 'utf8')).venues?.brest ?? null };
+}
+
 // ───────────────────────── sections
 
 // Toutes les sections du gel ; m = { racine, middleware, archive, ia, fichiers }
@@ -225,6 +280,9 @@ export async function naosCases(m) {
     publics: await casPublics(m),
     archive: await casArchive(m),
     quota: await casQuota(m),
+    ia: await casIA(m),
+    shell: shellDe(m.racine),
+    brest: casBrest(m),
   };
 }
 
@@ -250,6 +308,11 @@ export function differencesAdmises(section, capture, courant) {
         if (Array.isArray(e) && e.length && e.every((x) => typeof x === 'string') && e.includes('naos')) r.corps.espaces = e;
       }
     }
+  }
+  if (section === 'shell' && Array.isArray(courant)) {
+    // les fichiers de la v43 dans l’ordre du code courant, plus ceux de AJOUTS_SHELL qu’il contient ; un retrait ou un autre ajout reste visible
+    const v43 = new Set(c);
+    return [...courant.filter((f) => v43.has(f) || AJOUTS_SHELL.includes(f)), ...c.filter((f) => !courant.includes(f))];
   }
   return c;
 }
