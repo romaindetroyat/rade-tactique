@@ -57,7 +57,7 @@ function res() {
   return r;
 }
 // le middleware pose le prénom de l’équipier sur toute demande /api/ : api/_ia.js ne compte que sous ce prénom
-const post = (text, headers = {}) => ({ method: 'POST', headers: { 'x-rt-membre': encodeURIComponent('Romain'), ...headers }, body: { text } });
+const post = (text, headers = {}) => ({ method: 'POST', headers: { 'x-rt-membre': encodeURIComponent('Romain'), 'x-rt-espace': 'naos', ...headers }, body: { text } });
 async function appelle(client, req) { const r = res(); await createHandler({ openai: client })(req, r); return r; }
 
 // ── garde de schéma

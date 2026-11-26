@@ -918,7 +918,7 @@ async function serviaIA(ctx, sortie) {
     etat.corps.push(corps); etat.enTetes.push(req.headers());
     const out = { code: 200, body: null, status(c) { out.code = c; return out; }, json(b) { out.body = b; return out; }, setHeader() { return out; } };
     // le middleware pose le prénom de l’équipier sur toute demande /api/ (api/_ia.js ne compte que sous ce prénom)
-    await handler({ method: req.method(), headers: { ...req.headers(), 'x-rt-membre': encodeURIComponent(PRENOM_IA) }, body: corps }, out);
+    await handler({ method: req.method(), headers: { ...req.headers(), 'x-rt-membre': encodeURIComponent(PRENOM_IA), 'x-rt-espace': 'naos' }, body: corps }, out);
     await route.fulfill({ status: out.code, contentType: 'application/json', body: JSON.stringify(out.body) });
   });
   return etat;
@@ -1121,7 +1121,7 @@ async function arbitre({ browser, base }) {
   const ctx = await ouvreContexte(browser, { heure: HEURE });
   await ctx.route('**/api/rules', async (route) => {
     const req = route.request();
-    const r = await invoke(handler, { method: req.method(), url: '/api/rules', body: JSON.parse(req.postData() || 'null'), headers: { 'x-rt-membre': encodeURIComponent(PRENOM_IA) } });
+    const r = await invoke(handler, { method: req.method(), url: '/api/rules', body: JSON.parse(req.postData() || 'null'), headers: { 'x-rt-membre': encodeURIComponent(PRENOM_IA), 'x-rt-espace': 'naos' } });
     await route.fulfill({ status: r.status, contentType: 'application/json', body: JSON.stringify(r.body ?? null) });
   });
   const { page, erreurs } = await ouvrePage(ctx);
@@ -1388,7 +1388,7 @@ async function telephoneArchive(browser, base, m, nom, opts = {}) {
     m.appels[nom]++;
     if (req.method() === 'PUT') (m.puts ||= []).push(req.postData() || '');                // corps envoyés à l’archive, relus par les scénarios
     if (u.searchParams.get('k') !== 'light') m.lourds[nom].push(`${req.method()} ${u.searchParams.get('k')}`);
-    const r = await m.invoke(m.handler, { method: req.method(), url: u.pathname + u.search, body: req.postData() ? JSON.parse(req.postData()) : undefined, headers: { 'x-rt-membre': encodeURIComponent(nom) } });
+    const r = await m.invoke(m.handler, { method: req.method(), url: u.pathname + u.search, body: req.postData() ? JSON.parse(req.postData()) : undefined, headers: { 'x-rt-membre': encodeURIComponent(nom), 'x-rt-espace': 'naos' } });
     await route.fulfill({ status: r.status, contentType: 'application/json', headers: { 'cache-control': 'no-store' }, body: JSON.stringify(r.body ?? null) });
   });
   const { page, erreurs } = await ouvrePage(ctx);
@@ -3320,7 +3320,7 @@ async function arbitreSimule(ctx) {
   await ctx.route('**/api/rules', async (route) => {
     const req = route.request(), body = JSON.parse(req.postData() || 'null');
     corps.push(body);
-    const r = await invoke(handler, { method: req.method(), url: '/api/rules', body, headers: { 'x-rt-membre': encodeURIComponent(PRENOM_IA) } });
+    const r = await invoke(handler, { method: req.method(), url: '/api/rules', body, headers: { 'x-rt-membre': encodeURIComponent(PRENOM_IA), 'x-rt-espace': 'naos' } });
     await route.fulfill({ status: r.status, contentType: 'application/json', body: JSON.stringify(r.body ?? null) });
   });
   return { appels, corps };
@@ -3563,7 +3563,7 @@ async function regateBrest({ browser, base }) {
   assert.equal(enA.venue, 'brest'); assert.ok(Number.isFinite(enA.vu), 'plan d’eau daté');
   const id = enA.id;
   await avanceHeure(m, 60e3); await synchronise(m, A);
-  assert.equal((await m.invoke(m.handler, { method: 'GET', url: '/api/archive?k=light', headers: { 'x-rt-membre': 'Romain' } })).body.doc.regattas[id].venue, 'brest', 'le serveur garde le plan d’eau');
+  assert.equal((await m.invoke(m.handler, { method: 'GET', url: '/api/archive?k=light', headers: { 'x-rt-membre': 'Romain', 'x-rt-espace': 'naos' } })).body.doc.regattas[id].venue, 'brest', 'le serveur garde le plan d’eau');
   await avanceHeure(m, 60e3); await synchronise(m, B);
   // B (Toulon) : puce dans la liste, rien d’ouvert en silence
   await B.page.click('#tabs button[data-tab=ic]');

@@ -23,7 +23,7 @@ after(() => { if (cle0 === undefined) delete process.env.OPENAI_API_KEY; else pr
 
 const T = Date.parse('2026-10-21T08:00:00Z');                    // mercredi 21/10/2026 10 h à Paris
 const JOUR = '2026-10-21';
-const entete = (nom) => ({ 'x-rt-membre': encodeURIComponent(nom) });
+const entete = (nom) => ({ 'x-rt-membre': encodeURIComponent(nom), 'x-rt-espace': 'naos' });
 const SORTIE_ARBITRE = { verdict: 'B doit s’écarter', explication: 'B est au vent.', regles: [], ic: '', attention: '' };
 
 // Client OpenAI simulé : garde les arguments de chaque appel
@@ -407,7 +407,7 @@ test('parité : membre() de _ia.js est nul exactement quand api/archive.js répo
   const blob = createFakeBlob(), handler = archive.createHandler({ blob, now: () => T });
   const enTetes = ['Romain', encodeURIComponent('Éloïse'), encodeURIComponent('Anne-Sophie'), encodeURIComponent('D’Artagnan'), '  Teiva  ', '', 'x'.repeat(40), 'x'.repeat(41), '%E0%A4%A', encodeURIComponent('Rom/ain'), encodeURIComponent('Jean.Luc'), encodeURIComponent('<b>'), '123', undefined];
   for (const h of enTetes) {
-    const r = await invoke(handler, { method: 'GET', url: '/api/archive?k=light', headers: h === undefined ? {} : { 'x-rt-membre': h } });
+    const r = await invoke(handler, { method: 'GET', url: '/api/archive?k=light', headers: h === undefined ? { 'x-rt-espace': 'naos' } : { 'x-rt-membre': h, 'x-rt-espace': 'naos' } });
     assert.equal(membre(h) === null, r.status === 403, `en-tête ${JSON.stringify(h)} : membre=${membre(h)}, archive=${r.status}`);
   }
 });

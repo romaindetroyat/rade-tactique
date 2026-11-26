@@ -22,7 +22,7 @@ const doc = (...rs) => ({ v: 1, regattas: Object.fromEntries(rs.map((r) => [r.id
 // Un téléphone : appelle le gestionnaire avec le prénom que poserait le middleware (encodé, comme en production)
 function installe(opts = {}) {
   const blob = createFakeBlob(opts.blob), handler = createHandler({ blob, now: () => T });
-  const phone = (nom) => (method, url, body, headers = {}) => invoke(handler, { method, url, body, headers: { 'x-rt-membre': encodeURIComponent(nom), ...headers } });
+  const phone = (nom) => (method, url, body, headers = {}) => invoke(handler, { method, url, body, headers: { 'x-rt-membre': encodeURIComponent(nom), 'x-rt-espace': 'naos', ...headers } });
   return { blob, handler, romain: phone('Romain'), teiva: phone('Teiva'), thibaud: phone('Thibaud') };
 }
 const PUT = '/api/archive?k=light', GET = '/api/archive?k=light';
@@ -142,7 +142,7 @@ test('sans magasin configuré : 503 no_blob ; sans client injecté la fonction n
   const jeton = process.env.BLOB_READ_WRITE_TOKEN, id = process.env.BLOB_STORE_ID;
   delete process.env.BLOB_READ_WRITE_TOKEN; delete process.env.BLOB_STORE_ID;
   try {
-    const r = await invoke(createHandler(), { method: 'GET', url: GET, headers: { 'x-rt-membre': 'Teiva' } });
+    const r = await invoke(createHandler(), { method: 'GET', url: GET, headers: { 'x-rt-membre': 'Teiva', 'x-rt-espace': 'naos' } });
     assert.equal(r.status, 503);
     assert.deepEqual(r.body, { error: 'no_blob' });
   } finally {
@@ -157,7 +157,7 @@ test('bout à bout serveur : l’en-tête produit par le vrai middleware, passé
     const res = await middleware(new Request('https://rade.test/api/archive?k=light', { method: 'PUT', headers: { cookie: COOKIE_TEST, 'x-rt-membre': encodeURIComponent('Usurpateur'), 'content-type': 'application/json' }, body: '{}' }));
     assert.equal(res.headers.get('x-middleware-next'), '1');
     const transmis = res.headers.get('x-middleware-request-x-rt-membre');
-    const r = await invoke(handler, { method: 'PUT', url: PUT, body: { doc: doc(regatta({ by: 'Usurpateur', races: [manche('2026-11-07', '10:55')] })) }, headers: { 'x-rt-membre': transmis } });
+    const r = await invoke(handler, { method: 'PUT', url: PUT, body: { doc: doc(regatta({ by: 'Usurpateur', races: [manche('2026-11-07', '10:55')] })) }, headers: { 'x-rt-membre': transmis, 'x-rt-espace': res.headers.get('x-middleware-request-x-rt-espace') } });
     assert.equal(r.status, 200);
     assert.equal(r.body.doc.regattas.rgA.by, prenom);
     assert.equal(r.body.doc.regattas.rgA.races[0].by, prenom);
@@ -182,7 +182,7 @@ test('fermée par défaut : sans prénom valide du middleware (absent, vide, non
 
 test('un prénom accentué passe encodé dans l’en-tête et signe correctement', async () => {
   const { handler } = installe();
-  const r = await invoke(handler, { method: 'PUT', url: PUT, body: { doc: doc(regatta()) }, headers: { 'x-rt-membre': encodeURIComponent('Éloïse-Marie') } });
+  const r = await invoke(handler, { method: 'PUT', url: PUT, body: { doc: doc(regatta()) }, headers: { 'x-rt-membre': encodeURIComponent('Éloïse-Marie'), 'x-rt-espace': 'naos' } });
   assert.equal(r.status, 200);
   assert.equal(r.body.doc.regattas.rgA.by, 'Éloïse-Marie');
 });
@@ -377,7 +377,7 @@ test('écritures simultanées au-delà de 4 essais : 409 ; une erreur du magasin
   assert.equal(blob.ops.get - avant, 4, 'quatre essais, pas un de plus');
   // une panne du magasin autre qu'une course perdue ressort telle quelle (502), sans relire quatre fois
   const b2 = createFakeBlob(), h = createHandler({ blob: b2, now: () => T });
-  const phone = (nom) => (corps) => invoke(h, { method: 'PUT', url: PUT, body: corps, headers: { 'x-rt-membre': nom } });
+  const phone = (nom) => (corps) => invoke(h, { method: 'PUT', url: PUT, body: corps, headers: { 'x-rt-membre': nom, 'x-rt-espace': 'naos' } });
   await phone('Teiva')({ doc: doc(regatta()) });
   const lus = b2.ops.get;
   b2.failNext(new b2.BlobError('boum'), { op: 'put' });

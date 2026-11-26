@@ -33,7 +33,7 @@ function telephone(nom, w, { list = [] } = {}) {
   const appelle = async (method, query, body) => {
     p.appels.push({ method, k: query.k, id: query.id, d: query.d, by: query.by });
     if (p.reseau) return p.reseau(method, query, body);
-    const r = await invoke(w.handler, { method, url: '/api/archive?' + new URLSearchParams(query), body, headers: { 'x-rt-membre': encodeURIComponent(nom) } });
+    const r = await invoke(w.handler, { method, url: '/api/archive?' + new URLSearchParams(query), body, headers: { 'x-rt-membre': encodeURIComponent(nom), 'x-rt-espace': 'naos' } });
     return { status: r.status, body: r.body };
   };
   p.deps = {

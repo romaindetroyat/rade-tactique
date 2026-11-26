@@ -33,7 +33,7 @@ function telephone(nom, w) {
   p.deps = {
     now: () => w.clock.t,
     async fetchJson(method, query, body) {
-      const r = await invoke(w.handler, { method, url: '/api/archive?' + new URLSearchParams(query), body, headers: { 'x-rt-membre': encodeURIComponent(nom) } });
+      const r = await invoke(w.handler, { method, url: '/api/archive?' + new URLSearchParams(query), body, headers: { 'x-rt-membre': encodeURIComponent(nom), 'x-rt-espace': 'naos' } });
       return { status: r.status, body: r.body };
     },
     getState: () => p.st, setState: (st) => { p.st = st; }, getMarks: () => ({}), setMarks() {},

@@ -45,7 +45,7 @@ function telephone(nom, w, { membre = nom, st = { v: 1, list: [] } } = {}) {
       const url = '/api/archive?' + new URLSearchParams(query);
       w.appels.push({ nom, method });
       if (p.reseau) return p.reseau(method, url, body);
-      const r = await invoke(w.handler, { method, url, body, headers: { 'x-rt-membre': encodeURIComponent(membre) } });
+      const r = await invoke(w.handler, { method, url, body, headers: { 'x-rt-membre': encodeURIComponent(membre), 'x-rt-espace': 'naos' } });
       return { status: r.status, body: r.body };
     },
     getState: () => p.st, setState: (st) => { p.st = st; }, getMarks: () => sharedMarks(p.over, p.marksDel), setMarks: (m) => recevoir(p, m),
@@ -278,7 +278,7 @@ test('D-03 : course commencée pendant l’échange — réponse jetée, état i
   const idB = B.creer('Créée par B'); await B.sync('manuel'); avance(w, 60e3);
   const id = A.creer('Créée par A');
   A.reseau = async (method, url, body) => {                          // la course commence pendant l’aller-retour
-    const r = await invoke(w.handler, { method, url, body, headers: { 'x-rt-membre': 'Teiva' } });
+    const r = await invoke(w.handler, { method, url, body, headers: { 'x-rt-membre': 'Teiva', 'x-rt-espace': 'naos' } });
     A.active = true; return { status: r.status, body: r.body };
   };
   const avant = canon(A.st);

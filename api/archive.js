@@ -1,5 +1,7 @@
 // Archive partagée de l’équipage (Vercel, fonction Node) : lit et écrit le stockage Vercel Blob PRIVÉ pour le compte des trois équipiers.
 // Le middleware a déjà vérifié le code d’accès et pose l’en-tête `x-rt-membre` (prénom, encodé) : c’est la seule source de l’auteur, jamais le corps.
+// Phase 8 : il pose aussi `x-rt-espace` ; sans espace valide, 403 `espace_inconnu` avant tout accès au magasin. Les chemins sont calculés par
+// `prefixe(espace)` d’api/_espace.js : Naos `prod/…` et `preview/…` (inchangés), un autre espace `<espace>/prod/…` ou `<espace>/preview/…`.
 // Variables d’environnement : BLOB_READ_WRITE_TOKEN (ou BLOB_STORE_ID + OIDC), VERCEL_ENV. Aucune URL Blob n’est jamais renvoyée au client.
 // Routes (toutes sur /api/archive, paramètre k) :
 //   GET  ?k=light[&rev=…]   document léger partagé { rev, doc, env } (ou { unchanged, rev, env } si rev est à jour)
@@ -15,7 +17,8 @@
 
 import { pipeline } from 'node:stream/promises';
 import { Readable } from 'node:stream';
-import { mergeDoc, emptyDoc, docEquals, canon, sameBody, slug, LOCAL_ONLY, FICHE, LISTS, MAX_HIST, VENUE_IDS } from '../js/archmerge.js';
+import { mergeDoc, emptyDoc, docEquals, canon, sameBody, slug, LOCAL_ONLY, FICHE, LISTS, MAX_HIST } from '../js/archmerge.js';
+import { espaceDe, prefixe, env, POLITIQUE } from './_espace.js';
 
 export const MAX_LIGHT = 3_500_000, MAX_REGATTA = 150_000, MAX_REGATTAS = 200;
 export const MAX_HEAVY = { trace: 4_000_000, report: 3_000_000, day: 600_000 };       // octets ; la plateforme refuse de toute façon au-delà de 4,5 Mo
@@ -26,8 +29,9 @@ const DANGER = new Set(['__proto__', 'constructor', 'prototype']);
 const fail = (message, status) => Object.assign(new Error(message), { status });
 const validId = (id) => (typeof id === 'string' || Number.isFinite(id)) && ID.test(String(id));    // un identifiant absent ne devient pas la chaîne « undefined »
 const isObj = (x) => x && typeof x === 'object' && !Array.isArray(x);
-// Les données d’un aperçu ne se mélangent jamais à celles de la production (le même magasin est branché aux deux environnements)
-export const prefix = () => (process.env.VERCEL_ENV === 'production' ? 'prod' : 'preview');
+// Les données d’un aperçu ne se mélangent jamais à celles de la production (le même magasin est branché aux deux environnements) ;
+// gardée pour la parité avec api/_ia.js : c’est le préfixe de Naos et la valeur `env` des réponses
+export const prefix = env;
 const bornee = (e) => String(e?.message || e).slice(0, 300);
 
 // ───────────────────────── validation et attribution
@@ -65,7 +69,7 @@ export function cleanDoc(doc, now) {
     c.tomb = tombs(c.tomb, now);
     c.hist = (Array.isArray(c.hist) ? c.hist : []).filter((x) => isObj(x) && Number.isFinite(x.t) && typeof x.kind === 'string').slice(0, MAX_HIST);
     // plan d’eau (07-05) : liste blanche ; une valeur inconnue (téléphone plus récent, objet, nom hostile) est retirée sans refuser la régate
-    if (!(typeof c.venue === 'string' && VENUE_IDS.includes(c.venue))) { delete c.venue; delete c.vu; }
+    if (!(typeof c.venue === 'string' && POLITIQUE.naos.venues.includes(c.venue))) { delete c.venue; delete c.vu; }
     else if (!Number.isFinite(c.vu)) delete c.vu;
     else c.vu = clampT(c.vu, now);
     out.regattas[id] = clampU(c, now);
@@ -226,11 +230,13 @@ export function createHandler({ blob, now = Date.now } = {}) {
     res.setHeader?.('Cache-Control', 'no-store');
     const who = membre(req.headers?.['x-rt-membre']);
     if (!who) return res.status(403).json({ error: 'membre_inconnu' });         // fermé par défaut : sans prénom du middleware, rien n’est lu
+    const espace = espaceDe(req.headers?.['x-rt-espace']);
+    if (!espace) return res.status(403).json({ error: 'espace_inconnu' });     // fermé par défaut : sans espace du middleware, rien n’est lu (jamais Naos par défaut)
     if (!sdk && !process.env.BLOB_READ_WRITE_TOKEN && !process.env.BLOB_STORE_ID) return res.status(503).json({ error: 'no_blob' });
     const q = req.query || Object.fromEntries(new URL(req.url || '/', 'http://x').searchParams);
     if (q.k !== 'light' && !Object.hasOwn(MAX_HEAVY, q.k)) return res.status(400).json({ error: 'k inconnu' });
     if (req.method !== 'GET' && req.method !== 'PUT') return res.status(405).json({ error: 'GET ou PUT' });
-    const P = prefix(), path = `${P}/light.json`;
+    const P = prefixe(espace), E = env(), path = `${P}/light.json`;
     try {
       if (q.k !== 'light') {
         const chemin = heavyPath(P, q, req.method, who);
@@ -240,11 +246,11 @@ export function createHandler({ blob, now = Date.now } = {}) {
       const B = await getBlob();
       if (req.method === 'GET') {
         const r = await B.get(path, { access: 'private', useCache: false, ...(q.rev ? { ifNoneMatch: String(q.rev) } : {}) });
-        if (!r) return res.status(200).json({ rev: null, doc: emptyDoc(), env: P });
-        if (r.statusCode === 304) return res.status(200).json({ unchanged: true, rev: revision(r.blob.etag) || String(q.rev), env: P });
+        if (!r) return res.status(200).json({ rev: null, doc: emptyDoc(), env: E });
+        if (r.statusCode === 304) return res.status(200).json({ unchanged: true, rev: revision(r.blob.etag) || String(q.rev), env: E });
         let doc;
         try { doc = { ...emptyDoc(), ...JSON.parse(await readText(r.stream)) }; } catch { throw fail('document stocké illisible', 502); }
-        return res.status(200).json({ rev: revision(r.blob.etag), doc, env: P });
+        return res.status(200).json({ rev: revision(r.blob.etag), doc, env: E });
       }
       const t = now(), incoming = cleanDoc(req.body?.doc, t);
       const out = await mutateLight(B, path, (stored) => {
@@ -252,7 +258,7 @@ export function createHandler({ blob, now = Date.now } = {}) {
         const trash = Object.keys(stored.regattas || {}).filter((id) => !merged.regattas[id]).map((id) => ({ id, t, value: stored.regattas[id] }));
         return { doc: merged, trash };
       });
-      return res.status(200).json({ ...out, env: P });
+      return res.status(200).json({ ...out, env: E });
     } catch (err) {
       if (sdk && err instanceof sdk.BlobServiceRateLimited) { res.setHeader?.('Retry-After', String(err.retryAfter || 60)); return res.status(429).json({ error: 'limite du stockage atteinte, réessayez plus tard' }); }
       return res.status(err.status || 502).json({ error: bornee(err) });

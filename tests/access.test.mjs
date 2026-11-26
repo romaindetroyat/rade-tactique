@@ -6,7 +6,7 @@ import { test, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { ROOT } from './helpers/setup.mjs';
-import middleware, { config, cheminDeLApp } from '../middleware.js';
+import middleware, { config, cheminDeLApp, ESPACES } from '../middleware.js';
 import { listShell } from '../tools/stamp.mjs';
 import { avecCodeSimule, tableEquipage, COOKIE_TEST, FAUX_CODE } from './helpers/codesimule.mjs';
 
@@ -34,6 +34,9 @@ const appeler = (chemin, headers = {}) => middleware(new Request('https://rade.t
 // variantes de requêtes d’un visiteur sans code : en-têtes vides, navigation, cookie quelconque
 const VISITEURS = [{}, { accept: 'text/html' }, { cookie: 'rt_acces=n-importe-quoi' }];
 const refuse = (res) => res.status === 401 || (res.status === 302 && (res.headers.get('location') || '').startsWith('/acces.html?'));
+// Phase 8 : espaces ouverts à une empreinte de la table (dans l’ordre de ESPACES) ; sur l’hôte d’essai inconnu, l’espace est le premier
+const espacesDe = (hex) => Object.keys(ESPACES).filter((id) => Object.hasOwn(ESPACES[id].table, hex));
+const corpsMembre = (hex, prenom) => ({ membre: prenom, espace: espacesDe(hex)[0], espaces: espacesDe(hex) });
 
 test('seuls acces.html, acces.js, manifest.webmanifest, sw.js, icons/ et rapports/ échappent au middleware', () => {
   const tous = fichiers();
@@ -130,7 +133,8 @@ test('GET /api/membre : 401 sans code ; avec un code valide simulé, le prénom 
     assert.equal(res.headers.get('x-middleware-next'), null, 'répondue par le middleware, pas transmise');
     assert.equal(res.headers.get('set-cookie'), null);
     const texte = await res.text();
-    assert.deepEqual(JSON.parse(texte), { membre: prenom }, 'le prénom et rien d’autre');
+    assert.deepEqual(JSON.parse(texte), corpsMembre(hex, prenom), 'le prénom, l’espace et les espaces du code, rien d’autre');
+    assert.equal(espacesDe(hex)[0], 'naos', 'la première ligne du fichier est un membre de Naos');
     assert.ok(!texte.includes('code-de-test') && !texte.includes(hex), 'ni le code ni l’empreinte dans le corps');
     const index = await appeler('/index.html', { cookie: 'rt_acces=code-de-test' });
     assert.equal(index.headers.get('x-middleware-next'), '1', 'le reste du site passe toujours');
@@ -186,6 +190,8 @@ test('archive : avec un code valide simulé, x-rt-membre est le prénom de la ta
       assert.notEqual(decodeURIComponent(transmis), 'Usurpateur');
       const liste = (res.headers.get('x-middleware-override-headers') || '').split(',');
       assert.ok(liste.includes('x-rt-membre'), 'x-rt-membre est dans la liste des en-têtes remplacés');
+      assert.ok(liste.includes('x-rt-espace'), 'x-rt-espace est dans la liste des en-têtes remplacés');
+      assert.equal(res.headers.get('x-middleware-request-x-rt-espace'), 'naos', 'l’espace est celui du code (premier espace sur un hôte inconnu)');
       assert.ok(liste.includes('content-type'), 'les en-têtes utiles à la fonction (type du corps) sont conservés');
       assert.ok(!liste.includes('cookie'), 'le cookie du code d’accès n’est pas transmis aux fonctions');
       for (const [nom, valeur] of res.headers) {
@@ -213,7 +219,7 @@ test('archive : les formes inhabituelles de l’adresse (majuscules, encodage, b
 });
 
 test('archive : le reste du site n’est pas modifié (aucun en-tête remplacé), /api/membre reste répondue par le middleware', async () => {
-  await avecCodeSimule(async ({ prenom }) => {
+  await avecCodeSimule(async ({ hex, prenom }) => {
     for (const chemin of ['/index.html', '/', '/js/app.js', '/data/meta.json', '/styles.css']) {
       const res = await appeler(chemin, { cookie: COOKIE_TEST, 'x-rt-membre': 'Usurpateur' });
       assert.equal(res.headers.get('x-middleware-next'), '1', `${chemin} passe avec un code valide`);
@@ -228,7 +234,7 @@ test('archive : le reste du site n’est pas modifié (aucun en-tête remplacé)
     const membre = await appeler('/api/membre', { cookie: COOKIE_TEST });
     assert.equal(membre.status, 200);
     assert.equal(membre.headers.get('x-middleware-next'), null);
-    assert.deepEqual(JSON.parse(await membre.text()), { membre: prenom });
+    assert.deepEqual(JSON.parse(await membre.text()), corpsMembre(hex, prenom));
   });
 });
 
