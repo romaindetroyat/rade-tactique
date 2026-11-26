@@ -178,7 +178,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | ESPACE-06 | Phase 8 | Pending (08-06) |
 | ESPACE-07 | Phase 8 | Complete (08-02) |
 | TOF-01 | Phase 8 | Pending (08-05) |
-| TOF-02 | Phase 8 | Pending (08-03) |
+| TOF-02 | Phase 8 | Partiel : pack construit (08-03) ; borne ouest de saisie (08-04) et instantané météo (08-09) à faire |
 | TOF-03 | Phase 8 | Pending (08-07) |
 | TOF-04 | Phase 8 | Pending (08-08, 08-09) |
 | TOF-05 | Phase 8 | Pending (08-10) |

@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 08
 current_phase_name: "Espace Tofinou : rade de Bormes – Le Lavandou, Tofinou 9.5, accès séparé"
 status: in_progress
-stopped_at: Completed 08-02-PLAN.md
-last_updated: "2026-11-26T19:25:26.217Z"
+stopped_at: Completed 08-03-PLAN.md
+last_updated: "2026-11-26T19:46:45.015Z"
 last_activity: 2026-11-26
-last_activity_desc: Plan 08-02 — serveur cloisonné par espace (x-rt-espace, archive et quota par espace, IA fermée hors de Naos, packs par espace, outil des codes) ; TOFINOU = Frédéric et Romain
-state_head: c5f02b2fb329930085949869f0459c2486d4c2c9
+last_activity_desc: Plan 08-03 — pack hors réseau de Bormes – Le Lavandou (Levant non urbain), instantané par configuration (non produit : limite d’Open-Meteo), sources et licences
+state_head: f841ace8facdbd78ac8e8050aba80a3d89e9b9ce
 progress:
   total_phases: 8
   completed_phases: 6
   total_plans: 49
-  completed_plans: 40
+  completed_plans: 41
   percent: 75
 ---
 
@@ -28,9 +28,9 @@ See: .planning/PROJECT.md (updated 2026-10-19)
 ## Current Position
 
 Phase: 08 (Espace Tofinou : rade de Bormes – Le Lavandou, Tofinou 9.5, accès séparé) — EN COURS
-Plan: 2 of 11 terminés (08-01, 08-02)
+Plan: 3 of 11 terminés (08-01, 08-02, 08-03)
 Status: aperçu apercu-phase-08 ; v43 en production (PR #17)
-Last activity: 2026-11-26 — Plan 08-02 : serveur cloisonné par espace (api/_espace.js, x-rt-espace posé par le middleware, archive et quota sous prefixe(espace), 403 espace_inconnu, archive Tofinou fermée à Naos, IA fermée hors de Naos, packs par espace, tools/codes-acces.mjs) ; table TOFINOU = Frédéric et Romain ; 886 tests (885 verts, 1 sauté), gardes et gel de Naos verts, 6 scénarios OK
+Last activity: 2026-11-26 — Plan 08-03 : pack hors réseau de Bormes – Le Lavandou (data/bormes.*, 3 604 097 octets, API principale d’OpenStreetMap, Levant non urbain par la clé urban), outil d’instantané par configuration (--venue bormes, --urls), docs/bormes-sources.md ; instantané non produit (Open-Meteo, limite quotidienne) ; 899 tests (897 verts, 2 sautés), gardes et gel de Naos verts, 3 scénarios OK
 
 Progress: [████████░░] 75%
 
@@ -98,6 +98,7 @@ Progress: [████████░░] 75%
 | Phase 07 P10 | 75min | 1 tasks | 12 files |
 | Phase 08 P01 | 13min | 3 tasks | 7 files |
 | Phase 08 P02 | 17min | 3 tasks | 17 files |
+| Phase 08 P03 | 18min | 2 tasks | 16 files |
 
 ## Accumulated Context
 
@@ -211,6 +212,8 @@ Décisions récentes qui orientent le travail en cours :
 - [Phase 08]: Espaces (08-02) : archive et IA contrôlent le prénom d’abord (membre_inconnu), puis l’espace (espace_inconnu) : gel de Naos inchangé
 - [Phase 08]: Espaces (08-02) : createIA({ espacesIA = IA_ESPACES }) pour tester le quota par espace ; IA de Tofinou fermée (503 ia_espace) jusqu’à 08-08
 - [Phase 08]: Espaces (08-02) : hors de Naos, seuls les recalages partagés (doc.marks) sont vidés ; les bouées des régates (IC) restent
+- [Phase 08]: 08-03 : pack de Bormes construit par l’API principale d’OpenStreetMap (Overpass injoignable, aucun miroir tiers) ; Levant non urbain par la clé urban de la configuration
+- [Phase 08]: 08-03 : instantané météo de Bormes non produit (Open-Meteo, limite quotidienne) : à produire en 08-09 avant la release
 
 ### Pending Todos
 
@@ -252,6 +255,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-11-26T19:25:26.060Z
-Stopped at: Completed 08-02-PLAN.md
+Last session: 2026-11-26T19:46:44.862Z
+Stopped at: Completed 08-03-PLAN.md
 Resume file: None

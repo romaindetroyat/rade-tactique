@@ -281,7 +281,7 @@ Plans:
   7. v44 sur l'aperçu `apercu-phase-08`, vérifiée (tous les scénarios, cloisonnement sur l'adresse réelle, iPhone), puis en production sur « publie » de Romain dès qu'elle est prête, au plus tard le 10/12/2026 (sinon à partir du 14/12), jamais dans les 48 h avant une régate ni pendant une course ; domaine de Tofinou ajouté par Romain dans Vercel
   8. Dans l'espace Tofinou, Frédéric charge ses propres IC de bout en bout (PDF → IA avec les consignes d'IC du Tofinou → relecture → bouées « à confirmer » bornées à Bormes → parcours), avec l'archive et le quota de l'espace ; un éditeur de parcours à la main (« Créer un parcours » / « Modifier le parcours » : bouées confirmées avec côté, porte, arrivée sur la ligne ou distincte, tours ; bouées par position saisie ou touchée sur la carte, à confirmer) est partagé par l'archive Tofinou, refusé pendant une course, et n'apparaît pas dans l'espace Naos
 
-**Plans:** 2/11 plans executed (vagues séquentielles : mêmes fichiers générés `sw.js`, `js/version.js`, mêmes `js/app.js` et `tools/regate-e2e.mjs`)
+**Plans:** 3/11 plans executed (vagues séquentielles : mêmes fichiers générés `sw.js`, `js/version.js`, mêmes `js/app.js` et `tools/regate-e2e.mjs`)
 
 Plans:
 **Wave 1**
@@ -291,7 +291,7 @@ Plans:
 - [x] 08-02-PLAN.md — Serveur cloisonné, inerte pour Naos : `api/_espace.js`, table TOFINOU (empreinte du code de Frédéric fournie hors du dépôt, copie de la ligne de Romain), `x-rt-espace`, `/api/membre` `{ membre, espace, espaces }`, préfixes `tofinou/…`, refus 403, politique de l'archive (plans d'eau, graines, recalages), quota par espace + prénom, IA fermée hors des espaces ouverts, packs par espace, outil `tools/codes-acces.mjs` (empreinte seule) (vague 2)
 
 **Wave 3** *(blocked on Wave 2 completion)*
-- [ ] 08-03-PLAN.md — Pack de Bormes : `tools/venues/bormes.json`, outils paramétrés (Levant militaire non urbain, instantané météo par configuration), `data/bormes.*`, valeurs de contrôle, sources et licences (vague 3)
+- [x] 08-03-PLAN.md — Pack de Bormes : `tools/venues/bormes.json`, outils paramétrés (Levant militaire non urbain, instantané météo par configuration), `data/bormes.*`, valeurs de contrôle, sources et licences (vague 3)
 
 **Wave 4** *(blocked on Wave 3 completion)*
 - [ ] 08-04-PLAN.md — App consciente de l'espace : registre `js/espaces.js` par hôte, espace fixé avant le plan d'eau, `js/venue-bormes.js` (borne ouest 6,20° E), plans d'eau et graines par espace, garde de synchronisation, plafonds d'archive de Tofinou ; scénarios `tofinou-demarrage`, `espace-garde` (vague 4)

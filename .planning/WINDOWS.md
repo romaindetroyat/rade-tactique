@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 4
+open_count: 5
 waived_count: 0
 fixed_count: 4
-total_count: 8
-last_updated: 2026-11-19T11:35:15.439Z
+total_count: 9
+last_updated: 2026-11-26T19:45:50.981Z
 ---
 
 # Broken Windows Ledger
@@ -23,6 +23,7 @@ last_updated: 2026-11-19T11:35:15.439Z
 | 6 | 07 | stub | data/brest.wx-snapshot.json |  | Instantané météo de Brest absent (Open-Meteo refusé) : l’app reçoit null ; à produire en 07-10 | open |  | 2026-11-19T07:10:38.594Z |  |
 | 7 | 07 | stub | js/app.js |  | VENUE_DEF.brest.courseId = banane (90) au premier passage, faute de catalogue du GPEN (07-09) | open |  | 2026-11-19T07:36:20.892Z |  |
 | 8 | 07 | stub | data/brest.wx-snapshot.json |  | Instantané météo de Brest absent (limite quotidienne d’Open-Meteo) : pas de prévision de secours à la première ouverture hors réseau à Brest | open |  | 2026-11-19T11:35:15.439Z |  |
+| 9 | 08 | skipped-test | tests/bormes.test.mjs |  | Instantané météo de Bormes non produit (Open-Meteo : limite quotidienne) ; test sauté, à produire avant la release (08-09) | open |  | 2026-11-26T19:45:50.981Z |  |
 
 ````json
 [
@@ -127,6 +128,19 @@ last_updated: 2026-11-19T11:35:15.439Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-11-19T11:35:15.439Z",
+    "resolved_at": null,
+    "milestone": null
+  },
+  {
+    "id": 9,
+    "kind": "skipped-test",
+    "phase": "08",
+    "file": "tests/bormes.test.mjs",
+    "line": null,
+    "description": "Instantané météo de Bormes non produit (Open-Meteo : limite quotidienne) ; test sauté, à produire avant la release (08-09)",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-11-26T19:45:50.981Z",
     "resolved_at": null,
     "milestone": null
   }
