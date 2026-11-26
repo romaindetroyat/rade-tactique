@@ -100,7 +100,7 @@ Ajoutés le 2026-11-26 à la demande de Romain (« créer la même chose pour un
 - [x] **ESPACE-01**: Le code d'accès décide de l'espace, jamais l'app : le middleware est la seule source (`x-rt-espace` posé en écrasant toute valeur du client, `/api/membre` rend `{ membre, espace }`), un code d'un espace est refusé sur l'adresse d'un autre comme un code inconnu, les fonctions refusent une requête sans espace valide (403)
 - [ ] **ESPACE-02**: Archive (régates, traces, rapports, vents figés, corbeille), quotas et IA cloisonnés par espace côté serveur : préfixes `tofinou/…` (Naos `prod/…` à l'octet près), régates d'un autre plan d'eau, graines SNPM/GPEN et recalages CVAT refusés à l'archive Tofinou, quota de 30 appels par jour compté par espace + prénom, consignes d'IA propres à chaque espace
 - [ ] **ESPACE-03**: Une adresse par espace (stockage, caches, service worker et cookie séparés par le navigateur), même projet et même déploiement ; Romain dans les deux espaces avec « Changer d'espace », Frédéric dans l'espace Tofinou seulement ; garde de synchronisation (aucun envoi tant que l'espace n'est pas confirmé, ni vers un autre espace)
-- [ ] **ESPACE-04**: Plans d'eau et graines par espace : l'espace Tofinou ne voit que Bormes (pack de Brest refusé), Naos ne voit pas Bormes (pack refusé) ; aucune graine SNPM ni GPEN dans l'espace Tofinou ; l'installation hors réseau de chaque espace reste complète
+- [x] **ESPACE-04**: Plans d'eau et graines par espace : l'espace Tofinou ne voit que Bormes (pack de Brest refusé), Naos ne voit pas Bormes (pack refusé) ; aucune graine SNPM ni GPEN dans l'espace Tofinou ; l'installation hors réseau de chaque espace reste complète
 - [ ] **ESPACE-05**: Naos identique à la v43 : gel capturé sur 5e9b8a5 avant toute modification (réponses du middleware, chemins Blob, consignes d'IA, clés de stockage, liste hors réseau, pack de Brest), gardes Toulon et garde SNPM vertes, même URL, même archive, mêmes clés locales
 - [ ] **ESPACE-06**: Nom, textes et manifeste par espace (« Tofinou — Bormes », app « Tofinou Bormes ») : page d'accès, titre, aide, débrief, manifeste réécrit par le middleware sur l'adresse de Tofinou ; installable à part
 - [x] **ESPACE-07**: Outil de création des codes : affiche le code une seule fois avec le lien personnel et n'écrit que l'empreinte ; aucun code d'accès dans le dépôt, les tests, les journaux ni la PR ; le code de Frédéric, créé par l'orchestrateur, n'y entre que par son empreinte
@@ -172,8 +172,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | BREST-08 | Phase 7 | Complete |
 | ESPACE-01 | Phase 8 | Complete (08-02) |
 | ESPACE-02 | Phase 8 | Pending (serveur fait en 08-02 ; consignes Tofinou 08-09) |
-| ESPACE-03 | Phase 8 | Pending (08-04, 08-06, 08-10) |
-| ESPACE-04 | Phase 8 | Pending (packs et graines refusés par le serveur en 08-02 ; app 08-04) |
+| ESPACE-03 | Phase 8 | Partiel (08-04 : espace par l’adresse côté app et garde de synchronisation ; reste « Changer d’espace » 08-06, preuve sur l’adresse réelle 08-10) |
+| ESPACE-04 | Phase 8 | Complete (serveur 08-02 ; app 08-04 : Bormes seule pour Tofinou, invisible pour Naos, aucune graine de Naos, hors réseau complet) |
 | ESPACE-05 | Phase 8 | Pending (08-01, preuve finale 08-10) |
 | ESPACE-06 | Phase 8 | Pending (08-06) |
 | ESPACE-07 | Phase 8 | Complete (08-02) |

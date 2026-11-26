@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 5
+open_count: 7
 waived_count: 0
 fixed_count: 4
-total_count: 9
-last_updated: 2026-11-26T19:45:50.981Z
+total_count: 11
+last_updated: 2026-11-26T20:23:23.397Z
 ---
 
 # Broken Windows Ledger
@@ -24,6 +24,8 @@ last_updated: 2026-11-26T19:45:50.981Z
 | 7 | 07 | stub | js/app.js |  | VENUE_DEF.brest.courseId = banane (90) au premier passage, faute de catalogue du GPEN (07-09) | open |  | 2026-11-19T07:36:20.892Z |  |
 | 8 | 07 | stub | data/brest.wx-snapshot.json |  | Instantané météo de Brest absent (limite quotidienne d’Open-Meteo) : pas de prévision de secours à la première ouverture hors réseau à Brest | open |  | 2026-11-19T11:35:15.439Z |  |
 | 9 | 08 | skipped-test | tests/bormes.test.mjs |  | Instantané météo de Bormes non produit (Open-Meteo : limite quotidienne) ; test sauté, à produire avant la release (08-09) | open |  | 2026-11-26T19:45:50.981Z |  |
+| 10 | 08 | stub | js/app.js | 917 | Carte « État de la mer » titrée « large de Cépet » et « faible en rade » à Bormes (point marin du descripteur) : texte de Toulon à paramétrer (08-07, D-12) | open |  | 2026-11-26T20:23:23.290Z |  |
+| 11 | 08 | stub | js/venue-bormes.js |  | Descripteur de Bormes sans marques, lieux, zones interdites, dangers, régimes ni vents prédéfinis (formes vides, banane seule) : à remplir en 08-07 (savoir local) et 08-08 (Challenge de la Baie) | open |  | 2026-11-26T20:23:23.397Z |  |
 
 ````json
 [
@@ -141,6 +143,32 @@ last_updated: 2026-11-26T19:45:50.981Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-11-26T19:45:50.981Z",
+    "resolved_at": null,
+    "milestone": null
+  },
+  {
+    "id": 10,
+    "kind": "stub",
+    "phase": "08",
+    "file": "js/app.js",
+    "line": 917,
+    "description": "Carte « État de la mer » titrée « large de Cépet » et « faible en rade » à Bormes (point marin du descripteur) : texte de Toulon à paramétrer (08-07, D-12)",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-11-26T20:23:23.290Z",
+    "resolved_at": null,
+    "milestone": null
+  },
+  {
+    "id": 11,
+    "kind": "stub",
+    "phase": "08",
+    "file": "js/venue-bormes.js",
+    "line": null,
+    "description": "Descripteur de Bormes sans marques, lieux, zones interdites, dangers, régimes ni vents prédéfinis (formes vides, banane seule) : à remplir en 08-07 (savoir local) et 08-08 (Challenge de la Baie)",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-11-26T20:23:23.397Z",
     "resolved_at": null,
     "milestone": null
   }

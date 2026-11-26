@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 08
 current_phase_name: "Espace Tofinou : rade de Bormes – Le Lavandou, Tofinou 9.5, accès séparé"
 status: in_progress
-stopped_at: Completed 08-03-PLAN.md
-last_updated: "2026-11-26T19:46:45.015Z"
+stopped_at: Completed 08-04-PLAN.md
+last_updated: "2026-11-26T20:34:44.281Z"
 last_activity: 2026-11-26
-last_activity_desc: Plan 08-03 — pack hors réseau de Bormes – Le Lavandou (Levant non urbain), instantané par configuration (non produit : limite d’Open-Meteo), sources et licences
-state_head: f841ace8facdbd78ac8e8050aba80a3d89e9b9ce
+last_activity_desc: "Plan 08-04 — app consciente de son espace : registre js/espaces.js, Tofinou sur la rade de Bormes, graines et plans d’eau par espace, garde de synchronisation, plafonds de Tofinou"
+state_head: 8f3a7de10eb11c66fed3ed2adce4b6084b4d7e07
 progress:
   total_phases: 8
   completed_phases: 6
   total_plans: 49
-  completed_plans: 41
+  completed_plans: 42
   percent: 75
 ---
 
@@ -28,9 +28,9 @@ See: .planning/PROJECT.md (updated 2026-10-19)
 ## Current Position
 
 Phase: 08 (Espace Tofinou : rade de Bormes – Le Lavandou, Tofinou 9.5, accès séparé) — EN COURS
-Plan: 3 of 11 terminés (08-01, 08-02, 08-03)
+Plan: 4 of 11 terminés (08-01, 08-02, 08-03, 08-04)
 Status: aperçu apercu-phase-08 ; v43 en production (PR #17)
-Last activity: 2026-11-26 — Plan 08-03 : pack hors réseau de Bormes – Le Lavandou (data/bormes.*, 3 604 097 octets, API principale d’OpenStreetMap, Levant non urbain par la clé urban), outil d’instantané par configuration (--venue bormes, --urls), docs/bormes-sources.md ; instantané non produit (Open-Meteo, limite quotidienne) ; 899 tests (897 verts, 2 sautés), gardes et gel de Naos verts, 3 scénarios OK
+Last activity: 2026-11-26 — Plan 08-04 : js/espaces.js (registre public, parité avec le middleware et les fonctions), espace fixé avant le plan d’eau, js/venue-bormes.js, l’espace Tofinou s’ouvre sur Bormes (pack téléchargé, hors réseau), graines et plans d’eau par espace (T11 contre la v43), garde de synchronisation sur hôte inconnu (T12), plafonds de Tofinou à la moitié ; 915 tests (913 verts, 2 sautés), gardes et gel de Naos verts, 39/39 scénarios OK, ouverture de Naos 405 ms
 
 Progress: [████████░░] 75%
 
@@ -99,6 +99,7 @@ Progress: [████████░░] 75%
 | Phase 08 P01 | 13min | 3 tasks | 7 files |
 | Phase 08 P02 | 17min | 3 tasks | 17 files |
 | Phase 08 P03 | 18min | 2 tasks | 16 files |
+| Phase 08 P04 | 41min | 3 tasks | 23 files |
 
 ## Accumulated Context
 
@@ -214,6 +215,9 @@ Décisions récentes qui orientent le travail en cours :
 - [Phase 08]: Espaces (08-02) : hors de Naos, seuls les recalages partagés (doc.marks) sont vidés ; les bouées des régates (IC) restent
 - [Phase 08]: 08-03 : pack de Bormes construit par l’API principale d’OpenStreetMap (Overpass injoignable, aucun miroir tiers) ; Levant non urbain par la clé urban de la configuration
 - [Phase 08]: 08-03 : instantané météo de Bormes non produit (Open-Meteo, limite quotidienne) : à produire en 08-09 avant la release
+- [Phase 08]: 08-04 : espace de la session fixé avant le plan d’eau (js/espaces.js, hôte connu → espace, sinon rade.espace.v1, sinon Naos) ; Naos sans clé ni requête nouvelle
+- [Phase 08]: 08-04 : graines par paramètre (migrate, seedNorm, seedGpen) et valeurs communes du CVAT par setCommuns ; T11 contre une fixture capturée sur 5e9b8a5 (pas de git pendant npm test)
+- [Phase 08]: 08-04 : garde de synchronisation sur hôte inconnu (aucun /api/archive avant /api/membre ; appareil vierge → adoption et rechargement ; sinon arrêt) ; plafonds de Tofinou à la moitié de ceux de Naos
 
 ### Pending Todos
 
@@ -255,6 +259,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-11-26T19:46:44.862Z
-Stopped at: Completed 08-03-PLAN.md
+Last session: 2026-11-26T20:34:44.133Z
+Stopped at: Completed 08-04-PLAN.md
 Resume file: None
