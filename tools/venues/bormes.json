@@ -25,6 +25,12 @@
     "api": "https://api.openstreetmap.org/api/0.6/map",
     "boxes": { "west": 6.20, "east": 6.64, "south": 42.94, "north": 43.22, "dlon": 0.04, "dlat": 0.02 }
   },
+  "weather": {
+    "center": { "lat": 43.115, "lon": 6.39 },
+    "grid": { "lats": [43.02, 43.06, 43.10, 43.14], "lons": [6.30, 6.36, 6.42, 6.48, 6.54] },
+    "cellSelection": "sea",
+    "marine": "latitude=43.115&longitude=6.39"
+  },
   "sources": [
     "© contributeurs OpenStreetMap (ODbL)",
     "EMODnet Bathymetry DTM (couche emodnet:mean)",

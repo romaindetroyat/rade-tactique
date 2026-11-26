@@ -148,3 +148,56 @@ test('--types-urbains : liste par défaut pour Brest (configuration sans « urba
   assert.deepEqual(typesUrbains('tools/venues/brest.json'), ['residential', 'industrial', 'commercial', 'military', 'harbour']);
   assert.deepEqual(typesUrbains('tools/venues/bormes.json'), ['residential', 'industrial', 'commercial', 'harbour']);
 });
+
+// ───────── Instantané météo (08-03, tâche 2) : tools/snapshot_weather.py --urls, sans réseau, contre les adresses construites par js/weather.js
+import { fetchAll, configureWeather } from '../js/weather.js';
+import { BREST } from '../js/venue-brest.js';
+
+const urlsOutil = (...args) => execFileSync('python3', ['-I', 'tools/snapshot_weather.py', ...args, '--urls'], { cwd: ROOT, encoding: 'utf8' }).trim().split('\n');
+// Adresses demandées par fetchAll() (fetch remplacé le temps de l’appel : rien ne sort sur le réseau)
+async function urlsApp(cfg) {
+  const vues = [], vrai = globalThis.fetch;
+  globalThis.fetch = async (u) => { vues.push(String(u)); return { ok: true, status: 200, json: async () => ({}) }; };
+  try { if (cfg) configureWeather(cfg); await fetchAll(); } finally { globalThis.fetch = vrai; }
+  return vues;
+}
+const CFG = JSON.parse(readFileSync(join(ROOT, 'tools/venues/bormes.json'), 'utf8'));
+const meteoBormes = () => {
+  const w = CFG.weather;
+  return { center: w.center, grid: w.grid.lats.flatMap((lat) => w.grid.lons.map((lon) => ({ lat, lon }))), cellSelection: w.cellSelection,
+    marine: w.marine, live: null, key: 'rade.wx.bormes.v1', snapshot: 'data/bormes.wx-snapshot.json' };
+};
+
+test('instantané : sans option (Toulon) puis --venue brest, l’outil demande exactement les adresses de l’app (js/weather.js, js/venue-brest.js)', { skip: sansPython }, async () => {
+  const toulon = urlsOutil();
+  assert.equal(toulon.length, 3, 'Toulon : multi-modèles, grille, état de la mer');
+  assert.deepEqual(toulon, await urlsApp(null), 'Toulon : adresses de la v42');
+  assert.ok(!toulon.some((u) => u.includes('cell_selection')), 'Toulon : pas de cell_selection');
+  const brest = urlsOutil('--venue', 'brest');
+  assert.equal(brest.length, 2, 'Brest : aucune requête marine');
+  assert.deepEqual(brest, await urlsApp(BREST.weather), 'Brest : adresses de js/venue-brest.js');
+});
+
+test('instantané : --venue bormes lit tools/venues/bormes.json — 20 points, cell_selection=sea, point marin gardé ; mêmes adresses que l’app', { skip: sansPython }, async () => {
+  const u = urlsOutil('--venue', 'bormes');
+  assert.equal(u.length, 3);
+  assert.match(u[0], /\?latitude=43\.115&longitude=6\.39&/);
+  const q = new URL(u[1]).searchParams;
+  assert.equal(q.get('latitude').split(',').length, 20, 'grille de 20 points');
+  assert.equal(q.get('longitude').split(',').length, 20);
+  for (const x of u.slice(0, 2)) assert.ok(x.endsWith('&cell_selection=sea'), 'points pris sur la mer');
+  assert.ok(u[2].startsWith('https://marine-api.open-meteo.com/v1/marine?latitude=43.115&longitude=6.39&'), 'point marin');
+  assert.deepEqual(u, await urlsApp(meteoBormes()), 'adresses construites par js/weather.js avec le même bloc');
+  for (const v of ['Bormes', '../bormes', 'inconnu', 'toulon', '']) {
+    assert.throws(() => execFileSync('python3', ['-I', 'tools/snapshot_weather.py', '--venue', v, '--urls'], { cwd: ROOT, stdio: 'pipe' }), `--venue ${v || '(vide)'} refusé`);
+  }
+});
+
+const SNAP = join(ROOT, 'data/bormes.wx-snapshot.json');
+test('instantané météo de Bormes : modèles, grille de 20 points, état de la mer', { skip: existsSync(SNAP) ? false : 'data/bormes.wx-snapshot.json absent (Open-Meteo a refusé : limite quotidienne) : l’app reçoit null' }, () => {
+  const s = JSON.parse(readFileSync(SNAP, 'utf8'));
+  assert.equal(s.snapshot, true);
+  assert.ok(s.multi?.hourly?.time?.length > 0, 'prévisions multi-modèles');
+  assert.ok(Array.isArray(s.grid) && s.grid.length === 20, 'grille de 20 points');
+  assert.ok(s.marine?.hourly?.time?.length > 0, 'état de la mer');
+});
