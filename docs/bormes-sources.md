@@ -2,7 +2,7 @@
 
 Ce document décrit d’où viennent les fichiers `data/bormes.*` du plan d’eau « Rade de Bormes – Le Lavandou » (phase 8, plan 08-03, espace Tofinou), comment ils ont été construits et sous quelles licences. Les entrées téléchargées ne sont pas dans le dépôt : on les retrouve aux adresses ci-dessous et on reconstruit le pack avec les commandes indiquées.
 
-**Avertissement : ce pack ne remplace pas les cartes et ouvrages nautiques officiels.** Les fonds viennent d’un modèle à environ 115 m (EMODnet) et sont lissés près des côtes ; la côte d’OpenStreetMap est la laisse de haute mer ; les zones réglementées (Levant, Port-Cros, Brégançon) ne sont pas dans ce pack. Le pack sert à la tactique (vent, routes), jamais à la navigation de sécurité.
+**Avertissement : ce pack ne remplace pas les cartes et ouvrages nautiques officiels.** Les fonds viennent d’un modèle à environ 115 m (EMODnet) et sont lissés près des côtes ; la côte d’OpenStreetMap est la laisse de haute mer ; les zones réglementées (Levant, Port-Cros, Brégançon) ne sont pas dans ce pack : elles sont dans le descripteur `js/venue-bormes.js` (section « Savoir local » ci-dessous), tracées large et marquées « à compléter sur carte marine ». Le pack sert à la tactique (vent, routes), jamais à la navigation de sécurité.
 
 ## Fichiers produits
 
@@ -84,3 +84,36 @@ Sans `--config`, `tools/build_terrain.py`, `tools/build_basemap.py` et `tools/sn
 Python 3.13.18, numpy 2.5.3, Pillow 12.3.0 (déjà présents, rien d’installé) ; Node.js v22.23.5 pour `npm run stamp` et les tests.
 
 Sécurité des entrées : elles sont traitées comme des données non fiables. Les outils les lisent (PNG, TIFF, XML, JSON) sans jamais les exécuter, Python est lancé avec `-I` (pas de module pris dans le dossier courant), les scripts du dépôt sont lancés depuis le dépôt avec les chemins des données en arguments, le XML d’OpenStreetMap est lu par `xml.etree.ElementTree` (aucune entité externe résolue), et le résultat est contrôlé (terre et mer aux points connus, fonds, relief, part de terre, Levant).
+
+## Savoir local : zones, marques, lieux, dangers (08-07)
+
+Le descripteur `js/venue-bormes.js` porte les zones interdites, les marques, les lieux nommés et les dangers de la rade, repris de l’étude du plan d’eau (08-RESEARCH-PLAN-EAU.md § 2.3 à 2.6). **Aucune de ces sources n’a été contrôlée dans sa version en vigueur : tout est « à compléter sur carte marine » et ne remplace pas les cartes et ouvrages nautiques officiels.** Contrôle humain avant toute course autour des îles (08-09) : lire les arrêtés à jour de la préfecture maritime de la Méditerranée et tracer les zones sur la carte marine.
+
+### Zones interdites (évitées par le routage)
+
+| Zone | Sources | Tracé |
+|------|---------|-------|
+| Île du Levant — zone militaire | Arrêté du préfet maritime n° 55/2021 du 29 mars 2021 et sa carte « Île du Levant » (direction interrégionale de la mer Méditerranée, avril 2021) ; coordonnées des zones reprises d’un projet d’arrêté de pêche de novembre 2024 qui recopie l’arrêté 55/2021 (lu par l’étude, cité) | Points 1 (calanque du Tablier), 23, 24, 25, 26, 29, 30, 6, 7 et 2 (pointe Maupertuis) de l’arrêté ; côté nord, bande de 200 m tracée une fois sur `data/bormes.coast.json` (limite nord de l’union des disques de 200 m centrés sur la côte, simplifiée puis relevée : 200,8 à 233,6 m de la côte du pack) ; retour du point 2 au point 1 par la terre de l’île. Points 27, 3, 4 et 28 laissés de côté (contour qui se touchait lui-même dans l’ordre de l’étude ; l’échancrure à l’est du Titan est fermée). Zone 6 (navigation interdite du 1er septembre au 30 juin selon la carte) tenue interdite toute l’année. Ouest de l’île (Héliopolis, port de l’Ayguade) et passe des Grottes libres. |
+| Fort de Brégançon | Arrêté du préfet maritime n° 192/2018 du 26 juillet 2018 (texte non trouvé) ; limite de la zone citée par l’arrêté n° 110/2023 du 11 mai 2023 entre 43°05,341′ N 006°19,392′ E et 43°05,569′ N 006°19,625′ E | Ces deux points, un arc de 500 m autour du cap de Brégançon (position de l’arrêté 110/2023) et deux points sur la terre au nord du fort : tracé supposé hors des deux points connus. |
+
+Parc national de Port-Cros : pas de zone interdite à la voile, donc pas de polygone ; l’information est donnée à l’équipage dans les dangers (5 nd à moins de 300 m des côtes, 12 nd dans les 600 m du cœur marin, bateaux propres, pas de débarquement à Bagaud ni sur les réserves intégrales de la Gabinière et du Rascas, zones temporaires possibles) d’après le dépliant « Réglementation marine » 2025 du parc.
+
+### Marques
+
+| Clé | Marque | Position | Source |
+|-----|--------|----------|--------|
+| FOU | La Fourmigue (balise de danger isolé, îlot) | 43°06,362′ N 006°24,252′ E | Arrêté 110/2023 et OpenStreetMap, identiques ; marque fixe |
+| COF | Coffre 1 | 43°05,113′ N 006°16,767′ E | Annexe « Parcours » du Challenge de la Baie (une seule source) ; à confirmer sur l’eau |
+| DAM | La Dame (cardinale est, tourelle) | 43°00,399′ N 006°25,240′ E | OpenStreetMap ; « sa cardinale » des parcours 6 et 10 : déduction, à confirmer au club |
+| CNE | Bouée de cap Nègre | vers 43,137° N 6,447° E | Croquis de l’annexe ; bouée mouillée, position à confirmer |
+| BEN | Bouée de Bénat | 43,09° N 6,38° E | Supposée devant le cap Bénat, cohérente avec la longueur annoncée du parcours 2 (6,2 M ; 5,9 M depuis la ligne du Lavandou, 6,4 M depuis le feu) ; position à confirmer |
+| CAV | Bouée Cavalaire | vers 43,17° N 6,55° E | Croquis sur carte ; position à confirmer |
+| ORA | Bouée orange (parcours 3 et 10) | milieu du segment ligne du Lavandou – La Fourmigue | Aucune position publiée ; position à confirmer |
+
+Les bouées mouillées portent `src: 'approx'` : l’équipage les confirme le jour de course par les marques de la régate. La Fourmigue est une cellule de terre du pack (îlot) ; le routage l’atteint comme la Roche Mengam à Brest (l’arrivée est testée avant la terre).
+
+### Lieux et dangers
+
+- Lieux : les 46 nœuds OpenStreetMap (ODbL) du tableau de l’étude (extrait du 26/11/2026). Baie de Bormes, La Favière, Saint-Clair, Aiguebelle, Pramousquier, passe de Bagaud et Héliopolis n’ont pas de nœud nommé : non placés.
+- Dangers : La Fourmigue, îlot du Cristau, La Dame, rocher du Rascas, îlot de la Gabinière, L’Esquillade, roches au sud du port de Bormes, Batterie des Maures, îlots de Léoube, de l’Estagnol et du Jardin (OpenStreetMap, arrêté 110/2023), et l’information du parc de Port-Cros. La sèche de Gouron (nom lu sur l’extrait de carte du parcours 9) n’a pas de position relevée : à lire sur la carte marine.
+- Feux cités dans les notes : OpenStreetMap, à vérifier sur le livre des feux.

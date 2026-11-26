@@ -217,3 +217,194 @@ test('descripteur ↔ configuration : météo (centre, grille latitude d’abord
   for (const k of ['maree', 'courant']) assert.ok(!(k in BORMES), `ni ${k} à Bormes`);
   if (PACK) { const m = meta(); for (const k of ['west', 'east', 'south', 'north']) assert.equal(m.bounds?.[k] ?? m[k], BORMES.bounds[k], k); }
 });
+
+// ───────── Savoir local de Bormes (08-07, D-13, D-14) : zones interdites, marques, lieux, dangers (étude § 2.3 à 2.6, § 6.5, pièges 5 et 7)
+import { pointInPolygon, NM, fmtLat, fmtLon, toLL } from '../js/geo.js';
+import { route } from '../js/router.js';
+import { zonesXY } from '../js/venues.js';
+import { parseLatLon } from '../js/marks.js';
+
+const dmn = (d, m) => d + m / 60;
+const zoneB = (nom) => BORMES.FORBIDDEN_ZONES.find((z) => z.name === nom);
+const polyB = (nom) => zoneB(nom).pts.map((p) => xy(p.lat, p.lon));
+const LEVANT = 'Île du Levant — zone militaire', BREG = 'Fort de Brégançon';
+const segCroiseB = (a, b, c, d) => { const o = (p, q, r) => Math.sign((q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x)); return o(a, b, c) * o(a, b, d) < 0 && o(c, d, a) * o(c, d, b) < 0; };
+const distSegB = (p, a, b) => { const dx = b.x - a.x, dy = b.y - a.y, L2 = dx * dx + dy * dy, t = L2 ? Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / L2)) : 0; return Math.hypot(p.x - a.x - t * dx, p.y - a.y - t * dy); };
+const dansEmpriseB = (p) => p.lat > EMPRISE.south && p.lat < EMPRISE.north && p.lon > EMPRISE.west && p.lon < EMPRISE.east;
+const ecartB = (a, b) => { const p = xy(a.lat, a.lon), q = xy(b.lat, b.lon); return Math.hypot(p.x - q.x, p.y - q.y); };
+const milles = (a, b) => ecartB(a, b) / NM;
+const toLLb = (p) => toLL(p.x, p.y);
+// Repères de contrôle (étude § 2.3 ; Héliopolis : centre des cellules « urbain » de l’ouest de l’île dans le pack, aucun nœud nommé)
+const REP = {
+  titan: { lat: dmn(43, 2.793), lon: dmn(6, 30.614) }, portMan: { lat: dmn(43, 0.835), lon: dmn(6, 25.251) }, grottes: { lat: 43.0091, lon: 6.4250 },
+  ayguade: { lat: dmn(43, 0.914), lon: dmn(6, 25.948) }, heliopolis: { lat: 43.0188, lon: 6.4374 }, esquillade: { lat: dmn(43, 3.039), lon: dmn(6, 31.95) },
+  feuLavandou: { lat: dmn(43, 8.136), lon: dmn(6, 22.361) }, fort: { lat: 43.0916, lon: 6.3216 },
+};
+// Chemin hors des zones : aucun point dedans ; un pas peut rogner un coin (le routage teste les bouts et le milieu) : profondeur rendue (m)
+function horsZonesB(path, polys, quoi) {
+  for (const p of path) for (const poly of polys) assert.ok(!pointInPolygon(p, poly), `${quoi} : point du chemin dans une zone interdite`);
+  let prof = 0;
+  for (let i = 1; i < path.length; i++) {
+    const a = path[i - 1], b = path[i], n = Math.ceil(Math.hypot(b.x - a.x, b.y - a.y) / 5);
+    for (let k = 1; k < n; k++) {
+      const q = { x: a.x + (b.x - a.x) * k / n, y: a.y + (b.y - a.y) * k / n };
+      for (const poly of polys) if (pointInPolygon(q, poly)) prof = Math.max(prof, Math.min(...poly.map((u, j) => distSegB(q, u, poly[(j + 1) % poly.length]))));
+    }
+  }
+  return prof;
+}
+
+test('zones interdites de Bormes : Levant militaire et Brégançon, « à compléter sur carte marine », polygones simples dans l’emprise', () => {
+  assert.deepEqual(BORMES.FORBIDDEN_ZONES.map((z) => z.name), [LEVANT, BREG]);
+  for (const z of BORMES.FORBIDDEN_ZONES) {
+    assert.equal(z.note, 'à compléter sur carte marine', z.name);
+    assert.ok(z.desc && z.desc.length > 60 && !/'/.test(z.desc), `${z.name} : description, apostrophe typographique`);
+    assert.ok(z.pts.length >= 4, `${z.name} : au moins 4 sommets`);
+    for (const p of z.pts) assert.ok(dansEmpriseB(p), `${z.name} : sommet hors emprise`);
+    const poly = polyB(z.name), n = poly.length;
+    for (let i = 0; i < n; i++) for (let j = i + 2; j < n; j++) {
+      if (i === 0 && j === n - 1) continue;
+      assert.ok(!segCroiseB(poly[i], poly[(i + 1) % n], poly[j], poly[(j + 1) % n]), `${z.name} : arêtes ${i} et ${j} se coupent`);
+    }
+  }
+  assert.match(zoneB(LEVANT).desc, /55\/2021/);
+  assert.match(zoneB(LEVANT).desc, /zone 6[^.]*tenue interdite toute l’année/);
+  assert.match(zoneB(BREG).desc, /192\/2018[^]*110\/2023/);
+});
+
+test('zone du Levant : Titan dedans ; Port-Man et passe des Grottes dehors, ouest de l’île (Ayguade, Héliopolis) libre', () => {
+  const poly = polyB(LEVANT);
+  assert.ok(pointInPolygon(xy(REP.titan.lat, REP.titan.lon), poly), 'phare du Titan dans la zone');
+  assert.ok(pointInPolygon(xy(REP.esquillade.lat, REP.esquillade.lon), poly), 'L’Esquillade (zone 6) dans la zone : tenue interdite toute l’année');
+  for (const k of ['portMan', 'grottes', 'ayguade', 'heliopolis']) assert.ok(!pointInPolygon(xy(REP[k].lat, REP[k].lon), poly), `${k} hors de la zone`);
+  // points de l’arrêté repris tels quels : 1 (Tablier), 23, 24, 25, 26, 29, 30, 6, 7, 2 (Maupertuis)
+  const P = zoneB(LEVANT).pts, a = (lat, lon) => P.some((p) => ecartB(p, { lat, lon }) < 1);
+  for (const [n, la, lo] of [[1, [43, 1.494], [6, 26.663]], [23, [43, 3.224], [6, 30.614]], [24, [43, 3.512], [6, 30.695]], [25, [43, 3.296], [6, 32.338]], [26, [43, 2.499], [6, 32.218]],
+    [29, [43, 1.898], [6, 32.155]], [30, [43, 1.209], [6, 31.046]], [6, [43, 1.321], [6, 30.99]], [7, [42, 59.618], [6, 26.262]], [2, [43, 0.205], [6, 26.262]]]) {
+    assert.ok(a(dmn(...la), dmn(...lo)), `point ${n} de l’arrêté`);
+  }
+});
+
+test('zone du Levant fermée au nord par la bande de 200 m : chaque arête de la bande à 200 à 240 m de la côte du pack', { skip: sansPack }, () => {
+  const coast = JSON.parse(readFileSync(join(ROOT, 'data/bormes.coast.json'), 'utf8')).map((l) => l.map(([lon, lat]) => xy(lat, lon)));
+  const dCote = (p) => { let m = Infinity; for (const l of coast) for (let i = 1; i < l.length; i++) if (Math.abs(l[i].x - p.x) < 3000 && Math.abs(l[i].y - p.y) < 3000) m = Math.min(m, distSegB(p, l[i - 1], l[i])); return m; };
+  const poly = polyB(LEVANT), fin = poly.findIndex((p) => ecartB(toLLb(p), { lat: dmn(43, 3.224), lon: dmn(6, 30.614) }) < 1);
+  assert.ok(fin > 10, 'bande avant le point 23');
+  let min = Infinity, max = 0;
+  for (let i = 2; i < fin; i++) {
+    const a = poly[i - 1], b = poly[i], n = Math.ceil(Math.hypot(b.x - a.x, b.y - a.y) / 5);
+    for (let k = 0; k <= n; k++) { const e = dCote({ x: a.x + (b.x - a.x) * k / n, y: a.y + (b.y - a.y) * k / n }); min = Math.min(min, e); max = Math.max(max, e); }
+  }
+  assert.ok(min >= 200 && max <= 240, `bande : ${min.toFixed(1)} à ${max.toFixed(1)} m de la côte`);
+});
+
+test('zone de Brégançon : contient l’îlot du fort, passe par les deux points de l’arrêté 110/2023, laisse libres la Galère et la pointe du Diable', () => {
+  const poly = polyB(BREG), P = zoneB(BREG).pts;
+  assert.ok(pointInPolygon(xy(REP.fort.lat, REP.fort.lon), poly), 'îlot du fort dans la zone');
+  for (const [la, lo] of [[5.341, 19.392], [5.569, 19.625]]) assert.ok(P.some((p) => ecartB(p, { lat: dmn(43, la), lon: dmn(6, lo) }) < 1), `point 43°0${la} N 006°${lo} E`);
+  for (const [nom, lat, lon] of [['Pointe de la Galère', 43.0897, 6.3318], ['Pointe du Diable', 43.0978, 6.3240], ['coffre 1', 43.085217, 6.27945]]) assert.ok(!pointInPolygon(xy(lat, lon), poly), `${nom} hors de la zone`);
+});
+
+const NOMS_BORMES = ['Le Lavandou', 'Bormes-les-Mimosas (village)', 'La Londe-les-Maures', 'Rayol-Canadel-sur-Mer', 'Cavalaire-sur-Mer', 'Cap Bénat', 'Cap Blanc',
+  'Pointe du Cristau', 'Pointe du Pinet', 'Pointe de l’Esquillette', 'Pointe de la Ris', 'Cap de Brégançon', 'Pointe de la Galère (Brégançon)', 'Pointe du Diable',
+  'Pointe Pilon', 'Pointe de Nard Viou', 'Pointe de la Fossette', 'Pointe du Layet', 'Cap Nègre', 'Pointe du Souffre', 'Pointe de l’Écuelle', 'Pointe de Malpague',
+  'Pointe du Trésor', 'Pointe de la Chappe', 'Pointe du Dattier', 'Pointe de Vergeron', 'Cap des Mèdes (Porquerolles)', 'Pointe du Titan (Levant)', 'Île de Port-Cros',
+  'Île de Bagaud', 'Île du Levant', 'Îlot de la Gabinière', 'Îlot la Fourmigue', 'Pierre d’Avenon (443 m)', 'Biscarre (482 m)', 'Malatra (492 m)', 'L’Eau Blanche (527 m)',
+  'Fortin de la Vigie, Port-Cros (199 m)', 'Rade d’Hyères', 'Baie du Gau', 'Baie de l’Estagnol', 'Anse de Cavalière', 'Baie de Cavalaire', 'Rade de Port-Cros',
+  'Baie de Port-Man', 'Passe des Grottes'];
+
+test('lieux de Bormes : les 46 nœuds du tableau de l’étude § 2.4, dans l’emprise, forme [nom, lat, lon, type], aucun lieu sans nœud inventé', () => {
+  const P = BORMES.PLACES, noms = P.map((p) => p[0]);
+  assert.deepEqual(noms, NOMS_BORMES);
+  for (const [nom, lat, lon, type] of P) {
+    assert.ok(dansEmpriseB({ lat, lon }), `${nom} hors emprise`);
+    assert.ok([1, 2, 3, 4].includes(type), `${nom} : type ${type}`);
+    assert.ok(!/'/.test(nom), `${nom} : apostrophe typographique`);
+  }
+  assert.ok(!noms.some((n) => /Héliopolis|Favière|Saint-Clair|Aiguebelle|Pramousquier|Baie de Bormes/i.test(n)), 'lieux sans nœud nommé : jamais placés au jugé');
+});
+
+const FIXES_B = new Set(['tourelle', 'ilot', 'balise', 'amer']);
+test('marques de Bormes : La Fourmigue et coffre 1 fixes aux positions de l’étude, bouées mouillées « position à confirmer », clés courtes non numériques', () => {
+  const M = BORMES.MARKS;
+  assert.deepEqual(Object.keys(M), ['FOU', 'COF', 'DAM', 'CNE', 'BEN', 'CAV', 'ORA']);
+  assert.ok(Math.abs(M.FOU.lat - 43.10603) < 1e-5 && Math.abs(M.FOU.lon - 6.40420) < 1e-5, 'La Fourmigue 43,10603° N 6,40420° E');
+  assert.ok(Math.abs(M.COF.lat - 43.08522) < 1e-5 && Math.abs(M.COF.lon - 6.27945) < 1e-5, 'coffre 1 43,08522° N 6,27945° E');
+  assert.ok(ecartB(M.FOU, parseLatLon('43°06.362N 006°24.252E', BORMES.inputBounds)) < 1, 'La Fourmigue : degrés-minutes de l’arrêté');
+  assert.ok(ecartB(M.COF, parseLatLon('43°05.113N 006°16.767E', BORMES.inputBounds)) < 1, 'coffre 1 : degrés-minutes de l’annexe');
+  assert.ok(ecartB(M.DAM, parseLatLon('43°00.399N 006°25.240E', BORMES.inputBounds)) < 1, 'La Dame : OpenStreetMap');
+  for (const [k, m] of Object.entries(M)) {
+    assert.ok(/^[A-Z][A-Z0-9]{1,3}$/.test(k) && !['A', 'B', 'C', 'D', 'PG', 'PD', 'S'].includes(k), `${k} : clé courte, non réservée`);
+    for (const f of ['name', 'note', 'src', 'kind', 'color']) assert.ok(typeof m[f] === 'string' && m[f], `${k} : ${f}`);
+    assert.ok(dansEmpriseB(m), `${k} hors emprise`);
+    assert.ok(!/'/.test(m.name + m.note), `${k} : apostrophe typographique`);
+  }
+  for (const k of ['FOU', 'COF', 'DAM']) assert.notEqual(M[k].src, 'approx', `${k} : marque fixe`);
+  assert.match(M.COF.note, /à confirmer sur l’eau/);
+  assert.match(M.DAM.note, /« Sa cardinale »[^]*à confirmer au club/);
+  for (const k of ['CNE', 'BEN', 'CAV', 'ORA']) {
+    assert.equal(M[k].src, 'approx', `${k} : bouée mouillée, jamais présentée comme fixe (piège 7)`);
+    assert.match(M[k].note, /position à confirmer/, `${k} : position à confirmer`);
+  }
+  // bouée orange : milieu du segment ligne du Lavandou – La Fourmigue
+  const L = BORMES.LINE_PRESETS.lavandou;
+  assert.ok(ecartB(M.ORA, { lat: (L.lat + M.FOU.lat) / 2, lon: (L.lon + M.FOU.lon) / 2 }) < 1, 'bouée orange au milieu du segment');
+});
+
+test('marques de Bormes en mer (sauf tourelles et balises), hors des zones interdites ; dangers de l’étude et information du parc de Port-Cros', { skip: sansPack }, async () => {
+  const t = await terrain(), polys = zonesXY(BORMES.FORBIDDEN_ZONES, xy);
+  for (const [k, m] of Object.entries(BORMES.MARKS)) {
+    const p = xy(m.lat, m.lon);
+    if (!FIXES_B.has(m.kind)) assert.ok(!t.isLand(p.x, p.y), `${k} ${m.name} à terre`);
+    assert.ok(!polys.some((poly) => pointInPolygon(p, poly)), `${k} dans une zone interdite`);
+  }
+  const fou = xy(BORMES.MARKS.FOU.lat, BORMES.MARKS.FOU.lon);
+  assert.ok(t.isLand(fou.x, fou.y), 'La Fourmigue : cellule de terre du pack (îlot), comme la Roche Mengam à Brest');
+  const D = BORMES.DANGERS;
+  for (const re of [/La Fourmigue/, /Îlot du Cristau/, /La Dame/, /Rocher du Rascas/, /Gabinière/, /L’Esquillade/, /sud du port de Bormes/, /Batterie des Maures/, /Léoube/, /Port-Cros/]) assert.ok(D.some((d) => re.test(d.name)), `danger manquant : ${re}`);
+  for (const d of D) {
+    assert.ok(typeof d.note === 'string' && d.note.length > 20, `${d.name} : note`);
+    assert.ok(dansEmpriseB(d), `${d.name} hors emprise`);
+    assert.ok(!/'/.test(d.name + d.note), `${d.name} : apostrophe typographique`);
+    const r = parseLatLon(`${fmtLat(d.lat)} ${fmtLon(d.lon)}`, BORMES.inputBounds);
+    assert.ok(!r.error && ecartB(r, d) < 1, `${d.name} : aller-retour fmtLat/fmtLon`);
+  }
+  const pc = D.find((d) => /Parc national de Port-Cros/.test(d.name)).note;
+  for (const m of ['5 nd à moins de 300 m', '12 nd dans les 600 m', 'pas de débarquement à Bagaud', 'réserve intégrale', 'À compléter sur carte marine']) assert.ok(pc.includes(m), `Port-Cros : « ${m} »`);
+  assert.ok(!D.some((d) => /Gouron/.test(d.name)), 'Sèche de Gouron sans position : non placée');
+});
+
+test('distances de contrôle (étude § 2.2) : feu du Lavandou → La Fourmigue 2,24 M ; La Fourmigue → pointe de Port-Man 5,55 M (± 0,05)', () => {
+  const fou = BORMES.MARKS.FOU;
+  const d1 = milles(REP.feuLavandou, fou), d2 = milles(fou, REP.portMan);
+  assert.ok(Math.abs(d1 - 2.24) <= 0.05, `Lavandou → La Fourmigue : ${d1.toFixed(3)} M`);
+  assert.ok(Math.abs(d2 - 5.55) <= 0.05, `La Fourmigue → Port-Man : ${d2.toFixed(3)} M`);
+});
+
+let F270B = null;
+const champ270B = async () => { if (!F270B) { F270B = new WindField(await terrain(), BORMES.wind); F270B.compute({ points: [{ x: 0, y: 0, dir: 270, spd: 10, gust: 13 }] }, { localEffects: 1 }); } return F270B; };
+
+test('routage à Bormes (270°/10 nd) : La Fourmigue → sud du Levant (42,99° N 6,48° E) ne coupe aucune zone ; sans zone, la route traverse le Levant militaire', { skip: sansPack }, async () => {
+  const t = await terrain(), F = await champ270B(), polys = zonesXY(BORMES.FORBIDDEN_ZONES, xy);
+  const fou = xy(BORMES.MARKS.FOU.lat, BORMES.MARKS.FOU.lon), sud = xy(42.99, 6.48);
+  const r = route(fou, sud, F, { terrain: t, forbidden: polys, perf: 1 });
+  assert.ok(r && r.path.length > 2, 'route trouvée');
+  const prof = horsZonesB(r.path, polys, 'La Fourmigue → sud du Levant');
+  assert.ok(prof < 25, `un pas rogne une zone de ${prof.toFixed(0)} m`);
+  const fin = r.path.at(-1);
+  assert.ok(Math.hypot(fin.x - sud.x, fin.y - sud.y) < 30, 'route jusqu’au point visé');
+  // contrôle négatif : sans les zones, le chemin le plus court entre dans la zone militaire
+  const libre = route(fou, sud, F, { terrain: t, forbidden: [], perf: 1 });
+  assert.ok(libre.path.some((q) => pointInPolygon(q, polys[0])), 'sans zone, la route entre dans la zone militaire');
+});
+
+test('routage à Bormes : une route de la ligne du Lavandou vers La Fourmigue (îlot, cellule de terre) arrive à 30 m de la marque', { skip: sansPack }, async () => {
+  const t = await terrain(), F = await champ270B(), polys = zonesXY(BORMES.FORBIDDEN_ZONES, xy);
+  const L = BORMES.LINE_PRESETS.lavandou, fou = xy(BORMES.MARKS.FOU.lat, BORMES.MARKS.FOU.lon);
+  for (const de of [xy(L.lat, L.lon), xy(43.09, 6.42)]) {
+    const r = route(de, fou, F, { terrain: t, forbidden: polys, perf: 1 });
+    assert.ok(r && r.path.length >= 2, 'route trouvée');
+    const fin = r.path.at(-1);
+    assert.ok(Math.hypot(fin.x - fou.x, fin.y - fou.y) <= 30, `arrivée à ${Math.hypot(fin.x - fou.x, fin.y - fou.y).toFixed(0)} m de La Fourmigue`);
+  }
+});
