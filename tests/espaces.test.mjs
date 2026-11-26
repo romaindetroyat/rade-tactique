@@ -223,3 +223,57 @@ test('tables réelles : EQUIPAGE en premier, prénoms uniques par table, une emp
   }
   assert.deepEqual(Object.values(ESPACES.naos.table), ['Romain', 'Teiva', 'Thibaud'], 'Naos : trois membres, inchangés');
 });
+
+// ───────────────────────── packs par espace (D-05) : T10
+
+import { readFileSync } from 'node:fs';
+import { ROOT } from './helpers/setup.mjs';
+import { listShell } from '../tools/stamp.mjs';
+
+test('T10 : pack d’un autre espace → même 404 sans écho qu’un fichier interne ; toute la liste hors réseau (Toulon compris) reste servie à chaque espace', async () => {
+  const interne = await forme(await appel(H_TOFI + '/middleware.js', cookie(TOFI)));
+  assert.equal(interne.status, 404);
+  for (const [hote, code, chemins] of [
+    [H_TOFI, TOFI, ['/data/brest.meta.json', '/data/brest.terrain.bin', '/data/brest.cover.bin', '/data/BREST.meta.json', '/data/brest.inconnu']],
+    [H_APERCU, TOFI, ['/data/brest.meta.json']],
+    [H_NAOS, NAOS, ['/data/bormes.meta.json', '/data/bormes.terrain.bin', '/data/Bormes.meta.json']],
+    [H_APERCU, NAOS, ['/data/bormes.meta.json']],
+  ]) {
+    for (const chemin of chemins) {
+      for (const h of [cookie(code), { ...cookie(code), accept: 'text/html' }]) {
+        const r = await appel(hote + chemin, h), f = await forme(r);
+        const ref = await forme(await appel(hote + '/middleware.js', h));
+        assert.deepEqual(f, ref, `${hote}${chemin} : réponse différente d’un fichier interne`);
+        assert.equal(r.headers.get('x-content-type-options'), 'nosniff');
+        assert.ok(!f.corps.includes('brest') && !f.corps.includes('bormes'), 'sans écho');
+      }
+    }
+  }
+  // la liste hors réseau complète, à chaque espace (sw.js l’installe en entier : un seul refus casserait l’installation)
+  const shell = listShell(ROOT).map((f) => (f === './' ? '/' : '/' + f));
+  assert.ok(shell.includes('/data/terrain.bin') && shell.includes('/data/meta.json'), 'fichiers de Toulon dans la liste');
+  for (const [hote, code] of [[H_TOFI, TOFI], [H_NAOS, NAOS], [H_APERCU, DOUBLE], ['http://tofinou.localhost:8080', DOUBLE]]) {
+    for (const chemin of shell) {
+      const r = await appel(hote + chemin, cookie(code));
+      assert.equal(r.headers.get('x-middleware-next'), '1', `${hote}${chemin} doit rester servi`);
+    }
+  }
+  // les packs de son espace restent servis : Brest à Naos (manifeste des plans d’eau)
+  const packs = Object.values(JSON.parse(readFileSync(ROOT + 'data/venues.json', 'utf8')).venues).flatMap((v) => v.files.map((f) => '/' + f.path));
+  assert.ok(packs.some((p) => p.startsWith('/data/brest.')));
+  for (const p of packs.filter((x) => x.startsWith('/data/brest.'))) assert.equal((await appel(H_NAOS + p, cookie(NAOS))).headers.get('x-middleware-next'), '1', p);
+  // Tofinou sur un hôte d’aperçu partagé par un membre double : espace Naos (premier), donc Brest servi, Bormes refusé
+  assert.equal((await appel(H_APERCU + '/data/brest.meta.json', cookie(DOUBLE))).headers.get('x-middleware-next'), '1');
+  assert.equal((await appel(H_TOFI + '/data/brest.meta.json', cookie(DOUBLE))).status, 404);
+});
+
+test('accès de l’espace Tofinou : exactement Frédéric et Romain ; Romain avec la même empreinte que dans Naos ; Frédéric dans aucune autre table (rien affiché)', () => {
+  const t = ESPACES.tofinou.table, n = ESPACES.naos.table;
+  assert.deepEqual(Object.values(t).sort(), ['Frédéric', 'Romain']);
+  const romain = Object.keys(t).find((h) => t[h] === 'Romain'), frederic = Object.keys(t).find((h) => t[h] === 'Frédéric');
+  assert.ok(Object.hasOwn(n, romain) && n[romain] === 'Romain', 'Romain : même ligne que dans Naos');
+  assert.ok(tableEquipage()[0].hex === romain, 'la ligne de Romain dans Naos reste la première du fichier');
+  assert.ok(!Object.hasOwn(n, frederic), 'Frédéric n’a pas accès à Naos');
+  assert.ok(ESPACE_IDS.filter((id) => Object.hasOwn(ESPACES[id].table, frederic)).join() === 'tofinou', 'Frédéric : espace Tofinou seulement');
+  for (const p of ['Teiva', 'Thibaud']) assert.ok(!Object.values(t).includes(p), `${p} reste Naos seulement`);
+});

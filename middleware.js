@@ -13,6 +13,8 @@ const EQUIPAGE = {
 // Espace Tofinou : lignes ajoutées par tools/codes-acces.mjs (empreinte seule, jamais le code). Un membre de deux espaces a la même ligne
 // (même empreinte, même prénom) dans les deux tables.
 const TOFINOU = {
+  '8c33171f1d71db9d88f9a4f00d348a282da387a4bfcedd1903c925a9d599c373': 'Frédéric',
+  '82d6f57ee27c4dd70d5998dc1a7a88954861050c82047d0184702ad30eff414f': 'Romain',
 };
 const COOKIE = 'rt_acces';
 const MAX_AGE = 400 * 24 * 3600; // durée maximale admise par les navigateurs
