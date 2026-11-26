@@ -3153,12 +3153,16 @@ async function planEau({ browser, base }) {
   await page.click('#t5');
   await page.waitForFunction(() => document.querySelector('#tPhase').textContent !== 'Prêt', null, { timeout: 10000 });
   await cartePlanEau(page, 'absent');
+  // carte repeinte après l’ouverture de l’onglet (état du pack lu dans les caches) : attendre l’état du bouton plutôt que lire le premier dessin
+  const pkGoDesactive = (oui) => page.waitForFunction((v) => document.querySelector('#pkGo')?.disabled === v, oui, { timeout: 10000 }).catch(() => { /* l’assertion dit l’écart */ });
+  await pkGoDesactive(true);
   assert.equal(await page.locator('#pkGo').isDisabled(), true, 'chrono lancé : #pkGo désactivé');
   assert.match(await texte(page, '#pkLock'), /^Pas pendant une course/);
   await page.click('#tabs button[data-tab=start]');
   await page.click('#tstop');
   await page.waitForFunction(() => document.querySelector('#tPhase').textContent === 'Prêt', null, { timeout: 10000 });
   await cartePlanEau(page, 'absent');
+  await pkGoDesactive(false);
   assert.equal(await page.locator('#pkGo').isDisabled(), false, 'chrono arrêté : changement possible');
   assert.equal(await cacheBrest(page), null, 'rien d’écrit avant le geste');
   // « Passer à la rade de Brest » : téléchargement vérifié puis rechargement
@@ -4028,7 +4032,99 @@ async function tofinouIdentite({ browser, base: baseNaos }) {
   }
 }
 
-const SCENARIOS = { accueil, 'jour-j': jourJ, 'deux-telephones': deuxTelephones, reprise, equipage, archive, 'archive-bouees': archiveBouees, archivehors: archiveHors, creer, manche, auteur, ic, 'depuis-ic': depuisIC, vraisemblance, gel, 'debrief-tardif': debriefTardif, gpx, 'gpx-choix': gpxChoix, ia, 'ia-erreurs': iaErreurs, arbitre, bouees, guide, entetes, 'retour-port': retourPort, banane, 'banane-manche': bananeManche, 'banane-debrief': bananeDebrief, 'porte-ic': porteIC, 'modifier-manche': modifierManche, 'toulon-vue': toulonVue, 'plan-eau': planEau, 'brest-avion': brestAvion, 'regate-brest': regateBrest, 'brest-courant': brestCourant, gpen, 'naos-cles': naosCles, 'tofinou-demarrage': tofinouDemarrage, 'espace-garde': espaceGarde, 'tofinou-bateau': tofinouBateau, 'tofinou-identite': tofinouIdentite };
+// 08-07, D-11 à D-14 : savoir local de Bormes à l’hôte de l’espace Tofinou (pack de Bormes, comme tofinou-bateau). Prévisions du cache de
+// l’espace (copie de l’instantané de Toulon décalée au samedi 5/12 : seule la carte « État de la mer » s’en sert, le vent reste manuel).
+// Vent manuel 260°/20 nd : régime « Mistral (ouest) » au briefing, conseils marqués selon leur origine, hypothèse « à confirmer sur l’eau »,
+// carte « État de la mer » de la baie de Bormes avec la note du courant ; puis 75°/14 nd : « Est ». Zones interdites étiquetées sur la carte,
+// dangers et zones dans l’onglet Régates, vents prédéfinis de la baie ; aucun mot de Toulon ni de Naos dans les cinq vues.
+const MOTS_TOULON = /Cépet|Saint-Mandrier|rade de Toulon|CVAT|J80|Naos/;
+async function bormesLocal({ browser }) {
+  const { serveur, base: base0 } = await demarreServeur({ root: ROOT });
+  const base = baseSur(base0, HOTES_ESSAI.tofinou);
+  let ctx;
+  try {
+    ctx = await ouvreContexte(browser, { heure: '2026-12-05T09:00:00Z', worker: true });
+    await releveEtiquettes(ctx);
+    await membreEspace(ctx, { membre: 'Frédéric', espace: 'tofinou' });
+    const { page, erreurs } = await ouvrePage(ctx);
+    await ouvreApp(page, base);
+    await cartePlanEau(page, 'ready');
+    // prévisions du cache : vent de chaque modèle et de la grille remplacé par le vent manuel (le briefing lit la prévision de l’heure de départ)
+    const prevision = (dir, spd, gust) => {
+      const wx = snapshotDecale(49);                                        // 17/10 → 05/12 (heure locale inchangée)
+      const pose = (h) => { for (const k of Object.keys(h)) { const v = /^wind_direction_10m/.test(k) ? dir : /^wind_speed_10m/.test(k) ? spd : /^wind_gusts_10m/.test(k) ? gust : null; if (v != null) h[k] = h[k].map(() => v); } };
+      pose(wx.multi.hourly); (Array.isArray(wx.grid) ? wx.grid : [wx.grid]).forEach((g) => g?.hourly && pose(g.hourly));
+      return wx;
+    };
+    const vent = (dir, spd, gust) => page.evaluate(([w, m]) => {
+      const s = JSON.parse(localStorage.getItem('rade.state') || '{}');
+      localStorage.setItem('rade.state', JSON.stringify({ ...s, day: '2026-12-05', hour: 11, startTime: 11, src: 'manual', manual: m }));
+      localStorage.setItem('rade.wx.bormes.v1', JSON.stringify(w));
+    }, [prevision(dir, spd, gust), { dir, spd, gust }]);
+    const brief = async (re) => {
+      await page.click('#tabs button[data-tab=brief]');
+      await page.waitForFunction((src) => new RegExp(src).test(document.querySelector('section[data-tab=brief]')?.textContent || ''), re.source, { timeout: 60000 })
+        .catch(async (e) => { console.log('  briefing vu :', (await texte(page, 'section[data-tab=brief]')).replace(/\s+/g, ' ').slice(0, 1500)); throw e; });
+      return (await texteStable(page, 'brief')).replace(/\s+/g, ' ');
+    };
+    // (1) mistral d’ouest
+    await vent(260, 20, 26);
+    await page.reload({ waitUntil: 'load' });
+    await pret(page);
+    await page.click('#tabs button[data-tab=course]');
+    await attendBords(page, (b) => b.length > 0, 'parcours de Bormes par 260°');
+    let b = await brief(/Effets locaux — Mistral \(ouest\)/);
+    assert.match(b, /Mistral \(ouest\)/, 'régime du briefing');
+    assert.match(b, /mesure Ici le mistral vient de l’ouest, 260° en médiane, pas du nord-ouest\./, 'origine en tête du conseil');
+    assert.match(b, /modèle de relief Le massif du cap Bénat abrite la baie/);
+    assert.match(b, /hypothèse Rafales qui tombent du relief, mer plate sous Bénat\. \(à confirmer sur l’eau\)/, 'hypothèse à confirmer');
+    assert.match(b, /Conseils tirés de mesures \(Météo-France, 2010-2026\) et du modèle de relief de l’app ; les hypothèses sont à confirmer sur l’eau\./);
+    assert.match(b, /État de la mer au large de la baie de Bormes/, 'carte « État de la mer » de la baie');
+    assert.match(b, /le courant général porte en général à l’ouest[^]*Information seulement : l’app n’en tient pas compte dans les routes ; à confirmer sur l’eau\./, 'note du courant');
+    assert.match(b, /Modèles à 11:00 au milieu de la baie de Bormes/);
+    assert.ok(!/Mistral \(NO\)|Labech|Sicié|Mourillon/.test(b), 'aucun régime ni conseil de Toulon');
+    const vues = {};
+    for (const tab of VUE_SECTIONS) {
+      await page.click(`#tabs button[data-tab=${tab}]`);
+      vues[tab] = await texteStable(page, tab);
+      const m = MOTS_TOULON.exec(vues[tab]);
+      assert.equal(m, null, `onglet ${tab} : « ${m?.[0]} » — ${m ? vues[tab].slice(Math.max(0, m.index - 80), m.index + 80) : ''}`);
+    }
+    assert.match(vues.wind, /mur des Maures \(450 à 520 m\)/, 'relief de Bormes dans l’onglet Vent');
+    assert.deepEqual(await page.locator('section[data-tab=wind] [data-p]').allTextContents(),
+      ['Mistral fort', 'Mistral modéré', 'Est', 'Est fort', 'Brise de sud-est', 'Brise de sud-ouest', 'Vent de terre', 'Petit temps'], 'vents prédéfinis de Bormes');
+    assert.match(vues.course, /Génois/, 'voile d’avant du Tofinou dans les bords');
+    // zones sur la carte : deux étiquettes « à compléter »
+    const etiq = await etiquettes(page);
+    assert.equal(etiq.filter((x) => x === 'Zone interdite · à compléter sur carte marine').length, 2, `étiquettes des zones : ${[...new Set(etiq)].filter((x) => /Zone/.test(x)).join(' | ')}`);
+    // onglet Régates : zones et dangers de Bormes
+    await page.click('#tabs button[data-tab=ic]');
+    const ic = (await texte(page, 'section[data-tab=ic]')).replace(/\s+/g, ' ');
+    assert.match(ic, /Zone interdite — Île du Levant — zone militaire [^]*?55\/2021[^]*?À compléter sur carte marine\./);
+    assert.match(ic, /Zone interdite — Fort de Brégançon [^]*?192\/2018[^]*?À compléter sur carte marine\./);
+    assert.match(ic, /Parc national de Port-Cros[^]*5 nd à moins de 300 m[^]*À compléter sur carte marine\./);
+    assert.ok(!/Saint-Mandrier/.test(ic), 'pas de zone de Toulon à Bormes');
+    sansErreur(erreurs, 'Bormes par 260°');
+    // (2) est
+    await vent(75, 14, 18);
+    await page.reload({ waitUntil: 'load' });
+    await pret(page);
+    b = await brief(/Effets locaux — Est /);
+    assert.match(b, /mesure Second régime du plan d’eau/);
+    assert.match(b, /hypothèse La mer entre dans la baie\. \(à confirmer sur l’eau\)/);
+    for (const tab of VUE_SECTIONS) {
+      await page.click(`#tabs button[data-tab=${tab}]`);
+      const t = await texteStable(page, tab), m = MOTS_TOULON.exec(t);
+      assert.equal(m, null, `par 75° : onglet ${tab} : « ${m?.[0]} »`);
+    }
+    sansErreur(erreurs, 'Bormes par 75°');
+  } finally {
+    await ctx?.close().catch(() => { /* déjà fermé */ });
+    serveur.closeAllConnections?.(); serveur.close();
+  }
+}
+
+const SCENARIOS = { accueil, 'jour-j': jourJ, 'deux-telephones': deuxTelephones, reprise, equipage, archive, 'archive-bouees': archiveBouees, archivehors: archiveHors, creer, manche, auteur, ic, 'depuis-ic': depuisIC, vraisemblance, gel, 'debrief-tardif': debriefTardif, gpx, 'gpx-choix': gpxChoix, ia, 'ia-erreurs': iaErreurs, arbitre, bouees, guide, entetes, 'retour-port': retourPort, banane, 'banane-manche': bananeManche, 'banane-debrief': bananeDebrief, 'porte-ic': porteIC, 'modifier-manche': modifierManche, 'toulon-vue': toulonVue, 'plan-eau': planEau, 'brest-avion': brestAvion, 'regate-brest': regateBrest, 'brest-courant': brestCourant, gpen, 'naos-cles': naosCles, 'tofinou-demarrage': tofinouDemarrage, 'espace-garde': espaceGarde, 'tofinou-bateau': tofinouBateau, 'tofinou-identite': tofinouIdentite, 'bormes-local': bormesLocal };
 
 // ───────────────────────── lancement
 

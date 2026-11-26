@@ -270,11 +270,12 @@ export function routeOpts(ctx, t0 = ctx?.t0) {
 }
 
 // ───────────────────────── Analyse d’un bord
-const legType = (twa, tws) => {
+// avant : voile d’avant nommée (ctx.voileAvant : « Génois » ou « Foc » pour le Tofinou) ; Naos n’en passe pas : « Foc » de la v43
+const legType = (twa, tws, avant = 'Foc') => {
   const a = Math.abs(twa), { up, down } = optimalAngles(tws);
-  if (a < up.twa + 6) return { id: 'pres', label: 'Près (louvoyage)', sail: 'Foc' };
-  if (a < 70) return { id: 'bonplein', label: 'Bon plein', sail: 'Foc' };
-  if (a < spiMinTwa(tws)) return { id: 'travers', label: 'Travers / petit largue', sail: 'Foc (spi limite)' };
+  if (a < up.twa + 6) return { id: 'pres', label: 'Près (louvoyage)', sail: avant };
+  if (a < 70) return { id: 'bonplein', label: 'Bon plein', sail: avant };
+  if (a < spiMinTwa(tws)) return { id: 'travers', label: 'Travers / petit largue', sail: `${avant} (spi limite)` };
   if (a < down.twa - 6) return { id: 'largue', label: 'Largue sous spi', sail: 'Spi asymétrique' };
   return { id: 'arriere', label: 'Vent arrière (empannages)', sail: 'Spi asymétrique' };
 };
@@ -304,7 +305,7 @@ export function analyzeLeg(leg, field, ctx) {
   }
   const spd = Math.hypot(su, sv) / (N + 1), dir = norm360(Math.atan2(-su, -sv) * 180 / Math.PI), gust = sg / (N + 1), shelter = ssh / (N + 1);
   const twa = norm180(leg.brg - dir);
-  const type = legType(twa, spd);
+  const type = legType(twa, spd, ctx.voileAvant);
   const r = routeOf(leg.from, leg.to, field, routeOpts(ctx), ctx);
   const time = r ? r.time : leg.dist / (Math.max(1, boatSpeed(spd, twa)) * 0.5144);
   const sides = sideSample(field, leg);

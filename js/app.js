@@ -4,7 +4,7 @@ import { report, note, setContext } from './journal.js';
 import { Terrain, toXY, toLL, NM, bearingXY, distXY, fromBearing, norm360, norm180, fmtBrg, fmtNm, fmtLat, fmtLon, cardinal, pointInPolygon } from './geo.js';
 import { WindField, speedColor } from './wind.js';
 import { VENUE, MARKS, COURSES, LINE_PRESETS, FORBIDDEN_ZONES, DANGERS, setVenue, venueBody } from './lieu.js';
-import { bootVenue, VENUES, venueOf, needsVenueRepair, venueAt, zonesXY } from './venues.js';
+import { bootVenue, VENUES, venueOf, needsVenueRepair, venueAt, zonesXY, merTexte } from './venues.js';
 import { ESPACE, setEspace, bootEspace, espaceDeLHote, espaceSur, appareilVierge, ESPACE_KEY } from './espaces.js';
 import { packStatus, downloadPack, prunePacks, fmtMo } from './pack.js';
 import { pdfText, parseIC, cleanText } from './events.js';
@@ -156,7 +156,9 @@ let T, F, scene, data = null, series = [], live = [], analysis = null, selLeg = 
 const forbidden = zonesXY(FORBIDDEN_ZONES, toXY);            // zones interdites du plan d’eau en mètres (Toulon : la zone de Saint-Mandrier de la v42)
 
 // Bateau de l’espace (08-05, D-09) : hors de Naos, ses pertes aux manœuvres dans chaque routage (ctx.bateau → routeOpts) ; Naos : contexte de la v43
-const BATEAU = ESPACE.id === 'naos' ? {} : { bateau: ESPACE.bateau };
+// voile d’avant nommée dans le type de chaque bord (js/tactics.js) : celle choisie dans l’onglet du bateau ; Naos : « Foc » de la v43
+const AVANT = { genois: 'Génois', foc: 'Foc' };
+const BATEAU = ESPACE.id === 'naos' ? {} : { bateau: ESPACE.bateau, voileAvant: AVANT[voileDe(ESPACE, localStore())] ?? 'Foc' };
 const CLASSE = ESPACE.bateau.classe;                        // « J80 » pour Naos : textes de la v43
 if (ESPACE.bateau.onglet) { const b = $('#tabs button[data-tab=j80]'); if (b) b.textContent = ESPACE.bateau.onglet; }      // Naos : « J80 » de index.html
 // Nom de l’espace (08-06, D-07) : titre de la page, nom proposé à l’installation sur iPhone, en-tête et écran de chargement ; Naos : balises d’index.html
@@ -927,7 +929,8 @@ function renderBrief() {
     <div class="small muted" style="margin-top:4px">✔ = modèle utilisé pour la carte et l’analyse${S.modelSel === 'auto' ? (ranking.length ? ' (le plus proche de vos relevés)' : ' (AROME HD par défaut, en attendant un relevé)') : ' (choisi manuellement)'}.</div>
     <div class="small muted" style="margin-top:6px">${r.temp != null ? `${r.temp.toFixed(0)} °C · ` : ''}${WMO[r.code] ?? ''}${r.cloud != null ? ` · nuages ${r.cloud} %` : ''}${r.rain ? ` · pluie ${r.rain} mm` : ''}${r.pmsl ? ` · ${r.pmsl.toFixed(0)} hPa` : ''}</div></div>`;
     const m = marineAt(data, r.time);
-    if (m) html += `<div class="card"><h3>État de la mer <small>large de Cépet</small></h3><div class="kpis"><div class="kpi"><b>${m.hs?.toFixed(1) ?? '—'} m</b><span>houle+mer ${m.dir != null ? cardinal(m.dir) : ''}</span></div><div class="kpi"><b>${m.per?.toFixed(0) ?? '—'} s</b><span>période</span></div><div class="kpi"><b>${m.cur != null ? m.cur.toFixed(1) : '—'} nd</b><span>courant ${m.curDir != null ? '→ ' + fmtBrg(m.curDir) : ''}</span></div></div><div class="small muted" style="margin-top:6px">Eau ${m.sst?.toFixed(0) ?? '—'} °C. Courant de surface modélisé (Copernicus) : faible en rade, à vérifier sur les bouées.</div></div>`;
+    const mer = merTexte(VENUE);                        // lieu et note du plan d’eau ; Toulon : textes de la v43 (js/venues.js)
+    if (m) html += `<div class="card"><h3>État de la mer <small>${esc(mer.lieu)}</small></h3><div class="kpis"><div class="kpi"><b>${m.hs?.toFixed(1) ?? '—'} m</b><span>houle+mer ${m.dir != null ? cardinal(m.dir) : ''}</span></div><div class="kpi"><b>${m.per?.toFixed(0) ?? '—'} s</b><span>période</span></div><div class="kpi"><b>${m.cur != null ? m.cur.toFixed(1) : '—'} nd</b><span>courant ${m.curDir != null ? '→ ' + fmtBrg(m.curDir) : ''}</span></div></div><div class="small muted" style="margin-top:6px">Eau ${m.sst?.toFixed(0) ?? '—'} °C. ${esc(mer.note)}</div></div>`;
   }
   // parcours probables
   if (w?.dir != null) {
@@ -986,7 +989,7 @@ let preselect = null;
 // choisi qui n’est pas un parcours de la régate ouverte
 function pickHTML() {
   const r = openReg(), m = courseMismatch(COURSES, S.courseId, r?.id ?? null);
-  if (m) return `<div class="notice" id="courseMismatch" style="margin-top:8px"><b>Parcours choisi : ${esc(m.current || '—')}</b>, pas un parcours ${r ? `de ${esc(r.name)}` : 'du cahier CVAT'}. En course (chrono, mode départ, trace ou GPS allumé), l’app ne change jamais le parcours d’elle-même. Choisissez celui annoncé par le Comité parmi ${esc(m.allowed.join(', '))}.</div>`;
+  if (m) return `<div class="notice" id="courseMismatch" style="margin-top:8px"><b>Parcours choisi : ${esc(m.current || '—')}</b>, pas un parcours ${r ? `de ${esc(r.name)}` : ESPACE.id === 'naos' ? 'du cahier CVAT' : 'du plan d’eau'}. En course (chrono, mode départ, trace ou GPS allumé), l’app ne change jamais le parcours d’elle-même. Choisissez celui annoncé par le Comité parmi ${esc(m.allowed.join(', '))}.</div>`;
   if (!preselect || preselect.id !== S.courseId || !r || preselect.regId !== r.id) return '';
   const c = COURSES.find((x) => x.id === S.courseId);
   return `<div class="notice" id="coursePick" style="margin-top:8px"><b>${esc(c?.title || '—')} présélectionné</b>${preselect.n != null ? ` (parcours de la manche ${preselect.n})` : ''} — choisissez celui annoncé par le Comité.</div>`;
@@ -2122,6 +2125,7 @@ function renderJ80Tab() {
     ...(BATEAU.bateau ? { voile: voileDe(ESPACE, localStore()), onVoile: (v) => {
       if (!choisirVoile(ESPACE, localStore(), v)) { toast('Choix de la voile d’avant non enregistré sur ce téléphone'); return; }
       appliquerPolaireEspace(ESPACE, localStore());
+      BATEAU.voileAvant = AVANT[v] ?? 'Foc';
       if (S.polar) { try { setPolar(S.polar.tws, S.polar.twa, S.polar.bsp, S.polar.source); } catch (e) { S.polar = null; report('polaire', e); } }
       renderJ80Tab(); scheduleAnalysis();
     } } : {}),

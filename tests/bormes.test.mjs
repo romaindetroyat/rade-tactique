@@ -408,3 +408,108 @@ test('routage à Bormes : une route de la ligne du Lavandou vers La Fourmigue (�
     assert.ok(Math.hypot(fin.x - fou.x, fin.y - fou.y) <= 30, `arrivée à ${Math.hypot(fin.x - fou.x, fin.y - fou.y).toFixed(0)} m de La Fourmigue`);
   }
 });
+
+// ───────── Vents et textes du lieu de Bormes (08-07, D-11, D-12) : étude § 3.6, § 3.7, § 4.2, pièges 1, 2 et 8
+import * as tactiques from '../js/tactics.js';
+import { VENUES, merTexte } from '../js/venues.js';
+
+const IDS_BORMES = ['calme', 'mistral', 'ouest', 'nord', 'est', 'sudest', 'sud', 'suroit'];
+const ORIG_B = ['D', 'M', 'S', 'H'];
+
+test('régimes de Bormes : huit, exclusifs — chaque direction (0 à 359°) et chaque force (0 à 30 nd) dans exactement un régime', () => {
+  const R = BORMES.regimes;
+  assert.deepEqual(R.map((r) => r.id), IDS_BORMES);
+  for (let d = 0; d < 360; d++) for (let s = 0; s <= 30; s += 0.5) {
+    const ok = R.filter((r) => r.test(d, s));
+    assert.equal(ok.length, 1, `${d}° ${s} nd : ${ok.map((r) => r.id).join(', ') || 'aucun'}`);
+    assert.equal(tactiques.regimeOf(d, s), ok[0], `regimeOf ${d}° ${s} nd`);
+  }
+  for (let d = 0; d <= 355; d += 5) for (const s of [2, 6, 12, 20, 28]) assert.ok(tactiques.regimeOf(d, s), `${d}° ${s} nd`);
+});
+
+test('régimes de Bormes : le mistral vient de l’ouest (piège 1) — 260° 20 nd « Mistral (ouest) », 260° 10 nd ouest, 75° 14 nd est, 130° 7 nd sud-est, 330° 8 nd nord, 3 nd calme', () => {
+  const de = (d, s) => tactiques.regimeOf(d, s).id;
+  assert.equal(de(260, 20), 'mistral');
+  assert.equal(tactiques.regimeOf(260, 20).name, 'Mistral (ouest)');
+  assert.equal(de(260, 10), 'ouest');
+  assert.equal(de(75, 14), 'est');
+  assert.equal(de(130, 7), 'sudest');
+  assert.equal(de(330, 8), 'nord');
+  for (let d = 0; d < 360; d += 15) assert.equal(de(d, 3), 'calme', `${d}° 3 nd`);
+  assert.deepEqual([de(234, 20), de(235, 20), de(299, 20), de(300, 20), de(235, 13.9), de(235, 14), de(29, 8), de(30, 8), de(109, 8), de(110, 8), de(159, 8), de(160, 8), de(199, 8), de(200, 8)],
+    ['suroit', 'mistral', 'mistral', 'nord', 'ouest', 'mistral', 'nord', 'est', 'est', 'sudest', 'sudest', 'sud', 'sud', 'suroit']);
+  assert.notEqual(de(320, 20), 'mistral', 'le nord-ouest n’est pas le mistral de Bormes');
+});
+
+test('conseils de Bormes : chacun porte son origine (D, M, S, H) ; une hypothèse s’affiche « à confirmer sur l’eau » ; doutes du modèle par sud signalés (piège 8)', () => {
+  let h = 0;
+  for (const r of BORMES.regimes) {
+    assert.ok(r.tips.length >= 2, `${r.id} : au moins deux conseils`);
+    for (const c of r.tips) {
+      assert.ok(c && typeof c.t === 'string' && c.t.length > 10, `${r.id} : texte`);
+      assert.ok(ORIG_B.includes(c.o), `${r.id} : origine ${c.o}`);
+      assert.ok(!/'/.test(c.t), `${r.id} : apostrophe typographique`);
+      assert.ok(!/Toulon|Cépet|Saint-Mandrier|Sicié|Mourillon|CVAT|J80|Naos/.test(c.t), `${r.id} : aucun lieu ni mot de Toulon`);
+      const vu = tactiques.tipText(c);
+      if (c.o === 'H') { h++; assert.ok(vu.endsWith('(à confirmer sur l’eau)'), `${r.id} : hypothèse affichée sans réserve`); }
+      else assert.equal(vu, c.t);
+    }
+  }
+  assert.ok(h >= 5, `${h} hypothèses signalées`);
+  for (const id of ['sudest', 'sud']) assert.ok(BORMES.regimes.find((r) => r.id === id).tips.some((c) => c.o === 'M' && /à confirmer sur l’eau/.test(c.t)), `${id} : doute du modèle « à confirmer sur l’eau »`);
+  assert.match(BORMES.regimes.find((r) => r.id === 'mistral').tips[0].t, /vient de l’ouest[^]*260°/);
+  assert.match(BORMES.texts.origine, /hypothèses sont à confirmer sur l’eau/);
+  assert.ok(!/atlas/.test(BORMES.texts.origine), 'aucun atlas de courant à Bormes');
+});
+
+test('vents prédéfinis de Bormes : les huit de l’étude § 3.6 ; chacun dans le régime attendu', () => {
+  assert.deepEqual(BORMES.presets, [['Mistral fort', 260, 24, 34], ['Mistral modéré', 265, 16, 23], ['Est', 75, 12, 17], ['Est fort', 70, 22, 30],
+    ['Brise de sud-est', 130, 7, 9], ['Brise de sud-ouest', 220, 10, 13], ['Vent de terre', 330, 5, 8], ['Petit temps', 110, 4, 6]]);
+  assert.deepEqual(BORMES.presets.map(([, d, s]) => tactiques.regimeOf(d, s).id), ['mistral', 'mistral', 'est', 'est', 'sudest', 'suroit', 'nord', 'sudest']);
+});
+
+test('textes du lieu de Bormes : milieu de la baie, relief des Maures et de Bénat, liens neutres, point marin gardé ; aucun texte de Toulon', () => {
+  const T = BORMES.texts;
+  assert.equal(T.centre, 'milieu de la baie de Bormes');
+  assert.equal(T.point, 'milieu de la baie de Bormes');
+  assert.match(T.relief, /mur des Maures \(450 à 520 m\)[^]*cap Bénat \(184 m\)[^]*Port-Cros \(190 m\)/);
+  assert.equal(BORMES.weather.marine, 'latitude=43.115&longitude=6.39', 'point marin gardé (étude § 3.7)');
+  assert.deepEqual(BORMES.links.map(([t]) => t), ['Bulletin côtier Météo-France', 'Windy']);
+  assert.ok(BORMES.links.every(([, u]) => /^https:\/\//.test(u) && !/48529|5\.96/.test(u)), 'liens sans balise ni cadrage de Toulon');
+  assert.ok(!/Toulon|Cépet|Saint-Mandrier|Sicié|CVAT|J80|Naos/.test(JSON.stringify(T)), 'textes sans lieu ni mot de Toulon');
+  for (const k of ['maree', 'courant']) assert.ok(!(k in BORMES), `ni ${k} : ni marée ni modèle de courant (D-11)`);
+});
+
+test('carte « État de la mer » : Toulon garde les textes de la v43 à l’octet ; Bormes nomme sa baie et le courant général d’ouest entre les îles (information) ; Brest sans point marin', () => {
+  const t = merTexte(VENUES.toulon);
+  assert.deepEqual(t, { lieu: 'large de Cépet', note: 'Courant de surface modélisé (Copernicus) : faible en rade, à vérifier sur les bouées.' });
+  assert.ok(!/[&<>"]/.test(t.lieu + t.note), 'aucun caractère échappé : HTML de la v43 identique');
+  assert.equal(VENUES.toulon.weather.marine, 'latitude=43.06&longitude=5.96', 'point marin de Toulon inchangé');
+  const b = merTexte(BORMES);
+  assert.equal(b.lieu, 'au large de la baie de Bormes');
+  assert.match(b.note, /faible dans la baie/);
+  assert.match(b.note, /entre les îles[^]*porte[^]*ouest/);
+  assert.match(b.note, /Information seulement[^]*à confirmer sur l’eau/);
+  assert.ok(!/Cépet|rade de Toulon|Copernicus/.test(b.lieu + b.note), 'aucun texte de Toulon à Bormes');
+  assert.equal(VENUES.brest.weather.marine, null, 'Brest : pas de point marin, pas de carte');
+});
+
+// Code de la carte dans js/app.js : textes choisis par merTexte, rien d’autre de changé (Toulon : chaînes de la v43)
+test('js/app.js : la carte « État de la mer » prend lieu et note dans merTexte(VENUE) ; plus de « large de Cépet » en dur ; parcours hors du cahier CVAT seulement pour Naos', () => {
+  const src = readFileSync(join(ROOT, 'js/app.js'), 'utf8');
+  assert.match(src, /État de la mer <small>\$\{esc\(mer\.lieu\)\}<\/small>/);
+  assert.match(src, /°C\. \$\{esc\(mer\.note\)\}<\/div>/);
+  assert.ok(!/large de Cépet/.test(src), 'texte de Toulon en dur retiré de js/app.js (gardé pour Toulon dans js/venues.js)');
+  assert.match(src, /ESPACE\.id === 'naos' \? 'du cahier CVAT'/);
+});
+
+test('type de bord : voile d’avant du bateau (« Génois » au Tofinou) ; sans voile passée (Naos), « Foc » de la v43', { skip: sansPack }, async () => {
+  const t = await terrain(), F = await champ270B(), polys = zonesXY(BORMES.FORBIDDEN_ZONES, xy);
+  const de = xy(43.115, 6.40), vers = { ...xy(43.115, 6.38), name: 'au vent' };          // bord de près vers l’ouest par 270°
+  const leg = { from: de, to: vers, brg: 270, dist: Math.hypot(vers.x - de.x, vers.y - de.y) };
+  const ctx = { terrain: t, forbidden: polys, perf: 1, trend: 0, memo: new Map() };
+  const naos = tactiques.analyzeLeg({ ...leg }, F, ctx), tof = tactiques.analyzeLeg({ ...leg }, F, { ...ctx, memo: new Map(), voileAvant: 'Génois' });
+  assert.equal(naos.type.id, 'pres');
+  assert.equal(naos.type.sail, 'Foc');
+  assert.equal(tof.type.sail, 'Génois');
+});

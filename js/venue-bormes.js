@@ -127,6 +127,76 @@ const DANGERS = [
   { name: 'Parc national de Port-Cros', lat: 43.0065, lon: 6.3948, note: 'Pas de zone interdite à la voile, mais vitesse limitée à 5 nd à moins de 300 m des côtes et à 12 nd dans les 600 m (cœur marin, bateaux propres), pas de débarquement à Bagaud (réserve intégrale, comme la Gabinière et le Rascas), petites zones de circulation et de mouillage interdits et zones temporaires possibles (dépliant « Réglementation marine » 2025 du parc). À compléter sur carte marine.' },
 ];
 
+// ───────── Régimes de vent (étude § 3.6, D-12) : même forme qu’à Brest, chaque conseil { t, o } avec son origine : D mesure Météo-France
+// (heures de course 2010-2026 au Levant, à Porquerolles, Hyères et Cap Camarat), M modèle de relief de l’app sur le pack, S source citée,
+// H hypothèse à confirmer sur l’eau (affichée comme telle par tipText). Tests exclusifs, dans l’ordre de l’étude : chaque direction et chaque
+// force trouvent exactement un régime. Le mistral vient ici de l’ouest (260° en médiane) : le test de Toulon (285 à 345°) ne le voit pas (piège 1).
+// Par vent de sud à sud-est, le modèle retire probablement trop de vent dans la baie (piège 8) : signalé dans le conseil.
+// À faire relire par un régatier de la baie (contrôle humain, 08-09).
+const vent = (s) => !(s < 4);
+const REGIMES = [
+  { id: 'calme', name: 'Calme / très petit temps', test: (d, s) => s < 4,
+    tips: [
+      { t: 'Une journée sur deux de mai à septembre est une journée de brise en rade d’Hyères : elle s’installe vers midi par le sud-est et culmine à 9 à 11 nd entre 16 h et 18 h.', o: 'D' },
+      { t: 'Elle tourne à droite, vers le sud-ouest : 10 à 25° en médiane entre 14 h et 18 h selon la station.', o: 'D' },
+      { t: 'Le matin, vent de terre faible de nord à nord-ouest.', o: 'D' },
+      { t: 'Le nouveau vent arrive par le large : rester au large de la baie plutôt qu’au pied des Maures.', o: 'H' },
+    ] },
+  { id: 'mistral', name: 'Mistral (ouest)', test: (d, s) => vent(s) && d >= 235 && d < 300 && s >= 14,
+    tips: [
+      { t: 'Ici le mistral vient de l’ouest, 260° en médiane, pas du nord-ouest.', o: 'D' },
+      { t: '14 % des heures de course l’été, 17 % l’hiver à 17 nd et plus ; rafales à 1,5 fois le vent moyen, souvent 34 nd l’hiver.', o: 'D' },
+      { t: 'Le massif du cap Bénat abrite la baie : 15 à 25 % de vent en moins devant Bormes et au milieu, 40 % dans l’anse du Gau ; vent plein au sud du cap et à 2 milles à l’est de La Fourmigue.', o: 'M' },
+      { t: 'Il mollit vers l’est : Cavalaire reçoit environ 60 à 70 % du vent des îles, tourné au sud-ouest.', o: 'D' },
+      { t: 'Rafales qui tombent du relief, mer plate sous Bénat.', o: 'H' },
+    ] },
+  { id: 'ouest', name: 'Ouest modéré', test: (d, s) => vent(s) && d >= 235 && d < 300 && s < 14,
+    tips: [
+      { t: 'Même abri du cap Bénat : plus de pression au large de la baie et vers La Fourmigue.', o: 'M' },
+      { t: 'C’est aussi la direction de la brise de fin d’après-midi au Levant.', o: 'D' },
+      { t: 'Vent irrégulier près de la côte de Bormes.', o: 'H' },
+    ] },
+  { id: 'nord', name: 'Nord-ouest à nord (vent de terre)', test: (d, s) => vent(s) && (d >= 300 || d < 30),
+    tips: [
+      { t: 'Rare sur l’eau : 2 à 6 % des heures de course.', o: 'D' },
+      { t: 'Les crêtes des Maures (450 à 520 m à 3 km) déventent toute la côte de Saint-Clair au Rayol : la moitié du vent en moins au ras de la côte, plus de vent au large.', o: 'M' },
+      { t: 'Vent du petit matin avant la brise.', o: 'D' },
+      { t: 'Rafales et rotations.', o: 'H' },
+    ] },
+  { id: 'est', name: 'Est', test: (d, s) => vent(s) && d >= 30 && d < 110,
+    tips: [
+      { t: 'Second régime du plan d’eau : 31 % des heures de course l’été, 35 % l’hiver, 070° à 080° quand il est fort.', o: 'D' },
+      { t: 'La baie lui est ouverte : vent presque plein au milieu et à La Fourmigue, 18 % de moins devant Bormes, 30 % dans l’anse du Gau.', o: 'M' },
+      { t: 'L’ouest du cap Bénat (Brégançon, coffre 1) est abrité : 15 à 20 % de moins.', o: 'M' },
+      { t: 'Mesuré à Hyères : 24 à 38 % de vent en moins qu’au Levant.', o: 'D' },
+      { t: 'Fort surtout d’octobre à avril (un tiers des heures d’est à 17 nd et plus).', o: 'D' },
+      { t: 'La mer entre dans la baie.', o: 'H' },
+    ] },
+  { id: 'sudest', name: 'Sud-est (brise de midi)', test: (d, s) => vent(s) && d >= 110 && d < 160,
+    tips: [
+      { t: 'Direction de la brise à son arrivée, vers midi ; faible : 6 à 7 nd en moyenne.', o: 'D' },
+      { t: 'Elle tourne à droite dans l’après-midi.', o: 'D' },
+      { t: 'Le modèle annonce 20 % de vent en moins dans la baie et 20° de rotation à gauche : valeur incertaine pour une brise de mer, à confirmer sur l’eau.', o: 'M' },
+    ] },
+  { id: 'sud', name: 'Sud', test: (d, s) => vent(s) && d >= 160 && d < 200,
+    tips: [
+      { t: 'Passage entre la brise de sud-est et celle de sud-ouest ; fréquent l’après-midi à Camarat (18 %), rare au Levant (5 %).', o: 'D' },
+      { t: 'Le modèle retire jusqu’à la moitié du vent au fond de la baie : probablement trop, à confirmer sur l’eau.', o: 'M' },
+    ] },
+  { id: 'suroit', name: 'Sud-ouest (brise de l’après-midi)', test: (d, s) => vent(s) && d >= 200 && d < 235,
+    tips: [
+      { t: 'Brise établie de l’après-midi : 35 % des heures de course l’été à Hyères, 9 à 11 nd vers 16 h.', o: 'D' },
+      { t: 'La baie est sous le vent du massif de Bénat : 30 à 45 % de vent en moins devant Bormes et Le Lavandou, 15 % à La Fourmigue, vent normal 2 milles plus à l’est : aller chercher la pression au large.', o: 'M' },
+      { t: 'À l’est du cap Nègre le sud-ouest est plus fort (Camarat : 14 nd en moyenne, un quart des heures à 17 nd et plus).', o: 'D' },
+    ] },
+];
+// Vents prédéfinis pour la saisie manuelle (étude § 3.6) : [nom, direction, vent moyen, rafales] ; directions et forces tirées des mesures,
+// rafales supposées
+const PRESETS = [
+  ['Mistral fort', 260, 24, 34], ['Mistral modéré', 265, 16, 23], ['Est', 75, 12, 17], ['Est fort', 70, 22, 30],
+  ['Brise de sud-est', 130, 7, 9], ['Brise de sud-ouest', 220, 10, 13], ['Vent de terre', 330, 5, 8], ['Petit temps', 110, 4, 6],
+];
+
 // Lignes de départ : positions à confirmer sur l’eau (aucune n’est tirée d’une IC)
 const LINE_PRESETS = {
   lavandou: { label: 'Devant Le Lavandou (position à confirmer)', lat: 43.133, lon: 6.381 },
@@ -165,11 +235,17 @@ export const BORMES = Object.freeze({
   PLACES,
   FORBIDDEN_ZONES: ZONES,
   DANGERS,
-  regimes: [],             // aucun régime tant que ceux de Bormes ne sont pas écrits (08-07) : jamais les conseils de Toulon
-  presets: [],
+  regimes: REGIMES,
+  presets: PRESETS,
+  // textes du lieu (étude § 3.6, § 4.2) ; `mer` et `courant` : carte « État de la mer » (point marin de la prévision, information seulement :
+  // ni marée ni modèle de courant dans le routage, D-11). Courant : modèle de surface servi par Open-Meteo, maille de 8 km, du 26 août au
+  // 28 novembre 2026 (médianes : 0,22 nd dans la baie ; 0,54 à 0,86 nd entre et au sud des îles, portant surtout à l’ouest)
   texts: {
-    centre: 'milieu de la baie', point: 'milieu de la baie',
-    relief: 'accélérations aux caps et dans les passes entre les îles',
+    centre: 'milieu de la baie de Bormes', point: 'milieu de la baie de Bormes',
+    relief: 'mur des Maures (450 à 520 m) à 3 km au nord, massif du cap Bénat (184 m) au sud-ouest, Port-Cros (190 m) et le Levant au sud',
+    origine: 'Conseils tirés de mesures (Météo-France, 2010-2026) et du modèle de relief de l’app ; les hypothèses sont à confirmer sur l’eau.',
+    mer: 'au large de la baie de Bormes',
+    courant: 'Courant de surface modélisé (maille de 8 km) : faible dans la baie (0,2 nd en médiane) ; entre les îles et au sud de Port-Cros et du Levant, le courant général porte en général à l’ouest (0,5 à 0,9 nd en médiane), à prévoir sur les côtiers autour des îles. Information seulement : l’app n’en tient pas compte dans les routes ; à confirmer sur l’eau.',
   },
   // autres sources (onglet Vent) : liens neutres, sans balise de Toulon
   links: [

@@ -53,6 +53,11 @@ const ouvert = (id, ids) => typeof id === 'string' && Object.hasOwn(VENUES, id) 
 // compris — ou d’un autre espace donne le plan d’eau par défaut de l’espace : Toulon pour Naos, comme en v43)
 export const bootVenue = (st, espace = ESPACE) => (ouvert(st?.venue, espace.venues) ? st.venue : espace.venueDefaut);
 
+// Carte « État de la mer » (D-11, D-12) : lieu du point marin et note du courant du plan d’eau (`texts.mer`, `texts.courant`) ; sans eux,
+// les textes de Toulon de la v43 à l’identique (Brest n’a pas de point marin : pas de carte)
+const MER_TOULON = Object.freeze({ lieu: 'large de Cépet', note: 'Courant de surface modélisé (Copernicus) : faible en rade, à vérifier sur les bouées.' });
+export const merTexte = (v) => (v?.texts?.mer ? { lieu: v.texts.mer, note: v.texts.courant ?? '' } : { ...MER_TOULON });
+
 // Zones interdites → polygones en mètres pour le routage et la carte : { name, note, desc, pts: [{ lat, lon }] } → [[{ x, y }]]
 export const zonesXY = (zones, xy) => zones.map((z) => z.pts.map((p) => xy(p.lat, p.lon)));
 
