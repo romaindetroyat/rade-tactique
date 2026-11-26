@@ -179,7 +179,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | ESPACE-07 | Phase 8 | Complete (08-02) |
 | TOF-01 | Phase 8 | Complete (08-05 : polaire du certificat 03510004F1O, génois par défaut et foc estimé au choix, défaut de l’espace recalable, 9,47 m, pertes 11 s / 8 s, tirant d’eau « à confirmer » ; voile et tirant à confirmer avec le skipper) |
 | TOF-02 | Phase 8 | Partiel : pack construit (08-03) ; borne ouest de saisie (08-04) et instantané météo (08-09) à faire |
-| TOF-03 | Phase 8 | Pending (08-07) |
+| TOF-03 | Phase 8 | Presque complet (08-07 : zones du Levant et de Brégançon évitées, marques, 46 lieux, dangers et Port-Cros, huit régimes et vents prédéfinis marqués selon leur origine, carte « État de la mer » de la baie, aucun de « Cépet », « Saint-Mandrier », « rade de Toulon », « CVAT », « J80 », « Naos » dans les cinq vues) ; reste : libellés de classes du CVAT de l’onglet Parcours et du partage, avec le catalogue (08-08) |
 | TOF-04 | Phase 8 | Pending (08-08, 08-09) |
 | TOF-05 | Phase 8 | Pending (08-10) |
 | TOF-06 | Phase 8 | Pending (08-11) |

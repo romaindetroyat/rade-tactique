@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 08
 current_phase_name: "Espace Tofinou : rade de Bormes – Le Lavandou, Tofinou 9.5, accès séparé"
 status: in_progress
-stopped_at: Completed 08-06-PLAN.md
-last_updated: "2026-11-26T21:37:44.309Z"
+stopped_at: Completed 08-07-PLAN.md
+last_updated: "2026-11-26T22:15:35.882Z"
 last_activity: 2026-11-26
-last_activity_desc: "Plan 08-06 — identité de chaque espace : manifeste réécrit par le middleware sur l’adresse de Tofinou, page d’accès, titre, aide, débrief, « Changer d’espace »"
-state_head: c8cbedcb325c719579d0a3420ce753b24bb15c9d
+last_activity_desc: "Plan 08-07 — savoir local de Bormes : zones interdites (Levant, Brégançon) évitées, marques, lieux, dangers, huit régimes de vent marqués selon leur origine, vents prédéfinis, carte « État de la mer » de la baie"
+state_head: 0cac3e4a0bc472108bc65e1d6ac10792f210a364
 progress:
   total_phases: 8
   completed_phases: 6
   total_plans: 49
-  completed_plans: 44
+  completed_plans: 45
   percent: 75
 ---
 
@@ -28,9 +28,9 @@ See: .planning/PROJECT.md (updated 2026-10-19)
 ## Current Position
 
 Phase: 08 (Espace Tofinou : rade de Bormes – Le Lavandou, Tofinou 9.5, accès séparé) — EN COURS
-Plan: 6 of 11 terminés (08-01, 08-02, 08-03, 08-04, 08-05, 08-06)
+Plan: 7 of 11 terminés (08-01, 08-02, 08-03, 08-04, 08-05, 08-06, 08-07)
 Status: aperçu apercu-phase-08 ; v43 en production (PR #17)
-Last activity: 2026-11-26 — Plan 08-06 : manifeste par espace (/manifest.webmanifest traité en premier par le middleware, réécrit vers manifest-tofinou.webmanifest sur l’adresse de Tofinou, jamais refusé), page d’accès, titre et nom d’installation « Tofinou Bormes », aide et accueil de Tofinou sans texte de Naos, débrief par espace, « Changer d’espace » pour Romain ; Naos identique à la v43 (aide, page d’accès, manifeste, rapport de débrief à l’octet) ; 945 tests (943 verts, 2 sautés), gardes et gel de Naos verts
+Last activity: 2026-11-26 — Plan 08-07 : zone militaire du Levant (bande de 200 m tracée sur la côte du pack, zone 6 toute l’année) et Brégançon évitées par le routage, « à compléter sur carte marine » ; La Fourmigue et coffre 1 fixes, bouées du comité « position à confirmer », 46 lieux, dangers et règles de Port-Cros ; huit régimes exclusifs (mistral d’ouest 235–300° dès 14 nd), conseils marqués D/M/H, huit vents prédéfinis ; carte « État de la mer » de la baie avec le courant général d’ouest en information ; aucun de « Cépet », « Saint-Mandrier », « rade de Toulon », « CVAT », « J80 », « Naos » dans les vues de Bormes (restent les libellés de classes du CVAT, 08-08) ; voile d’avant du Tofinou dans les bords ; Naos identique (gel v43, toulon-vue, naos-cles) ; 963 tests (961 verts, 2 sautés), gardes vertes
 
 Progress: [████████░░] 75%
 
@@ -102,6 +102,7 @@ Progress: [████████░░] 75%
 | Phase 08 P04 | 41min | 3 tasks | 23 files |
 | Phase 08 P05 | 75min | 2 tasks | 19 files |
 | Phase 08 P06 | 25min | 2 tasks | 18 files |
+| Phase 08 P07 | 25min | 2 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -226,6 +227,9 @@ Décisions récentes qui orientent le travail en cours :
 - [Phase 08]: 08-06 : manifeste de Tofinou servi sans code sur ses hôtes seulement (code exigé ailleurs) : ensemble public de l’hôte de Naos identique à la v43
 - [Phase 08]: 08-06 : /manifest.webmanifest traité en premier par une enveloppe du middleware (GET/HEAD, jamais refusé), réécrit sur un hôte de Tofinou ; manifestePour partagé avec le serveur local
 - [Phase 08]: 08-06 : « Changer d’espace » dans l’aide pour un membre de plusieurs espaces sur un hôte connu, espaces gardés en mémoire seulement
+- [Phase 08]: 08-07 : zone du Levant tracée large — points 27, 3, 4, 28 écartés (contour qui se touchait), segment 26 → 29, zone 6 interdite toute l’année, bande de 200 m calculée sur data/bormes.coast.json
+- [Phase 08]: 08-07 : carte « État de la mer » par plan d’eau (merTexte, js/venues.js) ; Toulon garde les chaînes de la v43, Bormes nomme sa baie et le courant général d’ouest en information
+- [Phase 08]: 08-07 : voile d’avant du Tofinou (Génois / Foc) dans le type de bord via ctx.voileAvant ; Naos garde « Foc »
 
 ### Pending Todos
 
@@ -267,6 +271,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-11-26T21:37:44.109Z
-Stopped at: Completed 08-06-PLAN.md
+Last session: 2026-11-26T22:15:31.307Z
+Stopped at: Completed 08-07-PLAN.md
 Resume file: None

@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 9
+open_count: 7
 waived_count: 0
-fixed_count: 4
-total_count: 13
-last_updated: 2026-11-26T21:36:35.832Z
+fixed_count: 7
+total_count: 14
+last_updated: 2026-11-26T22:13:54.015Z
 ---
 
 # Broken Windows Ledger
@@ -24,10 +24,11 @@ last_updated: 2026-11-26T21:36:35.832Z
 | 7 | 07 | stub | js/app.js |  | VENUE_DEF.brest.courseId = banane (90) au premier passage, faute de catalogue du GPEN (07-09) | open |  | 2026-11-19T07:36:20.892Z |  |
 | 8 | 07 | stub | data/brest.wx-snapshot.json |  | Instantané météo de Brest absent (limite quotidienne d’Open-Meteo) : pas de prévision de secours à la première ouverture hors réseau à Brest | open |  | 2026-11-19T11:35:15.439Z |  |
 | 9 | 08 | skipped-test | tests/bormes.test.mjs |  | Instantané météo de Bormes non produit (Open-Meteo : limite quotidienne) ; test sauté, à produire avant la release (08-09) | open |  | 2026-11-26T19:45:50.981Z |  |
-| 10 | 08 | stub | js/app.js | 917 | Carte « État de la mer » titrée « large de Cépet » et « faible en rade » à Bormes (point marin du descripteur) : texte de Toulon à paramétrer (08-07, D-12) | open |  | 2026-11-26T20:23:23.290Z |  |
-| 11 | 08 | stub | js/venue-bormes.js |  | Descripteur de Bormes sans marques, lieux, zones interdites, dangers, régimes ni vents prédéfinis (formes vides, banane seule) : à remplir en 08-07 (savoir local) et 08-08 (Challenge de la Baie) | open |  | 2026-11-26T20:23:23.397Z |  |
+| 10 | 08 | stub | js/app.js | 917 | Carte « État de la mer » titrée « large de Cépet » et « faible en rade » à Bormes (point marin du descripteur) : texte de Toulon à paramétrer (08-07, D-12) | fixed |  | 2026-11-26T20:23:23.290Z | 2026-11-26T22:13:53.768Z |
+| 11 | 08 | stub | js/venue-bormes.js |  | Descripteur de Bormes sans marques, lieux, zones interdites, dangers, régimes ni vents prédéfinis (formes vides, banane seule) : à remplir en 08-07 (savoir local) et 08-08 (Challenge de la Baie) | fixed |  | 2026-11-26T20:23:23.397Z | 2026-11-26T22:13:53.885Z |
 | 12 | 08 | stub | js/help.js |  | Aide de Tofinou : la note de version affichée est celle de la v43 (« … GPEN ») jusqu’à la release v44 (08-10) ; lien du guide complet et rubrique IA de l’espace absents (08-10, 08-09) | open |  | 2026-11-26T21:36:35.725Z |  |
-| 13 | 08 | todo | js/app.js | 989 | Message « pas un parcours du cahier CVAT » possible dans l’espace Tofinou sans régate ouverte (pickHTML) : texte du plan d’eau à rendre propre à Bormes (08-07/08-08) | open |  | 2026-11-26T21:36:35.832Z |  |
+| 13 | 08 | todo | js/app.js | 989 | Message « pas un parcours du cahier CVAT » possible dans l’espace Tofinou sans régate ouverte (pickHTML) : texte du plan d’eau à rendre propre à Bormes (08-07/08-08) | fixed |  | 2026-11-26T21:36:35.832Z | 2026-11-26T22:13:54.015Z |
+| 14 | 08 | stub | js/venue-bormes.js |  | Catalogue du Challenge de la Baie absent (COURSES vide, banane seule) ; libellés de classes du CVAT (« C–D–L–R1-R3 », « P1–P2 ») dans l’onglet Parcours et le texte de partage à Bormes : 08-08 | open |  | 2026-11-26T22:13:49.386Z |  |
 
 ````json
 [
@@ -155,10 +156,10 @@ last_updated: 2026-11-26T21:36:35.832Z
     "file": "js/app.js",
     "line": 917,
     "description": "Carte « État de la mer » titrée « large de Cépet » et « faible en rade » à Bormes (point marin du descripteur) : texte de Toulon à paramétrer (08-07, D-12)",
-    "status": "open",
+    "status": "fixed",
     "reason": "",
     "recorded_at": "2026-11-26T20:23:23.290Z",
-    "resolved_at": null,
+    "resolved_at": "2026-11-26T22:13:53.768Z",
     "milestone": null
   },
   {
@@ -168,10 +169,10 @@ last_updated: 2026-11-26T21:36:35.832Z
     "file": "js/venue-bormes.js",
     "line": null,
     "description": "Descripteur de Bormes sans marques, lieux, zones interdites, dangers, régimes ni vents prédéfinis (formes vides, banane seule) : à remplir en 08-07 (savoir local) et 08-08 (Challenge de la Baie)",
-    "status": "open",
+    "status": "fixed",
     "reason": "",
     "recorded_at": "2026-11-26T20:23:23.397Z",
-    "resolved_at": null,
+    "resolved_at": "2026-11-26T22:13:53.885Z",
     "milestone": null
   },
   {
@@ -194,9 +195,22 @@ last_updated: 2026-11-26T21:36:35.832Z
     "file": "js/app.js",
     "line": 989,
     "description": "Message « pas un parcours du cahier CVAT » possible dans l’espace Tofinou sans régate ouverte (pickHTML) : texte du plan d’eau à rendre propre à Bormes (08-07/08-08)",
-    "status": "open",
+    "status": "fixed",
     "reason": "",
     "recorded_at": "2026-11-26T21:36:35.832Z",
+    "resolved_at": "2026-11-26T22:13:54.015Z",
+    "milestone": null
+  },
+  {
+    "id": 14,
+    "kind": "stub",
+    "phase": "08",
+    "file": "js/venue-bormes.js",
+    "line": null,
+    "description": "Catalogue du Challenge de la Baie absent (COURSES vide, banane seule) ; libellés de classes du CVAT (« C–D–L–R1-R3 », « P1–P2 ») dans l’onglet Parcours et le texte de partage à Bormes : 08-08",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-11-26T22:13:49.386Z",
     "resolved_at": null,
     "milestone": null
   }

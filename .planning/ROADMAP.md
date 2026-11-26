@@ -281,7 +281,7 @@ Plans:
   7. v44 sur l'aperçu `apercu-phase-08`, vérifiée (tous les scénarios, cloisonnement sur l'adresse réelle, iPhone), puis en production sur « publie » de Romain dès qu'elle est prête, au plus tard le 10/12/2026 (sinon à partir du 14/12), jamais dans les 48 h avant une régate ni pendant une course ; domaine de Tofinou ajouté par Romain dans Vercel
   8. Dans l'espace Tofinou, Frédéric charge ses propres IC de bout en bout (PDF → IA avec les consignes d'IC du Tofinou → relecture → bouées « à confirmer » bornées à Bormes → parcours), avec l'archive et le quota de l'espace ; un éditeur de parcours à la main (« Créer un parcours » / « Modifier le parcours » : bouées confirmées avec côté, porte, arrivée sur la ligne ou distincte, tours ; bouées par position saisie ou touchée sur la carte, à confirmer) est partagé par l'archive Tofinou, refusé pendant une course, et n'apparaît pas dans l'espace Naos
 
-**Plans:** 6/11 plans executed (vagues séquentielles : mêmes fichiers générés `sw.js`, `js/version.js`, mêmes `js/app.js` et `tools/regate-e2e.mjs`)
+**Plans:** 7/11 plans executed (vagues séquentielles : mêmes fichiers générés `sw.js`, `js/version.js`, mêmes `js/app.js` et `tools/regate-e2e.mjs`)
 
 Plans:
 **Wave 1**
@@ -303,7 +303,7 @@ Plans:
 - [x] 08-06-PLAN.md — Identité par espace : manifeste réécrit par le middleware sur l'adresse de Tofinou (public), page d'accès, titre, aide, débrief, « Changer d'espace » (vague 6)
 
 **Wave 7** *(blocked on Wave 6 completion)*
-- [ ] 08-07-PLAN.md — Savoir local de Bormes : zones interdites (Levant, Brégançon), Port-Cros, marques, lieux, dangers, régimes et vents prédéfinis, textes du lieu, plus de texte de Toulon à Bormes ; scénario `bormes-local` (vague 7)
+- [x] 08-07-PLAN.md — Savoir local de Bormes : zones interdites (Levant, Brégançon), Port-Cros, marques, lieux, dangers, régimes et vents prédéfinis, textes du lieu, plus de texte de Toulon à Bormes ; scénario `bormes-local` (vague 7)
 
 **Wave 8** *(blocked on Wave 7 completion)*
 - [ ] 08-08-PLAN.md — Challenge de la Baie : jours de course d'une régate (`jours`), fiche semée dans l'espace Tofinou (sept manches, 11/10), catalogue (côtiers, sens inverse, banane n° 4) ; scénario `baie` (vague 8)
