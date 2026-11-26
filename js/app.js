@@ -26,7 +26,7 @@ import { optimalAngles, boatSpeed, trimAdvice, spiMinTwa, getPolar, setPolar, re
 import { renderJ80 } from './j80.js';
 import { appliquerPolaireEspace, choisirVoile, voileDe } from './bateau.js';
 import { modelPoints, modelAt, idwAt, scoreModels, renderObsCard } from './obs.js';
-import { initTips, maybeWelcome, openGuide, openShare, tip, SYNC_TIP, DL_TIP } from './help.js';
+import { initTips, maybeWelcome, openGuide, openShare, tip, SYNC_TIP, DL_TIP, setEspacesMembre } from './help.js';
 import { parseWind, listen, say } from './voice.js';
 import { Recorder, listTracks, getTrack, deleteTrack, saveTrack, analyzeTrack, exportGPX, fromGPX } from './track.js';
 import { shroudsFor } from './tuning.js';
@@ -159,6 +159,13 @@ const forbidden = zonesXY(FORBIDDEN_ZONES, toXY);            // zones interdites
 const BATEAU = ESPACE.id === 'naos' ? {} : { bateau: ESPACE.bateau };
 const CLASSE = ESPACE.bateau.classe;                        // « J80 » pour Naos : textes de la v43
 if (ESPACE.bateau.onglet) { const b = $('#tabs button[data-tab=j80]'); if (b) b.textContent = ESPACE.bateau.onglet; }      // Naos : « J80 » de index.html
+// Nom de l’espace (08-06, D-07) : titre de la page, nom proposé à l’installation sur iPhone, en-tête et écran de chargement ; Naos : balises d’index.html
+if (ESPACE.id !== 'naos') {
+  document.title = ESPACE.app;
+  $('meta[name=apple-mobile-web-app-title]')?.setAttribute('content', ESPACE.app);
+  $('meta[name=description]')?.setAttribute('content', 'Rade de Bormes – Le Lavandou en 3D : vent local, parcours du Challenge de la Baie, routage du Tofinou 9.5 et conseils tactiques.');
+  for (const el of document.querySelectorAll('.brand b, #splash b')) el.textContent = ESPACE.app;
+}
 appliquerPolaireEspace(ESPACE, localStore());              // polaire par défaut de l’espace (Naos : aucune, J80), avant la polaire personnelle
 if (S.polar) { try { setPolar(S.polar.tws, S.polar.twa, S.polar.bsp, S.polar.source); } catch (e) { S.polar = null; report('polaire', e); } }
 
@@ -2018,7 +2025,7 @@ function renderTraceDetail() {
     ${fits.map((f) => `<div style="margin-top:10px"><b>${esc(f.k)} ${esc(f.m.name)}</b> — position à confirmer</div>${f.c.map((c, i) => `<div class="small" style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin:6px 0"><span>virage de ${Math.round(Math.abs(c.turn.D))}° à ${hms(c.turn.t)} · à ${Math.round(c.d0)} m de la position actuelle · passage au plus près à ${Math.round(c.near.d)} m <span class="muted">(pour information)</span></span><button class="btn small acc" data-mkfit="${esc(f.k)}" data-i="${i}">Valider</button></div>`).join('')}`).join('')}</div>` : '';
   el.innerHTML = `<div class="card"><h3><span>${esc(tr.name)}</span><small>${new Date(tr.start).toLocaleTimeString('fr-FR', { timeStyle: 'short' })}</small></h3>
     <div class="kpis"><div class="kpi"><b>${(res.dist / NM).toFixed(1)}</b><span>Nq parcourus</span></div><div class="kpi"><b>${summarizeTime(res.dur)}</b><span>durée active ${tip('Durée d’enregistrement réel : les pauses (arrêt puis reprise, perte du GPS de plus de 2 minutes) ne sont comptées ni dans la durée ni dans la distance.')}</span></div><div class="kpi"><b>${res.vmean.toFixed(1)}</b><span>nd moyen (max ${res.vmax.toFixed(1)})</span></div></div>
-    <div class="kpis" style="margin-top:8px"><div class="kpi"><b>${nT}</b><span>virements</span></div><div class="kpi"><b>${nE}</b><span>empannages</span></div><div class="kpi"><b>${res.perf ? Math.round(res.perf * 100) + ' %' : '—'}</b><span>de la polaire ${tip('Vitesse mesurée ÷ vitesse cible de la polaire J80 pour le vent du modèle à cet endroit et cette heure. Indicatif : le vent réel peut différer du modèle.')}</span></div></div>
+    <div class="kpis" style="margin-top:8px"><div class="kpi"><b>${nT}</b><span>virements</span></div><div class="kpi"><b>${nE}</b><span>empannages</span></div><div class="kpi"><b>${res.perf ? Math.round(res.perf * 100) + ' %' : '—'}</b><span>de la polaire ${tip(`Vitesse mesurée ÷ vitesse cible de la polaire ${CLASSE} pour le vent du modèle à cet endroit et cette heure. Indicatif : le vent réel peut différer du modèle.`)}</span></div></div>
     <p class="small muted" id="trWind" style="margin:8px 0 0">Vent de l’analyse : ${esc(src.label)}.</p>
     <p class="small" id="trReg" style="margin:4px 0 0">${regOfTrace(tr.id) ? `Rangée dans <b>${esc(regOfTrace(tr.id).name)}</b> · <button type="button" class="btn small alt" id="trDetach">Détacher</button>` : 'Sans régate · <button type="button" class="btn small alt" id="trPlace">Ranger…</button>'}</p>
     <button class="btn acc" id="trDebrief" style="width:100%;margin-top:8px">📝 ${tr.report ? 'Refaire le débrief de course' : 'Débrief de course'}</button>${tr.report ? '<button class="btn" id="trReport" style="width:100%;margin-top:6px">📄 Voir le débrief</button>' : ''}
@@ -2211,6 +2218,7 @@ async function refreshMembre() {
     const r = await fetch('/api/membre', { cache: 'no-store', signal: ctl.signal });
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const j = await r.json();
+    setEspacesMembre(j?.espaces);                        // « Changer d’espace » (aide) : membre de plusieurs espaces, gardé en mémoire seulement
     const nom = j?.membre;
     if (espaceEtat === 'attendre' && !(await confirmeEspace(j))) return;        // hôte inconnu : espace d’abord ; autre espace : rien n’est modifié
     if (!saveMembre(localStore(), nom)) throw new Error('prénom illisible');

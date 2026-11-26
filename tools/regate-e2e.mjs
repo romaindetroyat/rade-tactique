@@ -3930,7 +3930,105 @@ async function regateBrest({ browser, base }) {
   await A.ctx.close(); await B.ctx.close();
 }
 
-const SCENARIOS = { accueil, 'jour-j': jourJ, 'deux-telephones': deuxTelephones, reprise, equipage, archive, 'archive-bouees': archiveBouees, archivehors: archiveHors, creer, manche, auteur, ic, 'depuis-ic': depuisIC, vraisemblance, gel, 'debrief-tardif': debriefTardif, gpx, 'gpx-choix': gpxChoix, ia, 'ia-erreurs': iaErreurs, arbitre, bouees, guide, entetes, 'retour-port': retourPort, banane, 'banane-manche': bananeManche, 'banane-debrief': bananeDebrief, 'porte-ic': porteIC, 'modifier-manche': modifierManche, 'toulon-vue': toulonVue, 'plan-eau': planEau, 'brest-avion': brestAvion, 'regate-brest': regateBrest, 'brest-courant': brestCourant, gpen, 'naos-cles': naosCles, 'tofinou-demarrage': tofinouDemarrage, 'espace-garde': espaceGarde, 'tofinou-bateau': tofinouBateau };
+// 08-06, D-03, D-07 : identité de chaque espace. (1) Frédéric (Tofinou seul) sur l’adresse de Tofinou (service worker autorisé) : titre et nom
+// proposé à l’installation « Tofinou Bormes », manifeste lu par la page et mis en cache par le worker = celui de Tofinou (réécriture émulée par
+// le serveur local), aide sans J80, CVAT, GPEN, Naos ni rade de Toulon, pas de « Changer d’espace », page d’accès au nom de l’espace.
+// (2) Romain (deux espaces) sur la même adresse : « Changer d’espace » vers l’adresse de Naos. (3) Naos sur 127.0.0.1 : Teiva (Naos seul)
+// ne voit rien de nouveau (titre, manifeste, aide, page d’accès de la v43) ; Romain y trouve le lien vers l’adresse de Tofinou.
+const MOTS_DE_NAOS = /J80|CVAT|GPEN|Naos|rade de Toulon/;
+const texteModal = async (page) => (await page.locator('#modal').textContent()).replace(/\s+/g, ' ');
+// texte de l’aide sans la note de version (celle de la v43 parle du GPEN ; la note de la v44 est écrite en 08-10)
+const texteAide = async (page) => (await page.locator('#modal').evaluate((m) => { const c = m.cloneNode(true); c.querySelector('#appVersion')?.remove(); return c.textContent; })).replace(/\s+/g, ' ');
+const ouvreAide = async (page) => { await page.click('#helpBtn'); await page.waitForSelector('#modal:not([hidden]) .modal-card', { timeout: 20000 }); };
+const fermeAide = (page) => page.click('#modal .modal-close');
+const manifesteLu = (page) => page.evaluate(async () => (await (await fetch(document.querySelector('link[rel=manifest]').href, { cache: 'no-store' })).json()));
+const identite = (page) => page.evaluate(() => ({ titre: document.title, apple: document.querySelector('meta[name=apple-mobile-web-app-title]')?.content, marque: document.querySelector('.brand b')?.textContent }));
+async function pageAcces(ctx, base) {
+  const page = await ctx.newPage();
+  await page.goto(new URL('acces.html', base).href, { waitUntil: 'load' });
+  const r = await page.evaluate(() => ({ titre: document.title, h1: document.querySelector('h1').textContent, p: document.querySelector('main > p').textContent, ph: document.getElementById('code').placeholder, html: document.querySelector('main').innerHTML }));
+  await page.close();
+  return r;
+}
+async function tofinouIdentite({ browser, base: baseNaos }) {
+  const { serveur, base: base0, refuses } = await demarreServeur({ root: ROOT });
+  const base = baseSur(base0, HOTES_ESSAI.tofinou);
+  const contextes = [];
+  try {
+    // (1) Frédéric, Tofinou seul
+    const ctx = await ouvreContexte(browser, { heure: '2026-12-05T09:00:00Z', worker: true });
+    contextes.push(ctx);
+    await membreEspace(ctx, { membre: 'Frédéric', espace: 'tofinou', espaces: ['tofinou'] });
+    const { page, erreurs } = await ouvrePage(ctx);
+    await ouvreApp(page, base);
+    await membreGarde(page, 'Frédéric');
+    assert.deepEqual(await identite(page), { titre: 'Tofinou Bormes', apple: 'Tofinou Bormes', marque: 'Tofinou Bormes' }, 'titre, nom à l’installation et en-tête de l’espace');
+    const man = await manifesteLu(page);
+    assert.equal(man.name, 'Tofinou — Bormes', 'manifeste lu par la page : celui de Tofinou');
+    assert.equal(man.short_name, 'Tofinou Bormes');
+    await attendWorker(page);
+    const enCache = await page.evaluate(async () => { const r = await caches.match('/manifest.webmanifest'); return r ? (await r.json()).name : null; });
+    assert.equal(enCache, 'Tofinou — Bormes', 'manifeste mis en cache par le worker sur l’adresse de Tofinou : celui de Tofinou');
+    await ouvreAide(page);
+    const aide = await texteAide(page);
+    assert.ok(aide.includes('Préparer et courir le Challenge de la Baie en Tofinou 9.5 dans la rade de Bormes – Le Lavandou'), aide.slice(0, 200));
+    assert.doesNotMatch(aide, MOTS_DE_NAOS, 'aide de Tofinou sans texte de Naos');
+    assert.equal(await page.locator('#changerEspace').count(), 0, 'Frédéric : pas de « Changer d’espace »');
+    await fermeAide(page);
+    const acces = await pageAcces(ctx, base);
+    assert.equal(acces.titre, 'Tofinou — Bormes · Accès');
+    assert.equal(acces.h1, 'Tofinou — Bormes');
+    assert.equal(acces.p, 'Application réservée à l’équipage du Tofinou — Bormes.');
+    assert.equal(acces.ph, 'votre code personnel');
+    sansErreur(erreurs, 'Tofinou, Frédéric');
+    await ctx.close(); contextes.pop();
+    // (2) Romain, deux espaces, sur l’adresse de Tofinou
+    const ctx2 = await ouvreContexte(browser, { heure: '2026-12-05T09:00:00Z', worker: true });
+    contextes.push(ctx2);
+    await membreEspace(ctx2, { membre: 'Romain', espace: 'tofinou', espaces: ['naos', 'tofinou'] });
+    const p2 = await ouvrePage(ctx2);
+    await ouvreApp(p2.page, base);
+    await membreGarde(p2.page, 'Romain');
+    await ouvreAide(p2.page);
+    const lien = p2.page.locator('#changerEspace a');
+    assert.equal(await lien.textContent(), 'Changer d’espace');
+    assert.equal(await lien.getAttribute('href'), 'https://rade-tactique.vercel.app/', 'lien vers l’adresse de Naos');
+    assert.equal(await lien.getAttribute('rel'), 'noopener');
+    assert.match(await texte(p2.page, '#changerEspace'), /votre code vous sera demandé la première fois sur cette adresse/);
+    assert.doesNotMatch((await texteAide(p2.page)).replace(/Changer d’espace.*?cette adresse\./, ''), MOTS_DE_NAOS);
+    sansErreur(p2.erreurs, 'Tofinou, Romain');
+    await ctx2.close(); contextes.pop();
+    // (3) Naos sur 127.0.0.1 : Teiva (Naos seul), puis Romain
+    for (const [nom, espaces] of [['Teiva', ['naos']], ['Romain', ['naos', 'tofinou']]]) {
+      const c = await ouvreContexte(browser, { heure: '2026-12-05T09:00:00Z' });
+      contextes.push(c);
+      await membreEspace(c, { membre: nom, espace: 'naos', espaces });
+      const pn = await ouvrePage(c);
+      await ouvreApp(pn.page, baseNaos);
+      await membreGarde(pn.page, nom);
+      assert.deepEqual(await identite(pn.page), { titre: 'Rade Tactique', apple: 'Rade Tactique', marque: 'Rade Tactique' }, `${nom} : balises d’index.html`);
+      assert.equal((await manifesteLu(pn.page)).name, 'Rade Tactique — Toulon', `${nom} : manifeste de Naos`);
+      await ouvreAide(pn.page);
+      assert.match(await texteModal(pn.page), /Rade Tactique — mode d’emploi Préparer et courir les régates en J80/, `${nom} : aide de Naos`);
+      if (espaces.length === 1) assert.equal(await pn.page.locator('#changerEspace').count(), 0, 'Teiva : pas de « Changer d’espace »');
+      else assert.equal(await pn.page.locator('#changerEspace a').getAttribute('href'), 'https://tofinou-bormes.vercel.app/', 'Romain : lien vers l’adresse de Tofinou');
+      await fermeAide(pn.page);
+      const an = await pageAcces(c, baseNaos);
+      assert.equal(an.titre, 'Rade Tactique · Accès');
+      assert.equal(an.h1, 'Rade Tactique');
+      assert.equal(an.ph, 'naos-prénom-xxxx-xxxx', 'page d’accès de Naos telle quelle');
+      assert.match(an.html, /Application réservée à l’équipage de <b>Naos<\/b> \(J80\)\./);
+      sansErreur(pn.erreurs, `Naos, ${nom}`);
+      await c.close(); contextes.pop();
+    }
+    assert.deepEqual(refuses.filter((x) => x !== '/favicon.ico'), [], 'aucun chemin refusé par la liste blanche');
+  } finally {
+    for (const c of contextes) await c.close().catch(() => { /* déjà fermé */ });
+    serveur.closeAllConnections?.(); serveur.close();
+  }
+}
+
+const SCENARIOS = { accueil, 'jour-j': jourJ, 'deux-telephones': deuxTelephones, reprise, equipage, archive, 'archive-bouees': archiveBouees, archivehors: archiveHors, creer, manche, auteur, ic, 'depuis-ic': depuisIC, vraisemblance, gel, 'debrief-tardif': debriefTardif, gpx, 'gpx-choix': gpxChoix, ia, 'ia-erreurs': iaErreurs, arbitre, bouees, guide, entetes, 'retour-port': retourPort, banane, 'banane-manche': bananeManche, 'banane-debrief': bananeDebrief, 'porte-ic': porteIC, 'modifier-manche': modifierManche, 'toulon-vue': toulonVue, 'plan-eau': planEau, 'brest-avion': brestAvion, 'regate-brest': regateBrest, 'brest-courant': brestCourant, gpen, 'naos-cles': naosCles, 'tofinou-demarrage': tofinouDemarrage, 'espace-garde': espaceGarde, 'tofinou-bateau': tofinouBateau, 'tofinou-identite': tofinouIdentite };
 
 // ───────────────────────── lancement
 

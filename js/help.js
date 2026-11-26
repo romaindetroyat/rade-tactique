@@ -2,6 +2,7 @@
 
 import { BUILD } from './version.js';
 import { journal, header } from './journal.js';
+import { ESPACE, ESPACES, espaceDeLHote } from './espaces.js';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
@@ -40,6 +41,16 @@ const STATIC_TIPS = {
   '[data-tab=ic]': 'Régates : la carte Plan d’eau (Toulon ou rade de Brest, téléchargée une fois pour le hors réseau), la liste (En préparation, En cours, Terminées) avec Ouvrir, et Fermer la régate pour revenir à l’entraînement libre ; créez une régate, ses manches, importez et relisez ses IC ; vent du jour figé, traces et débrief dans la fiche, partagés avec l’équipage hors course ; règles de course, marques, dangers.',
 };
 
+// Espace Tofinou (08-06, D-07) : bulles sans texte de Naos (cahier CVAT, GPEN, J80, Toulon) ; les autres bulles sont celles de Naos
+const TIPS_TOFINOU = {
+  ...STATIC_TIPS,
+  '[data-tab=brief]': 'Résumé du jour : vent, modèles, stratégie, effets locaux.',
+  '[data-tab=course]': 'Parcours de la régate ouverte (lus dans ses IC) ou, sinon, Banane (construite) avec sa porte conseillée, relevés de vent, route optimale bord par bord, animation.',
+  '[data-tab=j80]': 'Polaire du Tofinou 9.5 (certificat ORC d’un sister-ship, à recaler), génois ou foc, pertes aux manœuvres et tirant d’eau estimés.',
+  '[data-tab=ic]': 'Régates : la carte Plan d’eau (rade de Bormes – Le Lavandou, téléchargée une fois pour le hors réseau), la liste (En préparation, En cours, Terminées) avec Ouvrir, et Fermer la régate pour revenir à l’entraînement libre ; créez une régate, ses manches, importez et relisez ses IC ; vent du jour figé, traces et débrief dans la fiche, partagés avec l’équipage hors course ; règles de course, marques, dangers.',
+};
+export const tipsDe = (e) => (e.id === 'naos' ? STATIC_TIPS : TIPS_TOFINOU);
+
 let bubble = null, bubbleFor = null;
 function show(el) {
   const text = el.getAttribute('data-tip'); if (!text) return;
@@ -55,7 +66,7 @@ function show(el) {
 function hide() { if (bubble) bubble.hidden = true; bubbleFor = null; }
 
 export function initTips() {
-  for (const [sel, text] of Object.entries(STATIC_TIPS)) document.querySelectorAll(sel).forEach((el) => { if (!el.hasAttribute('data-tip')) el.setAttribute('data-tip', text); });
+  for (const [sel, text] of Object.entries(tipsDe(ESPACE))) document.querySelectorAll(sel).forEach((el) => { if (!el.hasAttribute('data-tip')) el.setAttribute('data-tip', text); });
   const hover = matchMedia('(hover: hover)').matches;
   if (hover) {
     document.addEventListener('pointerover', (e) => { const el = e.target.closest?.('[data-tip]'); if (el && el !== bubbleFor) show(el); else if (!el) hide(); });
@@ -111,11 +122,66 @@ export const GUIDE = `
 <p class="small"><b>Installer l’app</b> : sur iPhone, ouvrez le lien dans Safari puis Partager → « Sur l’écran d’accueil ». Sur Android, menu ⋮ → « Installer l’application ».</p>
 <p class="small muted">Le vent local est un modèle simplifié pour la tactique : il donne les tendances (pression, bascules, dévents), utile jusqu’à 25 nœuds ; au-delà, les chiffres ne sont pas faits pour. Il ne remplace pas l’observation du plan d’eau. Les positions marquées « approx » sont à vérifier sur zone ; le Comité fait foi.</p>`;
 
+// Aide et accueil de l’espace Tofinou (08-06, D-07) : mêmes fonctions que l’aide de Naos, sans J80, CVAT, GPEN, Brest ni Toulon.
+// Le guide complet de l’espace (guide-tofinou.html) arrive en 08-10 ; l’IA de l’espace en 08-09.
+export const GUIDE_TOFINOU = `
+<h2>Tofinou Bormes — mode d’emploi</h2>
+<p class="small muted">Préparer et courir le Challenge de la Baie en Tofinou 9.5 dans la rade de Bormes – Le Lavandou.</p>
+<ol class="guide">
+  <li><b>La carte</b> : un doigt pour déplacer, deux doigts pour zoomer et tourner. La couleur de l’eau donne la force du vent prévue, les filets blancs sa direction. Touchez l’eau pour lire le vent en un point.</li>
+  <li><b>L’heure</b> (curseur en haut) fait défiler la prévision de la journée. <b>⟳</b> télécharge les dernières prévisions.</li>
+  <li><b>Briefing</b> : vent attendu, accord entre les modèles, stratégie du jour et effets locaux.</li>
+  <li><b>Parcours</b> : choisissez le parcours annoncé par le Comité (et le nombre de tours). Les bouées sont numérotées dans l’ordre de passage. Chaque bord donne l’amure, le côté favorisé et la route optimale (pointillés bleus). <b>▶ Animer le parcours</b> montre le bateau qui le parcourt. « Banane (construite) » : un aller-retour au vent / sous le vent depuis la ligne de départ, réglé par « Dist. B (Nq) », « Dégagement (C) », « B laissée à », « Porte sous le vent » et « Arrivée » ; positions théoriques, le Comité fait foi. À la porte, l’app nomme la bouée la plus rapide ou dit « bouées équivalentes » sous 10 s d’écart. Si une bouée tombe à terre avec ce vent, une carte ⚠ le dit : réduisez « Dist. B (Nq) ». Pour que tous les téléphones de l’équipage aient la même banane, ajoutez-la comme manche puis « Choisir cette manche » sur les autres.</li>
+  <li><b>Relevé de vent</b> (en haut de Parcours ou dans En course) : touchez 🎤 et parlez librement, ou réglez le compas puis « Enregistrer ». L’app retient le modèle météo qui colle le mieux et recale la prévision.</li>
+  <li><b>Départ</b> : placez la ligne (GPS au ras du Comité puis de la bouée), lisez le biais et lancez le chrono au signal d’avertissement : <b>Top 5’ (avertissement)</b>, <b>Top 4’</b> ou <b>Top 1’</b>. <b>⛵ Mode départ plein écran</b> (onglet Départ) montre la même chose en grand, avec <b>DÉPART 5’</b>. Avant chaque départ, touchez <b>🔊 Tester le son</b> : trois bips, puis « Avez-vous entendu 3 bips ? ».</li>
+  <li><b>En course</b> : activez le GPS et l’enregistrement de la trace. Relèvement et distance de la prochaine marque, et « Recalculer la suite » depuis votre position avec le dernier vent relevé. Sur iPhone, le GPS de l’app s’arrête quand l’écran se verrouille : lancez aussi <b>Open GPX Tracker</b>, qui enregistre même verrouillé, et importez son fichier après la course.</li>
+  <li><b>Les voyants</b> : quatre lampes, GPS, ÉCRAN, SON et RÉSEAU. Touchez une lampe pour lire son détail ; un bouton propose de réparer ce qui est rouge.</li>
+  <li><b>Au retour au port</b> : <b>⏹ Arrêter et enregistrer</b>, puis <b>Stop</b> si le chrono tourne encore et ✕ du mode départ : le GPS qu’ils avaient allumé s’arrête de lui-même. Si vous l’aviez allumé vous-même (<b>▶ Activer le GPS</b> ou ◎), <b>Arrêter le GPS</b> (sinon l’app se croit encore en course). Puis <b>🏁 Course finie — retour au port</b>.</li>
+  <li><b>Mise à jour</b> : quand une nouvelle version est prête, un bandeau propose <b>Mettre à jour</b> ; rien ne change tout seul. Le bandeau n’apparaît jamais pendant une course. Le jour d’une régate, à partir de 9 h, il reste caché jusqu’à <b>🏁 Course finie — retour au port</b> (ou une heure après la dernière activité de la journée) : faites la mise à jour la veille ou le matin.</li>
+  <li><b>Entraînement libre</b> : à chaque lancement, aucune régate n’est ouverte et tout marche quand même (vent, banane, chrono, mode départ, GPS, trace, débrief). Le jour d’une régate, l’app l’ouvre toute seule. Sinon, <b>Ouvrir une régate</b> en tête du panneau mène à la liste, puis <b>Ouvrir</b> ; <b>Fermer la régate</b> revient à l’entraînement libre.</li>
+  <li><b>Régates</b> : créez la régate en trois champs (nom, premier jour, club), ajoutez ses manches (heure du signal, parcours) et touchez <b>Choisir cette manche</b>. Le Comité change l’heure ou le parcours : <b>✎ Modifier</b> sur la manche, corrigez, <b>Enregistrer</b>. Ouvrez d’abord la régate avant d’importer ses IC : chaque valeur s’affiche avec sa phrase d’origine, rien n’est retenu avant <b>Valider les IC</b>. Passez tous les téléphones de l’équipage à la même version avant la régate. <b>Archive partagée</b> : les régates, manches, IC validées, bouées confirmées, vent du jour figé, traces, débriefs et rapports sont partagés avec l’équipage de l’espace, en privé, <b>jamais pendant un chrono, une trace, le mode départ ou la course</b> ; <b>Désactiver la synchronisation</b> coupe tout sur ce téléphone.</li>
+  <li><b>Plan d’eau</b> : la rade de Bormes – Le Lavandou se télécharge une fois, avec du réseau ; la carte « Plan d’eau » de l’onglet Régates dit « Prêt hors réseau » : elle s’ouvre ensuite en mode avion.</li>
+  <li><b>Le bateau</b> : onglet Tofinou, polaire du Tofinou 9.5 tirée du certificat ORC d’un sister-ship (à recaler), génois ou foc, pertes aux manœuvres et tirant d’eau estimés.</li>
+  <li><b>Traces</b> : après la course, importez le GPX (rangé tout seul dans la régate du jour), revoyez-le, comparez-le à la route optimale et validez le débrief pré-rempli.</li>
+</ol>
+<p class="small"><a href="regles.html" target="_blank" rel="noopener"><b>📘 Règles de course expliquées</b></a> : départs P, I, U, Z, noir, priorités, bouées, arrivée, pénalités.</p>
+<p class="small"><b>Installer l’app</b> : sur iPhone, ouvrez le lien dans Safari puis Partager → « Sur l’écran d’accueil » ; elle s’appelle « Tofinou Bormes ». Sur Android, menu ⋮ → « Installer l’application ».</p>
+<p class="small muted">Le vent local est un modèle simplifié pour la tactique : il donne les tendances (pression, bascules, dévents), utile jusqu’à 25 nœuds ; au-delà, les chiffres ne sont pas faits pour. Il ne remplace pas l’observation du plan d’eau. Les positions marquées « approx » sont à vérifier sur zone ; le Comité fait foi.</p>`;
+export const guideDe = (e) => (e.id === 'naos' ? GUIDE : GUIDE_TOFINOU);
+
+// « Changer d’espace » (08-06, D-03) : pour un membre de plusieurs espaces (`espaces` de /api/membre, gardés en mémoire, jamais stockés),
+// sur un hôte connu seulement (caché sur un aperçu). L’adresse vient du registre public (js/espaces.js), jamais de la page ni d’une réponse.
+let espacesMembre = [];
+export function setEspacesMembre(liste) {
+  espacesMembre = Array.isArray(liste) ? [...new Set(liste.filter((id) => typeof id === 'string' && Object.hasOwn(ESPACES, id)))] : [];
+}
+export function autreEspace(hote, espaces = espacesMembre) {
+  const ici = espaceDeLHote(hote);
+  const ids = Array.isArray(espaces) ? espaces.filter((id) => typeof id === 'string' && Object.hasOwn(ESPACES, id)) : [];
+  if (!ici || new Set(ids).size < 2 || !ids.includes(ici)) return null;
+  const id = ids.find((x) => x !== ici), h = ESPACES[id].hotes[0];
+  return { id, nom: ESPACES[id].nom, hote: h, url: `https://${h}/` };
+}
+// Paragraphe du lien, construit par le DOM (textContent et attributs, aucun HTML), ou null
+export function lienChangerEspace(doc, hote, espaces = espacesMembre) {
+  const a = autreEspace(hote, espaces);
+  if (!a) return null;
+  const p = doc.createElement('p'); p.className = 'small'; p.id = 'changerEspace';
+  const lien = doc.createElement('a');
+  lien.className = 'btn small alt'; lien.href = a.url; lien.target = '_blank'; lien.rel = 'noopener'; lien.textContent = 'Changer d’espace';
+  const t = doc.createElement('span');
+  t.textContent = ` Ouvre ${a.nom} (${a.hote}) ; votre code vous sera demandé la première fois sur cette adresse.`;
+  p.append(lien, t);
+  return p;
+}
+
 // La version vient de js/version.js (généré) ; la note est affichée échappée. Rien n’est envoyé au serveur.
 export function openGuide() {
-  const m = modal(`${GUIDE}<p class="small muted" id="appVersion">Version ${esc(BUILD.label)} — ${esc(BUILD.note)}</p>
+  const m = modal(`${guideDe(ESPACE)}<p class="small muted" id="appVersion">Version ${esc(BUILD.label)} — ${esc(BUILD.note)}</p>
     <p><button type="button" class="btn small alt" id="openJournal">Journal de diagnostic (${journal.entries().length})</button></p>`, 'guide');
   m.querySelector('#openJournal').onclick = openJournal;
+  const lien = lienChangerEspace(document, location.hostname);
+  if (lien) m.querySelector('#appVersion').before(lien);
 }
 
 // Journal de diagnostic (FIAB-07) : lire, copier, partager, vider. Le texte est posé par textContent, jamais en HTML.
@@ -135,7 +201,7 @@ export function openJournal() {
     }
     copy.textContent = 'Copié ✓';
   };
-  m.querySelector('#diagShare')?.addEventListener('click', () => navigator.share({ title: 'Journal Rade Tactique', text }).catch(() => { /* partage annulé par l’équipier */ }));
+  m.querySelector('#diagShare')?.addEventListener('click', () => navigator.share({ title: `Journal ${ESPACE.app}`, text }).catch(() => { /* partage annulé par l’équipier */ }));
   clear.onclick = async () => {
     if (clear.dataset.confirm !== '1') { clear.dataset.confirm = '1'; clear.textContent = 'Confirmer ?'; return; }
     journal.clear(); clear.dataset.confirm = ''; clear.textContent = 'Vider'; copy.textContent = 'Copier'; await fill();
@@ -161,15 +227,15 @@ function qrSVG(text) {
 
 export function openShare({ base, courseLink, courseLabel }) {
   const m = modal(`
-    <h2>Partager Rade Tactique</h2>
+    <h2>Partager ${esc(ESPACE.app)}</h2>
     <p class="small">Envoyez le lien à votre équipage : il s’ouvre sur iPhone comme sur ordinateur, sans compte ni installation.</p>
     <div class="share-row"><label class="f">L’application</label><div class="copyline"><input type="text" readonly value="${esc(base)}" id="shBase"><button class="btn small" data-copy="shBase">Copier</button></div></div>
     <div class="share-row"><label class="f">Ce parcours (${esc(courseLabel)}) — s’ouvre directement dessus</label><div class="copyline"><input type="text" readonly value="${esc(courseLink)}" id="shCourse"><button class="btn small" data-copy="shCourse">Copier</button></div></div>
-    <div class="btns">${navigator.share ? '<button class="btn acc" id="shNative">Partager… (WhatsApp, Messages)</button>' : ''}<a class="btn alt" href="https://wa.me/?text=${encodeURIComponent('Rade Tactique : ' + courseLink)}" target="_blank" rel="noopener">WhatsApp</a></div>
+    <div class="btns">${navigator.share ? '<button class="btn acc" id="shNative">Partager… (WhatsApp, Messages)</button>' : ''}<a class="btn alt" href="https://wa.me/?text=${encodeURIComponent(ESPACE.app + ' : ' + courseLink)}" target="_blank" rel="noopener">WhatsApp</a></div>
     <div class="qrwrap">${qrSVG(courseLink)}<div class="small muted">À scanner avec l’appareil photo d’un téléphone (ponton, briefing).</div></div>`, 'share');
   m.querySelectorAll('[data-copy]').forEach((b) => b.addEventListener('click', async () => {
     const inp = m.querySelector('#' + b.dataset.copy);
     try { await navigator.clipboard.writeText(inp.value); b.textContent = 'Copié ✓'; } catch { inp.select(); document.execCommand?.('copy'); b.textContent = 'Copié ✓'; }
   }));
-  m.querySelector('#shNative')?.addEventListener('click', () => navigator.share({ title: 'Rade Tactique', text: `Rade Tactique — ${courseLabel} : vent, parcours et tactique en J80`, url: courseLink }).catch(() => {}));
+  m.querySelector('#shNative')?.addEventListener('click', () => navigator.share({ title: ESPACE.app, text: `${ESPACE.app} — ${courseLabel} : vent, parcours et tactique en ${ESPACE.bateau.classe}`, url: courseLink }).catch(() => {}));
 }
