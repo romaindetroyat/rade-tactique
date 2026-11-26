@@ -22,12 +22,22 @@
       "number": "4",
       "name": "Archive partagée",
       "status": "complete"
+    },
+    {
+      "number": "5",
+      "name": "Avant la régate",
+      "status": "complete"
+    },
+    {
+      "number": "6",
+      "name": "Parcours banane",
+      "status": "complete"
     }
   ],
   "next": {
-    "command": "/gsd:progress --next",
-    "label": "Advance to the next step",
-    "reason": "Phase 07 of 7 · 71% · executing"
+    "command": "/gsd:new-milestone",
+    "label": "Start a new milestone",
+    "reason": "All phases complete — start a new milestone"
   },
-  "updated_at": "2026-11-19T11:02:59.982Z"
+  "updated_at": "2026-11-26T17:26:19.961Z"
 }

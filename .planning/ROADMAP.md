@@ -265,3 +265,13 @@ Plans:
 
 **Wave 10** *(blocked on Wave 9 completion)*
 - [x] 07-10-PLAN.md — Guide et aide, vérification complète (gardes Toulon, compatibilités, tous les scénarios, mesures), v43 (`npm run release`), porte en `VERCEL_ENV=production`, poussée et PR brouillon par l'orchestrateur, production seulement sur « publie » de Romain au plus tard le 10/12 (vague 10, non autonome) — partie autonome faite (v43 locale, 6e4b0e3) ; production en attente de « publie »
+
+### Phase 8: Espace Tofinou : rade de Bormes – Le Lavandou, Tofinou 9.5, accès séparé
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 7
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 8 to break down)
