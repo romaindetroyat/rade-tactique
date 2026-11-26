@@ -102,7 +102,7 @@ Ajoutés le 2026-11-26 à la demande de Romain (« créer la même chose pour un
 - [ ] **ESPACE-03**: Une adresse par espace (stockage, caches, service worker et cookie séparés par le navigateur), même projet et même déploiement ; Romain dans les deux espaces avec « Changer d'espace », Frédéric dans l'espace Tofinou seulement ; garde de synchronisation (aucun envoi tant que l'espace n'est pas confirmé, ni vers un autre espace)
 - [x] **ESPACE-04**: Plans d'eau et graines par espace : l'espace Tofinou ne voit que Bormes (pack de Brest refusé), Naos ne voit pas Bormes (pack refusé) ; aucune graine SNPM ni GPEN dans l'espace Tofinou ; l'installation hors réseau de chaque espace reste complète
 - [ ] **ESPACE-05**: Naos identique à la v43 : gel capturé sur 5e9b8a5 avant toute modification (réponses du middleware, chemins Blob, consignes d'IA, clés de stockage, liste hors réseau, pack de Brest), gardes Toulon et garde SNPM vertes, même URL, même archive, mêmes clés locales
-- [ ] **ESPACE-06**: Nom, textes et manifeste par espace (« Tofinou — Bormes », app « Tofinou Bormes ») : page d'accès, titre, aide, débrief, manifeste réécrit par le middleware sur l'adresse de Tofinou ; installable à part
+- [x] **ESPACE-06**: Nom, textes et manifeste par espace (« Tofinou — Bormes », app « Tofinou Bormes ») : page d'accès, titre, aide, débrief, manifeste réécrit par le middleware sur l'adresse de Tofinou ; installable à part
 - [x] **ESPACE-07**: Outil de création des codes : affiche le code une seule fois avec le lien personnel et n'écrit que l'empreinte ; aucun code d'accès dans le dépôt, les tests, les journaux ni la PR ; le code de Frédéric, créé par l'orchestrateur, n'y entre que par son empreinte
 - [x] **TOF-01**: Bateau Tofinou 9.5 : polaire tirée du certificat ORC Club 2026 du sister-ship (génois par défaut, variante foc estimée), polaire par défaut de l'espace recalable (performance, polaire personnelle), longueur 9,47 m, pertes 11 s / 8 s, tirant d'eau 2,20 / 1,20 m à confirmer, confiance affichée comme estimation
 - [ ] **TOF-02**: Pack « Bormes » hors réseau (relief, côte, fond de carte, instantané météo) construit par les outils du dépôt : emprise 6,22–6,60° E, 42,96–43,20° N, maille 30 m, Levant militaire non urbain, borne ouest de saisie 6,20° E, seuil « mer dégagée » par défaut
@@ -172,10 +172,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | BREST-08 | Phase 7 | Complete |
 | ESPACE-01 | Phase 8 | Complete (08-02) |
 | ESPACE-02 | Phase 8 | Pending (serveur fait en 08-02 ; consignes Tofinou 08-09) |
-| ESPACE-03 | Phase 8 | Partiel (08-04 : espace par l’adresse côté app et garde de synchronisation ; reste « Changer d’espace » 08-06, preuve sur l’adresse réelle 08-10) |
+| ESPACE-03 | Phase 8 | Partiel (08-04 : espace par l’adresse côté app et garde de synchronisation ; 08-06 : « Changer d’espace » pour un membre des deux espaces ; reste la preuve sur l’adresse réelle 08-10) |
 | ESPACE-04 | Phase 8 | Complete (serveur 08-02 ; app 08-04 : Bormes seule pour Tofinou, invisible pour Naos, aucune graine de Naos, hors réseau complet) |
 | ESPACE-05 | Phase 8 | Pending (08-01, preuve finale 08-10) |
-| ESPACE-06 | Phase 8 | Pending (08-06) |
+| ESPACE-06 | Phase 8 | Complete (08-06 : manifeste réécrit par le middleware sur l’adresse de Tofinou, page d’accès, titre et nom d’installation, aide, débrief ; Naos identique à la v43 ; réécriture de Vercel à contrôler sur la production en 08-09) |
 | ESPACE-07 | Phase 8 | Complete (08-02) |
 | TOF-01 | Phase 8 | Complete (08-05 : polaire du certificat 03510004F1O, génois par défaut et foc estimé au choix, défaut de l’espace recalable, 9,47 m, pertes 11 s / 8 s, tirant d’eau « à confirmer » ; voile et tirant à confirmer avec le skipper) |
 | TOF-02 | Phase 8 | Partiel : pack construit (08-03) ; borne ouest de saisie (08-04) et instantané météo (08-09) à faire |

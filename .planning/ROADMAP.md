@@ -281,7 +281,7 @@ Plans:
   7. v44 sur l'aperçu `apercu-phase-08`, vérifiée (tous les scénarios, cloisonnement sur l'adresse réelle, iPhone), puis en production sur « publie » de Romain dès qu'elle est prête, au plus tard le 10/12/2026 (sinon à partir du 14/12), jamais dans les 48 h avant une régate ni pendant une course ; domaine de Tofinou ajouté par Romain dans Vercel
   8. Dans l'espace Tofinou, Frédéric charge ses propres IC de bout en bout (PDF → IA avec les consignes d'IC du Tofinou → relecture → bouées « à confirmer » bornées à Bormes → parcours), avec l'archive et le quota de l'espace ; un éditeur de parcours à la main (« Créer un parcours » / « Modifier le parcours » : bouées confirmées avec côté, porte, arrivée sur la ligne ou distincte, tours ; bouées par position saisie ou touchée sur la carte, à confirmer) est partagé par l'archive Tofinou, refusé pendant une course, et n'apparaît pas dans l'espace Naos
 
-**Plans:** 5/11 plans executed (vagues séquentielles : mêmes fichiers générés `sw.js`, `js/version.js`, mêmes `js/app.js` et `tools/regate-e2e.mjs`)
+**Plans:** 6/11 plans executed (vagues séquentielles : mêmes fichiers générés `sw.js`, `js/version.js`, mêmes `js/app.js` et `tools/regate-e2e.mjs`)
 
 Plans:
 **Wave 1**
@@ -300,7 +300,7 @@ Plans:
 - [x] 08-05-PLAN.md — Bateau Tofinou 9.5 : polaire du certificat ORC (génois, foc estimé), polaire par défaut de l'espace, pertes 11 s / 8 s, longueur, tirant d'eau, onglet « Tofinou » (vague 5)
 
 **Wave 6** *(blocked on Wave 5 completion)*
-- [ ] 08-06-PLAN.md — Identité par espace : manifeste réécrit par le middleware sur l'adresse de Tofinou (public), page d'accès, titre, aide, débrief, « Changer d'espace » (vague 6)
+- [x] 08-06-PLAN.md — Identité par espace : manifeste réécrit par le middleware sur l'adresse de Tofinou (public), page d'accès, titre, aide, débrief, « Changer d'espace » (vague 6)
 
 **Wave 7** *(blocked on Wave 6 completion)*
 - [ ] 08-07-PLAN.md — Savoir local de Bormes : zones interdites (Levant, Brégançon), Port-Cros, marques, lieux, dangers, régimes et vents prédéfinis, textes du lieu, plus de texte de Toulon à Bormes ; scénario `bormes-local` (vague 7)

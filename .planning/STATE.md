@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 08
 current_phase_name: "Espace Tofinou : rade de Bormes – Le Lavandou, Tofinou 9.5, accès séparé"
 status: in_progress
-stopped_at: Completed 08-05-PLAN.md
-last_updated: "2026-11-26T21:14:57.259Z"
+stopped_at: Completed 08-06-PLAN.md
+last_updated: "2026-11-26T21:37:44.309Z"
 last_activity: 2026-11-26
-last_activity_desc: "Plan 08-05 — bateau Tofinou 9.5 : polaire du certificat ORC du sister-ship (génois, foc estimé), défaut de l’espace, pertes 11 s / 8 s, onglet « Tofinou »"
-state_head: 1383c20dbfc160514f2ee3324c8ac1b78e92c5e8
+last_activity_desc: "Plan 08-06 — identité de chaque espace : manifeste réécrit par le middleware sur l’adresse de Tofinou, page d’accès, titre, aide, débrief, « Changer d’espace »"
+state_head: c8cbedcb325c719579d0a3420ce753b24bb15c9d
 progress:
   total_phases: 8
   completed_phases: 6
   total_plans: 49
-  completed_plans: 43
+  completed_plans: 44
   percent: 75
 ---
 
@@ -28,9 +28,9 @@ See: .planning/PROJECT.md (updated 2026-10-19)
 ## Current Position
 
 Phase: 08 (Espace Tofinou : rade de Bormes – Le Lavandou, Tofinou 9.5, accès séparé) — EN COURS
-Plan: 5 of 11 terminés (08-01, 08-02, 08-03, 08-04, 08-05)
+Plan: 6 of 11 terminés (08-01, 08-02, 08-03, 08-04, 08-05, 08-06)
 Status: aperçu apercu-phase-08 ; v43 en production (PR #17)
-Last activity: 2026-11-26 — Plan 08-05 : polaire du Tofinou 9.5 tirée du certificat ORC Club 2026 du sister-ship (03510004F1O, outil tools/build_polar_tofinou.mjs, cibles de l’étude à l’identique), génois par défaut et foc estimé au choix (rade.bateau.v1), polaire par défaut de l’espace, pertes 11 s / 8 s dans le routage, onglet « Tofinou » (9,47 m, tirant d’eau à confirmer) ; onglet de Naos identique à la v43 ; 933 tests (931 verts, 2 sautés), gardes et gel de Naos verts, 40/40 scénarios OK
+Last activity: 2026-11-26 — Plan 08-06 : manifeste par espace (/manifest.webmanifest traité en premier par le middleware, réécrit vers manifest-tofinou.webmanifest sur l’adresse de Tofinou, jamais refusé), page d’accès, titre et nom d’installation « Tofinou Bormes », aide et accueil de Tofinou sans texte de Naos, débrief par espace, « Changer d’espace » pour Romain ; Naos identique à la v43 (aide, page d’accès, manifeste, rapport de débrief à l’octet) ; 945 tests (943 verts, 2 sautés), gardes et gel de Naos verts
 
 Progress: [████████░░] 75%
 
@@ -101,6 +101,7 @@ Progress: [████████░░] 75%
 | Phase 08 P03 | 18min | 2 tasks | 16 files |
 | Phase 08 P04 | 41min | 3 tasks | 23 files |
 | Phase 08 P05 | 75min | 2 tasks | 19 files |
+| Phase 08 P06 | 25min | 2 tasks | 18 files |
 
 ## Accumulated Context
 
@@ -222,6 +223,9 @@ Décisions récentes qui orientent le travail en cours :
 - [Phase 08]: Polaire du Tofinou 9.5 : certificat ORC Club 2026 du sister-ship 03510004F1O, méthode de tools/build_polar.mjs sans extrapolation ; génois par défaut, foc estimé au choix (rade.bateau.v1, jamais pour Naos)
 - [Phase 08]: Pertes 11 s / 8 s par routeOpts seulement quand ctx.bateau est posé (hors de Naos) ; tirant d’eau 2,20 / 1,20 m affiché « à confirmer », sans calcul
 - [Phase 08]: js/bateau.js (polaire et voile par espace) ajouté au SHELL ; onglet de Naos comparé à la v43 par tests/fixtures/j80-v43.json
+- [Phase 08]: 08-06 : manifeste de Tofinou servi sans code sur ses hôtes seulement (code exigé ailleurs) : ensemble public de l’hôte de Naos identique à la v43
+- [Phase 08]: 08-06 : /manifest.webmanifest traité en premier par une enveloppe du middleware (GET/HEAD, jamais refusé), réécrit sur un hôte de Tofinou ; manifestePour partagé avec le serveur local
+- [Phase 08]: 08-06 : « Changer d’espace » dans l’aide pour un membre de plusieurs espaces sur un hôte connu, espaces gardés en mémoire seulement
 
 ### Pending Todos
 
@@ -263,6 +267,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-11-26T21:14:57.100Z
-Stopped at: Completed 08-05-PLAN.md
+Last session: 2026-11-26T21:37:44.109Z
+Stopped at: Completed 08-06-PLAN.md
 Resume file: None

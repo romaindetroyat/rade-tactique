@@ -1,0 +1,2 @@
+
+- 08-06 : scénario plan-eau instable sous charge — une fois sur trois en échec dans la série complète (« chrono lancé : #pkGo désactivé », tools/regate-e2e.mjs l. 3156 : bouton lu juste après cartePlanEau, avant que la carte « Plan d’eau » soit redessinée avec le verrou de course) ; vert seul deux fois de suite ; aucun fichier du plan d’eau ni du verrou touché par 08-06. Attendre `#pkGo[disabled]` au lieu de lire l’état une fois.
