@@ -1,19 +1,19 @@
 ---
 gsd_state_version: "1.0"
-current_phase: 07
-current_phase_name: "Plans d'eau : Toulon et rade de Brest (GPEN)"
-status: complete
-stopped_at: "07-10 tâche 1 faite (v43 locale, 6e4b0e3) — point de décision : « publie » de Romain"
-last_updated: "2026-11-19T11:34:55.929Z"
-last_activity: 2026-11-19
-last_activity_desc: Plan 07-10 tâche 1 — v43 prête en local (débrief GPEN, briefing titré, guide et aide), toutes les gardes vertes ; point de décision « publie »
-state_head: 6e4b0e3e157dd80497394dd93e009fc8c2c7e642
+current_phase: 08
+current_phase_name: "Espace Tofinou : rade de Bormes – Le Lavandou, Tofinou 9.5, accès séparé"
+status: in_progress
+stopped_at: Completed 08-01-PLAN.md
+last_updated: "2026-11-26T19:05:19.031Z"
+last_activity: 2026-11-26
+last_activity_desc: Plan 08-01 — gel de Naos v43 capturé sur 5e9b8a5 (tests/naos.test.mjs, scénario naos-cles), six gardes vertes
+state_head: 9c03a591cd2a8f93d2535eed83a56a5c5fac2b7e
 progress:
-  total_phases: 7
-  completed_phases: 5
-  total_plans: 38
-  completed_plans: 38
-  percent: 71
+  total_phases: 8
+  completed_phases: 6
+  total_plans: 49
+  completed_plans: 39
+  percent: 75
 ---
 
 # Project State
@@ -23,16 +23,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-10-19)
 
 **Core value:** Le jour de la régate, l'équipage peut ouvrir l'épreuve, s'en servir en mer sans que rien ne lâche, et retrouver ensuite le débrief : des conseils et des chiffres justes, fiables sur l'eau, et partagés par tout l'équipage.
-**Current focus:** Phase 07 — Plans d'eau : Toulon et rade de Brest (GPEN)
+**Current focus:** Phase 08 — Espace Tofinou : rade de Bormes – Le Lavandou
 
 ## Current Position
 
-Phase: 07 (Plans d'eau : Toulon et rade de Brest (GPEN)) — COMPLETE
-Plan: 10 of 10
-Status: v43 en production le 2026-11-19 (PR #17, « publie » de Romain)
-Last activity: 2026-11-19 — Plan 07-10 tâche 1 : débrief des parcours du GPEN (reconstruits comme une banane, noms 1/2/3S/3P), titre du parcours au briefing de Brest, guide/aide/règles/description pour les plans d’eau ; 849 tests (848 verts, 1 sauté : instantané de Brest absent, limite Open-Meteo), 36/36 scénarios, compat-v42 8/8, compat-v41 7/7, ouvertures 418 ms Toulon / 403 ms Brest, horloge audio 3,4 ms ; v43 (5b9ef2068c), porte de production verte ; main inchangée (56f6625)
+Phase: 08 (Espace Tofinou : rade de Bormes – Le Lavandou, Tofinou 9.5, accès séparé) — EN COURS
+Plan: 1 of 11 terminé (08-01)
+Status: aperçu apercu-phase-08 ; v43 en production (PR #17)
+Last activity: 2026-11-26 — Plan 08-01 : gel de Naos v43 sur l’extraction de 5e9b8a5 avant toute modification (480 réponses du middleware, archive et compteur sur faux Blob, consignes d’IA, SHELL, pack de Brest ; clés, bases, caches et adresses de l’app par le scénario naos-cles) ; 860 tests (859 verts, 1 sauté), six gardes vertes ; aucun fichier de js/, api/, data/, middleware.js ni sw.js modifié
 
-Progress: [███████░░░] 71%
+Progress: [████████░░] 75%
 
 ## Performance Metrics
 
@@ -96,6 +96,7 @@ Progress: [███████░░░] 71%
 | Phase 07 P08 | 38min | 3 tasks | 8 files |
 | Phase 07 P09 | 55min | 3 tasks | 24 files |
 | Phase 07 P10 | 75min | 1 tasks | 12 files |
+| Phase 08 P01 | 13min | 3 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -202,6 +203,9 @@ Décisions récentes qui orientent le travail en cours :
 - [Phase 07]: Fiche gpen-2027 semée en local sur chaque téléphone, instant fixe et sans auteur, jamais envoyée ; pierre tombale et marqueur rade.seed.gpen.v1 empêchent tout nouveau semis
 - [Phase 07]: Consignes d’IA choisies dans une table fermée { toulon, brest } (api/_gpen.js) ; consignes de Toulon figées par leurs empreintes v42 capturées sur 56f6625
 - [Phase 07]: 07-10 : trace d’un parcours du GPEN débriefée comme une banane (courseBan, noms 1/2/3S/3P, ligne recentrée) ; briefing de Brest titré ; instantané météo de Brest absent (limite Open-Meteo), v43 publiée sans
+- [Phase 08]: 08-01 : gel de Naos v43 capturé sur l’extraction de 5e9b8a5 (tests/naos.test.mjs dans npm test, scénario naos-cles) ; tools/gardes-toulon.mjs rejoue six gardes (Toulon, SNPM, départ, tests figés, Naos, Brest)
+- [Phase 08]: 08-01 : différences admises pour Naos (espace/espaces de /api/membre, x-rt-espace: naos, AJOUTS_SHELL ≤ 64 Ko) jamais exigées, acceptées seulement si le code courant rend exactement « naos »
+- [Phase 08]: 08-01 : en v43 un x-rt-espace forgé par le navigateur est transmis aux fonctions /api/ ; 08-02 doit l’écraser
 
 ### Pending Todos
 
@@ -243,6 +247,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-11-19T11:34:55.747Z
-Stopped at: 07-10 tâche 1 faite (v43 locale, 6e4b0e3) — point de décision : « publie » de Romain
-Resume file: .planning/phases/07-plans-d-eau/07-10-PLAN.md
+Last session: 2026-11-26T19:05:18.882Z
+Stopped at: Completed 08-01-PLAN.md
+Resume file: None
