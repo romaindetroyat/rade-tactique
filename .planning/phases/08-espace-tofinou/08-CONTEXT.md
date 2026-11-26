@@ -35,6 +35,10 @@ Hors périmètre : autres bateaux ou plans d'eau ; Trophée des Îles (Porquerol
 - **D-13 :** catalogue du Challenge de la Baie 2026-2027 (neuf parcours, dont la banane n° 4, La Fourmigue, coffre 1, cap Nègre, Bénat, Cavalaire, tour de Port-Cros), marques fixes sûres (La Fourmigue, coffre 1) et bouées mouillées marquées « position à confirmer » ; fiche « Challenge de la Baie 2026-2027 » semée dans l'espace Tofinou (sept manches, VHF 72, un tour, RIR) — corriger la date de la manche 1 (dimanche 11/10).
 - **D-14 :** zones interdites : partie militaire du Levant, Brégançon (partielle), règles de Port-Cros (5 nd à moins de 300 m) — marquées « à compléter sur carte marine ».
 
+### E. IC et parcours de Frédéric (demande de Romain du 2026-11-26)
+- **D-16 :** dans l'espace Tofinou, Frédéric charge ses propres instructions de course (PDF → lecture par l'IA → relecture → bouées à confirmer, comme pour un autre club) : vérifier que tout le chemin marche à Bormes (bornes de Bormes, consignes d'IC de l'espace Tofinou, archive Tofinou, quota Tofinou), avec scénario.
+- **D-17 :** éditeur de parcours à la main dans l'espace Tofinou (« Créer un parcours » / « Modifier le parcours ») : suite de bouées confirmées de la régate avec côté (bâbord/tribord), porte à deux bouées, arrivée (ligne de départ ou distincte), nombre de tours, nom ; ajout de bouées par position saisie ou touchée sur la carte ; partagé par l'archive de l'espace. L'éditeur n'apparaît PAS dans l'espace Naos dans cette phase (vues de Naos figées) ; il pourra y être ouvert plus tard.
+
 ### Livraison
 - **D-15 :** branche `apercu-phase-08`, PR brouillon, aperçu vérifié ; production (v44) sur « publie » dès qu'elle est prête et vérifiée, au plus tard le 10/12 (sinon après le 13/12), gel de Naos et gardes Toulon verts comme condition absolue (amendé le 2026-11-26 à la demande de Romain) ; Romain ajoute le domaine du second espace dans Vercel ; contrôles humains : bateau exact (voile d'avant, quille), arrêtés du Levant et de Brégançon, positions des bouées, conseils de vent relus, polaire recalée sur l'eau.
 </decisions>
