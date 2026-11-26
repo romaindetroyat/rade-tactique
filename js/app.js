@@ -24,6 +24,7 @@ import { buildLegs, analyzeLeg, markAdvice, analyzeStart, trendOf, rankCourses, 
 import { BANANE_ID, BANANE, addBanane, banOf, banToState, cleanBan, courseMarkUse, legReached, banHorsEau, banHorsZone, courseBan, courseLaps } from './banane.js';
 import { optimalAngles, boatSpeed, trimAdvice, spiMinTwa, getPolar, setPolar, resetPolar, parsePolar } from './polar.js';
 import { renderJ80 } from './j80.js';
+import { appliquerPolaireEspace } from './bateau.js';
 import { modelPoints, modelAt, idwAt, scoreModels, renderObsCard } from './obs.js';
 import { initTips, maybeWelcome, openGuide, openShare, tip, SYNC_TIP, DL_TIP } from './help.js';
 import { parseWind, listen, say } from './voice.js';
@@ -154,6 +155,7 @@ const persist = () => store.set('rade.state', Object.fromEntries(Object.keys(DEF
 let T, F, scene, data = null, series = [], live = [], analysis = null, selLeg = null, gps = null, follow = false, nextIdx = 0;
 const forbidden = zonesXY(FORBIDDEN_ZONES, toXY);            // zones interdites du plan d’eau en mètres (Toulon : la zone de Saint-Mandrier de la v42)
 
+appliquerPolaireEspace(ESPACE, localStore());              // polaire par défaut de l’espace (Naos : aucune, J80), avant la polaire personnelle
 if (S.polar) { try { setPolar(S.polar.tws, S.polar.twa, S.polar.bsp, S.polar.source); } catch (e) { S.polar = null; report('polaire', e); } }
 
 // ───────────────────────── démarrage

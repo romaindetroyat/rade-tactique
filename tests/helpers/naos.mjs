@@ -22,8 +22,9 @@ const DEPOT = fileURLToPath(new URL('../../', import.meta.url));
 
 // Fichiers que la v44 a le droit d’ajouter à la liste hors réseau (SHELL) et aux adresses demandées par l’app de Naos (scénario naos-cles),
 // 64 Ko au plus chacun ; chaque plan de la phase y ajoute les siens. 08-04 : registre des espaces, descripteur de Bormes (importés par
-// js/venues.js, donc demandés aussi par l’app de Naos).
-export const AJOUTS_SHELL = Object.freeze(['js/espaces.js', 'js/venue-bormes.js']);
+// js/venues.js, donc demandés aussi par l’app de Naos). 08-05 : bateau de l’espace et polaire du Tofinou (importés par js/app.js), polaire
+// téléchargeable du Tofinou (liste hors réseau seulement : l’app de Naos ne la demande pas).
+export const AJOUTS_SHELL = Object.freeze(['js/espaces.js', 'js/venue-bormes.js', 'js/bateau.js', 'js/polar-tofinou95.js', 'data/tofinou95.pol']);
 export const TAILLE_AJOUT_MAX = 64 * 1024;
 
 // ───────────────────────── outils communs

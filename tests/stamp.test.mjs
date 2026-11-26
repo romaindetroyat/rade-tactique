@@ -10,6 +10,7 @@ import { execFileSync } from 'node:child_process';
 import { statSync } from 'node:fs';
 import { listShell, build, check, validateNote, venuesManifest, venueIds } from '../tools/stamp.mjs';
 import { ROOT } from './helpers/setup.mjs';
+import { AJOUTS_SHELL } from './helpers/naos.mjs';
 
 const SW = [
   '// service worker de test',
@@ -150,7 +151,8 @@ test('liste hors réseau de Toulon : seuls des modules js/ et data/venues.json s
   const now = listShell(ROOT);
   assert.deepEqual(shellV42.filter((f) => !now.includes(f)), [], 'aucune entrée de la v42 retirée');
   const ajouts = now.filter((f) => !shellV42.includes(f));
-  assert.deepEqual(ajouts.filter((f) => !/^js\/[\w-]+\.js$/.test(f) && f !== 'data/venues.json'), [], 'ajouts autres que des modules js/ et le manifeste');
+  // phase 8 : les petits fichiers de AJOUTS_SHELL (tests/helpers/naos.mjs, 64 Ko au plus, ex. data/tofinou95.pol) sont admis aussi
+  assert.deepEqual(ajouts.filter((f) => !/^js\/[\w-]+\.js$/.test(f) && f !== 'data/venues.json' && !AJOUTS_SHELL.includes(f)), [], 'ajouts autres que des modules js/, le manifeste et AJOUTS_SHELL');
   for (const f of ajouts.filter((x) => x.startsWith('data/'))) assert.ok(statSync(join(ROOT, f)).size <= 50 * 1024, `${f} dépasse 50 ko`);
   assert.ok(ajouts.includes('data/venues.json'));
 });
