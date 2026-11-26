@@ -109,6 +109,7 @@ Ajoutés le 2026-11-26 à la demande de Romain (« créer la même chose pour un
 - [ ] **TOF-03**: Savoir local de Bormes : lieux, marques fixes (La Fourmigue, coffre 1) et bouées « position à confirmer », dangers, zones interdites (Levant militaire, Brégançon) évitées par le routage et règles de Port-Cros, « à compléter sur carte marine » ; régimes de vent propres (mistral d'ouest) et vents prédéfinis marqués selon leur origine ; ni marée ni modèle de courant (courant d'ouest en information) ; plus aucun texte de Toulon à Bormes
 - [ ] **TOF-04**: Challenge de la Baie 2026-2027 : catalogue (neuf parcours dont la banane n° 4, sens inverse), fiche semée dans l'espace Tofinou (sept manches, manche 1 le dimanche 11/10, VHF 72, un tour, RIR), arbitre, débrief, dictée et lecture des IC avec les consignes du Tofinou
 - [ ] **TOF-05**: Livraison v44 : guide Tofinou court, vérification complète (gardes, compatibilités, tous les scénarios, mesures), aperçu `apercu-phase-08` vérifié, production sur « publie » de Romain au plus tard le 10/12/2026 (sinon après le 13/12), gel de Naos et gardes Toulon verts comme condition absolue, domaine `tofinou-bormes.vercel.app` ajouté par Romain, code de Frédéric remis à Romain dans la conversation
+- [ ] **TOF-06**: IC et parcours de l'équipage Tofinou (D-16, D-17) : Frédéric charge ses propres IC dans l'espace Tofinou de bout en bout (PDF → IA avec les consignes d'IC du Tofinou → relecture → bouées « à confirmer » bornées à Bormes → parcours), avec l'archive et le quota de l'espace ; éditeur de parcours à la main dans l'espace Tofinou seulement (« Créer un parcours » / « Modifier le parcours » : nom, bouées confirmées avec côté, porte de deux bouées, arrivée sur la ligne de départ ou distincte, tours ; bouées ajoutées par position saisie ou touchée sur la carte, à confirmer), partagé par l'archive Tofinou (fusion par éléments comme les manches, forme lisible par la v43), refusé pendant une course, absent de l'espace Naos
 
 ## Out of Scope
 
@@ -181,6 +182,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | TOF-03 | Phase 8 | Pending (08-07) |
 | TOF-04 | Phase 8 | Pending (08-08, 08-09) |
 | TOF-05 | Phase 8 | Pending (08-10) |
+| TOF-06 | Phase 8 | Pending (08-11) |
 
 **Coverage:**
 - v1 requirements: 22 total
@@ -195,3 +197,4 @@ Which phases cover which requirements. Updated during roadmap creation.
 *Mise à jour 2026-11-19 : PARC-01 à PARC-04 cochés (phase 6 en production en v38, complétée jusqu'à la v42)*
 *Mise à jour 2026-11-19 : VENUE-01 repris et BREST-01 à BREST-08 ajoutés (phase 7, plans d'eau : Toulon et rade de Brest, GPEN)*
 *Mise à jour 2026-11-26 : ESPACE-01 à ESPACE-07 et TOF-01 à TOF-05 ajoutés (phase 8, espace Tofinou — rade de Bormes – Le Lavandou, Tofinou 9.5, Challenge de la Baie)*
+*Mise à jour 2026-11-26 : TOF-06 ajouté (phase 8, D-16 et D-17 : IC et parcours de l'équipage Tofinou, plan 08-11)*
