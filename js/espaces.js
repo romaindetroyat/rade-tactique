@@ -54,3 +54,28 @@ export function setEspace(id) {
   ESPACE = e;
   return ESPACE;
 }
+
+// ───────── Garde de synchronisation (D-04) : aucun envoi ni réception tant que l’espace de l’appareil n’est pas sûr.
+// Sur un hôte connu, le middleware refuse tout code d’un autre espace : comportement de la v43 ('ok' tout de suite). Sur un hôte inconnu
+// (aperçu), il faut la réponse de /api/membre (`annonce` : undefined tant qu’elle n’est pas là ; null = réponse sans espace, serveur v43 = Naos).
+// Autre espace annoncé : l’appareil vierge adopte l’espace du serveur (s’il est connu) ; sinon la synchronisation est arrêtée.
+// Rend 'ok' | 'attendre' | 'adopter' | 'bloquer'.
+export function espaceSur({ hoteConnu = false, attendu = 'naos', annonce, vierge = false } = {}) {
+  if (hoteConnu) return 'ok';
+  if (annonce === undefined) return 'attendre';
+  const e = annonce === null ? 'naos' : annonce;
+  if (e === attendu) return 'ok';
+  return vierge && typeof e === 'string' && Object.hasOwn(ESPACES, e) ? 'adopter' : 'bloquer';
+}
+
+// Appareil vierge (adoption possible) : rade.sync.v1 sans `rev`, sans première synchronisation ni marque « sale » ; index (rade.regates.v1)
+// absent ou ne contenant que des graines de l’espace de démarrage (pierres tombales comprises) ; aucune trace dans rade-traces.
+// Toute valeur illisible compte comme des données (pas vierge).
+export function appareilVierge({ sync = {}, index = null, graines = [], traces = 0 } = {}) {
+  if (sync?.rev || sync?.first || Object.keys(sync?.dirty || {}).length) return false;
+  if (!(Number.isFinite(traces) && traces === 0)) return false;
+  if (index == null) return true;
+  if (typeof index !== 'object' || !Array.isArray(index.list)) return false;
+  if (!index.list.every((r) => graines.includes(r?.id))) return false;
+  return Object.keys(index.tomb || {}).every((k) => graines.includes(k.replace(/^regatta:/, '')));
+}

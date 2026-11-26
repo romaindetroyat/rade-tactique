@@ -13,6 +13,7 @@ import { upsertRegatta } from '../js/regates.js';
 import { slotKey } from '../js/gel.js';
 import { runSync } from '../js/archsync.js';
 import { HORIZON_DAYS, MAX_PER_PASS, STORAGE_MAX, CAPS, inHorizon, heavyPlan, runHeavy, itemKey, cleanTrace, cleanReport, cleanDay, storageOk, dayObject, dayStamp } from '../js/archheavy.js';
+import { ESPACES } from '../js/espaces.js';
 
 const T0 = Date.parse('2026-11-10T09:00:00Z');
 const clone = (x) => (x === undefined ? undefined : JSON.parse(JSON.stringify(x)));
@@ -504,4 +505,16 @@ test('câblage : js/app.js charge archheavy.js par import dynamique et appelle r
   assert.match(app, /import\(['"]\.\/archheavy\.js['"]\)/);
   assert.match(app, /runHeavy\(/);
   assert.doesNotMatch(app.split('\n').filter((l) => /^import /.test(l)).join('\n'), /archheavy/, 'jamais d’import statique : l’ouverture ne l’attend pas');
+});
+
+test('plafonds des objets lourds propres à l’espace : Naos 20 / 40 (défaut), Tofinou 10 / 20 par deps.caps', async () => {
+  assert.deepEqual(CAPS, { up: 20, down: 40 });
+  assert.deepEqual(ESPACES.tofinou.caps.lourd, { up: CAPS.up / 2, down: CAPS.down / 2 });
+  const w = monde();
+  const refs = Array.from({ length: 3 }, (_, i) => ref(`t${i}`));
+  const A = telephone('Teiva', w, { list: [regate('rg1', refs)] }); for (const r of refs) A.tracks.set(r.id, trace(r.id));
+  A.deps.caps = ESPACES.tofinou.caps.lourd;
+  A.meta.hday = '2026-11-10'; A.meta.hup = 9; A.meta.hdown = 0;
+  const r1 = await runHeavy(A.deps);
+  assert.deepEqual([r1.up, r1.capped, A.meta.hup], [1, true, 10], 'Tofinou : un envoi de plus, puis plafond à 10');
 });

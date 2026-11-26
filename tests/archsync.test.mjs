@@ -5,7 +5,8 @@ import assert from 'node:assert/strict';
 import { createHandler } from '../api/archive.js';
 import { stampState, markDirty, canon, toShared, legacyStamp } from '../js/archmerge.js';
 import { createRegatta, upsertRegatta, addRace, removeRegatta, migrate, backfillAuthor, seedNorm, SEED_AT, KEY } from '../js/regates.js';
-import { runSync, applyDoc, buildDoc, canSync, syncStatus } from '../js/archsync.js';
+import { runSync, applyDoc, buildDoc, canSync, syncStatus, capped, CAPS } from '../js/archsync.js';
+import { espaceSur, appareilVierge, ESPACES } from '../js/espaces.js';
 import { createFakeBlob, invoke } from './helpers/fakeblob.mjs';
 import { sharedMarks, remoteMarkChanges } from '../js/marks.js';
 
@@ -542,4 +543,57 @@ test('D-A4 : le document envoyé ne porte jamais d’état d’ouverture ; un do
   assert.ok(!('current' in st), 'applyDoc : état sans current');
   assert.deepEqual(st.list.map((r) => r.id), [id], 'régates fusionnées');
   assert.ok(!('current' in applyDoc(avecCurrent, buildDoc(A.st, {})).st), 'un état d’avant perd son current');
+});
+
+// ───────────────────────── garde d’espace et plafonds propres à Tofinou (08-04, D-04)
+
+test('T12 : garde d’espace — hôte connu : comme la v43, aucune attente ; hôte inconnu : attendre /api/membre, réponse sans espace = Naos, autre espace → adopter (appareil vierge, espace connu) sinon bloquer', () => {
+  for (const annonce of [undefined, null, 'naos', 'tofinou', 'inconnu']) for (const vierge of [true, false]) {
+    assert.equal(espaceSur({ hoteConnu: true, attendu: 'naos', annonce, vierge }), 'ok', `hôte connu, ${annonce}`);
+  }
+  assert.equal(espaceSur({ hoteConnu: false, attendu: 'naos' }), 'attendre', 'pas encore de réponse');
+  assert.equal(espaceSur({ hoteConnu: false, attendu: 'tofinou', annonce: undefined, vierge: true }), 'attendre');
+  assert.equal(espaceSur({ hoteConnu: false, attendu: 'naos', annonce: null }), 'ok', 'serveur v43 (sans espace) : Naos');
+  assert.equal(espaceSur({ hoteConnu: false, attendu: 'tofinou', annonce: null, vierge: true }), 'adopter', 'sans espace = Naos, autre que Tofinou');
+  assert.equal(espaceSur({ hoteConnu: false, attendu: 'naos', annonce: 'naos' }), 'ok');
+  assert.equal(espaceSur({ hoteConnu: false, attendu: 'tofinou', annonce: 'tofinou' }), 'ok');
+  assert.equal(espaceSur({ hoteConnu: false, attendu: 'naos', annonce: 'tofinou', vierge: true }), 'adopter');
+  assert.equal(espaceSur({ hoteConnu: false, attendu: 'naos', annonce: 'tofinou', vierge: false }), 'bloquer');
+  assert.equal(espaceSur({ hoteConnu: false, attendu: 'tofinou', annonce: 'naos', vierge: false }), 'bloquer');
+  for (const a of ['inconnu', '__proto__', 'Tofinou', 3, {}]) assert.equal(espaceSur({ hoteConnu: false, attendu: 'naos', annonce: a, vierge: true }), 'bloquer', `espace ${String(a)} : jamais adopté`);
+});
+
+test('appareilVierge : ni rev, ni première synchronisation, ni marque « sale », index de graines de l’espace de démarrage seulement, aucune trace', () => {
+  const g = ESPACES.naos.graines, graine = (id) => ({ id, name: id });
+  assert.equal(appareilVierge({ sync: {}, index: { v: 1, list: [graine('snpm-2026'), graine('gpen-2027')] }, graines: g, traces: 0 }), true, 'appareil neuf de Naos');
+  assert.equal(appareilVierge({ sync: {}, index: null, graines: [], traces: 0 }), true, 'rien du tout');
+  assert.equal(appareilVierge({ sync: { rev: 'r1' }, index: null, graines: g, traces: 0 }), false, 'déjà synchronisé (rev)');
+  assert.equal(appareilVierge({ sync: { first: true }, index: null, graines: g, traces: 0 }), false, 'première synchronisation faite');
+  assert.equal(appareilVierge({ sync: { dirty: { rg1: 1 } }, index: null, graines: g, traces: 0 }), false, 'modification en attente');
+  assert.equal(appareilVierge({ sync: {}, index: { v: 1, list: [graine('snpm-2026'), graine('rg1')] }, graines: g, traces: 0 }), false, 'une régate créée');
+  assert.equal(appareilVierge({ sync: {}, index: { v: 1, list: [graine('snpm-2026')] }, graines: [], traces: 0 }), false, 'graine d’un autre espace');
+  assert.equal(appareilVierge({ sync: {}, index: { v: 1, list: [], tomb: { rg1: { t: 1 } } }, graines: g, traces: 0 }), false, 'une régate supprimée');
+  assert.equal(appareilVierge({ sync: {}, index: { v: 1, list: [], tomb: { 'gpen-2027': { t: 1 } } }, graines: g, traces: 0 }), true, 'graine supprimée seulement');
+  assert.equal(appareilVierge({ sync: {}, index: null, graines: g, traces: 1 }), false, 'une trace');
+  assert.equal(appareilVierge({ sync: {}, index: null, graines: g, traces: NaN }), false, 'base des traces illisible : pas vierge');
+  assert.equal(appareilVierge({ sync: {}, index: 'illisible', graines: g, traces: 0 }), false, 'index illisible : pas vierge');
+});
+
+test('plafonds propres à l’espace : Naos garde 40 envois et 150 lectures ; Tofinou la moitié (20 et 75), par le paramètre de runSync', async () => {
+  assert.deepEqual(CAPS, { w: 40, r: 150 });
+  const now = Date.parse('2026-11-07T10:00:00Z'), day = '2026-11-07';
+  const base = { now, active: false, online: true, lastTry: 0, day };
+  assert.equal(canSync({ ...base, w: 39, write: true }).ok, true);
+  assert.equal(canSync({ ...base, w: 20, write: true, caps: ESPACES.tofinou.caps.archive }).why, 'plafond');
+  assert.equal(canSync({ ...base, w: 19, write: true, caps: ESPACES.tofinou.caps.archive }).ok, true);
+  assert.equal(canSync({ ...base, r: 75, caps: ESPACES.tofinou.caps.archive }).why, 'plafond');
+  assert.equal(canSync({ ...base, r: 75 }).ok, true, 'Naos : 150 lectures');
+  assert.equal(capped({ day, w: 20, r: 0 }, now, ESPACES.tofinou.caps.archive), true);
+  assert.equal(capped({ day, w: 20, r: 0 }, now), false, 'Naos : défaut des modules');
+  const w = monde(), A = telephone('Teiva', w);
+  w.clock.t = now;
+  A.deps.caps = ESPACES.tofinou.caps.archive;
+  for (let i = 0; i < 20; i++) { A.creer('r' + i); avance(w, 31e3); assert.equal((await A.sync('auto')).merged, true, `envoi ${i + 1}`); }
+  A.creer('de trop'); avance(w, 31e3);
+  assert.equal((await A.sync('manuel')).skipped, 'plafond', 'Tofinou : plafond à 20 envois');
 });

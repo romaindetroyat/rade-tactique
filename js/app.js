@@ -5,12 +5,12 @@ import { Terrain, toXY, toLL, NM, bearingXY, distXY, fromBearing, norm360, norm1
 import { WindField, speedColor } from './wind.js';
 import { VENUE, MARKS, COURSES, LINE_PRESETS, FORBIDDEN_ZONES, DANGERS, setVenue, venueBody } from './lieu.js';
 import { bootVenue, VENUES, venueOf, needsVenueRepair, venueAt, zonesXY } from './venues.js';
-import { ESPACE, setEspace, bootEspace } from './espaces.js';
+import { ESPACE, setEspace, bootEspace, espaceDeLHote, espaceSur, appareilVierge, ESPACE_KEY } from './espaces.js';
 import { packStatus, downloadPack, prunePacks, fmtMo } from './pack.js';
 import { pdfText, parseIC, cleanText } from './events.js';
 import { IA_IC, iaOffer, iaErrorMessage, reviewFromParse, reviewFromRegatta, reviewFromApi, setValue, setKeep, setKeepRace, setKeepMark, setKeepCourse, courseReady, canValidate, checksFor, applyReview, reviewHTML, chipOf, validatedHTML } from './icread.js';
 import { stampState, markDirty, canon, legacyStamp } from './archmerge.js';
-import { migrate, seedNorm, seedGpen, setCommuns, KEY as REG_KEY, saveRegattas, createRegatta, upsertRegatta, removeRegatta, openRegatta, openAtBoot, openOnNewDay, regattaStatus, STATUS_LABEL, todayRegatta, icOf, groupByStatus, lockDates, daysOf, addRace, updateRace, removeRace, raceSettings, membre, saveMembre, backfillAuthor } from './regates.js';
+import { migrate, seedNorm, seedGpen, setCommuns, GPEN_SEED_KEY, KEY as REG_KEY, saveRegattas, createRegatta, upsertRegatta, removeRegatta, openRegatta, openAtBoot, openOnNewDay, regattaStatus, STATUS_LABEL, todayRegatta, icOf, groupByStatus, lockDates, daysOf, addRace, updateRace, removeRace, raceSettings, membre, saveMembre, backfillAuthor } from './regates.js';
 import { THROTTLE_MS, slotKey, freezeAction, obsNeedsCopy, stratNeedsCopy, sliceDays, freezeSummary, strategySummary, compactStrategy, windSourceKind, frozenLabel, parisInstant, clockOf } from './gel.js';
 import { extremes, coefApproche, hauteur } from './maree.js';
 import { chargeAtlas, courantXY, profondeurOk } from './courant.js';
@@ -61,6 +61,13 @@ const dayName = (s) => new Date(s + 'T12:00:00').toLocaleDateString('fr-FR', { w
 // Espace de la session (phase 8, D-03, D-07) : fixé AVANT le plan d’eau, de façon synchrone et hors réseau (hôte connu → son espace ;
 // hôte inconnu → rade.espace.v1 ; sinon Naos). Naos ne lit qu’une clé absente et n’écrit rien de nouveau.
 setEspace(bootEspace(location.hostname, localStore()));
+// Garde de synchronisation (D-04) : sur un hôte connu, l’espace est sûr (le middleware refuse les codes d’un autre espace) : rien ne change
+// (v43). Sur un hôte inconnu (aperçu), aucun échange avec l’archive avant que /api/membre ait confirmé l’espace (refreshMembre).
+// espaceEtat : 'ok' | 'attendre' | 'bloque'
+const HOTE_CONNU = espaceDeLHote(location.hostname) != null;
+let espaceEtat = HOTE_CONNU ? 'ok' : 'attendre';
+const espaceOk = () => espaceEtat === 'ok';
+const AUTRE_ESPACE = 'Cet appareil contient les données d’un autre espace : synchronisation arrêtée.';
 // Plan d’eau de la session (D-03, D-05) : lu dans rade.state (liste blanche bornée aux plans d’eau de l’espace, sinon son plan d’eau par
 // défaut : Toulon pour Naos) et fixé AVANT tout toXY et avant addBanane ; changer de plan d’eau recharge l’app
 setVenue(bootVenue(store.get('rade.state', {}), ESPACE));
@@ -202,7 +209,7 @@ async function init() {
     if (document.hidden) saveRaceActivity();
     else { lastProbe = Date.now(); probeNet(); renderRaceBar(); if (!(Date.now() - SYNC.lastOkAt < 300000)) scheduleSync(2000); }   // retour au premier plan, dernier succès de plus de 5 min
   });
-  addEventListener('online', () => { note('reseau', 'en ligne'); probeNet(); scheduleSync(2000); if (!who()) refreshMembre(); });
+  addEventListener('online', () => { note('reseau', 'en ligne'); probeNet(); scheduleSync(2000); if (!who() || espaceEtat === 'attendre') refreshMembre(); });
   addEventListener('offline', () => { net.online = false; note('reseau', 'hors ligne'); renderRaceBar(); paintIa(); paintSync(); });
   // ── temps 2 : la carte et le vent
   await nextFrame();
@@ -2181,17 +2188,49 @@ function bindMarksEdit(el) {
 // ───────────────────────── RÉGATES ET IC
 // D-05 : le prénom de l’équipier est donné par le middleware (GET /api/membre : jamais le code ni son empreinte), copié sur l’appareil pour le hors-réseau,
 // puis il complète les éléments créés sans auteur sur cet appareil. Jamais attendu avant l’interface utile ; un échec est consigné, sans message à l’équipier.
+let membreBusy = false;
 async function refreshMembre() {
+  if (membreBusy || espaceEtat === 'bloque') return;          // autre espace annoncé : ni prénom ni auteur complété sur ces données
+  membreBusy = true;
   const ctl = new AbortController(), to = setTimeout(() => ctl.abort(), 4000);
   try {
     const r = await fetch('/api/membre', { cache: 'no-store', signal: ctl.signal });
     if (!r.ok) throw new Error('HTTP ' + r.status);
-    const nom = (await r.json())?.membre;
+    const j = await r.json();
+    const nom = j?.membre;
+    if (espaceEtat === 'attendre' && !(await confirmeEspace(j))) return;        // hôte inconnu : espace d’abord ; autre espace : rien n’est modifié
     if (!saveMembre(localStore(), nom)) throw new Error('prénom illisible');
     const { st, n } = backfillAuthor(REG, nom);
     if (n) saveReg(st);
     if (!icBusy()) renderIC();                           // « Vous : prénom » et les auteurs complétés
-  } catch (e) { note('membre', 'prénom indisponible : ' + (e?.message || e)); } finally { clearTimeout(to); }
+  } catch (e) { note('membre', 'prénom indisponible : ' + (e?.message || e)); } finally { clearTimeout(to); membreBusy = false; }
+}
+// Hôte inconnu (D-04) : l’espace annoncé par /api/membre (sans `espace` : serveur v43, Naos) décide. Même espace → synchronisation permise ;
+// autre espace et appareil vierge → l’espace du serveur est adopté (rade.espace.v1 écrite, ou retirée pour Naos ; index, marqueur de graine et
+// réglages retirés) puis l’app recharge ; sinon synchronisation arrêtée pour la session. Vrai seulement si l’espace est confirmé.
+async function confirmeEspace(j) {
+  const annonce = j && typeof j === 'object' && Object.hasOwn(j, 'espace') ? j.espace : null;
+  let d = espaceSur({ hoteConnu: HOTE_CONNU, attendu: ESPACE.id, annonce });
+  if (d === 'bloquer') {
+    let traces = NaN;
+    try { traces = (await listTracks()).length; } catch (e) { report('espace', e); /* base illisible : l’appareil n’est pas tenu pour vierge */ }
+    d = espaceSur({ hoteConnu: HOTE_CONNU, attendu: ESPACE.id, annonce, vierge: appareilVierge({ sync: SYNC, index: store.get(REG_KEY, null), graines: ESPACE.graines, traces }) });
+  }
+  if (d === 'ok') { espaceEtat = 'ok'; note('espace', 'espace confirmé : ' + ESPACE.id); if (syncReady) scheduleSync(2000); return true; }
+  if (d === 'adopter') {
+    const e = annonce ?? 'naos';
+    try {
+      if (e === 'naos') localStorage.removeItem(ESPACE_KEY); else localStorage.setItem(ESPACE_KEY, e);
+      for (const k of [REG_KEY, GPEN_SEED_KEY, 'rade.state']) localStorage.removeItem(k);
+      note('espace', 'appareil vierge : espace du serveur adopté (' + e + '), rechargement');
+      location.reload();
+      return false;
+    } catch (err) { report('espace', err); /* stockage refusé : rien n’est adopté, la synchronisation reste arrêtée */ }
+  }
+  espaceEtat = 'bloque'; clearTimeout(syncTimer);
+  note('espace', AUTRE_ESPACE);
+  toast(AUTRE_ESPACE); paintSync();
+  return false;
 }
 // ───────────────────────── ARCHIVE PARTAGÉE (ARCH-01, D-03, D-04)
 // js/archsync.js n’est jamais importé statiquement : il est chargé à la première synchronisation, après la carte (l’ouverture ne l’attend pas).
@@ -2199,6 +2238,7 @@ async function refreshMembre() {
 let syncMod = null, syncTimer = null, syncBusy = false, syncCtl = null, syncReady = false;
 function scheduleSync(ms) { clearTimeout(syncTimer); syncTimer = setTimeout(() => syncNow('auto'), ms); }
 async function syncFetch(method, query, body, delai = 15000) {
+  if (!espaceOk()) throw new Error('espace non confirmé');          // dernier rempart de la garde d’espace (D-04) : jamais un appel à /api/archive
   const ctl = new AbortController(), to = setTimeout(() => ctl.abort(), delai);
   syncCtl = ctl;
   try {
@@ -2221,10 +2261,16 @@ function syncDeps() {
     // copie de secours de l'index avant la première fusion appliquée ; un échec est consigné, jamais bloquant
     backup: () => { try { const brut = localStore()?.getItem(REG_KEY); if (brut != null) localStore().setItem('rade.regates.v1.bak', brut); } catch (e) { note('archive', 'copie de secours non écrite : ' + (e?.name || 'erreur')); } },
     canApply: () => !icBusy() && !markEdit && !SYNC.off,
+    caps: ESPACE.caps?.archive,                                                    // plafonds de l’espace (Naos : ceux de js/archsync.js)
   };
 }
 async function syncNow(reason) {
   if (syncBusy || (!syncReady && reason !== 'manuel')) return;
+  if (!espaceOk()) {                                         // hôte inconnu : espace pas encore confirmé, ou celui d’un autre espace (D-04)
+    if (espaceEtat === 'attendre') refreshMembre();
+    if (reason === 'manuel') toast(espaceEtat === 'bloque' ? AUTRE_ESPACE : 'Vérification de l’espace de cet appareil : synchronisation ensuite');
+    paintSync(); return;
+  }
   clearTimeout(syncTimer);
   if (SYNC.off) { paintSync(); return; }                     // désactivée sur ce téléphone : aucun échange, le module n’est même pas chargé
   if (raceActive(Date.now())) { if (reason === 'manuel') toast('Course en cours : synchronisation après la course'); paintSync(); return; }
@@ -2246,6 +2292,7 @@ async function syncNow(reason) {
 }
 // Geste « Télécharger pour le hors réseau » : tout ce qui manque à CETTE régate, sans tenir compte de l'horizon de 180 jours ; la course et le verrou du jour passent avant
 async function telecharger(rid, btn) {
+  if (!espaceOk()) { toast(espaceEtat === 'bloque' ? AUTRE_ESPACE : 'Vérification de l’espace de cet appareil : réessayez dans un instant'); return; }
   if (SYNC.off) { toast('Synchronisation désactivée sur ce téléphone'); return; }
   if (!net.online) { toast('Hors réseau : à faire dès le retour du réseau'); return; }
   if (heavyBusy) { toast('Un échange est déjà en cours : patientez un instant'); return; }
@@ -2279,10 +2326,11 @@ function heavyDeps() {
     me: who, listTracks, getTrack, saveTrack, getSlot, putSlot, slotKey,
     estimate: () => navigator.storage?.estimate?.(),
     isActive: () => raceActive(Date.now()), isLocked: () => raceLock().locked, report,
+    caps: ESPACE.caps?.lourd,                                                      // plafonds de l’espace (Naos : ceux de js/archheavy.js)
   };
 }
 async function runHeavyNow({ only = null, manuel = false } = {}) {
-  if (heavyBusy || SYNC.off || SYNC.denied || SYNC.absent || SYNC.outdated) return null;
+  if (heavyBusy || SYNC.off || SYNC.denied || SYNC.absent || SYNC.outdated || !espaceOk()) return null;
   if (raceActive(Date.now())) { if (manuel) toast('Course en cours : téléchargement après la course'); return null; }
   if (raceLock().locked) { if (manuel) toast('Journée de régate : téléchargement au retour au port'); return null; }
   heavyBusy = true;
@@ -2332,9 +2380,10 @@ function toggleSync(btn) {
 function paintSync() {
   const el = $('#rgSync');
   if (!el) return;
+  if (espaceEtat === 'bloque') { el.textContent = AUTRE_ESPACE; el.dataset.level = 'warn'; el.hidden = false; return; }      // D-04 : textContent
   if (!syncMod && !SYNC.off) { el.hidden = true; return; }
   if (!syncMod) { el.textContent = 'Synchronisation désactivée'; el.dataset.level = 'off'; el.hidden = false; return; }      // désactivée avant tout chargement : le module reste dehors
-  const s = syncMod.syncStatus({ off: SYNC.off, active: raceActive(Date.now()), online: net.online, busy: syncBusy, dirty: Object.keys(SYNC.dirty || {}).length, lastOkAt: SYNC.lastOkAt, fails: SYNC.fails, absent: SYNC.absent, denied: SYNC.denied, outdated: SYNC.outdated, capped: syncMod.capped(SYNC, Date.now()) });
+  const s = syncMod.syncStatus({ off: SYNC.off, active: raceActive(Date.now()), online: net.online, busy: syncBusy, dirty: Object.keys(SYNC.dirty || {}).length, lastOkAt: SYNC.lastOkAt, fails: SYNC.fails, absent: SYNC.absent, denied: SYNC.denied, outdated: SYNC.outdated, capped: syncMod.capped(SYNC, Date.now(), ESPACE.caps?.archive) });
   el.textContent = s.text + (SYNC.env === 'preview' ? ' (essai)' : ''); el.dataset.level = s.level; el.hidden = false;
 }
 let icDraft = null;                          // relecture des IC en cours (import ou « Modifier »), en mémoire de la page seulement : rien n’est écrit avant « Valider les IC »

@@ -12,6 +12,7 @@ export const HORIZON_DAYS = 180;          // régates terminées depuis moins de
 export const MAX_PER_PASS = 6;            // au plus 6 objets par passage, avec un nouveau contrôle de la course entre deux
 export const STORAGE_MAX = 0.6;           // arrêt des téléchargements au-delà de 60 % du stockage estimé
 export const CAPS = { up: 20, down: 40 }; // par téléphone et par jour de Paris : envois et téléchargements d'objets lourds
+// Un autre espace a ses propres plafonds (js/espaces.js, `caps.lourd`, passés par js/app.js dans deps.caps) ; Naos garde CAPS
 export const MISS_MS = 30 * 60e3;         // objet annoncé mais pas encore en ligne (404) : on ne le redemande pas avant 30 minutes
 const DAY_MS = 864e5, NATURES = ['wx', 'strat', 'obs'];
 
@@ -151,7 +152,7 @@ export async function runHeavy(d, { only = null } = {}) {
   const ctx = { d, count };
   for (const it of [...plan.up.map((x) => ({ ...x, dir: 'up' })), ...plan.down.map((x) => ({ ...x, dir: 'down' }))]) {
     if ((why = halt())) { out.skipped = why; break; }                    // nouveau contrôle de la course entre deux objets
-    if (c[it.dir] >= CAPS[it.dir]) { out.capped = true; continue; }       // plafond du jour atteint pour ce sens
+    if (c[it.dir] >= (d.caps ?? CAPS)[it.dir]) { out.capped = true; continue; }       // plafond du jour atteint pour ce sens
     try {
       const r = it.dir === 'up' ? await send(ctx, it) : await receive(ctx, it);
       if (r === 'stop') { out.error = meta.denied ? 'acces' : 'arret'; break; }

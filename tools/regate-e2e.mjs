@@ -3652,6 +3652,112 @@ async function tofinouDemarrage({ browser }) {
   }
 }
 
+// Archive sur faux Blob pour un téléphone d’aperçu : l’espace de chaque requête est celui que poserait le middleware (`srv.espace`, réglable),
+// jamais une valeur de la page ; chaque requête vue est notée avec l’instant et l’espace
+async function archiveEspace(ctx, m, nom, srv) {
+  m.vues ||= [];
+  await ctx.route('**/api/archive*', async (route) => {
+    const req = route.request(), u = new URL(req.url());
+    m.vues.push({ nom, espace: srv.espace, method: req.method(), k: u.searchParams.get('k'), at: Date.now() });
+    const r = await m.invoke(m.handler, { method: req.method(), url: u.pathname + u.search, body: req.postData() ? JSON.parse(req.postData()) : undefined, headers: { 'x-rt-membre': encodeURIComponent(nom), 'x-rt-espace': srv.espace } });
+    await route.fulfill({ status: r.status, contentType: 'application/json', headers: { 'cache-control': 'no-store' }, body: JSON.stringify(r.body ?? null) }).catch(() => { /* page rechargée */ });
+  });
+}
+// /api/membre d’un aperçu : réponse réglable (`srv`), retardée de `srv.delai` ms ; `srv.repondu` : instants des réponses
+async function membreApercu(ctx, srv) {
+  srv.repondu = [];
+  await ctx.route('**/api/membre', async (route) => {
+    if (srv.delai) await new Promise((r) => setTimeout(r, srv.delai));
+    srv.repondu.push(Date.now());
+    const corps = { membre: srv.membre, espace: srv.espace, espaces: srv.espaces ?? [srv.espace] };
+    await route.fulfill({ status: 200, contentType: 'application/json', headers: { 'cache-control': 'no-store' }, body: JSON.stringify(corps) }).catch(() => { /* page rechargée */ });
+  });
+}
+const AUTRE_ESPACE = 'Cet appareil contient les données d’un autre espace : synchronisation arrêtée.';
+
+// D-04 : garde de synchronisation sur un hôte inconnu (aperçu, `apercu.localhost`).
+// (a) Appareil neuf (démarré en Naos par défaut), /api/membre répond Tofinou après 2 s : aucune requête /api/archive avant la réponse ;
+//     l’appareil vierge adopte l’espace Tofinou (rade.espace.v1), recharge, s’ouvre sur la rade de Bormes sans aucune graine de Naos, puis
+//     se synchronise avec l’archive de Tofinou (chemins tofinou/… du faux Blob seulement).
+// (b) Appareil qui a créé et synchronisé une régate comme Naos, puis /api/membre répond Tofinou : zéro requête /api/archive de toute la
+//     session (même sur « Synchroniser »), message « Cet appareil contient les données d’un autre espace : synchronisation arrêtée. », noté au journal.
+async function espaceGarde({ browser, base: base0 }) {
+  const base = baseSur(base0, HOTES_ESSAI.apercu);
+  const m = await mondeArchive('2026-12-05T08:30:00Z');                                   // samedi 05/12/2026, 9 h 30 à Paris
+  // (a) appareil neuf
+  {
+    const ctx = await ouvreContexte(browser, { heure: new Date(m.t).toISOString() }); m.ctxs.push(ctx);
+    const srv = { membre: 'Frédéric', espace: 'tofinou', delai: 2000 };
+    await membreApercu(ctx, srv);
+    await archiveEspace(ctx, m, 'Frédéric', srv);
+    const { page, erreurs } = await ouvrePage(ctx);
+    const archive = [];
+    let chargements = 0, avantAdoption = null;
+    page.on('request', (r) => { if (r.url().includes('/api/archive')) archive.push(Date.now()); });
+    page.on('load', () => { chargements++; if (chargements === 2) avantAdoption = archive.length; });
+    await page.goto(base, { waitUntil: 'load' });
+    await page.waitForFunction(() => localStorage.getItem('rade.espace.v1') === 'tofinou', null, { timeout: 30000, polling: 100 });
+    const fin = Date.now() + 30000;
+    while (chargements < 2 && Date.now() < fin) await new Promise((r) => setTimeout(r, 100));
+    assert.equal(chargements >= 2, true, 'adoption : l’app recharge');
+    assert.equal(avantAdoption, 0, 'aucune requête /api/archive avant la confirmation de l’espace');
+    assert.ok(srv.repondu.length >= 1);
+    await pret(page);
+    assert.equal(await texte(page, '#regBar .regname'), 'Entraînement libre · Bormes – Le Lavandou', 'espace adopté : la rade de Bormes');
+    await tofinouSansNaos(page);
+    // puis la synchronisation de Tofinou, après la nouvelle confirmation de l’espace
+    await page.waitForFunction(() => !!JSON.parse(localStorage.getItem('rade.sync.v1') || '{}').lastOkAt, null, { timeout: 60000, polling: 200 });
+    const premiere = m.vues.filter((v) => v.nom === 'Frédéric')[0];
+    assert.ok(premiere && premiere.at >= srv.repondu.at(-1), 'première requête à l’archive après la réponse de /api/membre du second démarrage');
+    assert.ok(m.vues.filter((v) => v.nom === 'Frédéric').every((v) => v.espace === 'tofinou'));
+    // une régate de Bormes créée puis synchronisée : rangée dans l’archive de Tofinou seulement
+    await creeRegate(page, { nom: 'Manche de la Baie', debut: '2026-12-13', club: 'CNBL' });
+    await avanceHeure(m, 60e3);
+    await synchronise(m, { nom: 'Frédéric', page });
+    const chemins = [...m.blob.store.keys()];
+    assert.ok(chemins.length && chemins.every((c) => c.startsWith('tofinou/')), `archive de Tofinou seulement : ${chemins.join(', ')}`);
+    const leger = JSON.parse(m.blob.store.get('tofinou/preview/light.json')?.text || 'null');
+    assert.deepEqual(Object.values(leger?.regattas || {}).map((r) => [r.name, r.venue]), [['Manche de la Baie', 'bormes']], 'régate de Bormes dans l’archive de Tofinou');
+    sansErreur(erreurs, 'appareil neuf adopté');
+    await ctx.close();
+  }
+  // (b) appareil avec des données de Naos
+  {
+    const ctx = await ouvreContexte(browser, { heure: new Date(m.t).toISOString() }); m.ctxs.push(ctx);
+    const srv = { membre: 'Romain', espace: 'naos', espaces: ['naos', 'tofinou'], delai: 0 };
+    await membreApercu(ctx, srv);
+    await archiveEspace(ctx, m, 'Romain', srv);
+    const { page, erreurs } = await ouvrePage(ctx);
+    const archive = [];
+    page.on('request', (r) => { if (r.url().includes('/api/archive')) archive.push(Date.now()); });
+    await ouvreApp(page, base);
+    await page.waitForFunction(() => localStorage.getItem('rade.membre.v1') === 'Romain', null, { timeout: 20000 });
+    assert.equal(await texte(page, '#regBar .regname'), 'Entraînement libre', 'aperçu, code de Naos : Naos à Toulon');
+    await creeRegate(page, { nom: 'Régate de Naos', debut: '2026-12-12', club: 'CVAT' });
+    await synchronise(m, { nom: 'Romain', page });
+    assert.ok(archive.length > 0, 'Naos s’est synchronisé');
+    assert.ok([...m.blob.store.keys()].some((c) => c.startsWith('preview/')), 'archive de Naos (preview/…)');
+    // le serveur annonce maintenant l’espace Tofinou (code d’un autre espace sur le même aperçu)
+    srv.espace = 'tofinou'; srv.espaces = ['tofinou']; srv.membre = 'Frédéric';
+    const n0 = archive.length, vues0 = m.vues.length;
+    await page.reload({ waitUntil: 'load' });
+    await pret(page);
+    await page.waitForFunction((t) => document.querySelector('#rgSync')?.textContent === t, AUTRE_ESPACE, { timeout: 20000, polling: 100 });
+    await page.click('#tabs button[data-tab=ic]');
+    assert.equal(await texte(page, '#rgSync'), AUTRE_ESPACE);
+    await page.click('#rgSyncBtn');
+    await new Promise((r) => setTimeout(r, 8000));                                         // au-delà de la synchronisation d’ouverture (3 s après la carte)
+    assert.equal(archive.length, n0, 'aucune requête /api/archive de la session');
+    assert.equal(m.vues.length, vues0);
+    assert.equal(await page.evaluate(() => localStorage.getItem('rade.espace.v1')), null, 'aucune adoption : l’appareil a des données');
+    assert.equal(await page.evaluate(() => localStorage.getItem('rade.membre.v1')), 'Romain', 'prénom de l’autre espace non écrit');
+    assert.ok((await noms(page)).includes('Régate de Naos'), 'les données de Naos restent sur l’appareil');
+    await page.waitForFunction(() => /données d’un autre espace/.test(localStorage.getItem('rade.diag.v1') || ''), null, { timeout: 30000, polling: 250 });   // journal écrit toutes les 10 s
+    sansErreur(erreurs, 'appareil bloqué');
+    await ctx.close();
+  }
+}
+
 // ───────────────────────── plan d’eau d’une régate (07-05 : D-05, D-06, D-04)
 
 // D-06 : A (Toulon) crée « Entraînement Brest » en rade de Brest (choix du formulaire) : elle n’est pas ouverte sur la carte de Toulon, la bascule est
@@ -3756,7 +3862,7 @@ async function regateBrest({ browser, base }) {
   await A.ctx.close(); await B.ctx.close();
 }
 
-const SCENARIOS = { accueil, 'jour-j': jourJ, 'deux-telephones': deuxTelephones, reprise, equipage, archive, 'archive-bouees': archiveBouees, archivehors: archiveHors, creer, manche, auteur, ic, 'depuis-ic': depuisIC, vraisemblance, gel, 'debrief-tardif': debriefTardif, gpx, 'gpx-choix': gpxChoix, ia, 'ia-erreurs': iaErreurs, arbitre, bouees, guide, entetes, 'retour-port': retourPort, banane, 'banane-manche': bananeManche, 'banane-debrief': bananeDebrief, 'porte-ic': porteIC, 'modifier-manche': modifierManche, 'toulon-vue': toulonVue, 'plan-eau': planEau, 'brest-avion': brestAvion, 'regate-brest': regateBrest, 'brest-courant': brestCourant, gpen, 'naos-cles': naosCles, 'tofinou-demarrage': tofinouDemarrage };
+const SCENARIOS = { accueil, 'jour-j': jourJ, 'deux-telephones': deuxTelephones, reprise, equipage, archive, 'archive-bouees': archiveBouees, archivehors: archiveHors, creer, manche, auteur, ic, 'depuis-ic': depuisIC, vraisemblance, gel, 'debrief-tardif': debriefTardif, gpx, 'gpx-choix': gpxChoix, ia, 'ia-erreurs': iaErreurs, arbitre, bouees, guide, entetes, 'retour-port': retourPort, banane, 'banane-manche': bananeManche, 'banane-debrief': bananeDebrief, 'porte-ic': porteIC, 'modifier-manche': modifierManche, 'toulon-vue': toulonVue, 'plan-eau': planEau, 'brest-avion': brestAvion, 'regate-brest': regateBrest, 'brest-courant': brestCourant, gpen, 'naos-cles': naosCles, 'tofinou-demarrage': tofinouDemarrage, 'espace-garde': espaceGarde };
 
 // ───────────────────────── lancement
 
