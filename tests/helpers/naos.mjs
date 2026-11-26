@@ -21,8 +21,9 @@ export const FROM = '5e9b8a5';
 const DEPOT = fileURLToPath(new URL('../../', import.meta.url));
 
 // Fichiers que la v44 a le droit d’ajouter à la liste hors réseau (SHELL) et aux adresses demandées par l’app de Naos (scénario naos-cles),
-// 64 Ko au plus chacun ; chaque plan de la phase y ajoute les siens. Aucun pour l’instant.
-export const AJOUTS_SHELL = Object.freeze([]);
+// 64 Ko au plus chacun ; chaque plan de la phase y ajoute les siens. 08-04 : registre des espaces, descripteur de Bormes (importés par
+// js/venues.js, donc demandés aussi par l’app de Naos).
+export const AJOUTS_SHELL = Object.freeze(['js/espaces.js', 'js/venue-bormes.js']);
 export const TAILLE_AJOUT_MAX = 64 * 1024;
 
 // ───────────────────────── outils communs

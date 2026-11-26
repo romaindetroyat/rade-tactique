@@ -5,6 +5,7 @@ import { Terrain, toXY, toLL, NM, bearingXY, distXY, fromBearing, norm360, norm1
 import { WindField, speedColor } from './wind.js';
 import { VENUE, MARKS, COURSES, LINE_PRESETS, FORBIDDEN_ZONES, DANGERS, setVenue, venueBody } from './lieu.js';
 import { bootVenue, VENUES, venueOf, needsVenueRepair, venueAt, zonesXY } from './venues.js';
+import { ESPACE, setEspace, bootEspace } from './espaces.js';
 import { packStatus, downloadPack, prunePacks, fmtMo } from './pack.js';
 import { pdfText, parseIC, cleanText } from './events.js';
 import { IA_IC, iaOffer, iaErrorMessage, reviewFromParse, reviewFromRegatta, reviewFromApi, setValue, setKeep, setKeepRace, setKeepMark, setKeepCourse, courseReady, canValidate, checksFor, applyReview, reviewHTML, chipOf, validatedHTML } from './icread.js';
@@ -57,15 +58,27 @@ const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(
 const addDays = (s, n) => { const d = new Date(s + 'T12:00:00'); d.setDate(d.getDate() + n); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 const dayName = (s) => new Date(s + 'T12:00:00').toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
 
-// Plan d’eau de la session (D-03, D-05) : lu dans rade.state (liste blanche, sinon Toulon) et fixé AVANT tout toXY et avant addBanane ;
-// changer de plan d’eau recharge l’app
-setVenue(bootVenue(store.get('rade.state', {})));
+// Espace de la session (phase 8, D-03, D-07) : fixé AVANT le plan d’eau, de façon synchrone et hors réseau (hôte connu → son espace ;
+// hôte inconnu → rade.espace.v1 ; sinon Naos). Naos ne lit qu’une clé absente et n’écrit rien de nouveau.
+setEspace(bootEspace(location.hostname, localStore()));
+// Plan d’eau de la session (D-03, D-05) : lu dans rade.state (liste blanche bornée aux plans d’eau de l’espace, sinon son plan d’eau par
+// défaut : Toulon pour Naos) et fixé AVANT tout toXY et avant addBanane ; changer de plan d’eau recharge l’app
+setVenue(bootVenue(store.get('rade.state', {}), ESPACE));
 configureWeather(VENUE.weather);                     // prévisions, cache et instantané du plan d’eau (Toulon : requêtes de la v42)
 
 // Banane construite (D-01) : ajoutée à la liste des parcours hors du cahier js/courses.js, AVANT toute lecture de S.courseId et avant
 // syncRegMarks (sinon un parcours choisi à 90 serait ramené au parcours 3) ; applyRegattaMarks ne retire que les parcours d’une régate
 addBanane(COURSES);
 
+// Réglages propres à un plan d’eau, rangés dans S.byVenue[<id>] quand on le quitte ; la polaire et les réglages du bateau sont communs
+const VENUE_KEYS = ['courseId', 'cls', 'laps', 'linePreset', 'lineLen', 'lineMode', 'lineBrg', 'lineOverride', 'obs', 'manual', 'src', 'modelSel'];
+// premier passage : défauts du plan d’eau (Brest : parcours 1 du GPEN, 91 ; ligne au centre de la zone A, vent d’ouest ; Bormes : la banane,
+// ligne devant Le Lavandou)
+const VENUE_DEF = {
+  brest: { courseId: 91, linePreset: 'zoneA', lineOverride: null, obs: [], manual: { dir: 270, spd: 12, gust: 17 } },
+  bormes: { courseId: 90, linePreset: 'lavandou', lineOverride: null, obs: [] },
+};
+const pickVenueKeys = (o) => Object.fromEntries(VENUE_KEYS.filter((k) => o && typeof o === 'object' && Object.hasOwn(o, k)).map((k) => [k, structuredClone(o[k])]));
 const DEF = {
   day: today(), hour: 11, src: 'forecast', manual: { dir: 315, spd: 15, gust: 20 }, calib: null, localFx: 1, obs: [], modelSel: 'auto', nowcast: true,
   courseId: 3, cls: 'G', laps: 2, wlNm: 0.8, startTime: 11, linePreset: 'vignettes', lineLen: 0.12, lineMode: 'wind', lineBrg: 0, lineOverride: null,
@@ -74,7 +87,8 @@ const DEF = {
   venue: 'toulon',                                                                     // plan d’eau (lu au démarrage par bootVenue)
   byVenue: {},                                                                         // réglages propres à chaque plan d’eau quitté (VENUE_KEYS), retrouvés au retour
 };
-const S = { ...DEF, ...store.get('rade.state', {}) };
+// Hors de Naos, premier démarrage (rade.state absent) : les défauts du plan d’eau par défaut de l’espace (Naos : DEF seul, comme en v43)
+const S = { ...DEF, ...(ESPACE.id !== 'naos' && store.get('rade.state', null) == null ? pickVenueKeys(VENUE_DEF[VENUE.id]) : {}), ...store.get('rade.state', {}) };
 S.venue = VENUE.id;                                   // valeur inconnue ou hostile ramenée au plan d’eau retenu par bootVenue
 if (!S.byVenue || typeof S.byVenue !== 'object' || Array.isArray(S.byVenue)) S.byVenue = {};
 // Régates : l’index (petit) se lit de façon synchrone au chargement ; IC garde la forme d’avant (icOf)
@@ -584,7 +598,7 @@ async function runAnalysis() {
   const course = COURSES.find((c) => c.id === S.courseId);
   const cls = course.seq[S.cls] ? S.cls : 'G';
   computeField(S.day, S.startTime);
-  const preset = LINE_PRESETS[course.line && S.linePreset === 'vignettes' ? course.line : S.linePreset] || LINE_PRESETS.vignettes;
+  const preset = LINE_PRESETS[course.line && S.linePreset === 'vignettes' ? course.line : S.linePreset] || LINE_PRESETS.vignettes || Object.values(LINE_PRESETS)[0];
   const ctr = toXY(preset.lat, preset.lon);
   const wLine = F.sample(ctr.x, ctr.y);
   const ov = S.lineOverride ? { cb: toXY(S.lineOverride.cb.lat, S.lineOverride.cb.lon), pin: toXY(S.lineOverride.pin.lat, S.lineOverride.pin.lon) } : null;
@@ -1740,7 +1754,7 @@ function bananeOfTrace(tr, src) {
   const course = gpen ? { course: K } : {};
   if (Number(rec.id) === K.id && okLL && Number.isFinite(rec.axe) && recBan && JSON.stringify(recBan) === JSON.stringify(ban)) return { ban, cls, c: { lat: lig.lat, lon: lig.lon }, dir: norm360(rec.axe), fit: false, prefer: true, from, ...course };
   // ligne de l’app, comme runAnalysis pour la banane (ligne pinguée comprise)
-  const preset = LINE_PRESETS[K.line && S.linePreset === 'vignettes' ? K.line : S.linePreset] || LINE_PRESETS.vignettes;
+  const preset = LINE_PRESETS[K.line && S.linePreset === 'vignettes' ? K.line : S.linePreset] || LINE_PRESETS.vignettes || Object.values(LINE_PRESETS)[0];
   const ov = S.lineOverride;
   let c = ov ? toLL(...(({ cb, pin }) => [(cb.x + pin.x) / 2, (cb.y + pin.y) / 2])({ cb: toXY(ov.cb.lat, ov.cb.lon), pin: toXY(ov.pin.lat, ov.pin.lon) })) : { lat: preset.lat, lon: preset.lon };
   // vent du moment : au signal de la manche s’il tombe ce jour-là, sinon au début de la trace
@@ -2413,15 +2427,11 @@ function paintRegBar() {
 // Carte « Plan d’eau » en tête de l’onglet Régates. Le pack de Brest (data/brest.*, hors de la liste hors réseau) est téléchargé par la page,
 // vérifié par empreinte et rangé dans un cache rade-venue-brest-<pack> (js/pack.js) ; changer de plan d’eau enregistre le choix et recharge
 // l’app, jamais pendant une course. À Toulon, le démarrage ne lit ni le manifeste ni les caches : l’état est lu à l’ouverture de l’onglet.
-const PACK_ID = 'brest';                                   // plan d’eau téléchargeable (Toulon est dans le cache de l’app)
+const PACK_ID = ESPACE.pack;                               // plan d’eau téléchargeable de l’espace (Naos : Brest ; Toulon est dans le cache de l’app)
 const PACK = { man: null, status: null, busy: null, error: null };
 const cacheStore = () => (typeof caches === 'undefined' ? null : caches);
 const venueIn = (id) => VENUES[id].nom.replace(/^Rade /, 'rade ');      // « la rade de Brest »
-// réglages propres à un plan d’eau, rangés dans S.byVenue[<id>] quand on le quitte ; la polaire et les réglages du bateau sont communs
-const VENUE_KEYS = ['courseId', 'cls', 'laps', 'linePreset', 'lineLen', 'lineMode', 'lineBrg', 'lineOverride', 'obs', 'manual', 'src', 'modelSel'];
-// premier passage : défauts du plan d’eau (Brest : parcours 1 du GPEN, 91 ; ligne au centre de la zone A, vent d’ouest)
-const VENUE_DEF = { brest: { courseId: 91, linePreset: 'zoneA', lineOverride: null, obs: [], manual: { dir: 270, spd: 12, gust: 17 } } };
-const pickVenueKeys = (o) => Object.fromEntries(VENUE_KEYS.filter((k) => o && typeof o === 'object' && Object.hasOwn(o, k)).map((k) => [k, structuredClone(o[k])]));
+// VENUE_KEYS, VENUE_DEF et pickVenueKeys : en tête du module (défauts du premier démarrage hors de Naos)
 const packView = () => ({ venueId: VENUE.id, venues: VENUES, status: PACK.status, busy: PACK.busy, error: PACK.error, locked: raceActive(Date.now()), packId: PACK_ID });
 async function loadManifest() {
   if (PACK.man) return PACK.man;
@@ -2642,7 +2652,7 @@ function renderIC() {
     const sync = () => { rgDraft = { name: $('#rgName').value, dateStart: $('#rgStart').value, dateEnd: $('#rgEnd').value, club: $('#rgClub').value, venue: $('#rgVenue').value }; };
     const create = () => {
       sync();
-      const r = createRegatta(rgDraft, { now: Date.now(), by: who() });
+      const r = createRegatta({ ...rgDraft, venue: ESPACE.venues.includes(rgDraft.venue) ? rgDraft.venue : ESPACE.venueDefaut }, { now: Date.now(), by: who() });     // plans d’eau de l’espace seulement
       if (!r.ok) { rgErr = r.errors; renderIC(); return; }
       rgDraft = null; rgErr = {}; icDraft = null;
       saveReg(upsertRegatta(REG, r.regatta));

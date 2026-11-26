@@ -58,6 +58,14 @@ const INIT = () => {
 
 // ───────────────────────── outils communs
 
+// Hôtes d’essai des espaces (08-04) : l’espace Tofinou à son hôte connu, un aperçu (hôte inconnu) ; tous deux résolus vers le serveur local
+// par --host-resolver-rules (MAP_ESSAI), comme 127.0.0.1. Chaque hôte est une origine à part : stockage, caches et service worker séparés.
+const HOTES_ESSAI = { tofinou: 'tofinou.localhost', apercu: 'apercu.localhost' };
+const HOTES_LOCAUX = ['127.0.0.1', ...Object.values(HOTES_ESSAI)];
+const MAP_ESSAI = Object.values(HOTES_ESSAI).map((h) => `MAP ${h} 127.0.0.1`).join(', ');
+// Adresse de l’app servie par le serveur local sous un hôte d’essai
+const baseSur = (base, hote) => { const u = new URL(base); u.hostname = hote; return u.href; };
+
 // geo : { latitude, longitude } du GPS simulé (l’autorisation est donnée) ; sans lui, aucune position n’est fournie
 // worker : service worker AUTORISÉ (scénario brest-avion seulement) ; alors aucune route n’est posée (Playwright ne route pas les requêtes du
 // worker) : les autres hôtes restent injoignables par --host-resolver-rules du lancement de Chromium
@@ -67,8 +75,8 @@ async function ouvreContexte(browser, { heure, geo = null, worker = false }) {
   await ctx.addInitScript(INIT);
   // chaque page du contexte, fenêtres ouvertes par l’app comprises (« Plein écran » du rapport) : violations relevées avant tout filtre
   ctx.on('page', (p) => p.on('console', (m) => { if (VIOLATION.test(m.text())) violations.push(m.text().slice(0, 300)); }));
-  // seul l’hôte local est joignable ; une route enregistrée ensuite par un scénario passe avant celle-ci
-  if (!worker) await ctx.route('**/*', (route) => (new URL(route.request().url()).hostname === '127.0.0.1' ? route.fallback() : route.abort()));
+  // seul l’hôte local est joignable (127.0.0.1, et les hôtes d’essai des espaces : HOTES_ESSAI) ; une route enregistrée ensuite par un scénario passe avant celle-ci
+  if (!worker) await ctx.route('**/*', (route) => (HOTES_LOCAUX.includes(new URL(route.request().url()).hostname) ? route.fallback() : route.abort()));
   return ctx;
 }
 // Page + liste des erreurs vues par la page (hors échecs de chargement voulus : réseau coupé)
@@ -3535,6 +3543,97 @@ async function brestAvion({ browser }) {
   }
 }
 
+// ───────────────────────── espaces (08-04 : D-03, D-05, D-07)
+
+const PACK_BORMES = MANIFESTE.venues.bormes;
+const CACHE_BORMES = 'rade-venue-bormes-' + PACK_BORMES.pack;
+const NOM_BORMES = 'Rade de Bormes – Le Lavandou';
+const cacheBormes = (page) => page.evaluate(async (nom) => {
+  if (!(await caches.keys()).includes(nom)) return null;
+  return (await (await caches.open(nom)).keys()).map((r) => new URL(r.url).pathname).sort();
+}, CACHE_BORMES);
+// /api/membre servi comme le middleware de la v44 : { membre, espace, espaces } (null : réponse de la v43, sans espace)
+async function membreEspace(ctx, { membre, espace = null, espaces = null, delai = 0 }) {
+  const servi = { appels: 0 };
+  await ctx.route('**/api/membre', async (route) => {
+    servi.appels++;
+    if (delai) await new Promise((r) => setTimeout(r, delai));
+    const corps = { membre, ...(espace ? { espace, espaces: espaces ?? [espace] } : {}) };
+    return route.fulfill({ status: 200, contentType: 'application/json', headers: { 'cache-control': 'no-store' }, body: JSON.stringify(corps) }).catch(() => { /* page rechargée entre-temps */ });
+  });
+  return servi;
+}
+
+// D-03, D-05, D-07 : un téléphone neuf ouvre l’app à l’adresse de l’espace Tofinou (hôte connu, origine propre). Serveur propre au scénario,
+// service worker autorisé. L’app démarre sur la rade de Bormes : pack `bormes` téléchargé et vérifié une fois (« Prêt hors réseau »), carte de
+// Bormes (data/bormes.*), aucune clé d’espace écrite (l’hôte suffit), banane analysée (bords affichés) ; serveur ARRÊTÉ pour de bon, puis
+// rechargement en mode avion : Bormes s’ouvre depuis les caches, sans erreur.
+async function tofinouDemarrage({ browser }) {
+  const { serveur, base: base0, refuses } = await demarreServeur({ root: ROOT });
+  const base = baseSur(base0, HOTES_ESSAI.tofinou);
+  let arrete = false;
+  let ctx;
+  try {
+    ctx = await ouvreContexte(browser, { heure: '2026-12-05T09:00:00Z', worker: true });
+    const servi = await membreEspace(ctx, { membre: 'Frédéric', espace: 'tofinou' });
+    const { page, erreurs } = await ouvrePage(ctx);
+    const vus = [];
+    page.on('request', (r) => { const u = new URL(r.url()); if (u.pathname.startsWith('/data/')) vus.push(u.pathname + u.search); });
+    // vent manuel posé avant tout démarrage de l’app (sinon pas de prévision hors ligne, pas d’analyse) : rade.state reste « premier démarrage »
+    // tant que l’app ne l’a pas écrit — on le pose donc après la première ouverture
+    await ouvreApp(page, base);
+    assert.equal(await texte(page, '#regBar .regname'), 'Entraînement libre · Bormes – Le Lavandou', 'l’espace Tofinou démarre sur la rade de Bormes');
+    assert.equal(await cacheBormes(page).then((x) => x?.length), PACK_BORMES.files.length, 'pack de Bormes téléchargé et écrit dans son cache');
+    for (const f of PACK_BORMES.files) assert.ok(vus.includes(`/${f.path}?pack=${PACK_BORMES.pack}`), `téléchargé : ${f.path}`);
+    for (const f of ['meta.json', 'terrain.bin', 'cover.bin', 'coast.json']) assert.ok(vus.includes(`/data/bormes.${f}`), `carte de Bormes : data/bormes.${f}`);
+    assert.ok(!vus.some((u) => u.startsWith('/data/brest.')), 'aucun fichier de Brest');
+    assert.ok(!vus.some((u) => /^\/data\/(meta\.json|terrain\.bin|cover\.bin|coast\.json)/.test(u)), 'la page ne lit aucun fichier de la carte de Toulon');
+    await attendWorker(page);
+    assert.equal(await page.evaluate(() => localStorage.getItem('rade.espace.v1')), null, 'hôte connu : aucune clé d’espace');
+    await page.waitForFunction(() => localStorage.getItem('rade.membre.v1') === 'Frédéric', null, { timeout: 20000 });
+    assert.ok(servi.appels >= 1, '/api/membre demandé');
+    // carte « Plan d’eau »
+    await cartePlanEau(page, 'ready');
+    assert.match(await texte(page, '#pkHere'), new RegExp(`Ce téléphone : ${NOM_BORMES}`));
+    assert.equal(await texte(page, '#pkState'), `${NOM_BORMES} : Prêt hors réseau`);
+    // banane analysée au vent manuel d’ouest (260°) : bords affichés
+    await page.evaluate(() => {
+      const s = JSON.parse(localStorage.getItem('rade.state') || '{}');
+      localStorage.setItem('rade.state', JSON.stringify({ ...s, src: 'manual', manual: { dir: 260, spd: 14, gust: 18 } }));
+    });
+    await page.reload({ waitUntil: 'load' });
+    await pret(page);
+    const st = await etatApp(page);
+    assert.equal(st.venue, 'bormes');
+    assert.equal(st.courseId, 90, 'premier démarrage : la banane');
+    assert.equal(st.linePreset, 'lavandou', 'premier démarrage : ligne devant Le Lavandou');
+    await page.click('#tabs button[data-tab=course]');
+    await attendBords(page, suite([BAN_B, BAN_C, BAN_PORTE, BAN_B, BAN_C, /^Arrivée \(ligne de départ\)/]), 'banane de Bormes');
+    sansErreur(erreurs, 'en ligne à Bormes');
+    // mode avion : serveur arrêté pour de bon
+    serveur.closeAllConnections?.();
+    await new Promise((ok) => serveur.close(ok));
+    arrete = true;
+    let repond = false;
+    try { await fetch(base0, { signal: AbortSignal.timeout(3000) }); repond = true; } catch { /* connexion refusée : attendu */ }
+    assert.equal(repond, false, 'le serveur ne doit plus répondre');
+    await page.reload({ waitUntil: 'load' });
+    await pret(page);
+    assert.equal(await page.evaluate(() => !!navigator.serviceWorker.controller), true, 'page servie par le worker');
+    assert.equal(await texte(page, '#regBar .regname'), 'Entraînement libre · Bormes – Le Lavandou', 'Bormes hors réseau');
+    await page.click('#tabs button[data-tab=course]');
+    await attendBords(page, suite([BAN_B, BAN_C, BAN_PORTE, BAN_B, BAN_C, /^Arrivée \(ligne de départ\)/]), 'banane de Bormes hors réseau');
+    await cartePlanEau(page, 'ready');
+    assert.equal(await texte(page, '#pkState'), `${NOM_BORMES} : Prêt hors réseau`);
+    sansErreur(erreurs, 'hors réseau à Bormes');
+    const refusees = refuses.filter((x) => x !== '/favicon.ico');
+    assert.deepEqual(refusees, [], 'aucun chemin refusé par la liste blanche');
+  } finally {
+    await ctx?.close().catch(() => { /* déjà fermé */ });
+    if (!arrete) { serveur.closeAllConnections?.(); serveur.close(); }
+  }
+}
+
 // ───────────────────────── plan d’eau d’une régate (07-05 : D-05, D-06, D-04)
 
 // D-06 : A (Toulon) crée « Entraînement Brest » en rade de Brest (choix du formulaire) : elle n’est pas ouverte sur la carte de Toulon, la bascule est
@@ -3639,7 +3738,7 @@ async function regateBrest({ browser, base }) {
   await A.ctx.close(); await B.ctx.close();
 }
 
-const SCENARIOS = { accueil, 'jour-j': jourJ, 'deux-telephones': deuxTelephones, reprise, equipage, archive, 'archive-bouees': archiveBouees, archivehors: archiveHors, creer, manche, auteur, ic, 'depuis-ic': depuisIC, vraisemblance, gel, 'debrief-tardif': debriefTardif, gpx, 'gpx-choix': gpxChoix, ia, 'ia-erreurs': iaErreurs, arbitre, bouees, guide, entetes, 'retour-port': retourPort, banane, 'banane-manche': bananeManche, 'banane-debrief': bananeDebrief, 'porte-ic': porteIC, 'modifier-manche': modifierManche, 'toulon-vue': toulonVue, 'plan-eau': planEau, 'brest-avion': brestAvion, 'regate-brest': regateBrest, 'brest-courant': brestCourant, gpen, 'naos-cles': naosCles };
+const SCENARIOS = { accueil, 'jour-j': jourJ, 'deux-telephones': deuxTelephones, reprise, equipage, archive, 'archive-bouees': archiveBouees, archivehors: archiveHors, creer, manche, auteur, ic, 'depuis-ic': depuisIC, vraisemblance, gel, 'debrief-tardif': debriefTardif, gpx, 'gpx-choix': gpxChoix, ia, 'ia-erreurs': iaErreurs, arbitre, bouees, guide, entetes, 'retour-port': retourPort, banane, 'banane-manche': bananeManche, 'banane-debrief': bananeDebrief, 'porte-ic': porteIC, 'modifier-manche': modifierManche, 'toulon-vue': toulonVue, 'plan-eau': planEau, 'brest-avion': brestAvion, 'regate-brest': regateBrest, 'brest-courant': brestCourant, gpen, 'naos-cles': naosCles, 'tofinou-demarrage': tofinouDemarrage };
 
 // ───────────────────────── lancement
 
@@ -3660,7 +3759,7 @@ async function main() {
   const ok = [];
   let browser, chromium = true;
   try {
-    try { ({ browser } = await launchChromium({ args: ['--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1', '--no-proxy-server'] })); }
+    try { ({ browser } = await launchChromium({ args: [`--host-resolver-rules=${MAP_ESSAI}, MAP * ~NOTFOUND, EXCLUDE 127.0.0.1`, '--no-proxy-server'] })); }
     catch (e) { console.error('Chromium impossible à lancer : ' + e.message); chromium = false; }
     if (chromium) {
       for (const nom of requested) {

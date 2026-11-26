@@ -243,7 +243,7 @@ test('wins, sameBody, slug et les constantes exportées', () => {
   assert.ok(slug('a'.repeat(100)).length <= 40);
   assert.deepEqual(HEAD, ['name', 'club', 'dateStart', 'dateEnd', 'season', 'ic', 'venue']);
   assert.deepEqual(FICHE, ['name', 'club', 'dateStart', 'dateEnd', 'season', 'ic'], 'duel de la fiche : les champs de la v42');
-  assert.deepEqual([...VENUE_IDS], ['toulon', 'brest']);
+  assert.deepEqual([...VENUE_IDS], ['toulon', 'brest', 'bormes']);
   assert.deepEqual(Object.keys(LISTS), ['race', 'mark', 'course', 'trace']);
   assert.deepEqual(emptyDoc(), { v: 1, regattas: {}, tomb: {}, marks: {} });
   assert.ok(docEquals(emptyDoc(), emptyDoc()));

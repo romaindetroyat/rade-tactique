@@ -9,6 +9,8 @@ import * as lieu from '../js/lieu.js';
 import { VENUES, VENUE_IDS, bootVenue, inBounds, venueAt, venueOf, needsVenueRepair, zonesXY } from '../js/venues.js';
 import { VENUE_IDS as ARCHIVE_VENUE_IDS } from '../js/archmerge.js';
 import { BREST } from '../js/venue-brest.js';
+import { BORMES } from '../js/venue-bormes.js';
+import { ESPACES } from '../js/espaces.js';
 import { buildLegs } from '../js/tactics.js';
 import { parseLatLon } from '../js/marks.js';
 import { checkPos } from '../js/icplaus.js';
@@ -19,10 +21,14 @@ import { BANANE } from '../js/banane.js';
 
 // ───────── Toulon (défaut)
 
-test('registre : Toulon et Brest, identifiants en liste', () => {
-  assert.deepEqual(VENUE_IDS, ['toulon', 'brest']);
+test('registre : Toulon, Brest et Bormes, identifiants en liste', () => {
+  assert.deepEqual(VENUE_IDS, ['toulon', 'brest', 'bormes']);
   assert.deepEqual(Object.keys(VENUES), VENUE_IDS);
   assert.equal(VENUES.brest, BREST);
+  assert.equal(VENUES.bormes, BORMES);
+  // chaque plan d’eau appartient à un espace et un seul
+  const ouverts = Object.values(ESPACES).flatMap((e) => e.venues);
+  assert.deepEqual([...ouverts].sort(), [...VENUE_IDS].sort());
   for (const id of VENUE_IDS) assert.equal(VENUES[id].id, id);
 });
 
@@ -82,6 +88,53 @@ test('bootVenue : liste blanche, Toulon sinon (valeur absente, inconnue, __proto
   assert.equal(bootVenue(JSON.parse('{"venue": {"id": "brest"}}')), 'toulon');
   assert.equal(bootVenue({ venue: 'toulon' }), 'toulon');
   assert.equal(bootVenue({ venue: 'brest' }), 'brest');
+});
+
+test('bootVenue borné par l’espace : Naos comme la v43 pour toute entrée (Bormes donne Toulon) ; Tofinou toujours Bormes', () => {
+  const entrees = [undefined, null, {}, { venue: 'toulon' }, { venue: 'brest' }, { venue: 'bormes' }, { venue: 'marseille' }, { venue: '__proto__' },
+    { venue: 'constructor' }, { venue: 'Bormes' }, { venue: 3 }, JSON.parse('{"venue": {"id": "brest"}}')];
+  // règle de la v43 (5e9b8a5) : liste blanche { toulon, brest }, sinon Toulon
+  const v43 = (st) => (typeof st?.venue === 'string' && ['toulon', 'brest'].includes(st.venue) ? st.venue : 'toulon');
+  for (const st of entrees) {
+    assert.equal(bootVenue(st, ESPACES.naos), v43(st), 'Naos ' + JSON.stringify(st));
+    assert.equal(bootVenue(st), v43(st), 'espace courant (Naos par défaut) ' + JSON.stringify(st));
+    assert.equal(bootVenue(st, ESPACES.tofinou), 'bormes', 'Tofinou ' + JSON.stringify(st));
+  }
+});
+
+test('bornes de saisie de Bormes et de Toulon disjointes en longitude (ouest de Bormes ≥ est de Toulon, piège 6) ; Brest à part', () => {
+  assert.ok(BORMES.inputBounds.west >= VENUES.toulon.inputBounds.east, `${BORMES.inputBounds.west} ≥ ${VENUES.toulon.inputBounds.east}`);
+  assert.deepEqual(BORMES.inputBounds, { south: 42.86, north: 43.30, west: 6.20, east: 6.70, nom: 'la rade de Bormes – Le Lavandou', exemple: '43°07.980N 006°22.860E' });
+  // l’emprise est dans les bornes de saisie
+  for (const k of ['south', 'west']) assert.ok(BORMES.inputBounds[k] <= BORMES.bounds[k], k);
+  for (const k of ['north', 'east']) assert.ok(BORMES.inputBounds[k] >= BORMES.bounds[k], k);
+  // l’exemple de saisie se lit avec les bornes de Bormes, pas avec celles de Toulon
+  const p = parseLatLon(BORMES.exemple, BORMES.inputBounds);
+  assert.ok(Math.abs(p.lat - 43.133) < 1e-6 && Math.abs(p.lon - 6.381) < 1e-6, JSON.stringify(p));
+  assert.ok(parseLatLon(BORMES.exemple).error, 'bornes de Toulon : refusé');
+});
+
+test('plans d’eau d’une régate et d’une trace bornés par l’espace : Bormes invisible pour Naos (comme en v43), Toulon et Brest pour Tofinou', () => {
+  const ici = [43.12, 6.39], N = ESPACES.naos.venues, T = ESPACES.tofinou.venues;
+  assert.equal(venueAt(...ici), null, 'Naos (espace courant) : point de Bormes hors de tout plan d’eau, comme en v43');
+  assert.equal(venueAt(...ici, N), null);
+  assert.equal(venueAt(...ici, T), 'bormes');
+  assert.equal(venueAt(43.0974, 5.9341, T), null, 'Tofinou : Toulon hors de ses plans d’eau');
+  assert.equal(venueAt(48.29817, -4.3605, T), null);
+  const b = { id: 'B', name: 'B', lat: 43.12, lon: 6.39, status: 'confirmee' }, c = { ...b, id: 'C', lat: 43.13, lon: 6.36 };
+  // Naos : une régate dont les bouées confirmées sont à Bormes reste à Toulon, sans réparation (v43)
+  assert.equal(venueOf({ marks: [b, c] }), 'toulon');
+  assert.equal(needsVenueRepair({ marks: [b, c] }), false);
+  assert.equal(venueOf({ venue: 'bormes' }), 'toulon', 'Naos : « bormes » inconnu, comme en v43');
+  assert.equal(needsVenueRepair({ venue: 'bormes' }), false);
+  // Tofinou : Bormes par le champ ou par les bouées ; sinon Bormes (jamais Toulon)
+  assert.equal(venueOf({ venue: 'bormes' }, T), 'bormes');
+  assert.equal(venueOf({ marks: [b, c] }, T), 'bormes');
+  for (const r of [{}, null, { venue: 'toulon' }, { venue: 'brest' }, { marks: [{ ...b, lat: 43.09, lon: 5.95 }] }]) assert.equal(venueOf(r, T), 'bormes', JSON.stringify(r));
+  assert.equal(needsVenueRepair({ venue: 'bormes' }, T), false);
+  assert.equal(needsVenueRepair({ marks: [b] }, T), true, 'Tofinou : régate sans champ réparée vers Bormes');
+  // fonctions passées à .some / .filter (rang à la place de la liste) : liste de l’espace courant
+  assert.deepEqual([{ marks: [b] }, { venue: 'brest' }].map(needsVenueRepair), [false, false]);
 });
 
 test('inBounds et venueAt : bornes incluses, nombres finis', () => {

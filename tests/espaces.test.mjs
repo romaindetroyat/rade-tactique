@@ -11,6 +11,7 @@ import { createHandler } from '../api/archive.js';
 import { emptyDoc } from '../js/archmerge.js';
 import { createFakeBlob, invoke } from './helpers/fakeblob.mjs';
 import { tableEquipage } from './helpers/codesimule.mjs';
+import * as app from '../js/espaces.js';
 
 const empreinte = (code) => createHash('sha256').update(code.trim().toLowerCase()).digest('hex');
 const DOUBLE = 'code-double-test', NAOS = 'code-naos-test', TOFI = 'code-tofinou-test', INCONNU = 'code-inconnu-test';
@@ -276,4 +277,79 @@ test('accès de l’espace Tofinou : exactement Frédéric et Romain ; Romain av
   assert.ok(!Object.hasOwn(n, frederic), 'Frédéric n’a pas accès à Naos');
   assert.ok(ESPACE_IDS.filter((id) => Object.hasOwn(ESPACES[id].table, frederic)).join() === 'tofinou', 'Frédéric : espace Tofinou seulement');
   for (const p of ['Teiva', 'Thibaud']) assert.ok(!Object.values(t).includes(p), `${p} reste Naos seulement`);
+});
+
+// ───────────────────────── registre de l’app (js/espaces.js, 08-04)
+
+test('parité app ↔ middleware ↔ fonctions : mêmes identifiants, mêmes hôtes, même pack par espace, plans d’eau et graines réservées de la politique serveur', () => {
+  assert.deepEqual([...app.ESPACE_IDS], Object.keys(ESPACES), 'identifiants : js/espaces.js = middleware.js');
+  assert.deepEqual([...app.ESPACE_IDS], [...ESPACE_IDS], 'identifiants : js/espaces.js = api/_espace.js');
+  for (const id of ESPACE_IDS) {
+    assert.deepEqual([...app.ESPACES[id].hotes], [...ESPACES[id].hotes], `hôtes de ${id}`);
+    assert.deepEqual([app.ESPACES[id].pack], [...ESPACES[id].packs], `pack de ${id}`);
+    assert.deepEqual([...app.ESPACES[id].venues], [...POLITIQUE[id].venues], `plans d’eau de ${id} = politique de l’archive`);
+    assert.ok(app.ESPACES[id].venues.includes(app.ESPACES[id].venueDefaut), `plan d’eau par défaut de ${id} ouvert`);
+    assert.equal(app.ESPACES[id].recalage, POLITIQUE[id].recalage, `recalage de ${id}`);
+    assert.equal(app.ESPACES[id].id, id);
+    // aucun membre dans le registre public
+    assert.ok(!('table' in app.ESPACES[id]) && !('membres' in app.ESPACES[id]), `aucun membre dans js/espaces.js (${id})`);
+  }
+  // graines de Naos = identifiants réservés hors de Naos
+  assert.deepEqual([...POLITIQUE.tofinou.reserves], [...app.ESPACES.naos.graines]);
+  assert.deepEqual([...app.ESPACES.tofinou.graines], []);
+  // table hôte → espace
+  for (const id of ESPACE_IDS) for (const h of ESPACES[id].hotes) assert.equal(app.HOTES[h], id, h);
+  assert.equal(Object.keys(app.HOTES).length, ESPACE_IDS.reduce((n, id) => n + ESPACES[id].hotes.length, 0));
+  // plafonds : Naos ceux des modules (null), Tofinou la moitié
+  assert.equal(app.ESPACES.naos.caps, null);
+  assert.deepEqual(app.ESPACES.tofinou.caps, { archive: { w: 20, r: 75 }, lourd: { up: 10, down: 20 } });
+  assert.ok(Object.isFrozen(app.ESPACES) && Object.isFrozen(app.ESPACES.tofinou) && Object.isFrozen(app.ESPACES.tofinou.venues));
+});
+
+test('js/espaces.js public : aucune empreinte (64 hexadécimaux) ni prénom de membre', async () => {
+  const { readFileSync } = await import('node:fs');
+  const src = readFileSync(new URL('../js/espaces.js', import.meta.url), 'utf8');
+  assert.ok(!/[0-9a-f]{64}/i.test(src), 'aucune empreinte');
+  for (const p of ['Romain', 'Frédéric', 'Teiva', 'Thibaud']) assert.ok(!src.includes(p), 'aucun prénom');
+});
+
+// Faux stockage qui relève les écritures
+const stockage = (init = {}) => {
+  const m = new Map(Object.entries(init)), ecrits = [];
+  return { ecrits, getItem: (k) => (m.has(k) ? m.get(k) : null), setItem: (k, v) => { ecrits.push(k); m.set(k, String(v)); }, removeItem: (k) => { ecrits.push('-' + k); m.delete(k); } };
+};
+
+test('bootEspace : hôte connu → son espace (la clé est ignorée) ; hôte inconnu → rade.espace.v1 si elle nomme un espace autre que Naos ; sinon Naos ; aucune écriture', () => {
+  const K = app.ESPACE_KEY;
+  assert.equal(K, 'rade.espace.v1');
+  const T = () => stockage({ [K]: 'tofinou' });
+  assert.equal(app.bootEspace('rade-tactique.vercel.app', T()), 'naos', 'hôte de Naos : la clé ne compte pas');
+  assert.equal(app.bootEspace('127.0.0.1', T()), 'naos');
+  assert.equal(app.bootEspace('localhost', stockage()), 'naos');
+  assert.equal(app.bootEspace('tofinou-bormes.vercel.app', stockage()), 'tofinou');
+  assert.equal(app.bootEspace('tofinou.localhost', stockage({ [K]: 'naos' })), 'tofinou');
+  assert.equal(app.bootEspace('TOFINOU-BORMES.vercel.app', stockage()), 'tofinou', 'casse de l’hôte sans effet');
+  const apercu = 'rade-tactique-git-apercu-phase-08-x.vercel.app';
+  assert.equal(app.bootEspace(apercu, T()), 'tofinou', 'aperçu : clé Tofinou');
+  for (const v of [null, 'naos', '__proto__', 'constructor', 'Tofinou', 'TOFINOU', ' tofinou', '"tofinou"', 'inconnu', '']) {
+    assert.equal(app.bootEspace(apercu, stockage(v == null ? {} : { [K]: v })), 'naos', `clé ${JSON.stringify(v)}`);
+  }
+  assert.equal(app.bootEspace(apercu, null), 'naos', 'sans stockage');
+  assert.equal(app.bootEspace(apercu, { getItem: () => { throw new Error('refusé'); } }), 'naos', 'stockage illisible');
+  for (const h of [undefined, null, 3, {}, '__proto__', 'hasOwnProperty']) assert.equal(app.bootEspace(h, stockage()), 'naos', String(h));
+  const s = stockage({ [K]: 'tofinou' });
+  for (const h of ['rade-tactique.vercel.app', apercu, 'tofinou.localhost']) app.bootEspace(h, s);
+  assert.deepEqual(s.ecrits, [], 'bootEspace ne fait que lire');
+  assert.equal(app.espaceDeLHote(apercu), null);
+  assert.equal(app.espaceDeLHote('__proto__'), null);
+});
+
+test('setEspace : Naos par défaut (export vivant), une seule fois par session, valeur inconnue → Naos', () => {
+  assert.equal(app.ESPACE, app.ESPACES.naos);
+  assert.equal(app.setEspace('naos'), app.ESPACES.naos, 'même espace : rien ne change');
+  assert.equal(app.setEspace('__proto__'), app.ESPACES.naos);
+  assert.equal(app.setEspace('tofinou'), app.ESPACES.tofinou);
+  assert.equal(app.ESPACE, app.ESPACES.tofinou, 'export vivant');
+  assert.throws(() => app.setEspace('naos'), /rechargement/);
+  assert.equal(app.ESPACE.id, 'tofinou');
 });

@@ -59,8 +59,8 @@ export const REGIMES = [
       'Repérer de quel côté arrive le nouveau vent (risées au large, nuages) et s’y placer avant la transition.',
     ] },
 ];
-// régimes du plan d’eau courant ; Toulon (regimes: null) garde REGIMES ci-dessus
-export const regimeOf = (dir, spd) => (VENUE.regimes?.length ? VENUE.regimes : REGIMES).find((r) => r.test(norm360(dir), spd));
+// régimes du plan d’eau courant ; Toulon (regimes: null) garde REGIMES ci-dessus ; une liste vide (Bormes avant 08-07) n’en donne aucun
+export const regimeOf = (dir, spd) => (Array.isArray(VENUE.regimes) ? VENUE.regimes : REGIMES).find((r) => r.test(norm360(dir), spd));
 // Origine d’un conseil d’un autre plan d’eau ({ t, o }, étude de Brest § 3.6) ; les conseils de Toulon sont des chaînes, sans origine
 export const ORIGINES = { D: 'mesure', M: 'modèle de relief', C: 'courant', S: 'source citée', H: 'hypothèse' };
 // Texte affiché d’un conseil : chaîne telle quelle (Toulon) ; une hypothèse est présentée comme à confirmer (étude piège 10)

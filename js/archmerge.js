@@ -15,7 +15,8 @@ export const HEAD = ['name', 'club', 'dateStart', 'dateEnd', 'season', 'ic', 've
 export const FICHE = HEAD.filter((k) => k !== 'venue');
 // Plans d’eau acceptés dans l’archive (liste blanche du serveur, api/archive.js) : les clés de VENUES de js/venues.js (test qui les compare).
 // Écrite ici et non importée de js/venues.js : la fonction du serveur n’embarque que ce module (vercel.json, includeFiles, Pitfall 15).
-export const VENUE_IDS = Object.freeze(['toulon', 'brest']);
+// Chaque espace n’en accepte qu’une partie (POLITIQUE d’api/_espace.js : Naos toulon et brest, comme en v43 ; Tofinou bormes).
+export const VENUE_IDS = Object.freeze(['toulon', 'brest', 'bormes']);
 export const LISTS = { race: 'races', mark: 'marks', course: 'courses', trace: 'traces' };
 export const LOCAL_ONLY = ['sel'];                                                 // état d’affichage de CET appareil : jamais partagé
 const DANGER = new Set(['__proto__', 'constructor', 'prototype']);                // clés refusées partout (pollution de prototype)

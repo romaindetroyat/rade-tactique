@@ -8,7 +8,8 @@ import { MODELS } from './weather.js';
 import { STATUS, waitingFor, fmtPos, sideTxt } from './regmarks.js';
 import { MAX_HIST, slug } from './archmerge.js';
 import { fmtMo } from './pack.js';
-import { VENUES, VENUE_IDS, venueOf } from './venues.js';
+import { VENUES, venueOf } from './venues.js';
+import { ESPACE } from './espaces.js';
 
 // Échappe & < > " ' (le esc() d’app.js laisse passer l’apostrophe)
 export const escHTML = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', '\'': '&#39;' }[c]));
@@ -89,11 +90,12 @@ export function venueCardHTML({ venueId = 'toulon', venues = {}, status = null, 
 }
 
 // Formulaire de création : nom, premier jour, club ; dernier jour facultatif ; plan d’eau (D-06, défaut : celui du téléphone, `draft.venue`).
-// draft garde la saisie quand l’écran est redessiné.
-export function newRegattaFormHTML(draft = {}, errors = {}) {
+// draft garde la saisie quand l’écran est redessiné. Plans d’eau proposés : ceux de l’espace (`ids`, défaut : espace courant), sinon son défaut.
+export function newRegattaFormHTML(draft = {}, errors = {}, { ids = ESPACE.venues, defaut = ESPACE.venueDefaut } = {}) {
   const err = (k) => (errors[k] ? `<div class="rgerr" data-err="${k}">${escHTML(errors[k])}</div>` : '');
-  const ici = VENUE_IDS.includes(draft.venue) ? draft.venue : 'toulon';
-  const lieux = VENUE_IDS.map((id) => `<option value="${escHTML(id)}"${id === ici ? ' selected' : ''}>${escHTML(VENUES[id].nom)}</option>`).join('');
+  const ouverts = ids.filter((id) => Object.hasOwn(VENUES, id));
+  const ici = ouverts.includes(draft.venue) ? draft.venue : defaut;
+  const lieux = ouverts.map((id) => `<option value="${escHTML(id)}"${id === ici ? ' selected' : ''}>${escHTML(VENUES[id].nom)}</option>`).join('');
   return `<div class="card" id="rgForm"><h3>Nouvelle régate <small>trois champs</small></h3>
     <label class="f" for="rgName">Nom</label><input id="rgName" type="text" maxlength="${MAX_NAME}" autocomplete="off" placeholder="Coupe de…" value="${escHTML(draft.name)}">${err('name')}
     <label class="f" for="rgStart">Premier jour</label><input id="rgStart" type="date" value="${escHTML(draft.dateStart)}">${err('dateStart')}

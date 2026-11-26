@@ -2,20 +2,21 @@
 // avec tools/venues/bormes.json, lus par Terrain.load('data/bormes.'). Le plan d’eau n’est pas encore au registre (08-04) : l’origine de
 // projection de Bormes est posée ici à la main, puis celle de Toulon est rétablie. Ce fichier tourne dans son propre processus (node --test).
 // Valeurs de contrôle : étude du plan d’eau (08-RESEARCH-PLAN-EAU.md § 1.3, § 1.4, § 3.4, § 3.5, § 6.5).
-import { test, after } from 'node:test';
+import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { ROOT } from './helpers/setup.mjs';
-import { setOrigin, ORIGIN, Terrain, toXY } from '../js/geo.js';
+import { ORIGIN, Terrain, toXY } from '../js/geo.js';
+import { setVenue } from '../js/lieu.js';
+import { BORMES } from '../js/venue-bormes.js';
 import { WindField } from '../js/wind.js';
 import { listShell } from '../tools/stamp.mjs';
 
-const TOULON = { ...ORIGIN };
-setOrigin({ lat: 43.10, lon: 6.40 });
-after(() => setOrigin(TOULON));
+// Plan d’eau de Bormes au registre (08-04) : origine posée par setVenue, comme tests/brest.test.mjs (ce fichier tourne dans son propre processus)
+setVenue('bormes');
 
 const EMPRISE = { west: 6.22, east: 6.60, south: 42.96, north: 43.20 };
 const FICHIERS = ['basemap.jpg', 'coast.json', 'cover.bin', 'meta.json', 'seamask.png', 'terrain.bin'].map((f) => 'data/bormes.' + f);
@@ -188,6 +189,7 @@ test('instantané : --venue bormes lit tools/venues/bormes.json — 20 points, c
   for (const x of u.slice(0, 2)) assert.ok(x.endsWith('&cell_selection=sea'), 'points pris sur la mer');
   assert.ok(u[2].startsWith('https://marine-api.open-meteo.com/v1/marine?latitude=43.115&longitude=6.39&'), 'point marin');
   assert.deepEqual(u, await urlsApp(meteoBormes()), 'adresses construites par js/weather.js avec le même bloc');
+  assert.deepEqual(u, await urlsApp(BORMES.weather), 'adresses construites avec le descripteur js/venue-bormes.js');
   for (const v of ['Bormes', '../bormes', 'inconnu', 'toulon', '']) {
     assert.throws(() => execFileSync('python3', ['-I', 'tools/snapshot_weather.py', '--venue', v, '--urls'], { cwd: ROOT, stdio: 'pipe' }), `--venue ${v || '(vide)'} refusé`);
   }
@@ -200,4 +202,18 @@ test('instantané météo de Bormes : modèles, grille de 20 points, état de la
   assert.ok(s.multi?.hourly?.time?.length > 0, 'prévisions multi-modèles');
   assert.ok(Array.isArray(s.grid) && s.grid.length === 20, 'grille de 20 points');
   assert.ok(s.marine?.hourly?.time?.length > 0, 'état de la mer');
+});
+
+test('descripteur ↔ configuration : météo (centre, grille latitude d’abord, cellules de mer, point marin), emprise, origine, fichiers et point de référence de js/venue-bormes.js = tools/venues/bormes.json et data/bormes.meta.json', () => {
+  assert.deepEqual(ORIGIN, { lat: 43.10, lon: 6.40 }, 'origine posée par setVenue');
+  assert.deepEqual(BORMES.weather, meteoBormes(), 'bloc weather identique à la configuration');
+  assert.deepEqual(BORMES.bounds, CFG.bounds);
+  assert.deepEqual(BORMES.bounds, EMPRISE);
+  assert.equal(BORMES.files.base, 'data/' + CFG.prefix);
+  assert.equal(BORMES.id, CFG.id); assert.equal(BORMES.nom, CFG.nom);
+  assert.deepEqual(BORMES.windRef, { lat: 43.120, lon: 6.392 });
+  assert.deepEqual(BORMES.wind, {}, 'maille et seuil par défaut');
+  assert.equal(BORMES.inputBounds.west, 6.20, 'borne ouest de saisie à 6,20° E (piège 6)');
+  for (const k of ['maree', 'courant']) assert.ok(!(k in BORMES), `ni ${k} à Bormes`);
+  if (PACK) { const m = meta(); for (const k of ['west', 'east', 'south', 'north']) assert.equal(m.bounds?.[k] ?? m[k], BORMES.bounds[k], k); }
 });
