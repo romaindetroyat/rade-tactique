@@ -2,7 +2,7 @@
 
 **Recueilli :** 2026-11-26, avec Romain (« créer la même chose pour un Tofinou dans la rade de Bormes / Le Lavandou, à partager avec un code… sans accès aux régates de J80 de Toulon et Brest » ; réponses : accès pour Frédéric ; Romain dans les deux espaces avec bascule ; Bormes seulement ; même quota d'IA)
 **Statut :** décisions fixées (défauts recommandés là où Romain n'a pas tranché ; il peut en changer)
-**Échéance :** pas de production avant la régate de Toulon du 13/12/2026 ; v44 en production ensuite, sur « publie » de Romain.
+**Échéance :** (modifiée le 2026-11-26 à la demande de Romain) v44 en production dès qu'elle est prête et vérifiée, sur « publie » de Romain, au plus tard le 10/12/2026 (règle des 48 h avant la régate de Toulon du 13/12) ; si elle n'est pas prête au 10/12, après le 13/12. Le gel de Naos et les gardes Toulon restent la condition absolue de publication.
 
 <domain>
 ## Périmètre
@@ -18,12 +18,12 @@ Hors périmètre : autres bateaux ou plans d'eau ; Trophée des Îles (Porquerol
 
 ### B. Espaces et cloisonnement
 - **D-02 :** le code d'accès décide de l'espace, jamais l'app. `middleware.js` garde la table de Naos telle quelle et reçoit une table Tofinou séparée (empreintes seulement) ; il pose `x-rt-espace` en écrasant toute valeur du client ; `/api/membre` rend `{ membre, espace }`.
-- **D-03 :** une adresse distincte par espace (même projet, même déploiement) pour que le navigateur sépare stockage, caches, service worker et cookie : l'espace Tofinou sur un second nom de domaine du projet (proposé : `tofinou-bormes.vercel.app`, à ajouter par Romain dans Vercel ; à confirmer au moment de la livraison). Le code de Romain est valable dans les deux espaces ; « Changer d'espace » ouvre l'autre adresse (bascule demandée par Romain). Frédéric n'a accès qu'à l'espace Tofinou.
+- **D-03 :** une adresse distincte par espace (même projet, même déploiement) pour que le navigateur sépare stockage, caches, service worker et cookie : l'espace Tofinou sur un second nom de domaine du projet (proposé : `tofinou-bormes.vercel.app`, à ajouter par Romain dans Vercel ; à confirmer au moment de la livraison ; adresse retenue le 2026-11-26 : `tofinou-bormes.vercel.app`, ajoutée par Romain lui-même). Le code de Romain est valable dans les deux espaces ; « Changer d'espace » ouvre l'autre adresse (bascule demandée par Romain). Frédéric n'a accès qu'à l'espace Tofinou.
 - **D-04 :** archive cloisonnée côté serveur par préfixe calculé à partir de `x-rt-espace` (`tofinou/prod/…`, `tofinou/preview/…`) ; Naos garde ses préfixes à l'octet près ; sans espace valide : 403. L'archive Tofinou refuse les régates d'un autre plan d'eau, les graines SNPM/GPEN et les recalages de bouées CVAT. Garde dans l'app : pas de synchronisation si `/api/membre` annonce un autre espace que celui de l'adresse.
 - **D-05 :** plans d'eau par espace : Tofinou ne voit que Bormes (packs de Brest et, si possible, de Toulon refusés à l'espace Tofinou par le middleware, sans casser l'installation hors réseau — vérifier) ; Naos ne voit pas Bormes. Aucune graine SNPM/GPEN dans l'espace Tofinou.
 - **D-06 :** IA : même clé et même budget OpenAI (choix de Romain), quota de 30 appels par personne et par jour compté par espace + prénom ; consignes de l'arbitre, du débrief et de la dictée propres à l'espace Tofinou (Tofinou 9.5, Challenge de la Baie, RIR, un tour) ; celles de Naos inchangées (empreintes figées).
 - **D-07 :** textes, manifeste et nom par espace (« Tofinou — Bormes ») ; stockage local séparé de fait par l'adresse.
-- **D-08 :** outil de création de codes : affiche le code une seule fois, n'écrit que l'empreinte ; le code de Frédéric est donné à Romain dans la conversation, jamais écrit dans le dépôt.
+- **D-08 :** outil de création de codes : affiche le code une seule fois, n'écrit que l'empreinte ; le code de Frédéric est donné à Romain dans la conversation, jamais écrit dans le dépôt (créé par l'orchestrateur le 2026-11-26 ; son empreinte, fournie hors du dépôt, entre au middleware en 08-02).
 
 ### C. Bateau
 - **D-09 :** polaire Tofinou 9.5 tirée du certificat ORC Club 2026 du sister-ship (variante génois par défaut, variante foc disponible) ; `data/tofinou95.pol` au format de `data/j80.pol`, chargée comme polaire par défaut de l'espace ; recalage par l'équipage (performance, polaire personnelle). Longueur 9,47 m (textes, règles de zone), pertes virement 11 s / empannage 8 s, tirant d'eau à confirmer (1,20 / 2,20 m). Confiance affichée comme estimation.
@@ -36,7 +36,7 @@ Hors périmètre : autres bateaux ou plans d'eau ; Trophée des Îles (Porquerol
 - **D-14 :** zones interdites : partie militaire du Levant, Brégançon (partielle), règles de Port-Cros (5 nd à moins de 300 m) — marquées « à compléter sur carte marine ».
 
 ### Livraison
-- **D-15 :** branche `apercu-phase-08`, PR brouillon, aperçu vérifié ; production (v44) après le 13/12 sur « publie » ; Romain ajoute le domaine du second espace dans Vercel ; contrôles humains : bateau exact (voile d'avant, quille), arrêtés du Levant et de Brégançon, positions des bouées, conseils de vent relus, polaire recalée sur l'eau.
+- **D-15 :** branche `apercu-phase-08`, PR brouillon, aperçu vérifié ; production (v44) sur « publie » dès qu'elle est prête et vérifiée, au plus tard le 10/12 (sinon après le 13/12), gel de Naos et gardes Toulon verts comme condition absolue (amendé le 2026-11-26 à la demande de Romain) ; Romain ajoute le domaine du second espace dans Vercel ; contrôles humains : bateau exact (voile d'avant, quille), arrêtés du Levant et de Brégançon, positions des bouées, conseils de vent relus, polaire recalée sur l'eau.
 </decisions>
 
 <canonical_refs>
