@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 7
+open_count: 9
 waived_count: 0
 fixed_count: 8
-total_count: 15
-last_updated: 2026-11-26T22:45:06.695Z
+total_count: 17
+last_updated: 2026-11-26T23:07:25.597Z
 ---
 
 # Broken Windows Ledger
@@ -30,6 +30,8 @@ last_updated: 2026-11-26T22:45:06.695Z
 | 13 | 08 | todo | js/app.js | 989 | Message « pas un parcours du cahier CVAT » possible dans l’espace Tofinou sans régate ouverte (pickHTML) : texte du plan d’eau à rendre propre à Bormes (08-07/08-08) | fixed |  | 2026-11-26T21:36:35.832Z | 2026-11-26T22:13:54.015Z |
 | 14 | 08 | stub | js/venue-bormes.js |  | Catalogue du Challenge de la Baie absent (COURSES vide, banane seule) ; libellés de classes du CVAT (« C–D–L–R1-R3 », « P1–P2 ») dans l’onglet Parcours et le texte de partage à Bormes : 08-08 | fixed |  | 2026-11-26T22:13:49.386Z | 2026-11-26T22:45:06.569Z |
 | 15 | 08 | todo | js/regview.js | 139 | Formulaire de manche : « Classe G (grand) / P (petit) » du CVAT encore proposé à Bormes (onglet Régates) ; à masquer ou remplacer par les groupes du Challenge (08-09/08-10) | open |  | 2026-11-26T22:45:06.695Z |  |
+| 16 | 08 | skipped-test | tests/bormes.test.mjs |  | 08-09 : instantané météo de Bormes réessayé, refusé par Open-Meteo (limite quotidienne) ; test toujours sauté, à produire avant la release (08-10) | open |  | 2026-11-26T23:07:25.489Z |  |
+| 17 | 08 | deviation | data/brest.wx-snapshot.json |  | 08-09 : instantané de Brest refusé (limite quotidienne) ; s’il est produit, il casse la garde data/brest.* = 5e9b8a5 et la section brest du gel de Naos : différence admise à décider par Romain avant de le committer | open |  | 2026-11-26T23:07:25.597Z |  |
 
 ````json
 [
@@ -225,6 +227,32 @@ last_updated: 2026-11-26T22:45:06.695Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-11-26T22:45:06.695Z",
+    "resolved_at": null,
+    "milestone": null
+  },
+  {
+    "id": 16,
+    "kind": "skipped-test",
+    "phase": "08",
+    "file": "tests/bormes.test.mjs",
+    "line": null,
+    "description": "08-09 : instantané météo de Bormes réessayé, refusé par Open-Meteo (limite quotidienne) ; test toujours sauté, à produire avant la release (08-10)",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-11-26T23:07:25.489Z",
+    "resolved_at": null,
+    "milestone": null
+  },
+  {
+    "id": 17,
+    "kind": "deviation",
+    "phase": "08",
+    "file": "data/brest.wx-snapshot.json",
+    "line": null,
+    "description": "08-09 : instantané de Brest refusé (limite quotidienne) ; s’il est produit, il casse la garde data/brest.* = 5e9b8a5 et la section brest du gel de Naos : différence admise à décider par Romain avant de le committer",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-11-26T23:07:25.597Z",
     "resolved_at": null,
     "milestone": null
   }

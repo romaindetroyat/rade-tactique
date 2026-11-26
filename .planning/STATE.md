@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 08
 current_phase_name: "Espace Tofinou : rade de Bormes – Le Lavandou, Tofinou 9.5, accès séparé"
 status: in_progress
-stopped_at: Completed 08-08-PLAN.md
-last_updated: "2026-11-26T22:46:33.774Z"
+stopped_at: Completed 08-09-PLAN.md
+last_updated: "2026-11-26T23:07:40.069Z"
 last_activity: 2026-11-26
-last_activity_desc: "Plan 08-08 — Challenge de la Baie 2026-2027 : fiche semée dans l’espace Tofinou (jours de course), catalogue de parcours de Bormes (côtiers, sens inverse, banane n° 4)"
-state_head: a6b26279b5742d8d117d9bc85ab835e472c4b311
+last_activity_desc: "Plan 08-09 — IA de l’espace Tofinou (consignes propres, quota par espace + prénom) et note du Tofinou sur la page des règles ; Naos identique à la v43"
+state_head: 027373d47bcae63e0fd40ea28b02ee733854682f
 progress:
   total_phases: 8
   completed_phases: 6
   total_plans: 49
-  completed_plans: 46
+  completed_plans: 47
   percent: 75
 ---
 
@@ -28,9 +28,9 @@ See: .planning/PROJECT.md (updated 2026-10-19)
 ## Current Position
 
 Phase: 08 (Espace Tofinou : rade de Bormes – Le Lavandou, Tofinou 9.5, accès séparé) — EN COURS
-Plan: 8 of 11 terminés (08-01, 08-02, 08-03, 08-04, 08-05, 08-06, 08-07, 08-08)
+Plan: 9 of 11 terminés (08-01, 08-02, 08-03, 08-04, 08-05, 08-06, 08-07, 08-08, 08-09)
 Status: aperçu apercu-phase-08 ; v43 en production (PR #17)
-Last activity: 2026-11-26 — Plan 08-08 : fiche « Challenge de la Baie 2026-2027 » semée une fois dans l’espace Tofinou (sept manches sur huit jours, manche 1 le dimanche 11/10, VHF 72, RIR, un tour, briefing 10 h, premier signal 11 h), « En cours » et verrouillée les seuls jours de course (champ `jours`, gardé et contrôlé par l’archive Tofinou ; sans `jours`, règles de la v43) ; catalogue de Bormes (1, 2, 3, 5 régate et croisière, 6, 7, 9, 10 et leurs « R », banane n° 4 au milieu de la baie, parcours par défaut) ; classes du CVAT masquées à Bormes ; Naos identique (gel v43, naos-cles, toulon-vue) ; 987 tests (985 verts, 2 sautés), gardes vertes, 14 scénarios Chromium verts
+Last activity: 2026-11-26 — Plan 08-09 : IA ouverte à l’espace Tofinou (IA_ESPACES = naos, tofinou) avec ses consignes fixes (api/_tofinou.js : Tofinou 9.5, zone 28,4 m, Challenge de la Baie, RIR, un tour, VHF 72) choisies par l’en-tête du middleware pour l’arbitre, le débrief, la dictée et la lecture des IC ; quota de 30 par espace + prénom ; page des règles chez Tofinou : note du bateau et de l’épreuve, « IC du Challenge de la Baie », rubrique IA de l’aide ; Naos identique (gel v43, empreintes, page des règles capturée sur 5e9b8a5) ; 1009 tests (1007 verts, 2 sautés), gardes vertes, scénarios tofinou-ia, ia, arbitre, ia-erreurs, gpen, guide, naos-cles verts ; instantanés de Bormes et de Brest refusés par Open-Meteo (limite quotidienne)
 
 Progress: [████████░░] 75%
 
@@ -104,6 +104,7 @@ Progress: [████████░░] 75%
 | Phase 08 P06 | 25min | 2 tasks | 18 files |
 | Phase 08 P07 | 25min | 2 tasks | 9 files |
 | Phase 08 P08 | 24min | 2 tasks | 20 files |
+| Phase 08 P09 | 20 min | 2 tasks | 17 files |
 
 ## Accumulated Context
 
@@ -235,6 +236,8 @@ Décisions récentes qui orientent le travail en cours :
 - [Phase 08]: 08-08 : fiche baie-2026-2027 semée dans l’espace Tofinou seulement (marqueur rade.seed.baie.v1) ; archive de Naos sans réserve nouvelle (politique v43)
 - [Phase 08]: 08-08 : catalogue de Bormes — numéro officiel, sens inverse = numéro + 50, croisière du 5 = 25/75 ; points de passage PCS et BAG pour le tour de Port-Cros
 - [Phase 08]: 08-08 : banane n° 4 depuis la ligne « Milieu de la baie » (43,120 N 6,392 E), parcours par défaut de Bormes ; lineDefaut et sansClasses dans le descripteur
+- [Phase 08]: 08-09 : IA de Tofinou ouverte avec ses consignes fixes (api/_tofinou.js : Tofinou 9.5, 28,4 m, Challenge de la Baie, RIR, un tour, VHF 72), choisies par l’en-tête du middleware ; Naos garde les octets de la v43 ; texte des RIR non embarqué (« à vérifier dans les RIR »)
+- [Phase 08]: 08-09 : page des règles chez Tofinou : note du bateau et de l’épreuve, « IC du Challenge de la Baie », partie de Brest et guide de Naos retirés ; Naos identique à la v43 (DOM capturé sur 5e9b8a5)
 
 ### Pending Todos
 
@@ -276,6 +279,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-11-26T22:46:33.619Z
-Stopped at: Completed 08-08-PLAN.md
+Last session: 2026-11-26T23:07:39.929Z
+Stopped at: Completed 08-09-PLAN.md
 Resume file: None
