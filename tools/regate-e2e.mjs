@@ -4451,7 +4451,9 @@ async function tofinouIc({ browser, base: base0 }) {
     assert.ok(!('jours' in reg), 'une régate lue depuis les IC n’a pas de jours (v43)');
     assert.match(await texte(A.page, '#rgSheet [data-co-row="101"]'), /Parcours d’essai \(IC\)[\s\S]*en attente de : X1 Alpha, X2 Bravo, X3 Charlie, X4 Delta/);
     await sansMotNaos(A.page, 'fiche, bouées à confirmer');
-    for (const k of ['X1', 'X2', 'X3', 'X4']) await A.page.click(`[data-mk-ok=${k}]`);
+    // horloge figée des téléphones : elle avance entre deux gestes, comme sur l’eau (sinon une copie envoyée par la synchronisation automatique
+    // entre deux confirmations porterait la même date que la suivante, et le départage par contenu garderait la bouée « à confirmer »)
+    for (const k of ['X1', 'X2', 'X3', 'X4']) { await avanceHeure(m, 1000); await A.page.click(`[data-mk-ok=${k}]`); }
     await A.page.waitForFunction(() => /proposé dans l’onglet Parcours/.test(document.querySelector('#rgSheet [data-co-row="101"]')?.textContent || ''), null, { timeout: 15000 });
     reg = await regateOuverte(A.page);
     assert.ok(reg.marks.every((x) => x.status === 'confirmee' && x.confirmed?.by === 'Frédéric'));
