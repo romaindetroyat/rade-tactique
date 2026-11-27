@@ -2,7 +2,7 @@
 phase: 08-espace-tofinou
 plan: 10
 subsystem: livraison
-status: awaiting-checkpoint
+status: complete
 tags: [tofinou, bormes, guide, release, v44, gardes, gel-de-naos, d-15, d-16, d-17, d-18]
 requires:
   - "08-01 à 08-09 et 08-11 : gel de Naos v43, serveur cloisonné, pack de Bormes, espace dans l’app, bateau, identité, savoir local, Challenge de la Baie, IA de l’espace, IC et éditeur de parcours"
@@ -53,7 +53,7 @@ plan_head_before: 508bd9ae2ad37b255cfe5e3f95ca8a80a32391ba
 plan_head_after: 8078eba7c022832143a7f600f0c02b0ed3eda985
 ---
 
-# Phase 8 Plan 10 : livraison v44 de l’espace Tofinou — Résumé (tâche 1 faite, points de contrôle en attente)
+# Phase 8 Plan 10 : livraison v44 de l’espace Tofinou — Résumé (v44 puis v45 en production le 27/11)
 
 La v44 est prête et vérifiée en local sur `apercu-phase-08` : guide court de l’espace Tofinou (entrer, rade de Bormes hors réseau, Challenge de la Baie 2026-2027, IC et éditeur de parcours, bateau à recaler, trace GPX par une app dédiée, vents, zones, IA, « Changer d’espace », sources), ouvert par l’aide de l’espace Tofinou ; toutes les gardes, les trois compatibilités, les 46 scénarios, les trois mesures d’ouverture et l’horloge audio en 0, puis `npm run release`, `RT_STRICT=1 stamp --check` et la porte de production en 0. Naos : guide, aide et vues de la v43 (gel et gardes verts). Rien n’est poussé : la poussée, la PR brouillon, l’aperçu et la décision « publie » (tâches 2 et 3) restent à l’orchestrateur et à Romain.
 
@@ -160,3 +160,11 @@ Table TOFINOU vérifiée par un script qui n’imprime qu’un compte : deux lig
 - FOUND : 2ee1066, 8ac677d, 5e827bb, a4dad1f, 8078eba (ancêtres de HEAD) ; 5 commits mesurés entre plan_head_before et plan_head_after
 - `git diff --quiet HEAD -- release.json js/version.js sw.js guide-tofinou.html js/help.js` : rien d’ouvert
 - Rien poussé ; `origin/main` inchangée
+
+## Tâches 2 et 3 : publication (orchestrateur, 27/11/2026)
+
+- **Décision :** Romain a demandé la production (« Oui, et mets en production », puis « Publie tout et fais les modifications de Brest »).
+- **v44 :** PR romaindetroyat/rade-tactique#18 fusionnée (0142dd1). Avant la fusion : `npm run check` 1029 verts / 2 sautés, gardes vertes, table TOFINOU à deux lignes (compte seul). En production : `sw.js` porte `dc6eb67f26` sur rade-tactique.vercel.app et tofinou-bormes.vercel.app ; manifestes « Rade Tactique — Toulon » et « Tofinou — Bormes » ; sans code 401 ; Frédéric : 200 sur Tofinou, 401 sur Naos, pack de Brest 404, pack de Bormes 200 ; Romain : `espaces` naos + tofinou sur les deux adresses.
+- **v45 :** PR romaindetroyat/rade-tactique#19 fusionnée (5ce8222). Instantanés météo de Bormes et de Brest (Open-Meteo a répondu le 27/11) ; celui de Brest admis dans le gel de Naos comme seul ajout au pack de Brest (`differencesAdmises('brest')`, garde git avec `:!data/brest.wx-snapshot.json`) ; `rankCourses` : repli sur la première ligne du plan d’eau (WINDOWS n° 18). `npm run check` 1032/1032, gardes vertes, 10 scénarios Chromium, porte de production verte. En production : `ca298965e8` sur les deux adresses, instantanés servis aux bons espaces.
+- **Contrôles humains restants :** voile d’avant et quille, positions des bouées et ligne du milieu de la baie, PCS/BAG, côté de la banane n° 4, conseils de vent de Bormes, contour du Levant et Brégançon contre les arrêtés, accord sur le certificat ORC ; vraies IC de Frédéric et vraie question à l’arbitre de Tofinou.
+

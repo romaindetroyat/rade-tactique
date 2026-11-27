@@ -3,7 +3,7 @@ gsd_state_version: "1.0"
 current_phase: 08
 current_phase_name: "Espace Tofinou : rade de Bormes – Le Lavandou, Tofinou 9.5, accès séparé"
 status: in_progress
-stopped_at: 08-10 tâche 1 faite (v44 prête en local) ; point de décision de la tâche 2 en attente (poussée, PR brouillon, aperçu, « publie »)
+stopped_at: phase 08 livrée (v44 puis v45 en production le 27/11) ; vérification human_needed (contrôles sur l’eau et par Frédéric)
 last_updated: "2026-11-27T00:51:33.221Z"
 last_activity: 2026-11-26
 last_activity_desc: Plan 08-09 — IA de l’espace Tofinou (consignes propres, quota par espace + prénom) et note du Tofinou sur la page des règles ; Naos identique à la v43
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-10-19)
 
 Phase: 08 (Espace Tofinou : rade de Bormes – Le Lavandou, Tofinou 9.5, accès séparé) — EN COURS
 Plan: 10 of 11 terminés (08-01, 08-02, 08-03, 08-04, 08-05, 08-06, 08-07, 08-08, 08-09)
-Status: aperçu apercu-phase-08 ; v43 en production (PR #17)
+Status: v45 en production (PR #19) ; phase 08 en attente des contrôles humains
 Last activity: 2026-11-26 — Plan 08-09 : IA ouverte à l’espace Tofinou (IA_ESPACES = naos, tofinou) avec ses consignes fixes (api/_tofinou.js : Tofinou 9.5, zone 28,4 m, Challenge de la Baie, RIR, un tour, VHF 72) choisies par l’en-tête du middleware pour l’arbitre, le débrief, la dictée et la lecture des IC ; quota de 30 par espace + prénom ; page des règles chez Tofinou : note du bateau et de l’épreuve, « IC du Challenge de la Baie », rubrique IA de l’aide ; Naos identique (gel v43, empreintes, page des règles capturée sur 5e9b8a5) ; 1009 tests (1007 verts, 2 sautés), gardes vertes, scénarios tofinou-ia, ia, arbitre, ia-erreurs, gpen, guide, naos-cles verts ; instantanés de Bormes et de Brest refusés par Open-Meteo (limite quotidienne)
 
 Progress: [████████░░] 75%
