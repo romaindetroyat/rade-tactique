@@ -2,8 +2,8 @@
  "v": 1,
  "venues": {
   "bormes": {
-   "pack": "b5ccb2acd6",
-   "bytes": 3604097,
+   "pack": "6b8c78ec4d",
+   "bytes": 3682412,
    "files": [
     {
      "path": "data/bormes.basemap.jpg",
@@ -34,6 +34,11 @@
      "path": "data/bormes.terrain.bin",
      "bytes": 1823100,
      "sha256": "1e0b272f1ef2260cda04dad71ed79290c621e0d83b264e44f8cace998bf7be98"
+    },
+    {
+     "path": "data/bormes.wx-snapshot.json",
+     "bytes": 78315,
+     "sha256": "c8447dac16e830ac5a5397165491a5a86d8083a7645e5d3f7610afb4ae415194"
     }
    ]
   },
