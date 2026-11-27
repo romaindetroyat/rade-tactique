@@ -16,7 +16,9 @@ import { parseLatLon } from '../js/marks.js';
 import { checkPos } from '../js/icplaus.js';
 import * as weather from '../js/weather.js';
 import { WindField } from '../js/wind.js';
-import { fixture } from './helpers/setup.mjs';
+import { fixture, ROOT } from './helpers/setup.mjs';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import { BANANE } from '../js/banane.js';
 
 // ───────── Toulon (défaut)
@@ -363,7 +365,9 @@ test('météo de Brest : aucune balise (fetchLive rend [] sans requête), instan
   try {
     assert.deepEqual(await weather.fetchLive(), []);
     assert.deepEqual(c.urls, []);
-    assert.equal(await weather.snapshot(), null);
+    const snap = await weather.snapshot(), present = existsSync(join(ROOT, 'data/brest.wx-snapshot.json'));
+    if (present) { assert.equal(snap?.snapshot, true); assert.ok(snap.multi && Math.abs(snap.multi.latitude - 48.3) < 0.1, 'instantané centré sur la rade de Brest'); }
+    else assert.equal(snap, null);
     assert.deepEqual(c.urls, ['data/brest.wx-snapshot.json']);
   } finally { c.rendre(); }
 });

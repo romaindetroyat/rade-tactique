@@ -43,8 +43,8 @@
    ]
   },
   "brest": {
-   "pack": "fc8e2a0d85",
-   "bytes": 4673496,
+   "pack": "0d75ef20c3",
+   "bytes": 4748504,
    "files": [
     {
      "path": "data/brest.basemap.jpg",
@@ -95,6 +95,11 @@
      "path": "data/brest.terrain.bin",
      "bytes": 1681128,
      "sha256": "f221f724128d42a97bb1d1949c7faa9fa5d9585e53e3ce3ac211c6e102f23202"
+    },
+    {
+     "path": "data/brest.wx-snapshot.json",
+     "bytes": 75008,
+     "sha256": "033739c24d09bd785f0d75fd0cdf8fb24f90df9a2f7f31267e7d86dfa0b23e79"
     }
    ]
   }

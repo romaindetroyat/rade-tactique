@@ -573,8 +573,8 @@ export function trendOf(series, startIdx, endIdx) {
 export function rankCourses(cls, windDir, windSpd, list = COURSES) {
   return list.filter((c) => c.seq[cls] && !c.built && MARKS[c.seq[cls][0]?.[0]]).map((c) => {
     const first = MARKS[c.seq[cls][0][0]];
-    // parcours sans ligne propre (lu dans les IC, saisi) sur un plan d’eau sans « vignettes » : sa ligne par défaut (Bormes, 08-11) ; Toulon : v42
-    const lp = LINE_PRESETS[c.line || 'vignettes'] ?? (VENUE.lineDefaut ? LINE_PRESETS[VENUE.lineDefaut] : undefined);
+    // parcours sans ligne propre (lu dans les IC, saisi) sur un plan d’eau sans « vignettes » : sa ligne par défaut (Bormes), sinon la première du plan d’eau (Brest : zone A) ; Toulon : v42
+    const lp = LINE_PRESETS[c.line || 'vignettes'] ?? (VENUE.lineDefaut ? LINE_PRESETS[VENUE.lineDefaut] : Object.values(LINE_PRESETS)[0]);
     const ctr = toXY(lp.lat, lp.lon);
     const brg = bearingXY(ctr, toXY(first.lat, first.lon));
     const twa = Math.abs(norm180(brg - windDir));

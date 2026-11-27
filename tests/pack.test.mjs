@@ -75,7 +75,7 @@ test('téléchargement complet : chaque fichier vérifié, écrit sous son chemi
   assert.deepEqual(r, { ok: true, bytes: BREST.bytes, cache: NOM });
   assert.equal(net.vus.length, BREST.files.length);
   for (const v of net.vus) {
-    assert.match(v.u, new RegExp(`^data/brest\\.[a-z.]+\\?pack=${BREST.pack}$`), 'paramètre ?pack= (le worker laisse passer au réseau)');
+    assert.match(v.u, new RegExp(`^data/brest\\.[a-z.-]+\\?pack=${BREST.pack}$`), 'paramètre ?pack= (le worker laisse passer au réseau)');
     assert.equal(v.o.cache, 'no-store');
   }
   assert.deepEqual(prog.at(-1), [BREST.bytes, BREST.bytes]);
