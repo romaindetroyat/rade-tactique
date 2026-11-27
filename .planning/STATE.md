@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 08
 current_phase_name: "Espace Tofinou : rade de Bormes – Le Lavandou, Tofinou 9.5, accès séparé"
 status: in_progress
-stopped_at: Completed 08-11-PLAN.md
-last_updated: "2026-11-26T23:44:00.175Z"
+stopped_at: 08-10 tâche 1 faite (v44 prête en local) ; point de décision de la tâche 2 en attente (poussée, PR brouillon, aperçu, « publie »)
+last_updated: "2026-11-27T00:51:33.221Z"
 last_activity: 2026-11-26
 last_activity_desc: Plan 08-09 — IA de l’espace Tofinou (consignes propres, quota par espace + prénom) et note du Tofinou sur la page des règles ; Naos identique à la v43
-state_head: 5f884f6857c996b695c941454a27fd739df280d4
+state_head: 8078eba7c022832143a7f600f0c02b0ed3eda985
 progress:
   total_phases: 8
   completed_phases: 6
   total_plans: 49
-  completed_plans: 48
+  completed_plans: 49
   percent: 75
 ---
 
@@ -243,6 +243,7 @@ Décisions récentes qui orientent le travail en cours :
 - [Phase 08]: 08-11 : identifiants de bouées (X1000–X9999) et de parcours (1000–9999) saisis tirés au hasard parmi les libres, pour la fusion par éléments hors réseau
 - [Phase 08]: 08-11 : classes du CVAT masquées à Bormes (sansClasses), cls gardé ; libellés des IC de Tofinou dans ESPACES.tofinou.textesIC ; exemple de saisie de Bormes = La Fourmigue
 - [Phase 08]: 08-11 : en course, dans l’espace Tofinou, éditeur inactif et gestes Confirmer / Corriger / Ignorer refusés
+- [Phase 08]: 08-10 : v44 préparée (guide de l’espace Tofinou, gardes vertes, release) sans instantané météo de Bormes (Open-Meteo refusé) ; production sur « publie » de Romain seulement
 
 ### Pending Todos
 
@@ -284,6 +285,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-11-26T23:43:59.970Z
-Stopped at: Completed 08-11-PLAN.md
-Resume file: None
+Last session: 2026-11-27T00:51:32.796Z
+Stopped at: 08-10 tâche 1 faite (v44 prête en local) ; point de décision de la tâche 2 en attente (poussée, PR brouillon, aperçu, « publie »)
+Resume file: .planning/phases/08-espace-tofinou/08-10-SUMMARY.md
