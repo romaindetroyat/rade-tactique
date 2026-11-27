@@ -53,7 +53,7 @@ plan_head_before: 508bd9ae2ad37b255cfe5e3f95ca8a80a32391ba
 plan_head_after: 8078eba7c022832143a7f600f0c02b0ed3eda985
 ---
 
-# Phase 8 Plan 10 : livraison v44 de l’espace Tofinou — Résumé (tâche 1 faite, points de contrôle en attente)
+# Phase 8 Plan 10 : livraison v44 de l’espace Tofinou — Résumé (v44 puis v45 en production le 27/11)
 
 La v44 est prête et vérifiée en local sur `apercu-phase-08` : guide court de l’espace Tofinou (entrer, rade de Bormes hors réseau, Challenge de la Baie 2026-2027, IC et éditeur de parcours, bateau à recaler, trace GPX par une app dédiée, vents, zones, IA, « Changer d’espace », sources), ouvert par l’aide de l’espace Tofinou ; toutes les gardes, les trois compatibilités, les 46 scénarios, les trois mesures d’ouverture et l’horloge audio en 0, puis `npm run release`, `RT_STRICT=1 stamp --check` et la porte de production en 0. Naos : guide, aide et vues de la v43 (gel et gardes verts). Rien n’est poussé : la poussée, la PR brouillon, l’aperçu et la décision « publie » (tâches 2 et 3) restent à l’orchestrateur et à Romain.
 
