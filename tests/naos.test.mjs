@@ -32,7 +32,7 @@ for (const section of ['middleware', 'publics', 'archive', 'quota']) {
 }
 
 for (const section of ['ia', 'brest']) {
-  test(`Naos v43 : ${section} identique à la capture`, async () => {
+  test(`Naos v43 : ${section} identique à la capture${section === 'brest' ? ' (instantané météo admis)' : ''}`, async () => {
     assert.ok(F[section], `section ${section} absente de la fixture`);
     const d = ecart(section, (await cas())[section]);
     assert.equal(d, null, d);

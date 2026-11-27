@@ -24,7 +24,7 @@ const GARDES = [
   ['modules du mode départ (= 56f6625)', 'git', ['diff', '--quiet', '56f6625', '--', ...DEPART]],
   ['tests figés (Toulon v42, banane, routes mémorisées, référence SNPM)', process.execPath, ['--test', '--import', './tests/helpers/setup.mjs', ...TESTS]],
   ['gel de Naos v43 (tests/naos.test.mjs)', process.execPath, ['--test', '--import', './tests/helpers/setup.mjs', 'tests/naos.test.mjs']],
-  ['pack de Brest (data/brest.* = 5e9b8a5)', 'git', ['diff', '--quiet', '5e9b8a5', '--', 'data/brest.*']],
+  ['pack de Brest (data/brest.* = 5e9b8a5, instantané météo admis en v45)', 'git', ['diff', '--quiet', '5e9b8a5', '--', 'data/brest.*', ':!data/brest.wx-snapshot.json']],
 ];
 
 const args = process.argv.slice(2);

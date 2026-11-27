@@ -2,8 +2,8 @@
  "v": 1,
  "venues": {
   "bormes": {
-   "pack": "b5ccb2acd6",
-   "bytes": 3604097,
+   "pack": "6b8c78ec4d",
+   "bytes": 3682412,
    "files": [
     {
      "path": "data/bormes.basemap.jpg",
@@ -34,12 +34,17 @@
      "path": "data/bormes.terrain.bin",
      "bytes": 1823100,
      "sha256": "1e0b272f1ef2260cda04dad71ed79290c621e0d83b264e44f8cace998bf7be98"
+    },
+    {
+     "path": "data/bormes.wx-snapshot.json",
+     "bytes": 78315,
+     "sha256": "c8447dac16e830ac5a5397165491a5a86d8083a7645e5d3f7610afb4ae415194"
     }
    ]
   },
   "brest": {
-   "pack": "fc8e2a0d85",
-   "bytes": 4673496,
+   "pack": "0d75ef20c3",
+   "bytes": 4748504,
    "files": [
     {
      "path": "data/brest.basemap.jpg",
@@ -90,6 +95,11 @@
      "path": "data/brest.terrain.bin",
      "bytes": 1681128,
      "sha256": "f221f724128d42a97bb1d1949c7faa9fa5d9585e53e3ce3ac211c6e102f23202"
+    },
+    {
+     "path": "data/brest.wx-snapshot.json",
+     "bytes": 75008,
+     "sha256": "033739c24d09bd785f0d75fd0cdf8fb24f90df9a2f7f31267e7d86dfa0b23e79"
     }
    ]
   }

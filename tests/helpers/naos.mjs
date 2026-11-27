@@ -294,7 +294,8 @@ export async function naosCases(m) {
 // Les SEULES différences admises pour Naos en v44 (08-01, frontmatter) appliquées à la capture : ce qui reste est comparé à l’identique.
 //   - GET /api/membre : champs `espace` (= « naos ») et `espaces` (liste de chaînes qui contient « naos ») ;
 //   - requêtes /api/ transmises : en-tête `x-rt-espace: naos` posé par le middleware (et donc dans la liste des en-têtes remplacés) ;
-//   - liste hors réseau : fichiers nouveaux limités à AJOUTS_SHELL (taille contrôlée par le test).
+//   - liste hors réseau : fichiers nouveaux limités à AJOUTS_SHELL (taille contrôlée par le test) ;
+//   - pack de Brest (v45) : ajout de data/brest.wx-snapshot.json seul, avec l’empreinte du pack qui en découle.
 // Une différence admise n’est jamais exigée : le code de la v43 reste conforme à sa propre capture.
 export function differencesAdmises(section, capture, courant) {
   const c = copie(capture);
@@ -311,6 +312,20 @@ export function differencesAdmises(section, capture, courant) {
         if (k.corps.espace === 'naos') r.corps.espace = 'naos';
         const e = k.corps.espaces;
         if (Array.isArray(e) && e.length && e.every((x) => typeof x === 'string') && e.includes('naos')) r.corps.espaces = e;
+      }
+    }
+  }
+  if (section === 'brest' && isObj(courant)) {
+    // v45 (accord de Romain du 27/11) : l’instantané météo de secours de Brest s’ajoute au pack ; les autres fichiers restent identiques à l’octet
+    const SNAP = 'data/brest.wx-snapshot.json', s = courant.fichiers?.[SNAP];
+    if (s && !c.fichiers?.[SNAP] && Number.isInteger(s.bytes) && s.bytes > 0 && /^[0-9a-f]{64}$/.test(s.sha256)) {
+      c.fichiers = Object.fromEntries(Object.entries({ ...c.fichiers, [SNAP]: s }).sort(([a], [b]) => (a < b ? -1 : 1)));
+      const e = courant.venues?.files?.find((f) => f.path === SNAP);
+      if (c.venues && e && e.bytes === s.bytes && e.sha256 === s.sha256) {
+        const files = [...c.venues.files, e];
+        if (JSON.stringify(files) === JSON.stringify(courant.venues.files)) {
+          c.venues = { ...c.venues, files, bytes: c.venues.bytes + e.bytes, pack: courant.venues.pack };
+        }
       }
     }
   }
