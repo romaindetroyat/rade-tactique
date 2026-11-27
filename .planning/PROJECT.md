@@ -4,6 +4,8 @@
 
 Rade Tactique est une application web installable (PWA) pour l'équipage du J80 *Naos* (Romain, Teiva Rameil, Thibaud Delaunay) qui régate dans la rade de Toulon, surtout aux épreuves du CVAT. Elle prépare la régate (vent local en 3D avec effets de relief, parcours, routage et tactique), accompagne la course (mode départ plein écran, GPS, trace) et aide à progresser après (débrief automatique depuis le GPX, analyse face à la polaire, règles de course et arbitre IA). L'accès est réservé à l'équipage.
 
+Depuis la v44 (phase 8), un second équipage a son propre espace cloisonné, « Tofinou — Bormes » : Frédéric (et Romain, membre des deux espaces) prépare et court le Challenge de la Baie en Tofinou 9.5 dans la rade de Bormes – Le Lavandou, à une adresse distincte (`tofinou-bormes.vercel.app`), avec son archive, son quota d'IA et ses consignes. Il ne voit rien de Naos (J80, Toulon, Brest), et Naos rien de lui.
+
 ## Core Value
 
 Le jour de la régate, l'équipage peut ouvrir l'épreuve, s'en servir en mer sans que rien ne lâche, et retrouver ensuite le débrief : des conseils et des chiffres justes, fiables sur l'eau, et partagés par tout l'équipage.
@@ -44,7 +46,7 @@ Le jour de la régate, l'équipage peut ouvrir l'épreuve, s'en servir en mer sa
 - Ajouter réellement un autre plan d'eau maintenant — choix de Romain : « plus tard » ; on se limite à rendre l'ajout possible
 - Application native iOS/Android — décidé : on reste en PWA
 - Régates au-delà de 25 nœuds de vent — l'équipage ne régate pas au-delà ; modèles et polaires limités à cette plage
-- Ouverture à d'autres équipages ou au public — l'app reste réservée à l'équipage de Naos
+- Ouverture au public ou à d'autres équipages que ceux d'un espace décidé par Romain — l'app reste réservée à ses membres ; seul le second équipage (espace Tofinou — Bormes, phase 8) a été ouvert, dans un espace cloisonné, par code personnel
 - Archiver la fiche IC et le parcours comme élément à part de l'archive — non retenu par Romain ; le débrief porte déjà le parcours couru
 
 ## Context
@@ -63,7 +65,7 @@ Le jour de la régate, l'équipage peut ouvrir l'épreuve, s'en servir en mer sa
 - **Technique** : JavaScript sans framework ni build, Three.js vendorisé ; introduire des outils (tests, script de vérification) sans alourdir le chargement de l'app
 - **IA** : OpenAI uniquement (pas l'API Anthropic) pour les fonctions de l'app, modèle `gpt-5.5`
 - **Langue** : interface et documents d'équipage en français
-- **Accès** : réservé aux codes personnels de l'équipage de Naos ; toute nouvelle donnée partagée doit rester derrière ce contrôle
+- **Accès** : réservé aux codes personnels de l'équipage de Naos et, dans son espace, de l'équipage Tofinou ; le code décide de l'espace ; toute nouvelle donnée partagée doit rester derrière ce contrôle
 - **Vent** : plage utile jusqu'à 25 nœuds
 
 ## Key Decisions
@@ -77,6 +79,7 @@ Le jour de la régate, l'équipage peut ouvrir l'épreuve, s'en servir en mer sa
 | Archives partagées en ligne pour tout l'équipage | Chacun doit retrouver débriefs et stratégies sur n'importe quel appareil | — Pending |
 | Tout équipier peut ouvrir une régate et modifier l'archive | Ne pas dépendre de Romain | — Pending |
 | Autres plans d'eau : préparer l'architecture, pas d'ajout maintenant | Priorité à la prochaine régate CVAT | — Pending |
+| Second équipage (Tofinou — Bormes, Frédéric) dans un espace cloisonné du même projet | Demande de Romain (phase 8) : même app, adresse distincte, archive, quota d'IA par espace et prénom, consignes propres ; Naos inchangé (gel v43, gardes Toulon) | — Pending (v44, production sur « publie ») |
 
 ## Evolution
 

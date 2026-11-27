@@ -5,12 +5,15 @@
 //   - compteur ouvert en panne : magasin absent, en erreur, plus lent que 2 s ou conflit perdu deux fois → l’appel passe, un avertissement
 //     sans prénom, sans clé ni texte est écrit ; l’IA ne tombe jamais à cause du compteur ;
 //   - erreurs d’OpenAI traduites en français (plafond de dépense, service occupé), toujours bornées à 300 caractères.
-// Le prénom vient du seul en-tête `x-rt-membre` posé par le middleware, jamais du corps ni de l’adresse.
-// Le nom commence par « _ » : Vercel n’en fait pas une route. Ce fichier n’importe ni `js/` ni `api/archive.js` (il serait embarqué avec lui) ;
-// `prefix` et `membre` copient la règle d’api/archive.js et tests/apiia.test.mjs en vérifie la parité. @vercel/blob n’est importé que si un
+// Le prénom vient du seul en-tête `x-rt-membre` posé par le middleware, jamais du corps ni de l’adresse ; l’espace, du seul en-tête `x-rt-espace`
+// (phase 8) : sans espace valide, 403 `espace_inconnu` ; un espace hors `IA_ESPACES` (sans consignes propres) reçoit 503 `ia_espace` sans appel ni
+// compteur ; le quota est compté par espace et prénom (`prefixe(espace)` : Naos `<prod|preview>/quota/…` inchangé, Tofinou `tofinou/<…>/quota/…`).
+// Le nom commence par « _ » : Vercel n’en fait pas une route. Ce fichier n’importe ni `js/` ni `api/archive.js` (il serait embarqué avec lui),
+// seulement `api/_espace.js` (sans dépendance) ; `prefix` et `membre` copient la règle d’api/archive.js et tests/apiia.test.mjs en vérifie la parité. @vercel/blob n’est importé que si un
 // compteur est configuré.
 
 import OpenAI from 'openai';
+import { espaceDe, prefixe, IA_ESPACES } from './_espace.js';
 
 export const QUOTA = 30;                       // appels d’IA par équipier et par jour de Paris
 export const DELAI_MS = 2000;                  // chaque opération sur le compteur est abandonnée au-delà
@@ -18,6 +21,7 @@ export const MESSAGES = {
   quota_equipier: 'Limite d’IA du jour atteinte — reprise demain',
   budget_ia: 'Budget d’IA du mois atteint — l’IA reprend le mois prochain',
   ia_occupee: 'L’IA est très sollicitée — réessayez dans un instant',
+  ia_espace: 'L’IA n’est pas ouverte dans cet espace.',
 };
 // Codes que renvoie OpenAI avec un 429 quand la dépense plafonnée, le crédit ou la facturation sont épuisés (un code inconnu devient « occupée »)
 export const BUDGET_CODES = new Set([
@@ -97,20 +101,24 @@ export function erreurIA(err) {
 
 // `openai` : client (objet, ou fonction qui le rend) ; sans lui, créé à la première requête (sans clé, le constructeur lèverait une erreur au chargement).
 // `blob` : faux Blob des tests ; sans lui et sans jeton configuré, il n’y a pas de compteur (l’appel passe).
-export function createIA({ openai, blob, now = Date.now, delai = DELAI_MS } = {}) {
+// `espacesIA` : espaces dont l’IA est ouverte (IA_ESPACES ; les tests du quota par espace en ouvrent un second).
+export function createIA({ openai, blob, now = Date.now, delai = DELAI_MS, espacesIA = IA_ESPACES } = {}) {
   let client = null, sdk = blob || null;
   const getClient = () => (typeof openai === 'function' ? openai() : openai || (client ??= new OpenAI()));
   const getBlob = async () => (sdk ||= await import('@vercel/blob'));
   const configure = () => !!sdk || !!process.env.BLOB_READ_WRITE_TOKEN || !!process.env.BLOB_STORE_ID;
   return {
-    // true : l’appel peut partir. false : la réponse (403 sans prénom, 429 au-delà du quota) est déjà envoyée.
+    // true : l’appel peut partir. false : la réponse (403 sans prénom ou sans espace, 503 IA fermée dans l’espace, 429 au-delà du quota) est déjà envoyée.
     async garde(req, res) {
       res.setHeader?.('Cache-Control', 'no-store');
       const who = membre(req.headers?.['x-rt-membre']);
       if (!who) { res.status(403).json({ error: 'membre_inconnu' }); return false; }      // fermé par défaut : sans prénom du middleware, rien n’est compté
+      const espace = espaceDe(req.headers?.['x-rt-espace']);
+      if (!espace) { res.status(403).json({ error: 'espace_inconnu' }); return false; }  // fermé par défaut : jamais Naos par défaut
+      if (!espacesIA.includes(espace)) { res.status(503).json({ error: 'ia_espace', message: MESSAGES.ia_espace }); return false; }
       if (!configure()) return true;
       let r;
-      try { r = await compte({ B: await getBlob(), P: prefix(), who, now, delai }); } catch {
+      try { r = await compte({ B: await getBlob(), P: prefixe(espace), who, now, delai }); } catch {
         console.warn('quota IA : compteur indisponible, appel laissé passer');             // jamais le prénom, la clé ni le texte
         return true;
       }

@@ -66,6 +66,28 @@ Le plafond théorique de l’IA (3 équipiers, 30 appels, 30 jours) serait de 2 
 
 **À faire :** relever l’usage dans Vercel (projet rade-tactique, **Observability**, puis **Blob**) **avant et après le week-end du 7-9 novembre**. Au-delà de **40 % du quota** pour l’IA seule, revoir le compteur (par exemple réserver les appels par lots).
 
+### Second équipage : l’espace Tofinou — Bormes (v44)
+
+L’espace Tofinou partage le **même magasin Blob, la même clé et le même plafond de dépense** que Naos (choix de Romain). Son archive et ses compteurs sont rangés à part (`tofinou/prod/…`, `tofinou/preview/…`), ceux de Naos ne bougent pas. Un dépassement du quota bloquerait **les deux espaces** : d’où des plafonds par téléphone plus bas chez Tofinou.
+
+| Réglage | Naos | Tofinou — Bormes |
+|---------|------|------------------|
+| Envois vers l’archive, par téléphone et par jour | 40 | 20 |
+| Lectures de l’archive, par téléphone et par jour | 150 | 75 |
+| Objets lourds envoyés / téléchargés, par téléphone et par jour | 20 / 40 | 10 / 20 |
+| Appels d’IA, par personne et par jour (compteur par espace et prénom) | 30 | 30 |
+
+| Source (espace Tofinou, deux personnes : Frédéric et Romain) | Opérations avancées par mois (estimation) |
+|--------|--------------------------------------------|
+| Archive partagée (une régate par mois, quelques entraînements) | 100 à 250 |
+| IA (lecture d’IC, débrief, arbitre, dictée) | 30 à 120 |
+| **Total attendu pour Tofinou** | **130 à 370** |
+| **Total des deux espaces** | **1 030 à 1 470, soit 52 à 74 % du quota Hobby** |
+
+Le plafond théorique de l’IA de Tofinou (2 personnes, 30 appels, 30 jours) serait de 1 800 : comme pour Naos, ce n’est pas l’usage réel, mais les deux plafonds théoriques ensemble dépasseraient le quota.
+
+**À faire après deux semaines d’usage de la v44 :** relever dans Vercel (**Observability**, puis **Blob**) les opérations avancées du mois. Au-delà de **70 % du quota** pour les deux espaces, baisser les plafonds de Tofinou (`caps` de `js/espaces.js`) ou passer au plan Pro (paiement à l’usage, sans blocage) ; au-delà de **40 %** pour l’IA seule, revoir le compteur comme ci-dessus. Relever aussi la dépense OpenAI du mois : le plafond de 10 $ est commun aux deux espaces.
+
 ## Variables d’environnement concernées (noms seulement)
 
 - `OPENAI_API_KEY` : clé du projet OpenAI qui porte le plafond. Sans elle, les quatre fonctions répondent 503.

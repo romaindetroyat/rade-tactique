@@ -8,22 +8,23 @@ export const MIN_GAP_MS = 30e3;                    // jamais deux essais automat
 export const DEBOUNCE_MS = 20e3;                   // après une modification locale
 export const BACKOFF_MS = [30e3, 120e3, 600e3, 1800e3];
 export const CAPS = { w: 40, r: 150 };         // par téléphone et par jour de Paris : envois (opérations avancées du quota Blob) et lectures
+// Un autre espace a ses propres plafonds (js/espaces.js, `caps.archive`, passés par js/app.js) ; Naos garde CAPS
 
 // Compteurs du jour de Paris : remis à zéro quand le jour change
 const compteurs = ({ now, day, w = 0, r = 0 }) => (day === parisClock(now).date ? { w, r } : { w: 0, r: 0 });
 // Plafond du jour atteint (pour l’indicateur) : envois ou lectures
-export const capped = (meta, now) => { const c = compteurs({ now, ...meta }); return c.w >= CAPS.w || c.r >= CAPS.r; };
+export const capped = (meta, now, caps = CAPS) => { const c = compteurs({ now, ...meta }); return c.w >= caps.w || c.r >= caps.r; };
 
 // D-03 : rien n’est envoyé ni reçu tant qu’un chrono, une trace, le mode départ ou le GPS de course est actif (raceActive de js/app.js).
 // 401 (denied) et document d’une version plus récente (outdated) arrêtent les essais ; `write` : l’échange sera un envoi (plafond des envois), sinon une lecture.
-export function canSync({ now, active, online, off = false, lastTry = 0, fails = 0, denied = false, outdated = false, day = null, w = 0, r = 0, write = false }) {
+export function canSync({ now, active, online, off = false, lastTry = 0, fails = 0, denied = false, outdated = false, day = null, w = 0, r = 0, write = false, caps = CAPS }) {
   if (off) return { ok: false, why: 'desactivee' };
   if (denied) return { ok: false, why: 'acces' };
   if (outdated) return { ok: false, why: 'ancienne_version' };
   if (active) return { ok: false, why: 'course' };
   if (online === false) return { ok: false, why: 'hors_reseau' };
   const c = compteurs({ now, day, w, r });
-  if (write ? c.w >= CAPS.w : c.r >= CAPS.r) return { ok: false, why: 'plafond' };
+  if (write ? c.w >= caps.w : c.r >= caps.r) return { ok: false, why: 'plafond' };
   const wait = Math.max(MIN_GAP_MS, fails ? BACKOFF_MS[Math.min(fails, BACKOFF_MS.length) - 1] : 0);
   if (now - lastTry < wait) return { ok: false, why: 'trop_tot', in: wait - (now - lastTry) };
   return { ok: true, why: null };
@@ -66,11 +67,11 @@ export function applyDoc(st, remote) {
 
 // ───────────────────────── une synchronisation
 // deps : { now, fetchJson(method, query, body) → { status, body }, getState(), setState(st), getMarks(), setMarks(marks), meta (objet persisté),
-//          saveMeta(), isActive(), isOnline(), canApply() }
+//          saveMeta(), isActive(), isOnline(), canApply(), caps (facultatif : plafonds de l’espace, sinon CAPS) }
 export async function runSync(d, reason = 'auto') {
   const t = d.now(), meta = d.meta;
   const first = !meta.first, snapshot = { ...(meta.dirty || {}) }, keys = Object.keys(snapshot), write = first || keys.length > 0;
-  const gate = canSync({ now: t, active: d.isActive(), online: d.isOnline(), off: meta.off, lastTry: meta.lastTry || 0, fails: meta.fails || 0, denied: meta.denied, outdated: meta.outdated, day: meta.day, w: meta.w, r: meta.r, write });
+  const gate = canSync({ now: t, active: d.isActive(), online: d.isOnline(), off: meta.off, lastTry: meta.lastTry || 0, fails: meta.fails || 0, denied: meta.denied, outdated: meta.outdated, day: meta.day, w: meta.w, r: meta.r, write, caps: d.caps ?? CAPS });
   if (!gate.ok && !(reason === 'manuel' && gate.why === 'trop_tot')) return { skipped: gate.why, in: gate.in };
   meta.lastTry = t;
   const c = compteurs({ now: t, ...meta });                               // plafonds du jour de Paris : comptés à l’envoi de la requête

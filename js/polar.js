@@ -19,7 +19,14 @@ export function setPolar(tws, twa, bsp, source) {
   TWS = tws; TWA = twa; BSP = bsp; polarSource = source || 'Polaire importée';
   cache.clear();
 }
-export const resetPolar = () => setPolar(DEFAULT_TWS, DEFAULT_TWA, DEFAULT_BSP, DEFAULT_SOURCE);
+// Polaire par défaut (cible de « Polaire par défaut ») : le J80 ; un espace qui a son propre bateau la remplace au démarrage par setDefaultPolar
+// (phase 8, D-09 : l’espace Naos ne l’appelle jamais). Une polaire importée par l’équipier s’applique ensuite par setPolar et garde la priorité.
+let DEF = { tws: DEFAULT_TWS, twa: DEFAULT_TWA, bsp: DEFAULT_BSP, source: DEFAULT_SOURCE };
+export const resetPolar = () => setPolar(DEF.tws, DEF.twa, DEF.bsp, DEF.source);
+export function setDefaultPolar(tws, twa, bsp, source) {
+  DEF = { tws, twa, bsp, source };
+  resetPolar();
+}
 
 // Lecture d’un fichier polaire classique (.pol / .csv / .txt) : 1re ligne « TWA\\TWS  6  8 … »,
 // puis une ligne par TWA. Séparateurs : tabulation, point-virgule, virgule ou espaces.

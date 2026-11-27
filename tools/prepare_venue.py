@@ -1,6 +1,11 @@
 """Télécharge les entrées d’un plan d’eau (hors du dépôt) pour tools/build_terrain.py et tools/build_basemap.py.
 
 Usage : python3 -I tools/prepare_venue.py tools/venues/<plan d’eau>.json <dossier-entrées>
+        python3 -I tools/prepare_venue.py --types-urbains tools/venues/<plan d’eau>.json
+          (affiche en JSON les types landuse rangés en « urbain » pour ce plan d’eau, sans réseau, puis sort)
+
+Types urbains : clé facultative « urban » de la configuration (liste de valeurs landuse, par exemple sans « military »
+pour que l’île du Levant reste de la terre naturelle) ; absente, la liste par défaut URBAN (Toulon, Brest).
 
 Chaque source a son dossier sous <dossier-entrées> :
   tiles/     tuiles d’altitude Terrarium (zoom de la configuration), noms 13_x_y.png
@@ -129,10 +134,20 @@ def bathy(cfg, root, man):
 
 
 # ───────────────────────── OpenStreetMap
+def urban_types(cfg):
+    """Types landuse urbains du plan d’eau (clé « urban » de la configuration), dans l’ordre de URBAN ; absente : URBAN."""
+    if 'urban' not in cfg:
+        return dict(URBAN)
+    lst = cfg['urban']
+    if not isinstance(lst, list) or not lst or any(not isinstance(t, str) or t not in URBAN for t in lst):
+        raise SystemExit('configuration : « urban » doit être une liste non vide de types parmi ' + ', '.join(URBAN))
+    return {k: v for k, v in URBAN.items() if k in lst}
+
+
 def overpass_query(cfg):
     b = cfg['osm']['bbox']
     bb = f"({b['south']},{b['west']},{b['north']},{b['east']})"
-    lu = '|'.join(URBAN)
+    lu = '|'.join(urban_types(cfg))
     return (f'[out:json][timeout:180];('
             f'way["natural"="coastline"]{bb};'
             f'way["man_made"~"^({"|".join(PIERS)})$"]{bb};'
@@ -141,13 +156,13 @@ def overpass_query(cfg):
             f');out geom;')
 
 
-def classify(tags):
+def classify(tags, urban=URBAN):
     if tags.get('natural') == 'coastline':
         return ('coast', None)
     if tags.get('man_made') in PIERS:
         return ('pier', tags['man_made'])
-    if tags.get('landuse') in URBAN:
-        return ('urban', URBAN[tags['landuse']])
+    if tags.get('landuse') in urban:
+        return ('urban', urban[tags['landuse']])
     return None
 
 
@@ -181,7 +196,8 @@ def join_rings(ways):
 
 class Extrait:
     """Accumule les chemins utiles, dédoublonnés par identifiant OSM."""
-    def __init__(self):
+    def __init__(self, urban=URBAN):
+        self.urban = urban    # types landuse urbains retenus (urban_types)
         self.ways = {}        # id → (classe, type, coords, area)
         self.rels = {}        # id → (type, [ids des chemins extérieurs])
         self.members = {}     # id → coords (chemins membres d’une relation utile)
@@ -199,14 +215,14 @@ class Extrait:
                 el.clear()
             elif el.tag == 'relation':
                 tags = {t.get('k'): t.get('v') for t in el.findall('tag')}
-                c = classify(tags)
+                c = classify(tags, self.urban)
                 if c and c[0] == 'urban' and tags.get('type') == 'multipolygon':
                     outer = [m.get('ref') for m in el.findall('member') if m.get('type') == 'way' and m.get('role') in ('outer', '')]
                     rels.append((el.get('id'), c[1], outer))
                 el.clear()
         coords = lambda refs: [list(nodes[r]) for r in refs if r in nodes]
         for wid, (refs, tags) in ways.items():
-            c = classify(tags)
+            c = classify(tags, self.urban)
             if c and wid not in self.ways:
                 self.ways[wid] = (c[0], c[1], coords(refs), tags.get('area', 'no'))
         for rid, t, outer in rels:
@@ -219,7 +235,7 @@ class Extrait:
     def add_overpass(self, data):
         for el in data.get('elements', []):
             tags = el.get('tags', {})
-            c = classify(tags)
+            c = classify(tags, self.urban)
             if not c:
                 continue
             if el['type'] == 'way':
@@ -313,7 +329,7 @@ def osm_boxes(cfg, root, man, ext):
 
 def osm(cfg, root, man):
     os.makedirs(os.path.join(root, 'osm'), exist_ok=True)
-    ext = Extrait()
+    ext = Extrait(urban_types(cfg))
     data = osm_overpass(cfg, root, man)
     if data is not None:
         ext.add_overpass(data); info = {'methode': 'overpass'}
@@ -328,6 +344,10 @@ def osm(cfg, root, man):
 
 
 def main():
+    if len(sys.argv) == 3 and sys.argv[1] == '--types-urbains':
+        cfg = json.load(open(sys.argv[2], encoding='utf-8'))
+        print(json.dumps(list(urban_types(cfg))))
+        return
     if len(sys.argv) != 3:
         raise SystemExit('usage : python3 -I tools/prepare_venue.py <config.json> <dossier-entrées>')
     cfg = json.load(open(sys.argv[1], encoding='utf-8'))

@@ -14,7 +14,7 @@
 //   (plan 03-07 : cochés ici, rangés « à confirmer » par applyReview ; un parcours n’est retenu que si toutes ses bouées le sont)
 
 import { escHTML } from './regview.js';
-import { isDate, seasonOf, addRace, MAX_NAME, MAX_NOTE, MAX_IC_TEXT } from './regates.js';
+import { isDate, seasonOf, addRace, MAX_NAME, MAX_NOTE, MAX_IC_TEXT, BAIE_SOURCE } from './regates.js';
 import { parisClock } from './racelock.js';
 import { checkDate, checkDateEnd, checkTime, checkSeq, checkVhf, checkPos } from './icplaus.js';
 import { parseLatLon } from './marks.js';
@@ -34,6 +34,8 @@ export const FIELDS = Object.freeze([
 ].map(Object.freeze));
 const MAX_FIELD = 200;                                     // longueur d’une valeur saisie
 const READ_LONG = { motifs: 'par motifs (CVAT, hors réseau)', saisie: 'saisie à la main', reprise: 'reprise d’une ancienne fiche', ia: 'par l’IA (OpenAI) : vérifiez chaque valeur', semee: 'semée par l’app d’après les IC 2026 : à vérifier avec les IC 2027' };
+// fiche du Challenge de la Baie semée dans l’espace Tofinou (08-08) : d’après l’avis et les fiches de course, pas d’après des IC 2026
+const SEMEE_BAIE = 'semée par l’app d’après l’avis de course et les fiches de course 2026-2027 : à vérifier sur la fiche de course de chaque manche';
 const READ_SHORT = { motifs: 'par motifs', saisie: 'saisie', reprise: 'reprise', ia: 'par l’IA', semee: 'semée par l’app' };
 export const NOT_READ = 'non lu dans le texte';
 // false masque « Lire avec l’IA » sans rien changer d’autre ; décision après l’essai réel sur l’aperçu (plan 03-07)
@@ -262,8 +264,16 @@ function iaHTML(ia) {
   return `<div class="btns icia"><button type="button" class="btn alt small" id="icIa"${ia.enabled ? '' : ' disabled'}>${IA_LABEL}</button></div><div class="small muted" id="icIaMsg" aria-live="polite">${escHTML(ia.msg || '')}</div>`;
 }
 
+// Libellé long de la lecture. libelles (08-11, D-16) : { motifs, semee } d’un espace autre que Naos (sans le sigle du club de Toulon) ; sans eux,
+// libellés de la v43. La fiche du Challenge de la Baie garde le sien (08-08).
+function lectureLong(review, libelles) {
+  if (review.read === 'semee' && review.source === BAIE_SOURCE) return SEMEE_BAIE;
+  const propre = libelles && (review.read === 'motifs' || review.read === 'semee') && typeof libelles[review.read] === 'string' ? libelles[review.read] : '';
+  return propre || READ_LONG[review.read] || READ_LONG.saisie;
+}
+
 // Carte « Relecture des IC » ; checks : { clé: { level, msg } } (vide : pas de puces). Le bouton « Valider les IC » est désactivé si canValidate est faux.
-// opts.ia : bloc « Lire avec l’IA » (voir iaHTML).
+// opts.ia : bloc « Lire avec l’IA » (voir iaHTML) ; opts.libelles : libellés de lecture de l’espace (lectureLong).
 export function reviewHTML(review, checks = {}, opts = {}) {
   const ok = canValidate(review, checks);
   const rules = review.keyRules.length
@@ -296,7 +306,7 @@ export function reviewHTML(review, checks = {}, opts = {}) {
     : '';
   const tronque = review.truncated ? '<div class="small muted icex">Texte long : seuls les 50 000 premiers caractères ont été lus par l’IA.</div>' : '';
   return `<div class="card" id="icReview"><h3>Relecture des IC <small>rien n’est retenu avant « Valider les IC »</small></h3>`
-    + `<div class="small muted">Source : ${escHTML(review.source || 'saisie')} · lecture ${escHTML(READ_LONG[review.read] || READ_LONG.saisie)}</div>`
+    + `<div class="small muted">Source : ${escHTML(review.source || 'saisie')} · lecture ${escHTML(lectureLong(review, opts.libelles))}</div>`
     + iaHTML(opts.ia)
     + tronque
     + review.fields.map((f) => fieldHTML(f, checks[f.key])).join('')

@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 4
+open_count: 9
 waived_count: 0
-fixed_count: 4
-total_count: 8
-last_updated: 2026-11-19T11:35:15.439Z
+fixed_count: 10
+total_count: 19
+last_updated: 2026-11-27T00:34:08.722Z
 ---
 
 # Broken Windows Ledger
@@ -23,6 +23,17 @@ last_updated: 2026-11-19T11:35:15.439Z
 | 6 | 07 | stub | data/brest.wx-snapshot.json |  | Instantané météo de Brest absent (Open-Meteo refusé) : l’app reçoit null ; à produire en 07-10 | open |  | 2026-11-19T07:10:38.594Z |  |
 | 7 | 07 | stub | js/app.js |  | VENUE_DEF.brest.courseId = banane (90) au premier passage, faute de catalogue du GPEN (07-09) | open |  | 2026-11-19T07:36:20.892Z |  |
 | 8 | 07 | stub | data/brest.wx-snapshot.json |  | Instantané météo de Brest absent (limite quotidienne d’Open-Meteo) : pas de prévision de secours à la première ouverture hors réseau à Brest | open |  | 2026-11-19T11:35:15.439Z |  |
+| 9 | 08 | skipped-test | tests/bormes.test.mjs |  | Instantané météo de Bormes non produit (Open-Meteo : limite quotidienne) ; test sauté, à produire avant la release (08-09) | open |  | 2026-11-26T19:45:50.981Z |  |
+| 10 | 08 | stub | js/app.js | 917 | Carte « État de la mer » titrée « large de Cépet » et « faible en rade » à Bormes (point marin du descripteur) : texte de Toulon à paramétrer (08-07, D-12) | fixed |  | 2026-11-26T20:23:23.290Z | 2026-11-26T22:13:53.768Z |
+| 11 | 08 | stub | js/venue-bormes.js |  | Descripteur de Bormes sans marques, lieux, zones interdites, dangers, régimes ni vents prédéfinis (formes vides, banane seule) : à remplir en 08-07 (savoir local) et 08-08 (Challenge de la Baie) | fixed |  | 2026-11-26T20:23:23.397Z | 2026-11-26T22:13:53.885Z |
+| 12 | 08 | stub | js/help.js |  | Aide de Tofinou : la note de version affichée est celle de la v43 (« … GPEN ») jusqu’à la release v44 (08-10) ; lien du guide complet et rubrique IA de l’espace absents (08-10, 08-09) | fixed |  | 2026-11-26T21:36:35.725Z | 2026-11-27T00:34:08.597Z |
+| 13 | 08 | todo | js/app.js | 989 | Message « pas un parcours du cahier CVAT » possible dans l’espace Tofinou sans régate ouverte (pickHTML) : texte du plan d’eau à rendre propre à Bormes (08-07/08-08) | fixed |  | 2026-11-26T21:36:35.832Z | 2026-11-26T22:13:54.015Z |
+| 14 | 08 | stub | js/venue-bormes.js |  | Catalogue du Challenge de la Baie absent (COURSES vide, banane seule) ; libellés de classes du CVAT (« C–D–L–R1-R3 », « P1–P2 ») dans l’onglet Parcours et le texte de partage à Bormes : 08-08 | fixed |  | 2026-11-26T22:13:49.386Z | 2026-11-26T22:45:06.569Z |
+| 15 | 08 | todo | js/regview.js | 139 | Formulaire de manche : « Classe G (grand) / P (petit) » du CVAT encore proposé à Bormes (onglet Régates) ; à masquer ou remplacer par les groupes du Challenge (08-09/08-10) | fixed |  | 2026-11-26T22:45:06.695Z | 2026-11-26T23:42:11.680Z |
+| 16 | 08 | skipped-test | tests/bormes.test.mjs |  | 08-09 : instantané météo de Bormes réessayé, refusé par Open-Meteo (limite quotidienne) ; test toujours sauté, à produire avant la release (08-10) | open |  | 2026-11-26T23:07:25.489Z |  |
+| 17 | 08 | deviation | data/brest.wx-snapshot.json |  | 08-09 : instantané de Brest refusé (limite quotidienne) ; s’il est produit, il casse la garde data/brest.* = 5e9b8a5 et la section brest du gel de Naos : différence admise à décider par Romain avant de le committer | open |  | 2026-11-26T23:07:25.597Z |  |
+| 18 | 08 | deviation | js/tactics.js | 576 | 08-11 : rankCourses plante à Brest pour un parcours lu dans les IC sans ligne (préréglage « vignettes » absent), comme en v43 ; corrigé à Bormes seulement (gel de Naos) : correctif à décider pour Naos | open |  | 2026-11-26T23:42:11.562Z |  |
+| 19 | 08 | skipped-test | tests/bormes.test.mjs |  | 08-10 : instantané météo de Bormes réessayé une fois (27/11), refusé par Open-Meteo (limite quotidienne) ; v44 préparée sans, l’app affiche « Hors ligne » sans prévision de secours à la première ouverture hors réseau à Bormes ; à produire dans une version suivante | open |  | 2026-11-27T00:34:08.722Z |  |
 
 ````json
 [
@@ -127,6 +138,149 @@ last_updated: 2026-11-19T11:35:15.439Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-11-19T11:35:15.439Z",
+    "resolved_at": null,
+    "milestone": null
+  },
+  {
+    "id": 9,
+    "kind": "skipped-test",
+    "phase": "08",
+    "file": "tests/bormes.test.mjs",
+    "line": null,
+    "description": "Instantané météo de Bormes non produit (Open-Meteo : limite quotidienne) ; test sauté, à produire avant la release (08-09)",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-11-26T19:45:50.981Z",
+    "resolved_at": null,
+    "milestone": null
+  },
+  {
+    "id": 10,
+    "kind": "stub",
+    "phase": "08",
+    "file": "js/app.js",
+    "line": 917,
+    "description": "Carte « État de la mer » titrée « large de Cépet » et « faible en rade » à Bormes (point marin du descripteur) : texte de Toulon à paramétrer (08-07, D-12)",
+    "status": "fixed",
+    "reason": "",
+    "recorded_at": "2026-11-26T20:23:23.290Z",
+    "resolved_at": "2026-11-26T22:13:53.768Z",
+    "milestone": null
+  },
+  {
+    "id": 11,
+    "kind": "stub",
+    "phase": "08",
+    "file": "js/venue-bormes.js",
+    "line": null,
+    "description": "Descripteur de Bormes sans marques, lieux, zones interdites, dangers, régimes ni vents prédéfinis (formes vides, banane seule) : à remplir en 08-07 (savoir local) et 08-08 (Challenge de la Baie)",
+    "status": "fixed",
+    "reason": "",
+    "recorded_at": "2026-11-26T20:23:23.397Z",
+    "resolved_at": "2026-11-26T22:13:53.885Z",
+    "milestone": null
+  },
+  {
+    "id": 12,
+    "kind": "stub",
+    "phase": "08",
+    "file": "js/help.js",
+    "line": null,
+    "description": "Aide de Tofinou : la note de version affichée est celle de la v43 (« … GPEN ») jusqu’à la release v44 (08-10) ; lien du guide complet et rubrique IA de l’espace absents (08-10, 08-09)",
+    "status": "fixed",
+    "reason": "",
+    "recorded_at": "2026-11-26T21:36:35.725Z",
+    "resolved_at": "2026-11-27T00:34:08.597Z",
+    "milestone": null
+  },
+  {
+    "id": 13,
+    "kind": "todo",
+    "phase": "08",
+    "file": "js/app.js",
+    "line": 989,
+    "description": "Message « pas un parcours du cahier CVAT » possible dans l’espace Tofinou sans régate ouverte (pickHTML) : texte du plan d’eau à rendre propre à Bormes (08-07/08-08)",
+    "status": "fixed",
+    "reason": "",
+    "recorded_at": "2026-11-26T21:36:35.832Z",
+    "resolved_at": "2026-11-26T22:13:54.015Z",
+    "milestone": null
+  },
+  {
+    "id": 14,
+    "kind": "stub",
+    "phase": "08",
+    "file": "js/venue-bormes.js",
+    "line": null,
+    "description": "Catalogue du Challenge de la Baie absent (COURSES vide, banane seule) ; libellés de classes du CVAT (« C–D–L–R1-R3 », « P1–P2 ») dans l’onglet Parcours et le texte de partage à Bormes : 08-08",
+    "status": "fixed",
+    "reason": "",
+    "recorded_at": "2026-11-26T22:13:49.386Z",
+    "resolved_at": "2026-11-26T22:45:06.569Z",
+    "milestone": null
+  },
+  {
+    "id": 15,
+    "kind": "todo",
+    "phase": "08",
+    "file": "js/regview.js",
+    "line": 139,
+    "description": "Formulaire de manche : « Classe G (grand) / P (petit) » du CVAT encore proposé à Bormes (onglet Régates) ; à masquer ou remplacer par les groupes du Challenge (08-09/08-10)",
+    "status": "fixed",
+    "reason": "",
+    "recorded_at": "2026-11-26T22:45:06.695Z",
+    "resolved_at": "2026-11-26T23:42:11.680Z",
+    "milestone": null
+  },
+  {
+    "id": 16,
+    "kind": "skipped-test",
+    "phase": "08",
+    "file": "tests/bormes.test.mjs",
+    "line": null,
+    "description": "08-09 : instantané météo de Bormes réessayé, refusé par Open-Meteo (limite quotidienne) ; test toujours sauté, à produire avant la release (08-10)",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-11-26T23:07:25.489Z",
+    "resolved_at": null,
+    "milestone": null
+  },
+  {
+    "id": 17,
+    "kind": "deviation",
+    "phase": "08",
+    "file": "data/brest.wx-snapshot.json",
+    "line": null,
+    "description": "08-09 : instantané de Brest refusé (limite quotidienne) ; s’il est produit, il casse la garde data/brest.* = 5e9b8a5 et la section brest du gel de Naos : différence admise à décider par Romain avant de le committer",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-11-26T23:07:25.597Z",
+    "resolved_at": null,
+    "milestone": null
+  },
+  {
+    "id": 18,
+    "kind": "deviation",
+    "phase": "08",
+    "file": "js/tactics.js",
+    "line": 576,
+    "description": "08-11 : rankCourses plante à Brest pour un parcours lu dans les IC sans ligne (préréglage « vignettes » absent), comme en v43 ; corrigé à Bormes seulement (gel de Naos) : correctif à décider pour Naos",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-11-26T23:42:11.562Z",
+    "resolved_at": null,
+    "milestone": null
+  },
+  {
+    "id": 19,
+    "kind": "skipped-test",
+    "phase": "08",
+    "file": "tests/bormes.test.mjs",
+    "line": null,
+    "description": "08-10 : instantané météo de Bormes réessayé une fois (27/11), refusé par Open-Meteo (limite quotidienne) ; v44 préparée sans, l’app affiche « Hors ligne » sans prévision de secours à la première ouverture hors réseau à Bormes ; à produire dans une version suivante",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-11-27T00:34:08.722Z",
     "resolved_at": null,
     "milestone": null
   }

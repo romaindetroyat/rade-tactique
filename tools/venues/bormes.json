@@ -1,0 +1,39 @@
+{
+  "id": "bormes",
+  "nom": "Rade de Bormes – Le Lavandou",
+  "prefix": "bormes.",
+  "bounds": { "west": 6.22, "east": 6.60, "south": 42.96, "north": 43.20 },
+  "grid": { "nx": 1030, "ny": 885 },
+  "fine": { "nx": 3090, "ny": 2655 },
+  "cell": 30.0,
+  "coastCenter": { "lon": 6.40, "lat": 43.09 },
+  "tiles": { "zoom": 13, "url": "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png" },
+  "bathy": {
+    "file": "emodnet/bathy_bormes.tif",
+    "url": "https://ows.emodnet-bathymetry.eu/wcs?service=WCS&version=1.0.0&request=GetCoverage&coverage=emodnet:mean&crs=EPSG:4326&BBOX=6.15,42.90,6.65,43.25&format=image/tiff&interpolation=nearest&resx=0.00104166666&resy=0.00104166666",
+    "left": 6.15,
+    "top": 43.25,
+    "step": 0.0010416666666666667,
+    "width": 480,
+    "height": 336
+  },
+  "seeds": { "depthBelow": -3.0, "coastClear": 4, "stride": 8 },
+  "urban": ["residential", "industrial", "commercial", "harbour"],
+  "osm": {
+    "overpass": ["https://overpass-api.de/api/interpreter", "https://overpass.kumi.systems/api/interpreter"],
+    "bbox": { "south": 42.94, "west": 6.18, "north": 43.22, "east": 6.64 },
+    "api": "https://api.openstreetmap.org/api/0.6/map",
+    "boxes": { "west": 6.20, "east": 6.64, "south": 42.94, "north": 43.22, "dlon": 0.04, "dlat": 0.02 }
+  },
+  "weather": {
+    "center": { "lat": 43.115, "lon": 6.39 },
+    "grid": { "lats": [43.02, 43.06, 43.10, 43.14], "lons": [6.30, 6.36, 6.42, 6.48, 6.54] },
+    "cellSelection": "sea",
+    "marine": "latitude=43.115&longitude=6.39"
+  },
+  "sources": [
+    "© contributeurs OpenStreetMap (ODbL)",
+    "EMODnet Bathymetry DTM (couche emodnet:mean)",
+    "AWS Terrain Tiles (Terrarium, SRTM/GMTED)"
+  ]
+}

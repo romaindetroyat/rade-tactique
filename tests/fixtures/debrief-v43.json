@@ -1,0 +1,36 @@
+{
+ "relevés de la référence": {
+  "sha256": "dd2c6a8900338b5911af13d8a16b76b3f7a4f90b951191befb3bdf371aa432d1",
+  "octets": 235122,
+  "textes": [
+   "Débrief · J80 · Rade Tactique",
+   "1 · Le parcours",
+   "2 · Le vent",
+   "Le vent est déduit de la trace : la direction vient de l’angle entre vos deux amures, la force de votre vitesse comparée à la polaire J80. Les temps « conseil » servent à comparer des choix de route, pas à juger la vitesse.",
+   "3 · La stratégie de l’app avec ce vent",
+   "4 · Ce que vous avez fait",
+   "5 · Vitesse face à la polaire J80",
+   "Vitesse fond GPS comparée à la polaire ORC du J80, médiane de chaque allure. Force du vent tirée de vos relevés, direction de vos changements d’amure. Entre parenthèses : le résultat si le vent avait 1 nd de moins ou de plus, pour juger de la sensibilité. Les moments arrêtés (moins de 1,5 nd) sont exclus.",
+   "6 · Les écarts",
+   "7 · À retenir",
+   "Rapport généré par Rade Tactique le ."
+  ]
+ },
+ "prévision seule, sans relevé": {
+  "sha256": "bd15904e02b1be6613b19814d87ac449351cadc6a9285216a8581e1cf2a788e6",
+  "octets": 233925,
+  "textes": [
+   "Débrief · J80 · Rade Tactique",
+   "1 · Le parcours",
+   "2 · Le vent",
+   "Le vent est déduit de la trace : la direction vient de l’angle entre vos deux amures, la force de votre vitesse comparée à la polaire J80. Les temps « conseil » servent à comparer des choix de route, pas à juger la vitesse.",
+   "3 · La stratégie de l’app avec ce vent",
+   "4 · Ce que vous avez fait",
+   "5 · Vitesse face à la polaire J80",
+   "Vitesse fond GPS comparée à la polaire ORC du J80, médiane de chaque allure. Force du vent tirée de la prévision, direction de vos changements d’amure. Entre parenthèses : le résultat si le vent avait 1 nd de moins ou de plus, pour juger de la sensibilité. Les moments arrêtés (moins de 1,5 nd) sont exclus.",
+   "6 · Les écarts",
+   "7 · À retenir",
+   "Rapport généré par Rade Tactique le ."
+  ]
+ }
+}

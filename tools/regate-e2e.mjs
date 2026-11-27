@@ -2,7 +2,9 @@
 //
 //   node tools/regate-e2e.mjs [scénario…]      (tous les scénarios si aucun nom n’est donné)
 //   E2E_ROOT=<dossier>    sert ce dossier au lieu du dépôt (extraction d’une ancienne version) ; en-têtes et liste blanche restent ceux du dépôt
-//   E2E_CAPTURE=<fichier> le scénario toulon-vue écrit sa capture dans ce fichier au lieu de comparer à tests/fixtures/vue-toulon-v42.json
+//   E2E_CAPTURE=<fichier> les scénarios toulon-vue et naos-cles écrivent leur capture dans ce fichier au lieu de comparer à
+//                         tests/fixtures/vue-toulon-v42.json et tests/fixtures/naos-cles-v43.json
+//   E2E_PILE=1            écrit la pile de chaque erreur de page (diagnostic ; le verdict ne change pas)
 //
 // Déroulé : petit serveur HTTP du dépôt sur 127.0.0.1 ; Chromium en émulation mobile 390 × 844 (fr-FR, fuseau Europe/Paris), service
 // worker bloqué, toute requête vers un autre hôte interrompue, dessin WebGL neutralisé (voir INIT), accueil désactivé. L’heure de la page
@@ -57,6 +59,14 @@ const INIT = () => {
 
 // ───────────────────────── outils communs
 
+// Hôtes d’essai des espaces (08-04) : l’espace Tofinou à son hôte connu, un aperçu (hôte inconnu) ; tous deux résolus vers le serveur local
+// par --host-resolver-rules (MAP_ESSAI), comme 127.0.0.1. Chaque hôte est une origine à part : stockage, caches et service worker séparés.
+const HOTES_ESSAI = { tofinou: 'tofinou.localhost', apercu: 'apercu.localhost' };
+const HOTES_LOCAUX = ['127.0.0.1', ...Object.values(HOTES_ESSAI)];
+const MAP_ESSAI = Object.values(HOTES_ESSAI).map((h) => `MAP ${h} 127.0.0.1`).join(', ');
+// Adresse de l’app servie par le serveur local sous un hôte d’essai
+const baseSur = (base, hote) => { const u = new URL(base); u.hostname = hote; return u.href; };
+
 // geo : { latitude, longitude } du GPS simulé (l’autorisation est donnée) ; sans lui, aucune position n’est fournie
 // worker : service worker AUTORISÉ (scénario brest-avion seulement) ; alors aucune route n’est posée (Playwright ne route pas les requêtes du
 // worker) : les autres hôtes restent injoignables par --host-resolver-rules du lancement de Chromium
@@ -66,8 +76,8 @@ async function ouvreContexte(browser, { heure, geo = null, worker = false }) {
   await ctx.addInitScript(INIT);
   // chaque page du contexte, fenêtres ouvertes par l’app comprises (« Plein écran » du rapport) : violations relevées avant tout filtre
   ctx.on('page', (p) => p.on('console', (m) => { if (VIOLATION.test(m.text())) violations.push(m.text().slice(0, 300)); }));
-  // seul l’hôte local est joignable ; une route enregistrée ensuite par un scénario passe avant celle-ci
-  if (!worker) await ctx.route('**/*', (route) => (new URL(route.request().url()).hostname === '127.0.0.1' ? route.fallback() : route.abort()));
+  // seul l’hôte local est joignable (127.0.0.1, et les hôtes d’essai des espaces : HOTES_ESSAI) ; une route enregistrée ensuite par un scénario passe avant celle-ci
+  if (!worker) await ctx.route('**/*', (route) => (HOTES_LOCAUX.includes(new URL(route.request().url()).hostname) ? route.fallback() : route.abort()));
   return ctx;
 }
 // Page + liste des erreurs vues par la page (hors échecs de chargement voulus : réseau coupé)
@@ -76,7 +86,7 @@ function ouvrePage(ctx) {
   return ctx.newPage().then((page) => {
     // bruits attendus du cadre sandboxé du rapport (aucun script, origine opaque) : l'init de l'outil (horloge, accueil) y est refusée par le navigateur ; ils ne viennent pas de l'app
     const BRUIT = /Failed to load resource|net::ERR|Failed to read the 'serviceWorker'.*sandboxed|Blocked script execution in 'about:srcdoc'/;
-    page.on('pageerror', (e) => { if (!BRUIT.test(e.message)) erreurs.push(e.message); });
+    page.on('pageerror', (e) => { if (process.env.E2E_PILE) console.log('PILE', e.stack); if (!BRUIT.test(e.message)) erreurs.push(e.message); });
     page.on('console', (m) => { if (m.type() === 'error' && !BRUIT.test(m.text())) erreurs.push(m.text()); });
     return { page, erreurs };
   });
@@ -917,7 +927,7 @@ async function serviaIA(ctx, sortie) {
     etat.corps.push(corps); etat.enTetes.push(req.headers());
     const out = { code: 200, body: null, status(c) { out.code = c; return out; }, json(b) { out.body = b; return out; }, setHeader() { return out; } };
     // le middleware pose le prénom de l’équipier sur toute demande /api/ (api/_ia.js ne compte que sous ce prénom)
-    await handler({ method: req.method(), headers: { ...req.headers(), 'x-rt-membre': encodeURIComponent(PRENOM_IA) }, body: corps }, out);
+    await handler({ method: req.method(), headers: { ...req.headers(), 'x-rt-membre': encodeURIComponent(PRENOM_IA), 'x-rt-espace': 'naos' }, body: corps }, out);
     await route.fulfill({ status: out.code, contentType: 'application/json', body: JSON.stringify(out.body) });
   });
   return etat;
@@ -1120,7 +1130,7 @@ async function arbitre({ browser, base }) {
   const ctx = await ouvreContexte(browser, { heure: HEURE });
   await ctx.route('**/api/rules', async (route) => {
     const req = route.request();
-    const r = await invoke(handler, { method: req.method(), url: '/api/rules', body: JSON.parse(req.postData() || 'null'), headers: { 'x-rt-membre': encodeURIComponent(PRENOM_IA) } });
+    const r = await invoke(handler, { method: req.method(), url: '/api/rules', body: JSON.parse(req.postData() || 'null'), headers: { 'x-rt-membre': encodeURIComponent(PRENOM_IA), 'x-rt-espace': 'naos' } });
     await route.fulfill({ status: r.status, contentType: 'application/json', body: JSON.stringify(r.body ?? null) });
   });
   const { page, erreurs } = await ouvrePage(ctx);
@@ -1387,7 +1397,7 @@ async function telephoneArchive(browser, base, m, nom, opts = {}) {
     m.appels[nom]++;
     if (req.method() === 'PUT') (m.puts ||= []).push(req.postData() || '');                // corps envoyés à l’archive, relus par les scénarios
     if (u.searchParams.get('k') !== 'light') m.lourds[nom].push(`${req.method()} ${u.searchParams.get('k')}`);
-    const r = await m.invoke(m.handler, { method: req.method(), url: u.pathname + u.search, body: req.postData() ? JSON.parse(req.postData()) : undefined, headers: { 'x-rt-membre': encodeURIComponent(nom) } });
+    const r = await m.invoke(m.handler, { method: req.method(), url: u.pathname + u.search, body: req.postData() ? JSON.parse(req.postData()) : undefined, headers: { 'x-rt-membre': encodeURIComponent(nom), 'x-rt-espace': 'naos' } });
     await route.fulfill({ status: r.status, contentType: 'application/json', headers: { 'cache-control': 'no-store' }, body: JSON.stringify(r.body ?? null) });
   });
   const { page, erreurs } = await ouvrePage(ctx);
@@ -2503,6 +2513,8 @@ async function attendBords(page, ok, quoi, delai = 90000) {
 // Les bords dans l’ordre attendu : une expression par bord
 const suite = (attendus) => (b) => b.length === attendus.length && attendus.every((re, i) => re.test(b[i]));
 const BAN_B = /B \(au vent\)/, BAN_C = /C \(dégagement\)/, BAN_PORTE = /Porte (gauche|droite)/;
+// banane n° 4 du Challenge de la Baie (Bormes, 08-08) : bouée 1, bouée sous le vent, bouée 1, arrivée sur la ligne de départ
+const BANANE_4 = [/n°1(?!\d)/, /Bouée sous le vent/, /n°1(?!\d)/, /^Arrivée \(ligne de départ\)/];
 // Relevé des étiquettes dessinées sur la carte (texte de chaque sprite), remis à zéro avant chaque étape
 const releveEtiquettes = (ctx) => ctx.addInitScript(() => {
   window.__labels = [];
@@ -3004,6 +3016,90 @@ async function toulonVue({ browser, base }) {
   }
 }
 
+// ───────────────────────── gel de Naos v43 (08-01, D-01) : clés, bases, caches et adresses de l’app
+
+const NAOS_CLES = join(ROOT, 'tests/fixtures/naos-cles-v43.json');
+// Adresse de même origine demandée par la page, sans ce qui varie d’une version ou d’un échange à l’autre : chemin seul, plus `k` pour l’archive
+const adresseNaos = (url) => { const u = new URL(url); return u.pathname + (u.pathname === '/api/archive' && u.searchParams.has('k') ? `?k=${u.searchParams.get('k')}` : ''); };
+const releveStockage = (page) => page.evaluate(async () => ({
+  cles: Object.keys(localStorage).sort(),
+  bases: (await indexedDB.databases()).map((d) => d.name).sort(),
+}));
+
+// Appareil neuf à l’adresse habituelle de l’outil (127.0.0.1), samedi 05/12/2026 à 10 h (Paris) : /api/membre rend le prénom comme aujourd’hui,
+// l’archive est la vraie fonction sur faux Blob (x-rt-membre ET x-rt-espace: naos, comme le posera la v44). Ouverture, onglets Briefing, Parcours,
+// Régates, Traces et J80, une régate de Toulon créée par l’interface, une synchronisation. Puis, service worker autorisé (sans route : Playwright ne
+// route pas le worker), ouverture jusqu’à ce que l’app soit en cache. Relevés : clés de localStorage, bases IndexedDB, caches (identifiant de version
+// → <id>), adresses de même origine demandées par la page. E2E_CAPTURE=<fichier> : écrit la capture (à faire en servant l’extraction de 5e9b8a5,
+// E2E_ROOT) ; sinon comparaison à tests/fixtures/naos-cles-v43.json : clés, bases et caches identiques, adresses de la v43 toutes présentes, adresses
+// nouvelles limitées à AJOUTS_SHELL (tests/helpers/naos.mjs).
+async function naosCles({ browser, base }) {
+  const HEURE = '2026-12-05T09:00:00Z';
+  const m = await mondeArchive(HEURE);
+  const ctx = await ouvreContexte(browser, { heure: HEURE });
+  m.ctxs.push(ctx);
+  await simuleMembre(ctx, 'Romain');
+  const recus = [];
+  await ctx.route('**/api/archive*', async (route) => {
+    const req = route.request(), u = new URL(req.url());
+    const r = await m.invoke(m.handler, { method: req.method(), url: u.pathname + u.search, body: req.postData() ? JSON.parse(req.postData()) : undefined, headers: { 'x-rt-membre': encodeURIComponent('Romain'), 'x-rt-espace': 'naos' } });
+    recus.push(`${req.method()} ${u.searchParams.get('k')} ${r.status}`);
+    await route.fulfill({ status: r.status, contentType: 'application/json', headers: { 'cache-control': 'no-store' }, body: JSON.stringify(r.body ?? null) });
+  });
+  const { page, erreurs } = await ouvrePage(ctx);
+  const requetes = new Set();
+  page.on('request', (r) => { const u = new URL(r.url()); if (u.hostname === '127.0.0.1') requetes.add(adresseNaos(r.url())); });
+  await ouvreApp(page, base);
+  await membreGarde(page, 'Romain');
+  // rattrapage des anciennes traces (js/reprise.js, 1,5 s après la carte) : sa clé fait partie de ce qu’un appareil neuf écrit
+  await page.waitForFunction(() => localStorage.getItem('rade.reprise.v1'), null, { timeout: 30000, polling: 100 });
+  for (const tab of ['brief', 'course', 'ic', 'tracks', 'j80']) {
+    await page.click(`#tabs button[data-tab=${tab}]`);
+    await page.waitForSelector(`section[data-tab=${tab}].on`, { timeout: 30000 });
+  }
+  await creeRegate(page, { nom: 'Coupe de Noël', debut: '2026-12-05', club: 'CVAT' });
+  await avanceHeure(m, 60e3);
+  await synchronise(m, { nom: 'Romain', page });
+  assert.ok(recus.some((x) => /^PUT light 200$/.test(x)), `la régate est envoyée à l’archive (${recus.join(', ')})`);
+  assert.equal((await m.invoke(m.handler, { method: 'GET', url: '/api/archive?k=light', headers: { 'x-rt-membre': 'Romain', 'x-rt-espace': 'naos' } })).body.env, 'preview', 'archive de l’aperçu');
+  await page.waitForLoadState('networkidle');
+  const { cles, bases } = await releveStockage(page);
+  sansErreur(erreurs, 'pendant le parcours de l’app');
+  await ctx.close();
+
+  // caches : service worker autorisé, attente de la liste hors réseau complète du dossier servi
+  const servie = process.env.E2E_ROOT ? resolve(process.env.E2E_ROOT) + '/' : ROOT;
+  const n = JSON.parse(/const SHELL = (\[.*?\]);/s.exec(readFileSync(join(servie, 'sw.js'), 'utf8'))[1]).length;
+  const ctxW = await ouvreContexte(browser, { heure: HEURE, worker: true });
+  const W = await ouvrePage(ctxW);
+  await ouvreApp(W.page, base);
+  const fin = Date.now() + 90000;
+  while (!(await W.page.evaluate(async (k) => {
+    if (!navigator.serviceWorker.controller) return false;
+    for (const c of (await caches.keys()).filter((x) => /^rade-[0-9a-f]+$/.test(x))) if ((await (await caches.open(c)).keys()).length >= k) return true;
+    return false;
+  }, n).catch(() => false))) {
+    if (Date.now() > fin) throw new Error('le service worker n’a pas mis toute l’app en cache');
+    await new Promise((r) => setTimeout(r, 300));
+  }
+  const caches_ = (await W.page.evaluate(() => caches.keys())).map((c) => c.replace(/^rade-[0-9a-f]+$/, 'rade-<id>')).sort();
+  sansErreur(W.erreurs, 'avec le service worker');
+  await ctxW.close();
+
+  const releve = { cles, bases, caches: caches_, requetes: [...requetes].sort() };
+  if (process.env.E2E_CAPTURE) {
+    writeFileSync(process.env.E2E_CAPTURE, JSON.stringify({ v: 43, from: '5e9b8a5', ...releve }) + '\n');
+    console.log(`  capture écrite : ${process.env.E2E_CAPTURE} (${cles.length} clés, ${bases.length} bases, ${caches_.length} caches, ${releve.requetes.length} adresses)`);
+    return;
+  }
+  const { AJOUTS_SHELL } = await import('../tests/helpers/naos.mjs');
+  const ref = JSON.parse(readFileSync(NAOS_CLES, 'utf8'));
+  assert.equal(ref.from, '5e9b8a5', 'capture de la v43');
+  for (const k of ['cles', 'bases', 'caches']) assert.deepEqual(releve[k], ref[k], `${k} différentes de la v43`);
+  assert.deepEqual(ref.requetes.filter((a) => !releve.requetes.includes(a)), [], 'adresses de la v43 qui ne sont plus demandées');
+  assert.deepEqual(releve.requetes.filter((a) => !ref.requetes.includes(a) && !AJOUTS_SHELL.includes(a.slice(1))), [], 'adresses nouvelles hors de AJOUTS_SHELL');
+}
+
 // ───────────────────────── plans d’eau (07-04)
 
 const MANIFESTE = JSON.parse(readFileSync(join(ROOT, 'data/venues.json'), 'utf8'));
@@ -3060,12 +3156,16 @@ async function planEau({ browser, base }) {
   await page.click('#t5');
   await page.waitForFunction(() => document.querySelector('#tPhase').textContent !== 'Prêt', null, { timeout: 10000 });
   await cartePlanEau(page, 'absent');
+  // carte repeinte après l’ouverture de l’onglet (état du pack lu dans les caches) : attendre l’état du bouton plutôt que lire le premier dessin
+  const pkGoDesactive = (oui) => page.waitForFunction((v) => document.querySelector('#pkGo')?.disabled === v, oui, { timeout: 10000 }).catch(() => { /* l’assertion dit l’écart */ });
+  await pkGoDesactive(true);
   assert.equal(await page.locator('#pkGo').isDisabled(), true, 'chrono lancé : #pkGo désactivé');
   assert.match(await texte(page, '#pkLock'), /^Pas pendant une course/);
   await page.click('#tabs button[data-tab=start]');
   await page.click('#tstop');
   await page.waitForFunction(() => document.querySelector('#tPhase').textContent === 'Prêt', null, { timeout: 10000 });
   await cartePlanEau(page, 'absent');
+  await pkGoDesactive(false);
   assert.equal(await page.locator('#pkGo').isDisabled(), false, 'chrono arrêté : changement possible');
   assert.equal(await cacheBrest(page), null, 'rien d’écrit avant le geste');
   // « Passer à la rade de Brest » : téléchargement vérifié puis rechargement
@@ -3235,7 +3335,7 @@ async function arbitreSimule(ctx) {
   await ctx.route('**/api/rules', async (route) => {
     const req = route.request(), body = JSON.parse(req.postData() || 'null');
     corps.push(body);
-    const r = await invoke(handler, { method: req.method(), url: '/api/rules', body, headers: { 'x-rt-membre': encodeURIComponent(PRENOM_IA) } });
+    const r = await invoke(handler, { method: req.method(), url: '/api/rules', body, headers: { 'x-rt-membre': encodeURIComponent(PRENOM_IA), 'x-rt-espace': 'naos' } });
     await route.fulfill({ status: r.status, contentType: 'application/json', body: JSON.stringify(r.body ?? null) });
   });
   return { appels, corps };
@@ -3450,6 +3550,291 @@ async function brestAvion({ browser }) {
   }
 }
 
+// ───────────────────────── espaces (08-04 : D-03, D-05, D-07)
+
+const PACK_BORMES = MANIFESTE.venues.bormes;
+const CACHE_BORMES = 'rade-venue-bormes-' + PACK_BORMES.pack;
+const NOM_BORMES = 'Rade de Bormes – Le Lavandou';
+const cacheBormes = (page) => page.evaluate(async (nom) => {
+  if (!(await caches.keys()).includes(nom)) return null;
+  return (await (await caches.open(nom)).keys()).map((r) => new URL(r.url).pathname).sort();
+}, CACHE_BORMES);
+// /api/membre servi comme le middleware de la v44 : { membre, espace, espaces } (null : réponse de la v43, sans espace)
+async function membreEspace(ctx, { membre, espace = null, espaces = null, delai = 0 }) {
+  const servi = { appels: 0 };
+  await ctx.route('**/api/membre', async (route) => {
+    servi.appels++;
+    if (delai) await new Promise((r) => setTimeout(r, delai));
+    const corps = { membre, ...(espace ? { espace, espaces: espaces ?? [espace] } : {}) };
+    return route.fulfill({ status: 200, contentType: 'application/json', headers: { 'cache-control': 'no-store' }, body: JSON.stringify(corps) }).catch(() => { /* page rechargée entre-temps */ });
+  });
+  return servi;
+}
+
+// D-05 : onglet Régates de l’espace Tofinou ouvert — ni Coupe SNPM ni GPEN (ni marqueur de graine), carte « Plan d’eau » avec la seule rade
+// de Bormes (aucune bascule), formulaire de régate limité à Bormes, aucun pavillon de classe du CVAT
+async function tofinouSansNaos(page) {
+  await page.click('#tabs button[data-tab=ic]');
+  const ic = (await texte(page, 'section[data-tab=ic]')).replace(/\s+/g, ' ');
+  assert.ok(!/Coupe SNPM|GPEN|CVAT/.test(ic), `aucune fiche ni valeur de Naos dans l’onglet Régates : ${ic.slice(0, 300)}`);
+  assert.ok(!/Pavillons de classe/.test(ic), 'aucun pavillon de classe du CVAT');
+  assert.ok(!/Toulon|Brest/.test(await texte(page, '#pkCard')), 'carte « Plan d’eau » : la rade de Bormes seule');
+  assert.equal(await page.locator('#pkGo').count(), 0, 'aucune bascule vers un autre plan d’eau');
+  const index = await page.evaluate(() => JSON.parse(localStorage.getItem('rade.regates.v1') || 'null'));
+  assert.deepEqual(index?.list?.map((r) => r.id) ?? [], ['baie-2026-2027'], 'index : la seule graine de Tofinou (Challenge de la Baie, 08-08)');
+  assert.equal(await page.evaluate(() => localStorage.getItem('rade.seed.gpen.v1')), null, 'aucun marqueur de graine de Naos');
+  assert.equal(await page.evaluate(() => localStorage.getItem('rade.seed.baie.v1')), '1', 'marqueur de la graine de Tofinou');
+  await page.click('#rgNew');
+  assert.deepEqual(await page.locator('#rgVenue option').evaluateAll((os) => os.map((o) => [o.value, o.selected])), [['bormes', true]], 'formulaire : Bormes seul');
+  await page.click('#rgCancel');
+}
+
+// D-03, D-05, D-07 : un téléphone neuf ouvre l’app à l’adresse de l’espace Tofinou (hôte connu, origine propre). Serveur propre au scénario,
+// service worker autorisé. L’app démarre sur la rade de Bormes : pack `bormes` téléchargé et vérifié une fois (« Prêt hors réseau »), carte de
+// Bormes (data/bormes.*), aucune clé d’espace écrite (l’hôte suffit), banane analysée (bords affichés) ; serveur ARRÊTÉ pour de bon, puis
+// rechargement en mode avion : Bormes s’ouvre depuis les caches, sans erreur.
+async function tofinouDemarrage({ browser }) {
+  const { serveur, base: base0, refuses } = await demarreServeur({ root: ROOT });
+  const base = baseSur(base0, HOTES_ESSAI.tofinou);
+  let arrete = false;
+  let ctx;
+  try {
+    ctx = await ouvreContexte(browser, { heure: '2026-12-05T09:00:00Z', worker: true });
+    const servi = await membreEspace(ctx, { membre: 'Frédéric', espace: 'tofinou' });
+    const { page, erreurs } = await ouvrePage(ctx);
+    const vus = [];
+    page.on('request', (r) => { const u = new URL(r.url()); if (u.pathname.startsWith('/data/')) vus.push(u.pathname + u.search); });
+    // vent manuel posé avant tout démarrage de l’app (sinon pas de prévision hors ligne, pas d’analyse) : rade.state reste « premier démarrage »
+    // tant que l’app ne l’a pas écrit — on le pose donc après la première ouverture
+    await ouvreApp(page, base);
+    assert.equal(await texte(page, '#regBar .regname'), 'Entraînement libre · Bormes – Le Lavandou', 'l’espace Tofinou démarre sur la rade de Bormes');
+    assert.equal(await cacheBormes(page).then((x) => x?.length), PACK_BORMES.files.length, 'pack de Bormes téléchargé et écrit dans son cache');
+    for (const f of PACK_BORMES.files) assert.ok(vus.includes(`/${f.path}?pack=${PACK_BORMES.pack}`), `téléchargé : ${f.path}`);
+    for (const f of ['meta.json', 'terrain.bin', 'cover.bin', 'coast.json']) assert.ok(vus.includes(`/data/bormes.${f}`), `carte de Bormes : data/bormes.${f}`);
+    assert.ok(!vus.some((u) => u.startsWith('/data/brest.')), 'aucun fichier de Brest');
+    assert.ok(!vus.some((u) => /^\/data\/(meta\.json|terrain\.bin|cover\.bin|coast\.json)/.test(u)), 'la page ne lit aucun fichier de la carte de Toulon');
+    await attendWorker(page);
+    assert.equal(await page.evaluate(() => localStorage.getItem('rade.espace.v1')), null, 'hôte connu : aucune clé d’espace');
+    await page.waitForFunction(() => localStorage.getItem('rade.membre.v1') === 'Frédéric', null, { timeout: 20000 });
+    assert.ok(servi.appels >= 1, '/api/membre demandé');
+    // carte « Plan d’eau »
+    await cartePlanEau(page, 'ready');
+    assert.match(await texte(page, '#pkHere'), new RegExp(`Ce téléphone : ${NOM_BORMES}`));
+    assert.equal(await texte(page, '#pkState'), `${NOM_BORMES} : Prêt hors réseau`);
+    await tofinouSansNaos(page);
+    // banane analysée au vent manuel d’ouest (260°) : bords affichés
+    await page.evaluate(() => {
+      const s = JSON.parse(localStorage.getItem('rade.state') || '{}');
+      localStorage.setItem('rade.state', JSON.stringify({ ...s, src: 'manual', manual: { dir: 260, spd: 14, gust: 18 } }));
+    });
+    await page.reload({ waitUntil: 'load' });
+    await pret(page);
+    const st = await etatApp(page);
+    assert.equal(st.venue, 'bormes');
+    assert.equal(st.courseId, 4, 'premier démarrage : la banane n° 4 du Challenge de la Baie (08-08)');
+    assert.equal(st.linePreset, 'lavandou', 'premier démarrage : ligne devant Le Lavandou');
+    await page.click('#tabs button[data-tab=course]');
+    await attendBords(page, suite(BANANE_4), 'banane de Bormes');
+    sansErreur(erreurs, 'en ligne à Bormes');
+    // mode avion : serveur arrêté pour de bon
+    serveur.closeAllConnections?.();
+    await new Promise((ok) => serveur.close(ok));
+    arrete = true;
+    let repond = false;
+    try { await fetch(base0, { signal: AbortSignal.timeout(3000) }); repond = true; } catch { /* connexion refusée : attendu */ }
+    assert.equal(repond, false, 'le serveur ne doit plus répondre');
+    await page.reload({ waitUntil: 'load' });
+    await pret(page);
+    assert.equal(await page.evaluate(() => !!navigator.serviceWorker.controller), true, 'page servie par le worker');
+    assert.equal(await texte(page, '#regBar .regname'), 'Entraînement libre · Bormes – Le Lavandou', 'Bormes hors réseau');
+    await page.click('#tabs button[data-tab=course]');
+    await attendBords(page, suite(BANANE_4), 'banane de Bormes hors réseau');
+    await cartePlanEau(page, 'ready');
+    assert.equal(await texte(page, '#pkState'), `${NOM_BORMES} : Prêt hors réseau`);
+    sansErreur(erreurs, 'hors réseau à Bormes');
+    const refusees = refuses.filter((x) => x !== '/favicon.ico');
+    assert.deepEqual(refusees, [], 'aucun chemin refusé par la liste blanche');
+  } finally {
+    await ctx?.close().catch(() => { /* déjà fermé */ });
+    if (!arrete) { serveur.closeAllConnections?.(); serveur.close(); }
+  }
+}
+
+// 08-05, D-09 : bateau de l’espace Tofinou (hôte connu, pack de Bormes comme tofinou-demarrage). Onglet « Tofinou » (ni « J80 » ni réglages
+// du J80), banane analysée par 6 nd de sud (180° : bouées dans la baie) avec le génois par défaut ; « Foc d’origine » choisi : rade.bateau.v1 = { voile: "foc" } (rien
+// dans rade.state), temps estimé de la banane plus long ; rechargement : le choix et le temps restent.
+const minutes = (t) => { const m = /(?:(\d+) h (\d+))|(?:(\d+) min)/.exec(t || ''); return m ? (m[1] ? +m[1] * 60 + +m[2] : +m[3]) : NaN; };
+const tempsBanane = async (page) => minutes(await page.locator('section[data-tab=course] .kpi', { hasText: 'estimé' }).first().locator('b').textContent());
+async function tofinouBateau({ browser }) {
+  const { serveur, base: base0 } = await demarreServeur({ root: ROOT });
+  const base = baseSur(base0, HOTES_ESSAI.tofinou);
+  let ctx;
+  try {
+    ctx = await ouvreContexte(browser, { heure: '2026-12-05T09:00:00Z', worker: true });
+    await membreEspace(ctx, { membre: 'Frédéric', espace: 'tofinou' });
+    const { page, erreurs } = await ouvrePage(ctx);
+    await ouvreApp(page, base);
+    await cartePlanEau(page, 'ready');
+    await page.evaluate(() => {
+      const s = JSON.parse(localStorage.getItem('rade.state') || '{}');
+      // banane de l’app (90) choisie : le parcours par défaut de Bormes est la banane n° 4 du Challenge (08-08)
+      localStorage.setItem('rade.state', JSON.stringify({ ...s, courseId: 90, src: 'manual', manual: { dir: 180, spd: 6, gust: 8 } }));
+    });
+    await page.reload({ waitUntil: 'load' });
+    await pret(page);
+    assert.equal((await texte(page, '#tabs button[data-tab=j80]')).trim(), 'Tofinou', 'bouton d’onglet « Tofinou »');
+    await page.click('#tabs button[data-tab=course]');
+    await attendBords(page, suite([BAN_B, BAN_C, BAN_PORTE, BAN_B, BAN_C, /^Arrivée \(ligne de départ\)/]), 'banane de Bormes au génois');
+    await texteStable(page, 'course');                                  // analyse terminée (machine chargée : une analyse peut en suivre une autre)
+    const genois = await tempsBanane(page);
+    assert.ok(Number.isFinite(genois) && genois > 0, `temps estimé au génois : ${genois}`);
+    assert.match(await texte(page, 'section[data-tab=course]'), /temps Tofinou 9\.5 estimé/);
+    if (await page.locator('#banEau').count()) console.log('  banEau :', await texte(page, '#banEau'));
+    assert.equal(await page.locator('#banEau').count(), 0, 'banane en mer par vent du sud');
+    await page.click('#tabs button[data-tab=j80]');
+    const onglet = async () => (await texte(page, 'section[data-tab=j80]')).replace(/\s+/g, ' ');
+    let t = await onglet();
+    assert.ok(!/J80|J-80/.test(await page.locator('section[data-tab=j80]').innerHTML()), 'aucune mention « J80 » dans l’onglet du Tofinou');
+    for (const m of ['Tofinou 9.5', '9,47 m', '2,20 m quille basse', '1,20 m quille relevée', 'à confirmer', '11 s · 8 s', 'estimation', 'ORC Club 2026 (Tofinou 9.5, sister-ship) — à recaler'])
+      assert.ok(t.includes(m), `onglet : « ${m} »`);
+    assert.equal(await page.locator('section[data-tab=j80] [data-voile=genois].on').count(), 1, 'génois par défaut');
+    assert.equal(await page.evaluate(() => localStorage.getItem('rade.bateau.v1')), null, 'aucune clé avant le choix');
+    await page.click('section[data-tab=j80] [data-voile=foc]');
+    await page.waitForFunction(() => localStorage.getItem('rade.bateau.v1') === '{"voile":"foc"}', null, { timeout: 10000 });
+    await page.waitForSelector('section[data-tab=j80] [data-voile=foc].on', { timeout: 10000 });
+    t = await onglet();
+    assert.ok(t.includes('foc d’origine (estimée d’après le Tofinou 9.7) — à recaler'), 'source de la variante foc');
+    assert.ok(!/"voile"/.test(await page.evaluate(() => localStorage.getItem('rade.state') || '')), 'rien dans rade.state');
+    await page.click('#tabs button[data-tab=course]');
+    const fin = Date.now() + 60000;
+    let foc = genois;
+    while (Date.now() < fin) { foc = await tempsBanane(page).catch(() => NaN); if (foc > genois) break; await new Promise((r) => setTimeout(r, 250)); }
+    await texteStable(page, 'course');
+    foc = await tempsBanane(page);
+    assert.ok(foc > genois, `au foc, banane plus longue par 6 nd : ${genois} min au génois, ${foc} min au foc`);
+    await page.reload({ waitUntil: 'load' });
+    await pret(page);
+    assert.equal(await page.evaluate(() => localStorage.getItem('rade.bateau.v1')), '{"voile":"foc"}', 'choix gardé');
+    await page.click('#tabs button[data-tab=course]');
+    await attendBords(page, suite([BAN_B, BAN_C, BAN_PORTE, BAN_B, BAN_C, /^Arrivée \(ligne de départ\)/]), 'banane de Bormes au foc');
+    await texteStable(page, 'course');
+    assert.equal(await tempsBanane(page), foc, 'après rechargement : temps au foc');
+    await page.click('#tabs button[data-tab=j80]');
+    assert.equal(await page.locator('section[data-tab=j80] [data-voile=foc].on').count(), 1, 'foc toujours choisi');
+    sansErreur(erreurs, 'bateau du Tofinou');
+    console.log(`  banane par 6 nd de 180° : ${genois} min au génois, ${foc} min au foc`);
+  } finally {
+    await ctx?.close().catch(() => { /* déjà fermé */ });
+    serveur.closeAllConnections?.(); serveur.close();
+  }
+}
+
+// Archive sur faux Blob pour un téléphone d’aperçu : l’espace de chaque requête est celui que poserait le middleware (`srv.espace`, réglable),
+// jamais une valeur de la page ; chaque requête vue est notée avec l’instant et l’espace
+async function archiveEspace(ctx, m, nom, srv) {
+  m.vues ||= [];
+  await ctx.route('**/api/archive*', async (route) => {
+    const req = route.request(), u = new URL(req.url());
+    m.vues.push({ nom, espace: srv.espace, method: req.method(), k: u.searchParams.get('k'), at: Date.now() });
+    const r = await m.invoke(m.handler, { method: req.method(), url: u.pathname + u.search, body: req.postData() ? JSON.parse(req.postData()) : undefined, headers: { 'x-rt-membre': encodeURIComponent(nom), 'x-rt-espace': srv.espace } });
+    await route.fulfill({ status: r.status, contentType: 'application/json', headers: { 'cache-control': 'no-store' }, body: JSON.stringify(r.body ?? null) }).catch(() => { /* page rechargée */ });
+  });
+}
+// /api/membre d’un aperçu : réponse réglable (`srv`), retardée de `srv.delai` ms ; `srv.repondu` : instants des réponses
+async function membreApercu(ctx, srv) {
+  srv.repondu = [];
+  await ctx.route('**/api/membre', async (route) => {
+    if (srv.delai) await new Promise((r) => setTimeout(r, srv.delai));
+    srv.repondu.push(Date.now());
+    const corps = { membre: srv.membre, espace: srv.espace, espaces: srv.espaces ?? [srv.espace] };
+    await route.fulfill({ status: 200, contentType: 'application/json', headers: { 'cache-control': 'no-store' }, body: JSON.stringify(corps) }).catch(() => { /* page rechargée */ });
+  });
+}
+const AUTRE_ESPACE = 'Cet appareil contient les données d’un autre espace : synchronisation arrêtée.';
+
+// D-04 : garde de synchronisation sur un hôte inconnu (aperçu, `apercu.localhost`).
+// (a) Appareil neuf (démarré en Naos par défaut), /api/membre répond Tofinou après 2 s : aucune requête /api/archive avant la réponse ;
+//     l’appareil vierge adopte l’espace Tofinou (rade.espace.v1), recharge, s’ouvre sur la rade de Bormes sans aucune graine de Naos, puis
+//     se synchronise avec l’archive de Tofinou (chemins tofinou/… du faux Blob seulement).
+// (b) Appareil qui a créé et synchronisé une régate comme Naos, puis /api/membre répond Tofinou : zéro requête /api/archive de toute la
+//     session (même sur « Synchroniser »), message « Cet appareil contient les données d’un autre espace : synchronisation arrêtée. », noté au journal.
+async function espaceGarde({ browser, base: base0 }) {
+  const base = baseSur(base0, HOTES_ESSAI.apercu);
+  const m = await mondeArchive('2026-12-05T08:30:00Z');                                   // samedi 05/12/2026, 9 h 30 à Paris
+  // (a) appareil neuf
+  {
+    const ctx = await ouvreContexte(browser, { heure: new Date(m.t).toISOString() }); m.ctxs.push(ctx);
+    const srv = { membre: 'Frédéric', espace: 'tofinou', delai: 2000 };
+    await membreApercu(ctx, srv);
+    await archiveEspace(ctx, m, 'Frédéric', srv);
+    const { page, erreurs } = await ouvrePage(ctx);
+    const archive = [];
+    let chargements = 0, avantAdoption = null;
+    page.on('request', (r) => { if (r.url().includes('/api/archive')) archive.push(Date.now()); });
+    page.on('load', () => { chargements++; if (chargements === 2) avantAdoption = archive.length; });
+    await page.goto(base, { waitUntil: 'load' });
+    await page.waitForFunction(() => localStorage.getItem('rade.espace.v1') === 'tofinou', null, { timeout: 30000, polling: 100 });
+    const fin = Date.now() + 30000;
+    while (chargements < 2 && Date.now() < fin) await new Promise((r) => setTimeout(r, 100));
+    assert.equal(chargements >= 2, true, 'adoption : l’app recharge');
+    assert.equal(avantAdoption, 0, 'aucune requête /api/archive avant la confirmation de l’espace');
+    assert.ok(srv.repondu.length >= 1);
+    await pret(page);
+    assert.equal(await texte(page, '#regBar .regname'), 'Entraînement libre · Bormes – Le Lavandou', 'espace adopté : la rade de Bormes');
+    await tofinouSansNaos(page);
+    // puis la synchronisation de Tofinou, après la nouvelle confirmation de l’espace
+    await page.waitForFunction(() => !!JSON.parse(localStorage.getItem('rade.sync.v1') || '{}').lastOkAt, null, { timeout: 60000, polling: 200 });
+    const premiere = m.vues.filter((v) => v.nom === 'Frédéric')[0];
+    assert.ok(premiere && premiere.at >= srv.repondu.at(-1), 'première requête à l’archive après la réponse de /api/membre du second démarrage');
+    assert.ok(m.vues.filter((v) => v.nom === 'Frédéric').every((v) => v.espace === 'tofinou'));
+    // une régate de Bormes créée puis synchronisée : rangée dans l’archive de Tofinou seulement
+    await creeRegate(page, { nom: 'Manche de la Baie', debut: '2026-12-13', club: 'CNBL' });
+    await avanceHeure(m, 60e3);
+    await synchronise(m, { nom: 'Frédéric', page });
+    const chemins = [...m.blob.store.keys()];
+    assert.ok(chemins.length && chemins.every((c) => c.startsWith('tofinou/')), `archive de Tofinou seulement : ${chemins.join(', ')}`);
+    const leger = JSON.parse(m.blob.store.get('tofinou/preview/light.json')?.text || 'null');
+    assert.deepEqual(Object.values(leger?.regattas || {}).map((r) => [r.name, r.venue]).sort(), [['Challenge de la Baie 2026-2027', 'bormes'], ['Manche de la Baie', 'bormes']], 'régates de Bormes (dont la graine du Challenge, 08-08) dans l’archive de Tofinou');
+    sansErreur(erreurs, 'appareil neuf adopté');
+    await ctx.close();
+  }
+  // (b) appareil avec des données de Naos
+  {
+    const ctx = await ouvreContexte(browser, { heure: new Date(m.t).toISOString() }); m.ctxs.push(ctx);
+    const srv = { membre: 'Romain', espace: 'naos', espaces: ['naos', 'tofinou'], delai: 0 };
+    await membreApercu(ctx, srv);
+    await archiveEspace(ctx, m, 'Romain', srv);
+    const { page, erreurs } = await ouvrePage(ctx);
+    const archive = [];
+    page.on('request', (r) => { if (r.url().includes('/api/archive')) archive.push(Date.now()); });
+    await ouvreApp(page, base);
+    await page.waitForFunction(() => localStorage.getItem('rade.membre.v1') === 'Romain', null, { timeout: 20000 });
+    assert.equal(await texte(page, '#regBar .regname'), 'Entraînement libre', 'aperçu, code de Naos : Naos à Toulon');
+    await creeRegate(page, { nom: 'Régate de Naos', debut: '2026-12-12', club: 'CVAT' });
+    await synchronise(m, { nom: 'Romain', page });
+    assert.ok(archive.length > 0, 'Naos s’est synchronisé');
+    assert.ok([...m.blob.store.keys()].some((c) => c.startsWith('preview/')), 'archive de Naos (preview/…)');
+    // le serveur annonce maintenant l’espace Tofinou (code d’un autre espace sur le même aperçu)
+    srv.espace = 'tofinou'; srv.espaces = ['tofinou']; srv.membre = 'Frédéric';
+    const n0 = archive.length, vues0 = m.vues.length;
+    await page.reload({ waitUntil: 'load' });
+    await pret(page);
+    await page.waitForFunction((t) => document.querySelector('#rgSync')?.textContent === t, AUTRE_ESPACE, { timeout: 20000, polling: 100 });
+    await page.click('#tabs button[data-tab=ic]');
+    assert.equal(await texte(page, '#rgSync'), AUTRE_ESPACE);
+    await page.click('#rgSyncBtn');
+    await new Promise((r) => setTimeout(r, 8000));                                         // au-delà de la synchronisation d’ouverture (3 s après la carte)
+    assert.equal(archive.length, n0, 'aucune requête /api/archive de la session');
+    assert.equal(m.vues.length, vues0);
+    assert.equal(await page.evaluate(() => localStorage.getItem('rade.espace.v1')), null, 'aucune adoption : l’appareil a des données');
+    assert.equal(await page.evaluate(() => localStorage.getItem('rade.membre.v1')), 'Romain', 'prénom de l’autre espace non écrit');
+    assert.ok((await noms(page)).includes('Régate de Naos'), 'les données de Naos restent sur l’appareil');
+    await page.waitForFunction(() => /données d’un autre espace/.test(localStorage.getItem('rade.diag.v1') || ''), null, { timeout: 30000, polling: 250 });   // journal écrit toutes les 10 s
+    sansErreur(erreurs, 'appareil bloqué');
+    await ctx.close();
+  }
+}
+
 // ───────────────────────── plan d’eau d’une régate (07-05 : D-05, D-06, D-04)
 
 // D-06 : A (Toulon) crée « Entraînement Brest » en rade de Brest (choix du formulaire) : elle n’est pas ouverte sur la carte de Toulon, la bascule est
@@ -3478,7 +3863,7 @@ async function regateBrest({ browser, base }) {
   assert.equal(enA.venue, 'brest'); assert.ok(Number.isFinite(enA.vu), 'plan d’eau daté');
   const id = enA.id;
   await avanceHeure(m, 60e3); await synchronise(m, A);
-  assert.equal((await m.invoke(m.handler, { method: 'GET', url: '/api/archive?k=light', headers: { 'x-rt-membre': 'Romain' } })).body.doc.regattas[id].venue, 'brest', 'le serveur garde le plan d’eau');
+  assert.equal((await m.invoke(m.handler, { method: 'GET', url: '/api/archive?k=light', headers: { 'x-rt-membre': 'Romain', 'x-rt-espace': 'naos' } })).body.doc.regattas[id].venue, 'brest', 'le serveur garde le plan d’eau');
   await avanceHeure(m, 60e3); await synchronise(m, B);
   // B (Toulon) : puce dans la liste, rien d’ouvert en silence
   await B.page.click('#tabs button[data-tab=ic]');
@@ -3554,7 +3939,781 @@ async function regateBrest({ browser, base }) {
   await A.ctx.close(); await B.ctx.close();
 }
 
-const SCENARIOS = { accueil, 'jour-j': jourJ, 'deux-telephones': deuxTelephones, reprise, equipage, archive, 'archive-bouees': archiveBouees, archivehors: archiveHors, creer, manche, auteur, ic, 'depuis-ic': depuisIC, vraisemblance, gel, 'debrief-tardif': debriefTardif, gpx, 'gpx-choix': gpxChoix, ia, 'ia-erreurs': iaErreurs, arbitre, bouees, guide, entetes, 'retour-port': retourPort, banane, 'banane-manche': bananeManche, 'banane-debrief': bananeDebrief, 'porte-ic': porteIC, 'modifier-manche': modifierManche, 'toulon-vue': toulonVue, 'plan-eau': planEau, 'brest-avion': brestAvion, 'regate-brest': regateBrest, 'brest-courant': brestCourant, gpen };
+// 08-06, D-03, D-07 : identité de chaque espace. (1) Frédéric (Tofinou seul) sur l’adresse de Tofinou (service worker autorisé) : titre et nom
+// proposé à l’installation « Tofinou Bormes », manifeste lu par la page et mis en cache par le worker = celui de Tofinou (réécriture émulée par
+// le serveur local), aide sans J80, CVAT, GPEN, Naos ni rade de Toulon, pas de « Changer d’espace », page d’accès au nom de l’espace.
+// (2) Romain (deux espaces) sur la même adresse : « Changer d’espace » vers l’adresse de Naos. (3) Naos sur 127.0.0.1 : Teiva (Naos seul)
+// ne voit rien de nouveau (titre, manifeste, aide, page d’accès de la v43) ; Romain y trouve le lien vers l’adresse de Tofinou.
+const MOTS_DE_NAOS = /J80|CVAT|GPEN|Naos|rade de Toulon/;
+const texteModal = async (page) => (await page.locator('#modal').textContent()).replace(/\s+/g, ' ');
+// texte de l’aide sans la note de version (celle de la v43 parle du GPEN ; la note de la v44 est écrite en 08-10)
+const texteAide = async (page) => (await page.locator('#modal').evaluate((m) => { const c = m.cloneNode(true); c.querySelector('#appVersion')?.remove(); return c.textContent; })).replace(/\s+/g, ' ');
+const ouvreAide = async (page) => { await page.click('#helpBtn'); await page.waitForSelector('#modal:not([hidden]) .modal-card', { timeout: 20000 }); };
+const fermeAide = (page) => page.click('#modal .modal-close');
+const manifesteLu = (page) => page.evaluate(async () => (await (await fetch(document.querySelector('link[rel=manifest]').href, { cache: 'no-store' })).json()));
+const identite = (page) => page.evaluate(() => ({ titre: document.title, apple: document.querySelector('meta[name=apple-mobile-web-app-title]')?.content, marque: document.querySelector('.brand b')?.textContent }));
+async function pageAcces(ctx, base) {
+  const page = await ctx.newPage();
+  await page.goto(new URL('acces.html', base).href, { waitUntil: 'load' });
+  const r = await page.evaluate(() => ({ titre: document.title, h1: document.querySelector('h1').textContent, p: document.querySelector('main > p').textContent, ph: document.getElementById('code').placeholder, html: document.querySelector('main').innerHTML }));
+  await page.close();
+  return r;
+}
+async function tofinouIdentite({ browser, base: baseNaos }) {
+  const { serveur, base: base0, refuses } = await demarreServeur({ root: ROOT });
+  const base = baseSur(base0, HOTES_ESSAI.tofinou);
+  const contextes = [];
+  try {
+    // (1) Frédéric, Tofinou seul
+    const ctx = await ouvreContexte(browser, { heure: '2026-12-05T09:00:00Z', worker: true });
+    contextes.push(ctx);
+    await membreEspace(ctx, { membre: 'Frédéric', espace: 'tofinou', espaces: ['tofinou'] });
+    const { page, erreurs } = await ouvrePage(ctx);
+    await ouvreApp(page, base);
+    await membreGarde(page, 'Frédéric');
+    assert.deepEqual(await identite(page), { titre: 'Tofinou Bormes', apple: 'Tofinou Bormes', marque: 'Tofinou Bormes' }, 'titre, nom à l’installation et en-tête de l’espace');
+    const man = await manifesteLu(page);
+    assert.equal(man.name, 'Tofinou — Bormes', 'manifeste lu par la page : celui de Tofinou');
+    assert.equal(man.short_name, 'Tofinou Bormes');
+    await attendWorker(page);
+    const enCache = await page.evaluate(async () => { const r = await caches.match('/manifest.webmanifest'); return r ? (await r.json()).name : null; });
+    assert.equal(enCache, 'Tofinou — Bormes', 'manifeste mis en cache par le worker sur l’adresse de Tofinou : celui de Tofinou');
+    await ouvreAide(page);
+    const aide = await texteAide(page);
+    assert.ok(aide.includes('Préparer et courir le Challenge de la Baie en Tofinou 9.5 dans la rade de Bormes – Le Lavandou'), aide.slice(0, 200));
+    assert.doesNotMatch(aide, MOTS_DE_NAOS, 'aide de Tofinou sans texte de Naos');
+    assert.equal(await page.locator('#changerEspace').count(), 0, 'Frédéric : pas de « Changer d’espace »');
+    await fermeAide(page);
+    const acces = await pageAcces(ctx, base);
+    assert.equal(acces.titre, 'Tofinou — Bormes · Accès');
+    assert.equal(acces.h1, 'Tofinou — Bormes');
+    assert.equal(acces.p, 'Application réservée à l’équipage du Tofinou — Bormes.');
+    assert.equal(acces.ph, 'votre code personnel');
+    sansErreur(erreurs, 'Tofinou, Frédéric');
+    await ctx.close(); contextes.pop();
+    // (2) Romain, deux espaces, sur l’adresse de Tofinou
+    const ctx2 = await ouvreContexte(browser, { heure: '2026-12-05T09:00:00Z', worker: true });
+    contextes.push(ctx2);
+    await membreEspace(ctx2, { membre: 'Romain', espace: 'tofinou', espaces: ['naos', 'tofinou'] });
+    const p2 = await ouvrePage(ctx2);
+    await ouvreApp(p2.page, base);
+    await membreGarde(p2.page, 'Romain');
+    await ouvreAide(p2.page);
+    const lien = p2.page.locator('#changerEspace a');
+    assert.equal(await lien.textContent(), 'Changer d’espace');
+    assert.equal(await lien.getAttribute('href'), 'https://rade-tactique.vercel.app/', 'lien vers l’adresse de Naos');
+    assert.equal(await lien.getAttribute('rel'), 'noopener');
+    assert.match(await texte(p2.page, '#changerEspace'), /votre code vous sera demandé la première fois sur cette adresse/);
+    assert.doesNotMatch((await texteAide(p2.page)).replace(/Changer d’espace.*?cette adresse\./, ''), MOTS_DE_NAOS);
+    sansErreur(p2.erreurs, 'Tofinou, Romain');
+    await ctx2.close(); contextes.pop();
+    // (3) Naos sur 127.0.0.1 : Teiva (Naos seul), puis Romain
+    for (const [nom, espaces] of [['Teiva', ['naos']], ['Romain', ['naos', 'tofinou']]]) {
+      const c = await ouvreContexte(browser, { heure: '2026-12-05T09:00:00Z' });
+      contextes.push(c);
+      await membreEspace(c, { membre: nom, espace: 'naos', espaces });
+      const pn = await ouvrePage(c);
+      await ouvreApp(pn.page, baseNaos);
+      await membreGarde(pn.page, nom);
+      assert.deepEqual(await identite(pn.page), { titre: 'Rade Tactique', apple: 'Rade Tactique', marque: 'Rade Tactique' }, `${nom} : balises d’index.html`);
+      assert.equal((await manifesteLu(pn.page)).name, 'Rade Tactique — Toulon', `${nom} : manifeste de Naos`);
+      await ouvreAide(pn.page);
+      assert.match(await texteModal(pn.page), /Rade Tactique — mode d’emploi Préparer et courir les régates en J80/, `${nom} : aide de Naos`);
+      if (espaces.length === 1) assert.equal(await pn.page.locator('#changerEspace').count(), 0, 'Teiva : pas de « Changer d’espace »');
+      else assert.equal(await pn.page.locator('#changerEspace a').getAttribute('href'), 'https://tofinou-bormes.vercel.app/', 'Romain : lien vers l’adresse de Tofinou');
+      await fermeAide(pn.page);
+      const an = await pageAcces(c, baseNaos);
+      assert.equal(an.titre, 'Rade Tactique · Accès');
+      assert.equal(an.h1, 'Rade Tactique');
+      assert.equal(an.ph, 'naos-prénom-xxxx-xxxx', 'page d’accès de Naos telle quelle');
+      assert.match(an.html, /Application réservée à l’équipage de <b>Naos<\/b> \(J80\)\./);
+      sansErreur(pn.erreurs, `Naos, ${nom}`);
+      await c.close(); contextes.pop();
+    }
+    assert.deepEqual(refuses.filter((x) => x !== '/favicon.ico'), [], 'aucun chemin refusé par la liste blanche');
+  } finally {
+    for (const c of contextes) await c.close().catch(() => { /* déjà fermé */ });
+    serveur.closeAllConnections?.(); serveur.close();
+  }
+}
+
+// 08-07, D-11 à D-14 : savoir local de Bormes à l’hôte de l’espace Tofinou (pack de Bormes, comme tofinou-bateau). Prévisions du cache de
+// l’espace (copie de l’instantané de Toulon décalée au samedi 5/12 : seule la carte « État de la mer » s’en sert, le vent reste manuel).
+// Vent manuel 260°/20 nd : régime « Mistral (ouest) » au briefing, conseils marqués selon leur origine, hypothèse « à confirmer sur l’eau »,
+// carte « État de la mer » de la baie de Bormes avec la note du courant ; puis 75°/14 nd : « Est ». Zones interdites étiquetées sur la carte,
+// dangers et zones dans l’onglet Régates, vents prédéfinis de la baie ; aucun mot de Toulon ni de Naos dans les cinq vues.
+const MOTS_TOULON = /Cépet|Saint-Mandrier|rade de Toulon|CVAT|J80|Naos/;
+async function bormesLocal({ browser }) {
+  const { serveur, base: base0 } = await demarreServeur({ root: ROOT });
+  const base = baseSur(base0, HOTES_ESSAI.tofinou);
+  let ctx;
+  try {
+    ctx = await ouvreContexte(browser, { heure: '2026-12-05T09:00:00Z', worker: true });
+    await releveEtiquettes(ctx);
+    await membreEspace(ctx, { membre: 'Frédéric', espace: 'tofinou' });
+    const { page, erreurs } = await ouvrePage(ctx);
+    await ouvreApp(page, base);
+    await cartePlanEau(page, 'ready');
+    // prévisions du cache : vent de chaque modèle et de la grille remplacé par le vent manuel (le briefing lit la prévision de l’heure de départ)
+    const prevision = (dir, spd, gust) => {
+      const wx = snapshotDecale(49);                                        // 17/10 → 05/12 (heure locale inchangée)
+      const pose = (h) => { for (const k of Object.keys(h)) { const v = /^wind_direction_10m/.test(k) ? dir : /^wind_speed_10m/.test(k) ? spd : /^wind_gusts_10m/.test(k) ? gust : null; if (v != null) h[k] = h[k].map(() => v); } };
+      pose(wx.multi.hourly); (Array.isArray(wx.grid) ? wx.grid : [wx.grid]).forEach((g) => g?.hourly && pose(g.hourly));
+      return wx;
+    };
+    const vent = (dir, spd, gust) => page.evaluate(([w, m]) => {
+      const s = JSON.parse(localStorage.getItem('rade.state') || '{}');
+      localStorage.setItem('rade.state', JSON.stringify({ ...s, day: '2026-12-05', hour: 11, startTime: 11, src: 'manual', manual: m }));
+      localStorage.setItem('rade.wx.bormes.v1', JSON.stringify(w));
+    }, [prevision(dir, spd, gust), { dir, spd, gust }]);
+    const brief = async (re) => {
+      await page.click('#tabs button[data-tab=brief]');
+      await page.waitForFunction((src) => new RegExp(src).test(document.querySelector('section[data-tab=brief]')?.textContent || ''), re.source, { timeout: 60000 })
+        .catch(async (e) => { console.log('  briefing vu :', (await texte(page, 'section[data-tab=brief]')).replace(/\s+/g, ' ').slice(0, 1500)); throw e; });
+      return (await texteStable(page, 'brief')).replace(/\s+/g, ' ');
+    };
+    // (1) mistral d’ouest
+    await vent(260, 20, 26);
+    await page.reload({ waitUntil: 'load' });
+    await pret(page);
+    await page.click('#tabs button[data-tab=course]');
+    await attendBords(page, (b) => b.length > 0, 'parcours de Bormes par 260°');
+    let b = await brief(/Effets locaux — Mistral \(ouest\)/);
+    assert.match(b, /Mistral \(ouest\)/, 'régime du briefing');
+    assert.match(b, /mesure Ici le mistral vient de l’ouest, 260° en médiane, pas du nord-ouest\./, 'origine en tête du conseil');
+    assert.match(b, /modèle de relief Le massif du cap Bénat abrite la baie/);
+    assert.match(b, /hypothèse Rafales qui tombent du relief, mer plate sous Bénat\. \(à confirmer sur l’eau\)/, 'hypothèse à confirmer');
+    assert.match(b, /Conseils tirés de mesures \(Météo-France, 2010-2026\) et du modèle de relief de l’app ; les hypothèses sont à confirmer sur l’eau\./);
+    assert.match(b, /État de la mer au large de la baie de Bormes/, 'carte « État de la mer » de la baie');
+    assert.match(b, /le courant général porte en général à l’ouest[^]*Information seulement : l’app n’en tient pas compte dans les routes ; à confirmer sur l’eau\./, 'note du courant');
+    assert.match(b, /Modèles à 11:00 au milieu de la baie de Bormes/);
+    assert.ok(!/Mistral \(NO\)|Labech|Sicié|Mourillon/.test(b), 'aucun régime ni conseil de Toulon');
+    const vues = {};
+    for (const tab of VUE_SECTIONS) {
+      await page.click(`#tabs button[data-tab=${tab}]`);
+      vues[tab] = await texteStable(page, tab);
+      const m = MOTS_TOULON.exec(vues[tab]);
+      assert.equal(m, null, `onglet ${tab} : « ${m?.[0]} » — ${m ? vues[tab].slice(Math.max(0, m.index - 80), m.index + 80) : ''}`);
+    }
+    assert.match(vues.wind, /mur des Maures \(450 à 520 m\)/, 'relief de Bormes dans l’onglet Vent');
+    assert.deepEqual(await page.locator('section[data-tab=wind] [data-p]').allTextContents(),
+      ['Mistral fort', 'Mistral modéré', 'Est', 'Est fort', 'Brise de sud-est', 'Brise de sud-ouest', 'Vent de terre', 'Petit temps'], 'vents prédéfinis de Bormes');
+    assert.match(vues.course, /Génois/, 'voile d’avant du Tofinou dans les bords');
+    // zones sur la carte : deux étiquettes « à compléter »
+    const etiq = await etiquettes(page);
+    assert.equal(etiq.filter((x) => x === 'Zone interdite · à compléter sur carte marine').length, 2, `étiquettes des zones : ${[...new Set(etiq)].filter((x) => /Zone/.test(x)).join(' | ')}`);
+    // onglet Régates : zones et dangers de Bormes
+    await page.click('#tabs button[data-tab=ic]');
+    const ic = (await texte(page, 'section[data-tab=ic]')).replace(/\s+/g, ' ');
+    assert.match(ic, /Zone interdite — Île du Levant — zone militaire [^]*?55\/2021[^]*?À compléter sur carte marine\./);
+    assert.match(ic, /Zone interdite — Fort de Brégançon [^]*?192\/2018[^]*?À compléter sur carte marine\./);
+    assert.match(ic, /Parc national de Port-Cros[^]*5 nd à moins de 300 m[^]*À compléter sur carte marine\./);
+    assert.ok(!/Saint-Mandrier/.test(ic), 'pas de zone de Toulon à Bormes');
+    sansErreur(erreurs, 'Bormes par 260°');
+    // (2) est
+    await vent(75, 14, 18);
+    await page.reload({ waitUntil: 'load' });
+    await pret(page);
+    b = await brief(/Effets locaux — Est /);
+    assert.match(b, /mesure Second régime du plan d’eau/);
+    assert.match(b, /hypothèse La mer entre dans la baie\. \(à confirmer sur l’eau\)/);
+    for (const tab of VUE_SECTIONS) {
+      await page.click(`#tabs button[data-tab=${tab}]`);
+      const t = await texteStable(page, tab), m = MOTS_TOULON.exec(t);
+      assert.equal(m, null, `par 75° : onglet ${tab} : « ${m?.[0]} »`);
+    }
+    sansErreur(erreurs, 'Bormes par 75°');
+  } finally {
+    await ctx?.close().catch(() => { /* déjà fermé */ });
+    serveur.closeAllConnections?.(); serveur.close();
+  }
+}
+
+// 08-08, D-13 : fiche « Challenge de la Baie 2026-2027 » semée dans l’espace Tofinou (hôte tofinou.localhost), faux Blob de l’archive Tofinou.
+// (1) Dimanche 13/12/2026, 10 h à Paris (manche 3) : Frédéric ouvre l’app neuve → fiche semée, ouverte au démarrage, « En cours », manche du jour,
+//     journée de régate (« Course finie ») ; synchronisée avec l’archive de Tofinou (chemins tofinou/… seulement), jours de course gardés.
+// (2) Romain, second téléphone Tofinou dont la graine est déjà marquée (rien de semé) : la fiche vient de l’archive, avec ses jours ; relancée,
+//     elle s’ouvre au démarrage le jour de la manche.
+// (3) Lundi 14/12, 10 h : entraînement libre, fiche « En préparation », plus de journée de régate.
+async function baie({ browser, base: base0 }) {
+  const base = baseSur(base0, HOTES_ESSAI.tofinou);
+  const m = await mondeArchive('2026-12-13T09:00:00Z');
+  const JOURS = ['2026-10-11', '2026-11-08', '2026-12-13', '2027-01-17', '2027-02-14', '2027-03-14', '2027-04-10', '2027-04-11'];
+  const telephone = async (nom, init = null) => {
+    const ctx = await ouvreContexte(browser, { heure: new Date(m.t).toISOString() }); m.ctxs.push(ctx);
+    if (init) await ctx.addInitScript(init);
+    await membreEspace(ctx, { membre: nom, espace: 'tofinou' });
+    await archiveEspace(ctx, m, nom, { espace: 'tofinou' });
+    const { page, erreurs } = await ouvrePage(ctx);
+    await ouvreApp(page, base);
+    await membreGarde(page, nom);
+    return { nom, ctx, page, erreurs };
+  };
+  try {
+    // (1)
+    const A = await telephone('Frédéric');
+    const b = await bandeau(A.page);
+    assert.equal(b.ouverte, 'baie-2026-2027', 'ouverte au démarrage le jour de la manche 3');
+    assert.match(b.texte, /Challenge de la Baie 2026-2027/); assert.match(b.texte, /En cours/);
+    assert.equal(await A.page.evaluate(() => localStorage.getItem('rade.seed.baie.v1')), '1');
+    await ongletIC(A.page);
+    const fiche = (await texte(A.page, '#rgSheet')).replace(/\s+/g, ' ');
+    assert.match(fiche, /Manche 3 — Bormes, ligne devant Bormes – La Favière/, 'manche du jour');
+    assert.match(fiche, /8 jours de course, du dim\. 11 oct\. au dim\. 11 avr\. 2027/);
+    assert.match(fiche, /Fiche semée par l’app \(avis de course et fiches de course 2026-2027\)/);
+    assert.ok(!/10 oct/.test(fiche), 'aucune manche le 10 octobre');
+    await A.page.click('#tabs button[data-tab=live]');
+    assert.equal(await A.page.locator('#raceDone').count(), 1, 'journée de régate le 13/12 : « Course finie »');
+    await avanceHeure(m, 60e3);
+    await synchronise(m, A);
+    const chemins = [...m.blob.store.keys()];
+    assert.ok(chemins.length && chemins.every((c) => c.startsWith('tofinou/')), `archive de Tofinou seulement : ${chemins.join(', ')}`);
+    const leger = JSON.parse(m.blob.store.get('tofinou/preview/light.json')?.text || 'null');
+    assert.deepEqual(leger?.regattas?.['baie-2026-2027']?.jours, JOURS, 'jours de course gardés par l’archive');
+    assert.ok(m.vues.every((v) => v.espace === 'tofinou'));
+    // catalogue du Challenge dans l’onglet Parcours : 1 à 10 sans 8 et leurs « R », banane n° 4 par défaut, aucune classe du CVAT
+    await A.page.click('#tabs button[data-tab=course]');
+    await attendBords(A.page, suite(BANANE_4), 'banane n° 4 au premier démarrage');
+    const options = await A.page.locator('#cSel option').evaluateAll((os) => os.map((o) => [+o.value, o.textContent]));
+    assert.deepEqual(options.map(([v]) => v), [1, 2, 3, 4, 5, 25, 6, 7, 9, 10, 51, 52, 53, 55, 75, 56, 57, 59, 60, 90], `parcours proposés : ${JSON.stringify(options)}`);
+    assert.ok(!options.some(([, t]) => /Parcours 8\b/.test(t)), 'pas de parcours 8');
+    assert.equal(options.find(([v]) => v === 51)[1], 'Parcours 1 R (sens inverse)');
+    assert.equal(await A.page.locator('#cCls').count(), 0, 'aucune classe du cahier CVAT à Bormes');
+    assert.equal(await A.page.locator('#banEau').count(), 0, 'banane n° 4 en mer');
+    let vue = (await texte(A.page, 'section[data-tab=course]')).replace(/\s+/g, ' ');
+    assert.match(vue, /Parcours 4 — banane \(construite\)/);
+    assert.doesNotMatch(vue, MOTS_TOULON, 'onglet Parcours sans texte de Toulon');
+    // parcours 6 : tour de Port-Cros, La Dame et les points de passage à tribord
+    await A.page.selectOption('#cSel', '6');
+    await attendBords(A.page, suite([/FOU La Fourmigue/, /DAM La Dame/, /PCS Sud de la Gabinière/, /BAG Ouest de Bagaud/, /^Arrivée/]), 'parcours 6 autour de Port-Cros', 150000);
+    vue = (await texteStable(A.page, 'course')).replace(/\s+/g, ' ');
+    assert.match(vue, /Longueur annoncée : 20 M/); assert.match(vue, /\(annoncée : 20 M\)/);
+    const dist = +(/([\d.]+) Nq route directe/.exec(vue)?.[1]);
+    assert.ok(dist >= 18 && dist <= 22, `parcours 6 : ${dist} Nq en route directe`);
+    assert.doesNotMatch(vue, MOTS_TOULON);
+    // partage : libellé du parcours sans classe du CVAT
+    await A.page.click('#shareBtn');
+    const partage = (await texte(A.page, '#modal')).replace(/\s+/g, ' ');
+    assert.match(partage, /Ce parcours \(Parcours 6 — tour de Port-Cros, dimanche 13 décembre\)/, `partage : ${partage.slice(0, 300)}`);
+    assert.ok(!/C–R3|P1–P2/.test(partage), 'partage sans classe du CVAT');
+    await fermeAide(A.page);
+    sansErreur(A.erreurs, 'manche 3, Frédéric');
+    // (2)
+    const B = await telephone('Romain', () => { try { localStorage.setItem('rade.seed.baie.v1', '1'); } catch { /* stockage refusé */ } });
+    assert.deepEqual((await indexRegates(B.page))?.list?.map((r) => r.id) ?? [], [], 'graine déjà marquée : rien de semé');
+    await synchronise(m, B);
+    const recue = (await indexRegates(B.page)).list.find((r) => r.id === 'baie-2026-2027');
+    assert.deepEqual(recue?.jours, JOURS, 'second téléphone : jours relus de l’archive');
+    await B.page.reload({ waitUntil: 'load' });
+    await pret(B.page);
+    assert.equal((await bandeau(B.page)).ouverte, 'baie-2026-2027', 'second téléphone : ouverte au démarrage le jour de la manche');
+    sansErreur(B.erreurs, 'manche 3, Romain');
+    await B.ctx.close(); m.ctxs.splice(m.ctxs.indexOf(B.ctx), 1);
+    // (3)
+    await avanceHeure(m, 24 * 3600e3);
+    await A.page.reload({ waitUntil: 'load' });
+    await pret(A.page);
+    const b2 = await bandeau(A.page);
+    assert.equal(b2.ouverte, '', 'lundi 14/12 : entraînement libre');
+    await ongletIC(A.page);
+    const liste = await lireListe(A.page);
+    const ligne = liste.find((g) => g.rows.some((r) => r.id === 'baie-2026-2027'));
+    assert.equal(ligne?.status, 'En préparation', `groupe de la fiche le 14/12 : ${JSON.stringify(liste.map((g) => g.status))}`);
+    await A.page.click('#tabs button[data-tab=live]');
+    assert.equal(await A.page.locator('#raceDone').count(), 0, 'plus de journée de régate le 14/12');
+    sansErreur(A.erreurs, 'lendemain');
+  } finally {
+    for (const c of m.ctxs) await c.close().catch(() => { /* déjà fermé */ });
+  }
+}
+
+// 08-09, D-06 : IA de l’espace Tofinou à son hôte (tofinou.localhost). Les VRAIES fonctions d’IA (api/rules.js, api/voice.js, api/debrief.js)
+// derrière la route, avec un client simulé qui note les consignes et un faux Blob (aucun réseau, aucune clé réelle) ; l’en-tête x-rt-espace
+// « tofinou » est posé comme par le middleware. Dictée d’un relevé de vent (champ texte de l’onglet Parcours), rédaction d’un débrief (fonction
+// `narrative` de l’app), question à l’arbitre (regles.html) : chaque réponse simulée s’affiche ou revient à l’app, les consignes vues sont
+// celles de l’espace Tofinou, le quota est compté sous tofinou/.
+async function serviaIAEspace(ctx, { membre, espace }) {
+  process.env.OPENAI_API_KEY ||= 'cle-de-test';
+  const { createFakeBlob, invoke } = await import('../tests/helpers/fakeblob.mjs');
+  const blob = createFakeBlob(), etat = { appels: {}, corps: {}, blob };
+  const SORTIES = {
+    rules: { verdict: 'Un tour suffit', explication: 'Au Challenge de la Baie, la pénalité est d’un tour.', regles: [], ic: 'Pénalité d’un tour, VHF 72.', attention: 'À vérifier dans les RIR.' },
+    voice: { understood: true, direction: { mode: 'absolute', value: 260 }, speed: { mode: 'absolute', value: 16 }, gust: null, confidence: 'high', summary: 'Vent au 260, 16 nœuds', question: null },
+    debrief: { resume: { bien: 'Bon départ côté comité.', coute: 'Bord de près trop long.', meteo: 'Ouest établi.' }, bords: [{ verdict: 'good', titre: 'Près', texte: 'Conforme.' }], retenir: ['Virer sur les bascules.'] },
+  };
+  for (const f of Object.keys(SORTIES)) {
+    etat.appels[f] = []; etat.corps[f] = [];
+    const client = { responses: { create: async (args) => { etat.appels[f].push(args); return { status: 'completed', output_text: JSON.stringify(SORTIES[f]) }; } } };
+    const handler = (await import(`../api/${f}.js`)).createHandler({ openai: client, blob, now: () => Date.now() });
+    await ctx.route(`**/api/${f}`, async (route) => {
+      const req = route.request(), body = JSON.parse(req.postData() || 'null');
+      etat.corps[f].push(body);
+      const r = await invoke(handler, { method: req.method(), url: '/api/' + f, body, headers: { 'x-rt-membre': encodeURIComponent(membre), 'x-rt-espace': espace } });
+      await route.fulfill({ status: r.status, contentType: 'application/json', body: JSON.stringify(r.body ?? null) });
+    });
+  }
+  return etat;
+}
+async function tofinouIa({ browser, base: base0 }) {
+  const { CONSIGNES_TOFINOU } = await import('../api/_tofinou.js');
+  const base = baseSur(base0, HOTES_ESSAI.tofinou);
+  const ctx = await ouvreContexte(browser, { heure: '2026-12-05T09:00:00Z' });
+  try {
+    await membreEspace(ctx, { membre: 'Frédéric', espace: 'tofinou' });
+    const ia = await serviaIAEspace(ctx, { membre: 'Frédéric', espace: 'tofinou' });
+    const { page, erreurs } = await ouvrePage(ctx);
+    await ouvreApp(page, base);
+    await membreGarde(page, 'Frédéric');
+    assert.equal(await page.evaluate(async () => (await import('/js/espaces.js')).ESPACE.id), 'tofinou', 'app ouverte dans l’espace Tofinou');
+    // (1) dictée : « vent au 260, 16 nœuds » tapé dans le champ du relevé, compris par la fonction de dictée de l’espace
+    await page.click('#tabs button[data-tab=course]');
+    await page.waitForSelector('.obs-card [data-vtext]', { timeout: 60000 });
+    await page.fill('.obs-card [data-vtext]', 'vent au 260, 16 nœuds');
+    await page.click('.obs-card [data-vgo]');
+    await page.waitForFunction(() => /enregistrement dans 3 s/.test(document.querySelector('#voicePend')?.textContent || ''), null, { timeout: 15000 });
+    const pend = (await texte(page, '#voicePend')).replace(/\s+/g, ' ');
+    assert.match(pend, /260° · 16 nd/, `relevé compris affiché : ${pend}`);
+    assert.match(pend, /Vent au 260, 16 nœuds/);
+    await page.click('#vpCancel');
+    assert.equal(ia.appels.voice.length, 1, 'un appel de dictée');
+    assert.equal(ia.appels.voice[0].instructions, CONSIGNES_TOFINOU.voice, 'dictée : consigne de Tofinou');
+    assert.equal(ia.corps.voice[0].venue, 'bormes', 'la page envoie son plan d’eau ; le serveur l’ignore dans l’espace Tofinou');
+    // (2) débrief : rédaction par la fonction de l’app (même module que l’app ouverte), faits d’un bord
+    const nar = await page.evaluate(async () => {
+      const { narrative } = await import('/js/debrief.js');
+      const t0 = Date.parse('2026-12-05T10:05:00Z');
+      const L = { name: 'Bord 1', ta: t0, tb: t0 + 600e3, wind: { dir: 260, spd: 14, src: 'relevé' }, plan: { type: { label: 'Près' }, route: null, advice: [], site: [] }, planTime: null,
+        st: { dur: 600, dist: 1852, direct: 1500, man: 3, right: 0.5, maxOff: 120, slow: 0 }, polarSrc: 'relevé', polar: [], angles: null, verdict: ['good', 'Conforme'], notes: [] };
+      return narrative({ tStart: t0, legs: [L] }, { event: 'Challenge de la Baie', place: '', fleet: '', course: { title: 'Parcours 4 — banane (construite)' }, reduced: false, falseStarts: 0, startNote: '', notes: '' });
+    });
+    assert.equal(nar.ai, true, 'débrief rédigé par l’IA de l’espace');
+    assert.equal(nar.resume.bien, 'Bon départ côté comité.');
+    assert.equal(ia.appels.debrief.length, 1);
+    assert.equal(ia.appels.debrief[0].instructions, CONSIGNES_TOFINOU.debrief, 'débrief : consigne de Tofinou');
+    assert.equal(ia.corps.debrief[0].venue, 'bormes');
+    assert.ok(!/bormes|venue/.test(ia.appels.debrief[0].input), 'le plan d’eau ne part pas dans les faits');
+    sansErreur(erreurs, 'app de Tofinou');
+    // (3) arbitre : page des règles ouverte sur l’adresse de Tofinou
+    await questionArbitre(page, base, 'Combien de tours de pénalité ?');
+    assert.equal(await texte(page, '#chatLog .msg.bot .verdict'), 'Un tour suffit');
+    assert.deepEqual(ia.corps.rules.at(-1), { question: 'Combien de tours de pénalité ?', history: [] });
+    assert.equal(ia.appels.rules.at(-1).instructions, CONSIGNES_TOFINOU.rules, 'arbitre : consigne de Tofinou');
+    assert.equal(await texte(page, '#chatLog .msg.bot .note'), 'IC du Challenge de la Baie : Pénalité d’un tour, VHF 72.', 'libellé des IC de l’épreuve');
+    // (4) page des règles de l’espace : note du bateau et de l’épreuve en tête, partie de Brest et guide de Naos cachés
+    const NOTE = 'Tofinou 9.5 : zone = 3 longueurs = 28,4 m ; deux longueurs = 18,9 m. Challenge de la Baie : Règles d’introduction à la régate (RIR), pénalité d’un tour, VHF 72.';
+    assert.equal(await texte(page, '#noteEspace'), NOTE);
+    assert.equal(await page.locator('#noteEspace').isVisible(), true, 'note visible');
+    assert.equal(await page.locator('#brest').isVisible(), false, 'partie de Brest cachée');
+    assert.equal(await page.locator('.hero a[href="guide.html"]').count(), 0, 'pas de lien vers le guide de Naos');
+    assert.equal(await page.locator('nav.toc a[href="#brest"]').count(), 0, 'sommaire sans Brest');
+    // (5) depuis l’app : rubrique IA de l’aide, puis le lien des règles ouvre la page avec la note
+    await ouvreApp(page, base);
+    await ouvreAide(page);
+    const aide = await texteAide(page);
+    assert.match(aide, /IA : 30 appels par équipier et par jour .*comptés dans l’espace Tofinou/, 'rubrique IA de l’aide de Tofinou');
+    assert.match(aide, /« Spi dès » est un repère indicatif/);
+    assert.doesNotMatch(aide, MOTS_DE_NAOS);
+    const [regles] = await Promise.all([ctx.waitForEvent('page'), page.click('#modal a[href="regles.html"]')]);
+    await regles.waitForSelector('#noteEspace', { timeout: 20000 });
+    assert.equal(await regles.locator('#noteEspace').textContent(), NOTE, 'règles ouvertes depuis l’aide : note de Tofinou');
+    await regles.close();
+    await fermeAide(page);
+    // consignes vues : jamais celles de Naos ; quota compté dans l’arbre de Tofinou
+    for (const f of ['rules', 'voice', 'debrief']) for (const a of ia.appels[f]) {
+      assert.doesNotMatch(a.instructions.replace(/=== TEXTE OFFICIEL[\s\S]*/, ''), /Naos|CVAT|GPEN|J80|Toulon|Brest/, `${f} : aucun mot de Naos`);
+      assert.equal(a.store, false);
+    }
+    const { cheminQuota } = await import('../api/_ia.js'), { prefixe } = await import('../api/_espace.js');
+    const compteurs = [...ia.blob.store.keys()];
+    assert.ok(compteurs[0]?.startsWith('tofinou/'), 'compteur rangé sous tofinou/');
+    assert.deepEqual(compteurs, [cheminQuota(prefixe('tofinou'), 'Frédéric', Date.now())], `compteur de Tofinou seulement : ${compteurs.join(', ')}`);
+    assert.equal(ia.blob.store.get(compteurs[0]).text, '{"n":3}', 'trois appels comptés à Frédéric dans l’espace Tofinou');
+    sansErreur(erreurs, 'règles de Tofinou');
+    // (6) Naos (127.0.0.1) : page des règles de la v43, sans note ni rien de caché
+    const ctxN = await ouvreContexte(browser, { heure: '2026-12-05T09:00:00Z' });
+    try {
+      const pn = await ouvrePage(ctxN);
+      await pn.page.goto(base0 + 'regles.html', { waitUntil: 'load' });
+      await pn.page.waitForTimeout(500);
+      assert.equal(await pn.page.locator('#espace').count(), 0, 'Naos : aucune note d’espace');
+      assert.match(await texte(pn.page, '#arbitre .lead'), /et les IC CVAT/);
+      assert.equal(await pn.page.locator('#brest').isVisible(), true, 'Naos : partie de Brest');
+      assert.equal(await pn.page.locator('.hero a[href="guide.html"]').isVisible(), true, 'Naos : lien du guide');
+      sansErreur(pn.erreurs, 'règles de Naos');
+    } finally { await ctxN.close().catch(() => { /* déjà fermé */ }); }
+  } finally {
+    await ctx.close().catch(() => { /* déjà fermé */ });
+  }
+}
+
+// 08-11, D-16 : Frédéric charge les IC de son club dans l’espace Tofinou (tofinou.localhost), de bout en bout. PDF d’essai fabriqué par
+// tests/helpers/pdfmini.mjs (aucune IC réelle) ; VRAIE fonction api/ic.js derrière la route, client simulé qui note la consigne, faux Blob
+// commun à l’IA et à l’archive ; en-têtes x-rt-membre et x-rt-espace « tofinou » posés comme par le middleware. Aucune requête /api/ic avant
+// « Lire avec l’IA » ; consigne d’IC du Tofinou ; compteur sous tofinou/preview/quota/ ; relecture bornée à Bormes (bouée de Toulon « position
+// à saisir ») ; bouées à confirmer puis confirmées ; parcours lu proposé et routé ; archive de l’espace relue par un second téléphone.
+// Le texte de l’onglet Régates ne contient jamais de mot de Naos.
+const MOTS_IC_NAOS = /CVAT|J80|Toulon|GPEN|Brest/;
+async function sansMotNaos(page, quand) {
+  const t = (await texte(page, 'section[data-tab=ic]')).replace(/\s+/g, ' ');
+  const m = MOTS_IC_NAOS.exec(t);
+  assert.equal(m, null, `onglet Régates de Tofinou (${quand}) : « ${m?.[0]} » dans « ${m ? t.slice(Math.max(0, m.index - 120), m.index + 60) : ''} »`);
+}
+async function serviIcEspace(ctx, m, { membre, espace }) {
+  process.env.OPENAI_API_KEY ||= 'cle-de-test';
+  const { createHandler } = await import('../api/ic.js');
+  const etat = { appels: [], demandes: 0, corps: [] };
+  const client = { responses: { create: async (args) => { etat.appels.push(args); return { status: 'completed', output_text: JSON.stringify(etat.sortie(args.input)) }; } } };
+  const handler = createHandler({ openai: client, blob: m.blob, now: () => m.t });
+  await ctx.route('**/api/ic', async (route) => {
+    const req = route.request(), body = JSON.parse(req.postData() || 'null');
+    etat.demandes++; etat.corps.push(body);
+    const r = await m.invoke(handler, { method: req.method(), url: '/api/ic', body, headers: { 'x-rt-membre': encodeURIComponent(membre), 'x-rt-espace': espace } });
+    await route.fulfill({ status: r.status, contentType: 'application/json', body: JSON.stringify(r.body ?? null) });
+  });
+  return etat;
+}
+async function tofinouIc({ browser, base: base0 }) {
+  const { CONSIGNES_TOFINOU } = await import('../api/_tofinou.js');
+  const { pdfMinimal, IC_ESSAI } = await import('../tests/helpers/pdfmini.mjs');
+  const base = baseSur(base0, HOTES_ESSAI.tofinou);
+  const m = await mondeArchive('2026-12-06T09:00:00Z');                       // dimanche 6/12/2026 10 h 00 à Paris
+  const telephone = async (nom) => {
+    const ctx = await ouvreContexte(browser, { heure: new Date(m.t).toISOString() }); m.ctxs.push(ctx);
+    await releveEtiquettes(ctx);
+    await membreEspace(ctx, { membre: nom, espace: 'tofinou' });
+    await archiveEspace(ctx, m, nom, { espace: 'tofinou' });
+    const ic = await serviIcEspace(ctx, m, { membre: nom, espace: 'tofinou' });
+    const { page, erreurs } = await ouvrePage(ctx);
+    await ouvreApp(page, base);
+    await membreGarde(page, nom);
+    return { nom, ctx, page, erreurs, ic };
+  };
+  try {
+    const A = await telephone('Frédéric');
+    A.ic.sortie = (input) => sortieIA({
+      event: { value: 'Régate d’essai du Lavandou', excerpt: copie(input, /Régate d’essai du Lavandou/) },
+      dateStart: { value: '2026-12-06', excerpt: copie(input, /dimanche 6 décembre 2026/) },
+      firstWarning: { value: '11:00', excerpt: copie(input, /Heure du premier signal d’avertissement : 11:00/) },
+      vhf: { value: '72', excerpt: copie(input, /Canal VHF 72 pendant toute la durée de la course\./) },
+      marks: ['Alpha', 'Bravo', 'Charlie', 'Delta', 'Echo'].map((n) => {
+        const l = copie(input, new RegExp(`Bouée ${n} : [^\\n]*?E`));
+        return { name: n, position: l.replace(/^Bouée \w+ : /, ''), excerpt: l };
+      }),
+      courses: [{
+        name: 'Parcours d’essai', excerpt: copie(input, /Parcours d’essai : départ, Alpha à bâbord, porte Bravo \/ Charlie, arrivée\./),
+        sequence: [{ mark: 'Départ', side: null, gate: null }, { mark: 'Alpha', side: 'b', gate: null }, { mark: 'Bravo', side: null, gate: 'Charlie' }, { mark: 'Arrivée', side: null, gate: null }],
+        finish: { kind: 'comite', mark: 'Delta', excerpt: copie(input, /La ligne d’arrivée est entre le bateau comité et la bouée Delta\./) },
+      }],
+      specialRules: [{ value: 'Pénalité d’un tour', excerpt: copie(input, /Pénalité : un tour, y compris un virement et un empannage\./) }],
+    });
+    assert.equal(await A.page.evaluate(async () => (await import('/js/espaces.js')).ESPACE.id), 'tofinou');
+    await sansMotNaos(A.page, 'ouverture');
+    // régate créée à la main : seul plan d’eau proposé, la rade de Bormes
+    await A.page.click('#tabs button[data-tab=ic]');
+    await A.page.click('#rgNew');
+    assert.deepEqual(await A.page.locator('#rgVenue option').evaluateAll((os) => os.map((o) => o.value)), ['bormes']);
+    await A.page.click('#rgCancel');
+    await creeRegate(A.page, { nom: 'Régate d’essai du Lavandou', debut: '2026-12-06', club: 'Club d’essai' });
+    const id = await idOuverte(A.page);
+    assert.ok(id, 'régate du jour ouverte');
+    assert.equal((await regateOuverte(A.page)).venue, 'bormes');
+    // PDF d’essai : lu par pdf.js dans la page, relecture par motifs avec le libellé de l’espace ; rien n’est parti vers /api/ic
+    await A.page.setInputFiles('#icFile', { name: 'ic-essai.pdf', mimeType: 'application/pdf', buffer: Buffer.from(pdfMinimal(IC_ESSAI)) });
+    await A.page.waitForSelector('#icReview', { timeout: 60000 });
+    assert.match(await texte(A.page, '#icReview'), /lecture par motifs \(hors réseau\)/);
+    await sansMotNaos(A.page, 'relecture par motifs');
+    assert.equal(A.ic.demandes, 0, 'aucune requête /api/ic avant le geste');
+    assert.equal(await A.page.locator('#icIa').isEnabled(), true, '« Lire avec l’IA » proposé');
+    await A.page.click('#icIa');
+    await A.page.waitForSelector('.icmark', { timeout: 30000 });
+    assert.equal(A.ic.demandes, 1, 'un seul appel');
+    assert.deepEqual(Object.keys(A.ic.corps[0]), ['text'], 'corps limité au texte');
+    const consigne = A.ic.appels[0].instructions;
+    assert.equal(consigne, CONSIGNES_TOFINOU.ic, 'consigne d’IC de l’espace Tofinou');
+    assert.match(consigne, /Tofinou 9\.5/);
+    console.log(`  tofinou-ic : consigne reçue (200 premiers caractères) : ${consigne.slice(0, 200).replace(/\s+/g, ' ')}`);
+    const quota = [...m.blob.store.keys()].filter((k) => /\/quota\//.test(k));
+    assert.equal(quota.length, 1, `un compteur : ${quota.join(', ')}`);
+    assert.match(quota[0], /^tofinou\/preview\/quota\//);
+    // relecture de l’IA : bouées de Bormes cochées, Echo (rade de Toulon) « position à saisir » non cochée ; parcours coché
+    const marques = await A.page.locator('.icmark').evaluateAll((l) => l.map((el) => ({ txt: el.textContent.replace(/\s+/g, ' '), coche: el.querySelector('input').checked })));
+    assert.equal(marques.length, 5);
+    for (let i = 0; i < 4; i++) { assert.equal(marques[i].coche, true, marques[i].txt); assert.match(marques[i].txt, /· 43°0[67]\.\d{3}N 006°2[34]\.\d{3}E/); }
+    assert.match(marques[4].txt, /Echo · position à saisir/); assert.equal(marques[4].coche, false, 'bouée de Toulon non cochée');
+    assert.equal(await A.page.locator('.iccourse input').isChecked(), true);
+    assert.match(await texte(A.page, '.iccourse'), /porte Bravo \/ Charlie[\s\S]*Arrivée : entre le Comité et Delta/);
+    await sansMotNaos(A.page, 'relecture de l’IA');
+    await A.page.click('#icValidate');
+    await A.page.waitForSelector('#icReview', { state: 'detached', timeout: 10000 });
+    let reg = await regateOuverte(A.page);
+    assert.deepEqual(reg.marks.map((x) => [x.id, x.name, x.status]), [['X1', 'Alpha', 'a_confirmer'], ['X2', 'Bravo', 'a_confirmer'], ['X3', 'Charlie', 'a_confirmer'], ['X4', 'Delta', 'a_confirmer']]);
+    assert.equal(reg.courses.length, 1);
+    assert.ok(!('jours' in reg), 'une régate lue depuis les IC n’a pas de jours (v43)');
+    assert.match(await texte(A.page, '#rgSheet [data-co-row="101"]'), /Parcours d’essai \(IC\)[\s\S]*en attente de : X1 Alpha, X2 Bravo, X3 Charlie, X4 Delta/);
+    await sansMotNaos(A.page, 'fiche, bouées à confirmer');
+    // horloge figée des téléphones : elle avance entre deux gestes, comme sur l’eau (sinon une copie envoyée par la synchronisation automatique
+    // entre deux confirmations porterait la même date que la suivante, et le départage par contenu garderait la bouée « à confirmer »)
+    for (const k of ['X1', 'X2', 'X3', 'X4']) { await avanceHeure(m, 1000); await A.page.click(`[data-mk-ok=${k}]`); }
+    await A.page.waitForFunction(() => /proposé dans l’onglet Parcours/.test(document.querySelector('#rgSheet [data-co-row="101"]')?.textContent || ''), null, { timeout: 15000 });
+    reg = await regateOuverte(A.page);
+    assert.ok(reg.marks.every((x) => x.status === 'confirmee' && x.confirmed?.by === 'Frédéric'));
+    await sansMotNaos(A.page, 'bouées confirmées');
+    // onglet Parcours : le parcours lu, seul (la régate a ses parcours), routé avec sa porte et son arrivée
+    await A.page.click('#tabs button[data-tab=course]');
+    assert.deepEqual(await A.page.locator('#cSel option').allTextContents(), ['Parcours d’essai (IC)']);
+    await A.page.selectOption('#cSel', '101');
+    await attendBords(A.page, suite([/X1 Alpha/, /X[23] (Bravo|Charlie)/, /^Arrivée \(Comité – X4 Delta\)/]), 'parcours d’essai lu dans les IC');
+    sansErreur(A.erreurs, 'IC lues et parcours routé');
+    // archive de l’espace : la régate, ses bouées confirmées et son parcours sous tofinou/ ; rien sous prod/ ni preview/ de Naos
+    await avanceHeure(m, 60e3);
+    await synchronise(m, A);
+    const chemins = [...m.blob.store.keys()];
+    assert.ok(chemins.every((c) => c.startsWith('tofinou/')), `chemins du faux Blob : ${chemins.join(', ')}`);
+    console.log(`  tofinou-ic : chemins du faux Blob : ${chemins.join(', ')}`);
+    const leger = JSON.parse(m.blob.store.get('tofinou/preview/light.json')?.text || 'null');
+    const arch = leger?.regattas?.[id];
+    assert.ok(arch, 'régate dans l’archive de Tofinou');
+    assert.deepEqual(arch.marks.map((x) => [x.id, x.status]), [['X1', 'confirmee'], ['X2', 'confirmee'], ['X3', 'confirmee'], ['X4', 'confirmee']]);
+    assert.deepEqual(arch.courses.map((c) => [c.id, c.name]), [[101, 'Parcours d’essai']]);
+    assert.ok(m.vues.every((v) => v.espace === 'tofinou'));
+    // second téléphone de l’espace : il reçoit la régate, ses bouées et son parcours, proposé dans l’onglet Parcours
+    const B = await telephone('Romain');
+    await synchronise(m, B);
+    assert.ok((await indexRegates(B.page)).list.some((r) => r.id === id), 'régate reçue');
+    await ouvreRegate(B.page, id);
+    assert.match(await texte(B.page, '#rgSheet [data-co-row="101"]'), /proposé dans l’onglet Parcours/);
+    await sansMotNaos(B.page, 'second téléphone');
+    await B.page.click('#tabs button[data-tab=course]');
+    assert.deepEqual(await B.page.locator('#cSel option').allTextContents(), ['Parcours d’essai (IC)']);
+    assert.equal(B.ic.demandes, 0, 'second téléphone : aucune lecture par l’IA');
+    sansErreur(B.erreurs, 'second téléphone');
+    sansErreur(A.erreurs, 'fin du scénario');
+  } finally {
+    for (const c of m.ctxs) await c.close().catch(() => { /* déjà fermé */ });
+  }
+}
+
+// 08-11, D-17 : éditeur de parcours de l’espace Tofinou. (A) Frédéric (tofinou.localhost, archive de l’espace) ajoute des bouées par position
+// saisie et par un point touché sur la carte (« Bouée de régate ici… »), les confirme, crée puis modifie un parcours (côté, porte, arrivée entre
+// le Comité et une bouée, tours sans repasser la ligne), routé dans l’onglet Parcours avec le catalogue du Challenge ; (B) Romain le reçoit par
+// l’archive, puis modifications concurrentes hors réseau : la plus récente partout, l’autre dans l’historique ; (C) chrono lancé : éditeur
+// inactif, gestes refusés, rien d’enregistré ; (D) Naos (127.0.0.1) : aucun élément de l’éditeur, fenêtre « Point choisi » de la v43.
+const LOCK_EDIT = 'Course en cours : parcours et bouées modifiables après la course';
+async function ajouteBouee(page, nom, pos) {
+  await page.click('#mkNew');
+  await page.fill('#mkaName', nom);
+  await page.fill('#mkaPos', pos);
+  await page.click('#mkaOk');
+  await page.waitForSelector('#mkaForm', { state: 'detached', timeout: 10000 });
+}
+const boueeDe = async (page, nom) => (await regateOuverte(page)).marks.find((x) => x.name === nom);
+async function centreCarte(page) {
+  // centre de la zone visible de la carte (le panneau replié en couvre le bas) : point touché comme un doigt
+  const b = await page.locator('#stage canvas').first().boundingBox();
+  const bas = await page.evaluate(() => { const p = document.querySelector('#panel'); return p ? p.getBoundingClientRect().top : innerHeight; });
+  const y = b.y + (Math.min(b.y + b.height, bas) - b.y) / 2;
+  await page.mouse.click(b.x + b.width / 2, y);
+  await page.waitForSelector('#pickPop:not([hidden])', { timeout: 10000 });
+}
+const boutonsPick = (page) => page.locator('#pickPop .acts button').allTextContents();
+async function tofinouParcours({ browser, base: base0 }) {
+  const base = baseSur(base0, HOTES_ESSAI.tofinou);
+  const m = await mondeArchive('2026-12-06T09:00:00Z');
+  const telephone = async (nom) => {
+    const ctx = await ouvreContexte(browser, { heure: new Date(m.t).toISOString() }); m.ctxs.push(ctx);
+    await membreEspace(ctx, { membre: nom, espace: 'tofinou' });
+    await archiveEspace(ctx, m, nom, { espace: 'tofinou' });
+    const { page, erreurs } = await ouvrePage(ctx);
+    await ouvreApp(page, base);
+    await membreGarde(page, nom);
+    return { nom, ctx, page, erreurs };
+  };
+  const ctxN = await ouvreContexte(browser, { heure: '2026-12-06T09:00:00Z' });
+  try {
+    // ───── (A)
+    const A = await telephone('Frédéric'), P = A.page;
+    await creeRegate(P, { nom: 'Entraînement du club', debut: '2026-12-06', club: 'Club' });
+    const id = await idOuverte(P);
+    assert.ok(id);
+    assert.match(await texte(P, '#rgEdit h4'), /^Bouées et parcours de la régate/);
+    await ajouteBouee(P, 'Alpha', '43°07.200N 006°24.000E');
+    await toastVu(P, 'Bouée X\\d{4} Alpha ajoutée : à confirmer', 10000);
+    const alpha = await boueeDe(P, 'Alpha');
+    assert.match(alpha.id, /^X\d{4}$/); assert.equal(alpha.status, 'a_confirmer'); assert.equal(alpha.origine, 'saisie');
+    // position de Toulon refusée avec le message de Bormes
+    await P.click('#mkNew');
+    await P.fill('#mkaName', 'Echo'); await P.fill('#mkaPos', '43°05.845N 005°56.049E'); await P.click('#mkaOk');
+    assert.match(await texte(P, '#mkaErr'), /hors de la rade de Bormes – Le Lavandou/);
+    assert.equal((await regateOuverte(P)).marks.length, 1, 'rien d’ajouté');
+    await P.click('#mkaNo');
+    // « Voir sur la carte » sur Alpha, puis un point touché au centre de la carte → « Bouée de régate ici… » → formulaire prérempli
+    await P.click(`[data-mk-voir="${alpha.id}"]`);
+    await P.waitForFunction(() => document.body.dataset.sheet === 'min', null, { timeout: 5000 });
+    await P.waitForTimeout(800);
+    await centreCarte(P);
+    assert.deepEqual(await boutonsPick(P), ['Comité ici', 'Bouée ici', 'Relevé de vent ici…', 'Bouée de régate ici…', '✕']);
+    await P.click('#pickPop [data-a=mkreg]');
+    await P.waitForSelector('#mkaForm', { timeout: 10000 });
+    const pre = await P.locator('#mkaPos').inputValue();
+    const pp = await P.evaluate(async (t) => { const { parseLatLon } = await import('/js/marks.js'); const { VENUES } = await import('/js/venues.js'); return parseLatLon(t, VENUES.bormes.inputBounds); }, pre);
+    const ecart = await P.evaluate(async ([a, b]) => { const g = await import('/js/geo.js'); return g.distXY(g.toXY(a.lat, a.lon), g.toXY(b.lat, b.lon)); }, [alpha, pp]);
+    assert.ok(ecart < 300, `point touché à ${Math.round(ecart)} m d’Alpha (${pre})`);
+    assert.equal(await P.evaluate(() => document.activeElement?.id), 'mkaName', 'curseur sur le nom');
+    await P.fill('#mkaName', 'Bravo'); await P.click('#mkaOk');
+    await P.waitForSelector('#mkaForm', { state: 'detached', timeout: 10000 });
+    assert.equal((await boueeDe(P, 'Bravo')).origine, 'carte', 'position touchée sur la carte, non retouchée');
+    await ajouteBouee(P, 'Charlie', '43°06.600N 006°23.700E');
+    await ajouteBouee(P, 'Delta', '43°07.800N 006°23.700E');
+    const ids = {};
+    for (const n of ['Alpha', 'Bravo', 'Charlie', 'Delta']) ids[n] = (await boueeDe(P, n)).id;
+    assert.equal(new Set(Object.values(ids)).size, 4);
+    // « Créer un parcours » sans bouée confirmée : la mention le dit
+    await P.click('#coNew');
+    assert.match(await texte(P, '#coNone'), /confirmez d’abord une bouée/);
+    await P.click('#coCancel');
+    // l’horloge des téléphones est figée : elle avance entre deux gestes, comme sur l’eau (sinon une copie envoyée entre-temps aurait la même date)
+    await avanceHeure(m, 60e3);
+    for (const n of ['Alpha', 'Bravo', 'Charlie', 'Delta']) await P.click(`[data-mk-ok="${ids[n]}"]`);
+    await avanceHeure(m, 60e3);
+    assert.ok((await regateOuverte(P)).marks.every((x) => x.status === 'confirmee'));
+    // « Créer un parcours » : nom vide refusé, porte Bravo / Bravo refusée
+    await P.click('#coNew');
+    await P.click('#coSave');
+    assert.match(await texte(P, '#coForm [data-err=name]'), /Nom du parcours à saisir/);
+    await P.fill('#coName', 'Parcours d’entraînement');
+    await P.selectOption('#coForm [data-st-mark="0"]', ids.Alpha); await P.selectOption('#coForm [data-st-side="0"]', 't');
+    await P.click('#coStepAdd');
+    await P.selectOption('#coForm [data-st-kind="1"]', 'gate');
+    await P.selectOption('#coForm [data-st-mark="1"]', ids.Bravo); await P.selectOption('#coForm [data-st-gate="1"]', ids.Bravo);
+    await P.selectOption('#coFin', 'comite');
+    await P.selectOption('#coFinMark', ids.Delta);
+    await P.selectOption('#coLaps', '2');
+    await P.selectOption('#coLapLine', '0');
+    await P.click('#coSave');
+    assert.match(await texte(P, '#coForm [data-err="step.1"]'), /deux bouées différentes/);
+    assert.equal(await P.locator('#coName').inputValue(), 'Parcours d’entraînement', 'saisie gardée après le refus');
+    await P.selectOption('#coForm [data-st-gate="1"]', ids.Charlie);
+    await P.click('#coSave');
+    await P.waitForSelector('#coForm', { state: 'detached', timeout: 10000 });
+    await toastVu(P, 'Parcours d’entraînement enregistré : proposé dans l’onglet Parcours', 10000);
+    let reg = await regateOuverte(P);
+    assert.equal(reg.courses.length, 1);
+    const co = reg.courses[0];
+    assert.ok(Number.isInteger(co.id) && co.id >= 1000 && co.id <= 9999, `identifiant ${co.id}`);
+    assert.deepEqual([co.origine, co.laps, co.lapLine, co.finish], ['saisie', 2, false, { kind: 'comite', mark: ids.Delta }]);
+    assert.deepEqual(co.seq, [{ mark: ids.Alpha, side: 't' }, { mark: ids.Bravo, side: null, gate: ids.Charlie }]);
+    assert.match(await texte(P, `#rgSheet [data-co-row="${co.id}"]`), /Parcours d’entraînement \(saisi\)[\s\S]*proposé dans l’onglet Parcours[\s\S]*2 tours · entre deux tours : sans repasser la ligne/);
+    // onglet Parcours : le parcours saisi avec le catalogue du Challenge ; routé sans bord vers la ligne entre les tours
+    await P.click('#tabs button[data-tab=course]');
+    const options = await P.locator('#cSel option').evaluateAll((os) => os.map((o) => [+o.value, o.textContent]));
+    assert.ok(options.some(([v]) => v === 4) && options.some(([v]) => v === 51), 'catalogue du Challenge toujours proposé');
+    assert.deepEqual(options.at(-1), [co.id, 'Parcours d’entraînement (saisi)']);
+    await P.selectOption('#cSel', String(co.id));
+    const A1 = /Alpha/, PO = /Bravo|Charlie/, FIN = /^Arrivée \(Comité – X\d{4} Delta\)/;
+    await attendBords(P, suite([A1, PO, A1, PO, FIN]), 'parcours saisi, 2 tours sans repasser la ligne');
+    assert.equal(await P.locator('#cLaps').count(), 0, 'tours imposés par le parcours : pas d’entrée « Tours »');
+    assert.doesNotMatch((await texte(P, 'section[data-tab=course]')).replace(/\s+/g, ' '), MOTS_TOULON);
+    // « Modifier le parcours » : Alpha à bâbord, 3 tours → même identifiant, bords recalculés
+    await avanceHeure(m, 60e3);
+    await P.click('#tabs button[data-tab=ic]');
+    await P.click(`[data-co-edit="${co.id}"]`);
+    assert.equal(await texte(P, '#coForm h4'), 'Modifier le parcours');
+    await P.selectOption('#coForm [data-st-side="0"]', 'b');
+    await P.selectOption('#coLaps', '3');
+    await P.click('#coSave');
+    await P.waitForSelector('#coForm', { state: 'detached', timeout: 10000 });
+    reg = await regateOuverte(P);
+    assert.deepEqual([reg.courses.length, reg.courses[0].id, reg.courses[0].laps, reg.courses[0].seq[0].side, reg.courses[0].edited?.by], [1, co.id, 3, 'b', 'Frédéric']);
+    await P.click('#tabs button[data-tab=course]');
+    await attendBords(P, suite([A1, PO, A1, PO, A1, PO, FIN]), 'parcours modifié, 3 tours');
+    sansErreur(A.erreurs, 'éditeur, Frédéric');
+    // ───── (B)
+    await avanceHeure(m, 60e3);
+    await synchronise(m, A);
+    const leger = JSON.parse(m.blob.store.get('tofinou/preview/light.json')?.text || 'null');
+    assert.deepEqual(leger?.regattas?.[id]?.courses?.map((c) => [c.id, c.laps]), [[co.id, 3]], 'parcours dans l’archive de Tofinou');
+    assert.ok(leger.regattas[id].marks.every((x) => x.status === 'confirmee'), 'bouées confirmées dans l’archive');
+    assert.ok([...m.blob.store.keys()].every((k) => k.startsWith('tofinou/')));
+    const B = await telephone('Romain'), Q = B.page;
+    await synchronise(m, B);
+    await ouvreRegate(Q, id);
+    assert.equal((await regateOuverte(Q)).marks.length, 4);
+    assert.match(await texte(Q, `#rgSheet [data-co-row="${co.id}"]`), /Parcours d’entraînement \(saisi\)[\s\S]*proposé dans l’onglet Parcours/);
+    await Q.click('#tabs button[data-tab=course]');
+    assert.ok((await Q.locator('#cSel option').allTextContents()).includes('Parcours d’entraînement (saisi)'));
+    // modifications concurrentes hors réseau : A à 2 tours, puis B (plus tard) à 4 tours
+    const histCo = async (page) => ((await regateOuverte(page)).hist || []).filter((h) => h.kind === 'course' && h.id === String(co.id));
+    for (const t of [A, B]) { await t.ctx.setOffline(true); await t.page.waitForFunction(() => !navigator.onLine); }
+    const modifie = async (page, tours) => {
+      await page.click('#tabs button[data-tab=ic]');
+      await page.click(`[data-co-edit="${co.id}"]`);
+      await page.selectOption('#coLaps', tours);
+      await page.click('#coSave');
+      await page.waitForSelector('#coForm', { state: 'detached', timeout: 10000 });
+    };
+    await modifie(P, '2');
+    await avanceHeure(m, 60e3);
+    await modifie(Q, '4');
+    for (const t of [A, B]) await t.ctx.setOffline(false);
+    await avanceHeure(m, 60e3); await synchronise(m, A); await avanceHeure(m, 60e3); await synchronise(m, B); await avanceHeure(m, 60e3); await synchronise(m, A);
+    for (const t of [A, B]) {
+      const c = (await regateOuverte(t.page)).courses.find((x) => x.id === co.id);
+      assert.deepEqual([c.laps, c.edited?.by], [4, 'Romain'], `${t.nom} : la plus récente partout`);
+      // la version écrasée (2 tours, A) entre dans l’historique de la fiche : une ligne « Parcours » de plus
+      const h = await histCo(t.page);
+      assert.ok(h.some((x) => x.v?.laps === 2 && x.by === 'Frédéric'), `${t.nom} : la version de Frédéric (2 tours) est dans l’historique`);
+      await t.page.click('#tabs button[data-tab=ic]');
+      assert.ok(await t.page.locator('#rgSheet .rghl[data-kind=course]').count() >= 1, `${t.nom} : une ligne « Parcours » dans l’historique de la fiche`);
+      assert.match(await t.page.locator('#rgSheet .rghl[data-kind=course]').first().textContent(), /^Parcours · /);
+    }
+    sansErreur(B.erreurs, 'éditeur, Romain');
+    // ───── (C) chrono de départ lancé : éditeur inactif, gestes refusés, rien d’enregistré ni envoyé
+    const envois = () => m.vues.filter((v) => v.nom === 'Frédéric' && v.method === 'PUT').length;
+    const avant = JSON.stringify(await regateOuverte(P)), puts = envois();
+    await P.click('#tabs button[data-tab=start]'); await P.click('#t5');
+    await P.click('#tabs button[data-tab=ic]');
+    await P.waitForSelector('#rgEditLock', { timeout: 10000 });
+    for (const sel of ['#mkNew', '#coNew', `[data-co-edit="${co.id}"]`, `[data-co-del="${co.id}"]`, `[data-mk-fix="${ids.Alpha}"]`]) assert.equal(await P.locator(sel).isDisabled(), true, `${sel} inactif en course`);
+    // geste forcé (bouton réactivé à la main) : refusé par l’app avec son message
+    await P.evaluate((s) => { const b = document.querySelector(s); b.disabled = false; b.click(); }, '#coNew');
+    await toastVu(P, LOCK_EDIT, 5000);
+    assert.equal(await P.locator('#coForm').count(), 0, 'aucun formulaire ouvert');
+    await P.evaluate((s) => { const b = document.querySelector(s); b.disabled = false; b.click(); b.click(); }, `[data-co-del="${co.id}"]`);
+    assert.equal(JSON.stringify(await regateOuverte(P)), avant, 'rien d’enregistré pendant la course');
+    await P.click(`[data-mk-voir="${ids.Alpha}"]`);
+    await P.waitForFunction(() => document.body.dataset.sheet === 'min', null, { timeout: 5000 });
+    await P.waitForTimeout(800);
+    await centreCarte(P);
+    assert.deepEqual(await boutonsPick(P), ['Comité ici', 'Bouée ici', 'Relevé de vent ici…', '✕'], 'pas de « Bouée de régate ici… » en course');
+    await P.click('#pickPop [data-a=close]');
+    await P.click('#tabs button[data-tab=start]'); await P.click('#tstop');
+    assert.equal(envois(), puts, 'rien envoyé à l’archive pendant la course');
+    sansErreur(A.erreurs, 'chrono');
+    // ───── (D) Naos : régate de Toulon à bouées lues (confirmées, à confirmer) et parcours lu ; aucun élément de l’éditeur
+    const N = await ouvrePage(ctxN);
+    const lue = (mid, name, lat, lon, status) => ({ id: mid, name, text: `${lat} N ; ${lon} E`, lat, lon, excerpt: `${name} : ${lat} N ; ${lon} E`, status, src: 'IC Club test', by: 'Teiva', at: 0, ...(status === 'confirmee' ? { confirmed: { by: 'Teiva', at: 0 } } : {}) });
+    const rg = { ...regateSemee('rg-naos', 'Régate lue', '2026-12-06'), club: 'SNM',
+      marks: [lue('X1', 'Alpha', 43.0905, 5.9587, 'confirmee'), lue('X2', 'Bravo', 43.0835, 5.97, 'confirmee'), lue('X3', 'Charlie', 43.095, 5.98, 'a_confirmer')],
+      courses: [{ id: 101, name: 'Parcours A', seq: [{ mark: 'X1', side: 'b' }, { mark: 'X2', side: 't' }], excerpt: 'Parcours A : Alpha bâbord, Bravo tribord', incomplete: false, missing: [], by: 'Teiva', at: 0 }] };
+    await sème(N.page, base0, [rg]);
+    if (await idOuverte(N.page) !== 'rg-naos') await ouvreRegate(N.page, 'rg-naos');       // régate du jour : ouverte au démarrage
+    await N.page.click('#tabs button[data-tab=ic]');
+    assert.equal(await N.page.locator('#mkNew, #coNew, [data-co-edit], [data-co-del], #rgEdit, #mkaForm, #coForm').count(), 0, 'Naos : aucun élément de l’éditeur');
+    assert.doesNotMatch(await texte(N.page, 'body'), /Créer un parcours|Modifier le parcours|Bouée de régate ici/);
+    assert.match(await texte(N.page, '#rgSheet [data-co-row="101"]'), /Parcours A \(IC\)[\s\S]*Lu par Teiva/);
+    await N.page.click('[data-mk-voir="X1"]');
+    await N.page.waitForFunction(() => document.body.dataset.sheet === 'min', null, { timeout: 5000 });
+    await N.page.waitForTimeout(800);
+    await centreCarte(N.page);
+    assert.deepEqual(await boutonsPick(N.page), ['Comité ici', 'Bouée ici', 'Relevé de vent ici…', '✕'], 'Naos : fenêtre « Point choisi » de la v43');
+    sansErreur(N.erreurs, 'Naos');
+  } finally {
+    for (const c of m.ctxs) await c.close().catch(() => { /* déjà fermé */ });
+    await ctxN.close().catch(() => { /* déjà fermé */ });
+  }
+}
+
+const SCENARIOS = { baie, accueil, 'jour-j': jourJ, 'deux-telephones': deuxTelephones, reprise, equipage, archive, 'archive-bouees': archiveBouees, archivehors: archiveHors, creer, manche, auteur, ic, 'depuis-ic': depuisIC, vraisemblance, gel, 'debrief-tardif': debriefTardif, gpx, 'gpx-choix': gpxChoix, ia, 'ia-erreurs': iaErreurs, arbitre, bouees, guide, entetes, 'retour-port': retourPort, banane, 'banane-manche': bananeManche, 'banane-debrief': bananeDebrief, 'porte-ic': porteIC, 'modifier-manche': modifierManche, 'toulon-vue': toulonVue, 'plan-eau': planEau, 'brest-avion': brestAvion, 'regate-brest': regateBrest, 'brest-courant': brestCourant, gpen, 'naos-cles': naosCles, 'tofinou-demarrage': tofinouDemarrage, 'espace-garde': espaceGarde, 'tofinou-bateau': tofinouBateau, 'tofinou-identite': tofinouIdentite, 'bormes-local': bormesLocal, 'tofinou-ia': tofinouIa, 'tofinou-ic': tofinouIc, 'tofinou-parcours': tofinouParcours };
 
 // ───────────────────────── lancement
 
@@ -3575,7 +4734,7 @@ async function main() {
   const ok = [];
   let browser, chromium = true;
   try {
-    try { ({ browser } = await launchChromium({ args: ['--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1', '--no-proxy-server'] })); }
+    try { ({ browser } = await launchChromium({ args: [`--host-resolver-rules=${MAP_ESSAI}, MAP * ~NOTFOUND, EXCLUDE 127.0.0.1`, '--no-proxy-server'] })); }
     catch (e) { console.error('Chromium impossible à lancer : ' + e.message); chromium = false; }
     if (chromium) {
       for (const nom of requested) {

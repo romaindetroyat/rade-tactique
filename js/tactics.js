@@ -59,8 +59,8 @@ export const REGIMES = [
       'Repérer de quel côté arrive le nouveau vent (risées au large, nuages) et s’y placer avant la transition.',
     ] },
 ];
-// régimes du plan d’eau courant ; Toulon (regimes: null) garde REGIMES ci-dessus
-export const regimeOf = (dir, spd) => (VENUE.regimes?.length ? VENUE.regimes : REGIMES).find((r) => r.test(norm360(dir), spd));
+// régimes du plan d’eau courant ; Toulon (regimes: null) garde REGIMES ci-dessus ; une liste vide (Bormes avant 08-07) n’en donne aucun
+export const regimeOf = (dir, spd) => (Array.isArray(VENUE.regimes) ? VENUE.regimes : REGIMES).find((r) => r.test(norm360(dir), spd));
 // Origine d’un conseil d’un autre plan d’eau ({ t, o }, étude de Brest § 3.6) ; les conseils de Toulon sont des chaînes, sans origine
 export const ORIGINES = { D: 'mesure', M: 'modèle de relief', C: 'courant', S: 'source citée', H: 'hypothèse' };
 // Texte affiché d’un conseil : chaîne telle quelle (Toulon) ; une hypothèse est présentée comme à confirmer (étude piège 10)
@@ -159,7 +159,7 @@ export function buildLegs(course, cls, opts) {
   if (course.laps) {
     for (let k = 0; k < laps; k++) {
       seqDef.forEach(([m, sd, g2]) => seq.push(item(m, sd, g2, k + 1)));
-      if (k < laps - 1 && !course.built) seq.push({ ...gate, mark: 'GATE', side: null, lap: k + 1 });
+      if (k < laps - 1 && !course.built && course.lapLine !== false) seq.push({ ...gate, mark: 'GATE', side: null, lap: k + 1 });   // lapLine : parcours saisi (08-11)
     }
   } else {
     seqDef.forEach(([m, sd, g2]) => seq.push(m === 'GATE' ? { ...gate, mark: 'GATE', side: null } : item(m, sd, g2)));
@@ -260,19 +260,22 @@ export function routeOf(from, to, field, opts, ctx) {
 }
 
 // Options de routage d’une analyse : celles de la v42 ; à Brest seulement (ctx.current, ctx.depth), le courant, la hauteur d’eau et
-// l’instant de départ du bord (ms UTC, ctx.t0 sauf t0 donné)
+// l’instant de départ du bord (ms UTC, ctx.t0 sauf t0 donné) ; hors de Naos (ctx.bateau, 08-05), les pertes aux manœuvres du bateau de
+// l’espace (Naos ne pose jamais ctx.bateau : pertes du J80 de js/router.js, clés des routes mémorisées inchangées)
 export function routeOpts(ctx, t0 = ctx?.t0) {
   const o = { terrain: ctx.terrain, forbidden: ctx.forbidden, perf: ctx.perf ?? 1 };
+  if (Number.isFinite(ctx.bateau?.virement_s) && Number.isFinite(ctx.bateau?.empannage_s)) { o.tackLoss = ctx.bateau.virement_s; o.gybeLoss = ctx.bateau.empannage_s; }
   if (ctx.current || ctx.depth) { o.current = ctx.current ?? null; o.depth = ctx.depth ?? null; o.t0 = t0 ?? 0; }
   return o;
 }
 
 // ───────────────────────── Analyse d’un bord
-const legType = (twa, tws) => {
+// avant : voile d’avant nommée (ctx.voileAvant : « Génois » ou « Foc » pour le Tofinou) ; Naos n’en passe pas : « Foc » de la v43
+const legType = (twa, tws, avant = 'Foc') => {
   const a = Math.abs(twa), { up, down } = optimalAngles(tws);
-  if (a < up.twa + 6) return { id: 'pres', label: 'Près (louvoyage)', sail: 'Foc' };
-  if (a < 70) return { id: 'bonplein', label: 'Bon plein', sail: 'Foc' };
-  if (a < spiMinTwa(tws)) return { id: 'travers', label: 'Travers / petit largue', sail: 'Foc (spi limite)' };
+  if (a < up.twa + 6) return { id: 'pres', label: 'Près (louvoyage)', sail: avant };
+  if (a < 70) return { id: 'bonplein', label: 'Bon plein', sail: avant };
+  if (a < spiMinTwa(tws)) return { id: 'travers', label: 'Travers / petit largue', sail: `${avant} (spi limite)` };
   if (a < down.twa - 6) return { id: 'largue', label: 'Largue sous spi', sail: 'Spi asymétrique' };
   return { id: 'arriere', label: 'Vent arrière (empannages)', sail: 'Spi asymétrique' };
 };
@@ -302,7 +305,7 @@ export function analyzeLeg(leg, field, ctx) {
   }
   const spd = Math.hypot(su, sv) / (N + 1), dir = norm360(Math.atan2(-su, -sv) * 180 / Math.PI), gust = sg / (N + 1), shelter = ssh / (N + 1);
   const twa = norm180(leg.brg - dir);
-  const type = legType(twa, spd);
+  const type = legType(twa, spd, ctx.voileAvant);
   const r = routeOf(leg.from, leg.to, field, routeOpts(ctx), ctx);
   const time = r ? r.time : leg.dist / (Math.max(1, boatSpeed(spd, twa)) * 0.5144);
   const sides = sideSample(field, leg);
@@ -570,7 +573,9 @@ export function trendOf(series, startIdx, endIdx) {
 export function rankCourses(cls, windDir, windSpd, list = COURSES) {
   return list.filter((c) => c.seq[cls] && !c.built && MARKS[c.seq[cls][0]?.[0]]).map((c) => {
     const first = MARKS[c.seq[cls][0][0]];
-    const ctr = toXY(LINE_PRESETS[c.line || 'vignettes'].lat, LINE_PRESETS[c.line || 'vignettes'].lon);
+    // parcours sans ligne propre (lu dans les IC, saisi) sur un plan d’eau sans « vignettes » : sa ligne par défaut (Bormes, 08-11) ; Toulon : v42
+    const lp = LINE_PRESETS[c.line || 'vignettes'] ?? (VENUE.lineDefaut ? LINE_PRESETS[VENUE.lineDefaut] : undefined);
+    const ctr = toXY(lp.lat, lp.lon);
     const brg = bearingXY(ctr, toXY(first.lat, first.lon));
     const twa = Math.abs(norm180(brg - windDir));
     return { c, twa, brg, score: Math.abs(twa - 40) };

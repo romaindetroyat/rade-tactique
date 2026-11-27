@@ -5,7 +5,9 @@
 // la plus récente gagne : l’autre va dans `hist` (historique de la fiche). La fusion est commutative, associative et idempotente.
 
 export const MAX_HIST = 30, MAX_HIST_BYTES = 4000;
-export const HEAD = ['name', 'club', 'dateStart', 'dateEnd', 'season', 'ic', 'venue'];   // « fiche » : modifiée d’un bloc par la validation des IC
+export const HEAD = ['name', 'club', 'dateStart', 'dateEnd', 'season', 'jours', 'ic', 'venue'];   // « fiche » : modifiée d’un bloc par la validation des IC
+// `jours` (08-08, D-13) : jours de course d’une régate en saison (Challenge de la Baie de l’espace Tofinou), dans le duel de la fiche comme les
+// dates. Aucune régate de Naos n’en porte : sa fiche, sa fusion et son document restent ceux de la v43 (champ absent = omis du contenu).
 // Plan d’eau de la régate (`venue`, 07-05) : champ de la fiche, mais fusionné à part, comme un registre « dernier écrit gagne » daté par `vu`
 // (instant où il a été écrit). Raison : un téléphone resté en v42 ne connaît pas ce champ et renvoie la fiche sans lui ; s’il entrait dans le
 // duel de la fiche, une copie qui l’ignore pourrait l’effacer, et une valeur héritée changerait le départage suivant (fusion non associative).
@@ -15,7 +17,8 @@ export const HEAD = ['name', 'club', 'dateStart', 'dateEnd', 'season', 'ic', 've
 export const FICHE = HEAD.filter((k) => k !== 'venue');
 // Plans d’eau acceptés dans l’archive (liste blanche du serveur, api/archive.js) : les clés de VENUES de js/venues.js (test qui les compare).
 // Écrite ici et non importée de js/venues.js : la fonction du serveur n’embarque que ce module (vercel.json, includeFiles, Pitfall 15).
-export const VENUE_IDS = Object.freeze(['toulon', 'brest']);
+// Chaque espace n’en accepte qu’une partie (POLITIQUE d’api/_espace.js : Naos toulon et brest, comme en v43 ; Tofinou bormes).
+export const VENUE_IDS = Object.freeze(['toulon', 'brest', 'bormes']);
 export const LISTS = { race: 'races', mark: 'marks', course: 'courses', trace: 'traces' };
 export const LOCAL_ONLY = ['sel'];                                                 // état d’affichage de CET appareil : jamais partagé
 const DANGER = new Set(['__proto__', 'constructor', 'prototype']);                // clés refusées partout (pollution de prototype)

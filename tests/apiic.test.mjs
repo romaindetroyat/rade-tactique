@@ -57,7 +57,7 @@ function res() {
   return r;
 }
 // le middleware pose le prénom de l’équipier sur toute demande /api/ : api/_ia.js ne compte que sous ce prénom
-const post = (text, headers = {}) => ({ method: 'POST', headers: { 'x-rt-membre': encodeURIComponent('Romain'), ...headers }, body: { text } });
+const post = (text, headers = {}) => ({ method: 'POST', headers: { 'x-rt-membre': encodeURIComponent('Romain'), 'x-rt-espace': 'naos', ...headers }, body: { text } });
 async function appelle(client, req) { const r = res(); await createHandler({ openai: client })(req, r); return r; }
 
 // ── garde de schéma
@@ -354,4 +354,25 @@ test('verify puis reviewFromApi : porte et arrivée prouvées entrent dans la re
   assert.deepEqual(rv.courses[0].sequence[2], { mark: '4s', side: null, gate: '4p' });
   assert.deepEqual(rv.courses[0].finish, { kind: 'comite', mark: 'F', excerpt: 'arrivée entre le bateau comité et la bouée F' });
   assert.equal(rv.courses[1].finish, null); assert.equal(rv.courses[1].finishFlag, 'extrait introuvable dans le texte');
+});
+
+// ── espace Tofinou (08-09, D-06, D-16) : consigne de lecture propre à l’espace, choisie par l’en-tête du middleware ; même vérification mot pour mot
+import { CONSIGNES_TOFINOU } from '../api/_tofinou.js';
+test('espace Tofinou : consigne de lecture de Tofinou (jamais celle de Naos), même schéma, même vérification de chaque extrait dans le texte envoyé', async () => {
+  const entete = { 'x-rt-membre': encodeURIComponent('Frédéric'), 'x-rt-espace': 'tofinou' };
+  const sortie = { ...bonneSortie(), committee: { value: 'Jean MARTIN', excerpt: 'Comité de course : Jean MARTIN' } };      // extrait inventé
+  const { client, appels } = faux(sortie);
+  const r = await appelle(client, { ...post(texte, entete), body: { text: texte, venue: 'toulon' } });
+  assert.equal(r.code, 200, JSON.stringify(r.body));
+  assert.equal(appels[0].instructions, CONSIGNES_TOFINOU.ic);
+  assert.notEqual(appels[0].instructions, SYSTEM);
+  assert.ok(/<ic>/.test(CONSIGNES_TOFINOU.ic) && /mot pour mot/.test(CONSIGNES_TOFINOU.ic) && /Tofinou 9\.5/.test(CONSIGNES_TOFINOU.ic));
+  assert.deepEqual(appels[0].text.format.schema, SCHEMA); assert.equal(appels[0].text.format.strict, true); assert.equal(appels[0].store, false);
+  assert.ok(appels[0].input.startsWith('<ic>') && !appels[0].instructions.includes(texte.slice(0, 200)), 'le texte reste dans la donnée');
+  assert.equal(r.body.vhf.value, '72'); assert.equal(r.body.firstWarning.value, '10:55');
+  assert.equal(r.body.committee.value, null); assert.equal(r.body.committee.flag, 'extrait introuvable dans le texte');
+  // Naos, même requête : consigne de la v43
+  const n = faux(bonneSortie());
+  await appelle(n.client, post(texte));
+  assert.equal(n.appels[0].instructions, SYSTEM);
 });

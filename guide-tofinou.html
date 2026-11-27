@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Guide Tofinou Bormes</title>
+<meta name="description" content="Guide court de l’espace Tofinou — Bormes : entrer, la rade de Bormes hors réseau, le Challenge de la Baie, le Tofinou 9.5, la trace de course, les vents, les zones et l’IA.">
+<link rel="icon" href="icons/favicon-32.png" sizes="32x32">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<style>
+/* Guide court de l’espace Tofinou : même charte que guide.html (cartes, sommaire collant, version imprimable) */
+:root {
+  --bg: #f4f7f9; --surface: #ffffff; --ink: #0f2230; --muted: #566a78; --line: #d5dfe6;
+  --sea: #0b6e8c; --accent: #e8590c; --chip: #e6eef3; --tip: #fff6e6; --tipline: #f0c78a;
+}
+@media (prefers-color-scheme: dark) { :root {
+  --bg: #0a1820; --surface: #10222d; --ink: #e6eff4; --muted: #95aab7; --line: #24404f;
+  --sea: #4cc3e0; --accent: #ff8a3d; --chip: #19323f; --tip: #2a2412; --tipline: #6b5420; color-scheme: dark } }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 17px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif; }
+header.hero { background: #0b2231; color: #fff; padding: calc(env(safe-area-inset-top, 0px) + 28px) max(18px, env(safe-area-inset-right, 0px)) 28px max(18px, env(safe-area-inset-left, 0px)); }
+.hero .in { max-width: 920px; margin: 0 auto; display: grid; grid-template-columns: auto 1fr; gap: 18px; align-items: center; }
+.hero img { width: 76px; height: 76px; border-radius: 18px; box-shadow: 0 4px 16px rgba(0,0,0,.4); }
+.hero h1 { margin: 0; font-size: clamp(28px, 6vw, 42px); line-height: 1.05; }
+.hero p { margin: 6px 0 0; color: #b9cfdc; }
+.hero a.open { display: inline-block; margin-top: 12px; background: #ff8a1c; color: #000; font-weight: 800; text-decoration: none; padding: 12px 18px; border-radius: 12px; }
+.hero a.open.alt { background: #18394b; color: #fff; }
+nav.toc { position: sticky; top: 0; z-index: 5; background: var(--surface); border-bottom: 1px solid var(--line); overflow-x: auto; white-space: nowrap; padding: 0 max(12px, env(safe-area-inset-right, 0px)) 0 max(12px, env(safe-area-inset-left, 0px)); }
+nav.toc a { display: inline-block; padding: 13px 12px; color: var(--muted); text-decoration: none; font-weight: 700; font-size: 15px; border-bottom: 3px solid transparent; }
+nav.toc a:hover, nav.toc a:focus { color: var(--ink); border-color: var(--accent); }
+main { max-width: 920px; margin: 0 auto; padding: 8px max(18px, env(safe-area-inset-right, 0px)) 60px max(18px, env(safe-area-inset-left, 0px)); }
+section { padding-top: 26px; scroll-margin-top: 54px; }
+h2 { font-size: 27px; margin: 0 0 4px; }
+h2 + .lead { color: var(--muted); margin: 0 0 14px; }
+h3 { font-size: 19px; margin: 0 0 6px; }
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); gap: 12px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; min-width: 0; }
+.card ol, .card ul { margin: 6px 0 0; padding-left: 20px; display: grid; gap: 5px; }
+.card p { margin: 6px 0 0; }
+.where { display: inline-block; font-size: 13px; font-weight: 700; color: var(--sea); background: var(--chip); border-radius: 999px; padding: 1px 10px; margin-bottom: 6px; }
+.k { display: inline-block; max-width: 100%; margin: 2px 0; font: 700 14px/1.45 ui-monospace, Menlo, monospace; background: var(--chip); border: 1px solid var(--line); border-radius: 6px; padding: 0 6px; text-align: left; }
+.tip { background: var(--tip); border: 1px solid var(--tipline); border-radius: 12px; padding: 12px 16px; margin-top: 12px; }
+.tip b:first-child { color: var(--accent); }
+.why { font-size: 15.5px; color: var(--muted); }
+.wide { grid-column: 1 / -1; }
+footer { color: var(--muted); font-size: 14px; text-align: center; padding: 20px; }
+a { color: var(--sea); }
+@media (max-width: 480px) { .k { font-size: 13px; } }
+@media print {
+  :root { --bg: #fff; --surface: #fff; --ink: #000; --muted: #333; --line: #999; --sea: #064d63; --accent: #a63d00; --chip: #eee; --tip: #fff; --tipline: #999; color-scheme: light; }
+  body { background: #fff; color: #000; font-size: 11.5pt; line-height: 1.4; }
+  nav.toc, .hero a.open { display: none; }
+  header.hero { background: none; color: #000; padding: 0 0 8px; }
+  .hero p { color: #333; }
+  .hero img { width: 44px; height: 44px; box-shadow: none; }
+  main { max-width: none; padding: 0; }
+  .card, .tip { break-inside: avoid; }
+  h2, h3 { break-after: avoid; }
+  a { color: #000; }
+}
+</style>
+</head>
+<body>
+<header class="hero"><div class="in">
+  <img src="icons/logo.png" alt="">
+  <div><h1>Tofinou Bormes</h1><p>Le guide court de l’espace Tofinou — Bormes : préparer et courir le Challenge de la Baie en Tofinou 9.5 dans la rade de Bormes – Le Lavandou.</p>
+  <a class="open" href="./">Ouvrir l’app</a> <a class="open alt" href="regles.html">Règles de course</a></div>
+</div></header>
+
+<nav class="toc" aria-label="Sommaire">
+  <a href="#entrer">Entrer</a><a href="#horsreseau">Hors réseau</a><a href="#challenge">Challenge</a><a href="#ic">IC et parcours</a><a href="#bateau">Bateau</a><a href="#trace">Trace</a><a href="#vents">Vents</a><a href="#zones">Zones</a><a href="#ia">IA</a><a href="#espace">Changer d’espace</a><a href="#sources">Sources</a>
+</nav>
+
+<main>
+<section id="entrer">
+  <h2>Entrer et installer</h2>
+  <p class="lead">Une fois par appareil et par adresse, à terre, avec du réseau.</p>
+  <div class="cards">
+    <div class="card"><span class="where">Sur votre téléphone</span><h3>Le lien personnel</h3><ol><li>Ouvrez le lien personnel reçu de Romain.</li><li>L’app s’ouvre et vous reconnaît sur cet appareil, à cette adresse.</li><li>Si l’écran demande <b>Votre code personnel</b>, tapez le code reçu de Romain et touchez <span class="k">Entrer</span>.</li></ol><p class="why">Le lien remplace un mot de passe : ne le transmettez à personne. Il n’ouvre que l’espace Tofinou.</p></div>
+    <div class="card"><span class="where">iPhone</span><h3>Installer « Tofinou Bormes »</h3><ol><li>Ouvrez le lien dans <b>Safari</b>.</li><li>Touchez <b>Partager</b>, puis <b>Sur l’écran d’accueil</b> : l’app s’appelle « Tofinou Bormes ».</li><li>Lancez-la depuis son icône et entrez une fois votre code dans l’app installée (Safari et l’app installée ne partagent pas leur mémoire).</li></ol><p class="why">Android : <b>Chrome</b>, menu <b>⋮</b>, <b>Installer l’application</b>.</p></div>
+    <div class="card"><span class="where">Bandeau sous la barre du haut</span><h3>Mettre à jour</h3><p>Quand une nouvelle version est prête, un bandeau propose <span class="k">Mettre à jour</span>. Rien ne change tout seul, et jamais pendant une course : faites-la la veille ou le matin. La version se lit tout en bas de l’aide (<span class="k">?</span>).</p></div>
+  </div>
+</section>
+
+<section id="horsreseau">
+  <h2>La rade de Bormes hors réseau</h2>
+  <p class="lead">La carte, le relief et le vent local de la rade de Bormes – Le Lavandou se téléchargent une fois.</p>
+  <div class="cards">
+    <div class="card"><span class="where">Onglet Régates, carte « Plan d’eau »</span><h3>Télécharger une fois</h3><ol><li>À la première ouverture, avec du réseau, l’app télécharge la rade (environ 3,6 Mo). Sinon touchez <span class="k">Télécharger le plan d’eau</span>.</li><li>La carte dit « Prêt hors réseau » : la rade s’ouvre ensuite en mode avion.</li><li>Les prévisions demandent du réseau ; sans réseau, l’app garde les dernières reçues et le dit.</li></ol></div>
+    <div class="card"><span class="where">Partout</span><h3>Ce qui marche en mer sans réseau</h3><p>Carte, parcours, routage, chrono, <span class="k">⛵ Mode départ plein écran</span>, GPS, trace, débrief. Demandent du réseau : les prévisions, l’archive partagée et l’IA.</p></div>
+  </div>
+</section>
+
+<section id="challenge">
+  <h2>Challenge de la Baie 2026-2027</h2>
+  <p class="lead">La fiche est semée par l’app dans l’onglet Régates, d’après l’avis de course et les fiches de course : à vérifier avec ceux en vigueur.</p>
+  <div class="cards">
+    <div class="card"><span class="where">Onglet Régates</span><h3>La fiche et les jours de course</h3><ul><li>Sept manches : 11 octobre et 8 novembre 2026 au Lavandou ; 13 décembre 2026, 17 janvier et 14 février 2027 à Bormes ; 14 mars 2027 au Lavandou ; finale les 10 et 11 avril 2027.</li><li>La régate n’est « En cours » que ces jours-là ; touchez <span class="k">Ouvrir</span> pour la suivre.</li><li>Briefing à 10 h, premier signal à 11 h, VHF 72.</li><li>Règles d’introduction à la régate (RIR), pénalité d’un tour.</li></ul></div>
+    <div class="card"><span class="where">Onglet Parcours</span><h3>Les parcours</h3><ul><li>Les côtiers de l’annexe (1, 2, 3, 5, 6, 7, 9, 10), titrés par exemple « Parcours 7 — La Fourmigue, coffre 1 ».</li><li>Un numéro suivi de « R » se court en sens inverse : choisissez par exemple « Parcours 7 R (sens inverse) ».</li><li>« Parcours 4 — banane (construite) » : la banane n° 4 au milieu de la baie, deux tours ; ses bouées sont calculées, le Comité fait foi.</li><li>Les bouées mouillées par le club sont en « position à confirmer » ; La Fourmigue et le coffre 1 sont des marques fixes.</li></ul></div>
+  </div>
+</section>
+
+<section id="ic">
+  <h2>Vos IC et vos parcours</h2>
+  <p class="lead">Pour une autre régate du club, ou un entraînement, avec du réseau et avant la course.</p>
+  <div class="cards">
+    <div class="card"><span class="where">Fiche de la régate ouverte</span><h3>Charger ses propres IC</h3><ol><li>Créez la régate (<span class="k">＋ Nouvelle régate</span>) et ouvrez-la.</li><li>Touchez <span class="k">＋ Importer des IC (PDF)</span> et choisissez le PDF.</li><li>Touchez <span class="k">Lire avec l’IA (le texte part chez OpenAI)</span>.</li><li>Relisez : chaque valeur garde sa phrase d’origine ; rien n’est retenu avant <span class="k">Valider les IC</span>.</li><li>Les bouées lues restent à confirmer dans la fiche : touchez <span class="k">Confirmer</span> sur chacune, une fois sa position vérifiée.</li></ol></div>
+    <div class="card"><span class="where">Fiche, section « Bouées et parcours de la régate »</span><h3>Créer ou modifier un parcours</h3><ol><li><span class="k">＋ Ajouter une bouée</span> : nom et position en degrés et minutes. Ou touchez la carte puis <span class="k">Bouée de régate ici…</span>.</li><li>Une bouée ajoutée reste « à confirmer » : elle ne sert à rien tant que vous ne l’avez pas confirmée.</li><li><span class="k">Créer un parcours</span> : bouées confirmées dans l’ordre, côté (bâbord ou tribord), porte à deux bouées, arrivée, nombre de tours, nom ; puis <span class="k">Enregistrer le parcours</span>.</li><li><span class="k">Modifier le parcours</span> pour le corriger. Le parcours est partagé avec l’équipage de l’espace.</li></ol><p class="why">Pendant une course, rien ne se modifie : parcours et bouées sont modifiables après la course.</p></div>
+  </div>
+</section>
+
+<section id="bateau">
+  <h2>Le bateau</h2>
+  <p class="lead">Onglet Tofinou : la polaire du Tofinou 9.5, tirée du certificat ORC d’un sister-ship, à recaler.</p>
+  <div class="cards">
+    <div class="card"><span class="where">Onglet Tofinou</span><h3>Génois ou foc</h3><ul><li>Choisissez la voile d’avant : <span class="k">Génois</span> (celui du certificat, par défaut) ou <span class="k">Foc d’origine</span> (polaire estimée). Voile d’avant et quille du bateau sont à confirmer avec le skipper.</li><li>Pertes au virement (11 s) et à l’empannage (8 s) : une estimation utilisée par le routage, à mesurer sur les traces.</li><li>Tirant d’eau (quille basse ou relevée) : à confirmer, utilisé par aucun calcul.</li></ul></div>
+    <div class="card"><span class="where">Onglet Tofinou</span><h3>Recaler la polaire</h3><ol><li>D’abord le curseur <b>Performance de l’équipage par rapport à la polaire</b> (90 à 95 % est réaliste en flotte).</li><li>Puis le débrief de chaque course, qui compare la trace à la polaire.</li><li>Au besoin, une polaire personnelle (fichier .pol) ; <span class="k">Polaire par défaut</span> revient à celle du sister-ship.</li></ol><p class="why">La colonne <b>Spi dès</b> est un repère indicatif, à vérifier sur l’eau. Elle et la relance du mode départ (temps pour rejoindre la ligne) sont reprises du J80, un bateau plus léger : des approximations.</p></div>
+  </div>
+</section>
+
+<section id="trace">
+  <h2>Enregistrer chaque course</h2>
+  <p class="lead">Une app de trace dédiée enregistre même écran éteint ; l’app importe ensuite son GPX pour le débrief.</p>
+  <div class="cards">
+    <div class="card"><span class="where">Les apps de trace</span><h3>Laquelle installer</h3><ul><li>iPhone : <b>Open GPX Tracker</b> (gratuite, libre, export GPX).</li><li>Android : <b>GPS Logger</b> de BasicAirData (gratuite, libre, export GPX) ou <b>Geo Tracker</b>.</li></ul><p class="why">Sur iPhone, le GPS de l’app s’arrête quand l’écran se verrouille : la trace de l’app de trace, elle, continue.</p></div>
+    <div class="card"><span class="where">Le jour de la course</span><h3>Pas à pas</h3><ol><li>Au port, démarrez l’enregistrement dans l’app de trace.</li><li>Rangez le téléphone : l’écran peut s’éteindre.</li><li>Au retour au port, arrêtez l’enregistrement.</li><li>Exportez le GPX (Partager, ou Enregistrer dans Fichiers).</li><li>Dans l’app, onglet Traces : <span class="k">⤓ Importer un fichier GPX</span> et choisissez le fichier.</li><li>L’app range la trace dans la régate du jour (fiche de l’onglet Régates, partie Traces), puis le questionnaire du débrief s’ouvre seul, pré-rempli : validez-le. Pour le refaire plus tard : <span class="k">Débrief de course</span> sur la trace.</li></ol></div>
+  </div>
+</section>
+
+<section id="vents">
+  <h2>Vents de la baie</h2>
+  <p class="lead">Le briefing reconnaît huit régimes : calme, mistral (ouest), ouest modéré, nord-ouest à nord, est, sud-est (brise de midi), sud, sud-ouest (brise de l’après-midi).</p>
+  <div class="cards">
+    <div class="card"><span class="where">Onglet Briefing</span><h3>Des conseils marqués</h3><ul><li>Chaque conseil vient d’une mesure (Météo-France), du modèle de l’app ou d’une hypothèse.</li><li>Une hypothèse est suivie de « (à confirmer sur l’eau) ».</li><li>Ici le mistral vient de l’ouest, 260° en médiane, pas du nord-ouest.</li></ul><p class="why">Le vent local est un modèle simplifié, utile jusqu’à 25 nœuds : il ne remplace pas l’observation du plan d’eau.</p></div>
+  </div>
+</section>
+
+<section id="zones">
+  <h2>Zones et règles</h2>
+  <div class="cards">
+    <div class="card"><span class="where">Carte et routage</span><h3>Zones interdites</h3><ul><li>Île du Levant, zone militaire, et abords du fort de Brégançon : évités par le routage, tracés approchés, marqués « à compléter sur carte marine ».</li><li>Vérifiez-les sur la carte marine et les arrêtés en vigueur.</li></ul></div>
+    <div class="card"><span class="where">Carte, dangers</span><h3>Port-Cros et le courant</h3><ul><li>Parc national de Port-Cros : vitesse limitée à 5 nd à moins de 300 m des côtes.</li><li>Entre les îles, le courant général porte en général à l’ouest : une information de la carte « État de la mer », pas un calcul du routage (aucune marée ni modèle de courant dans la rade).</li></ul></div>
+  </div>
+</section>
+
+<section id="ia">
+  <h2>L’IA</h2>
+  <div class="cards">
+    <div class="card"><span class="where">Avec du réseau</span><h3>Quatre usages, 30 appels par jour</h3><ul><li>Lecture des IC, relevé de vent dicté (<span class="k">🎤</span>), débrief de course et arbitre de poche de la page des règles.</li><li>30 appels par personne et par jour, comptés dans l’espace Tofinou ; au-delà, « Limite d’IA du jour atteinte — reprise demain ».</li><li>Toute valeur se relit : rien n’est enregistré sans votre validation, et seul le jury tranche une réclamation.</li></ul></div>
+  </div>
+</section>
+
+<section id="espace">
+  <h2>Changer d’espace</h2>
+  <div class="cards">
+    <div class="card"><span class="where">Aide (?), pour Romain</span><h3>Passer d’un espace à l’autre</h3><p>Romain est membre de deux espaces. Dans l’aide, <span class="k">Changer d’espace</span> ouvre l’autre adresse dans un nouvel onglet ; il y entre son code une fois. Les deux espaces ne partagent rien : ni régates, ni traces, ni réglages.</p></div>
+  </div>
+</section>
+
+<section id="sources">
+  <h2>Sources</h2>
+  <div class="cards">
+    <div class="card wide"><h3>D’où viennent les données</h3><ul><li>Côte, digues et lieux : © contributeurs OpenStreetMap (ODbL).</li><li>Fonds : EMODnet Bathymetry.</li><li>Relief à terre : AWS Terrain Tiles.</li><li>Prévisions : Open-Meteo (Météo-France et d’autres modèles) ; mesures de vent : Météo-France.</li><li>Polaire : certificat ORC Club 2026 d’un Tofinou 9.5 (sister-ship).</li></ul><p><b>L’app ne remplace pas les cartes et ouvrages nautiques officiels.</b> Les positions marquées « position à confirmer » ou « approx » sont à vérifier sur zone : le Comité fait foi.</p></div>
+  </div>
+</section>
+</main>
+<footer>Tofinou Bormes · rade de Bormes – Le Lavandou · Tofinou 9.5 · <a href="./">Ouvrir l’app</a></footer>
+</body>
+</html>

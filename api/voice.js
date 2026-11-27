@@ -6,6 +6,8 @@
 
 import { createIA } from './_ia.js';
 import { venueOf } from './_gpen.js';
+import { espaceDeRequete } from './_espace.js';
+import { CONSIGNES_TOFINOU } from './_tofinou.js';
 
 const MODEL = process.env.OPENAI_MODEL || 'gpt-5.5';
 
@@ -42,6 +44,8 @@ Règles :
 - Si la phrase ne parle pas de vent ou est incompréhensible : understood = false et pose une question courte.
 - summary : une phrase française très courte qui reformule ce que tu as compris (ex. « Vent au 270, 12 nœuds »).`;
 const CONSIGNES = { toulon: SYSTEM, brest: SYSTEM_BREST };
+// Espace Tofinou (08-09, D-06) : consigne fixe de l’espace, choisie par l’en-tête du middleware ; le plan d’eau du corps n’y change rien
+const consigneDe = (req) => (espaceDeRequete(req) === 'tofinou' ? CONSIGNES_TOFINOU.voice : CONSIGNES[venueOf(req.body)]);
 
 const SCHEMA = {
   type: 'object',
@@ -78,7 +82,7 @@ export function createHandler({ openai, blob, now, delai } = {}) {
     try {
       const response = await ia.appelle({
         model: MODEL,
-        instructions: CONSIGNES[venueOf(req.body)],
+        instructions: consigneDe(req),
         input: user,
         reasoning: { effort: 'low' },
         text: { format: { type: 'json_schema', name: 'releve_vent', schema: SCHEMA, strict: true } },

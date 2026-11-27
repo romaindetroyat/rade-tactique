@@ -8,6 +8,7 @@ import { analyzeTrack } from './track.js';
 import { analyzeLeg, buildLegs, prepareLeg } from './tactics.js';
 import { MARKS, COURSES, venueBody } from './lieu.js';
 import { BANANE, cleanBan } from './banane.js';
+import { ESPACE } from './espaces.js';
 
 const KN = 0.5144;
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -524,12 +525,12 @@ async function mapImage(an, P, meta, base = 'data/') {
 function polarSection(an) {
   const rows = an.legs.flatMap((L) => (L.polar || []).map((x) => `<tr><td>${esc(L.name)}</td><td>${esc(x.allure)}, TWA ${x.twa}°</td><td class="n">${String(x.tws).replace('.', ',')} nd</td><td class="n">${String(x.v).replace('.', ',')} nd</td><td class="n">${String(x.tgt).replace('.', ',')} nd</td><td class="n"><b>${x.pct} %</b> <span style="color:var(--muted)">(${x.pctLo} / ${x.pctHi})</span></td></tr>`));
   const ang = an.legs.filter((L) => L.angles).map((L) => `<li>${esc(L.name)} : angle ${L.angles.kind === 'virement' ? 'de virement' : 'd’empannage'} mesuré <b>${L.angles.mesure}°</b> (routes fond), polaire ${L.angles.polaire}°. ${L.angles.kind === 'virement' ? (L.angles.mesure - L.angles.polaire > 12 ? 'Vous serriez moins le vent que la polaire, ou la dérive était forte.' : 'Cap au près conforme, dérive comprise.') : (L.angles.mesure - L.angles.polaire > 15 ? 'Empannages plus serrés que l’optimum : normal par petit temps, à surveiller dans la brise.' : 'Angles au portant conformes.')}</li>`).join('');
-  if (!rows.length && !ang) return '<section><h2>5 · Vitesse face à la polaire J80</h2><p class="note">Pas de force de vent indépendante (ni relevé, ni prévision pour ce jour) : la comparaison à la polaire n’est pas possible. Un relevé de force pendant la course la rend possible.</p></section>';
+  if (!rows.length && !ang) return `<section><h2>5 · Vitesse face à la polaire ${esc(ESPACE.bateau.classe)}</h2><p class="note">Pas de force de vent indépendante (ni relevé, ni prévision pour ce jour) : la comparaison à la polaire n’est pas possible. Un relevé de force pendant la course la rend possible.</p></section>`;
   const src = [...new Set(an.legs.map((L) => L.polarSrc).filter(Boolean))].join(' et ');
-  return `<section><h2>5 · Vitesse face à la polaire J80</h2>
+  return `<section><h2>5 · Vitesse face à la polaire ${esc(ESPACE.bateau.classe)}</h2>
 <div class="tbl"><table class="wide"><tr><th>Bord</th><th>Allure</th><th>Vent</th><th>Vous</th><th>Polaire</th><th>% polaire (vent −1 / +1 nd)</th></tr>${rows.join('')}</table></div>
 ${ang ? `<ul class="list">${ang}</ul>` : ''}
-<p class="note">Vitesse fond GPS comparée à la polaire ORC du J80, médiane de chaque allure. Force du vent tirée de ${esc(src || 'la prévision')}, direction de vos changements d’amure. Entre parenthèses : le résultat si le vent avait 1 nd de moins ou de plus, pour juger de la sensibilité. Les moments arrêtés (moins de 1,5 nd) sont exclus.</p></section>`;
+<p class="note">Vitesse fond GPS comparée à la polaire ORC du ${esc(ESPACE.bateau.classe)}, médiane de chaque allure. Force du vent tirée de ${esc(src || 'la prévision')}, direction de vos changements d’amure. Entre parenthèses : le résultat si le vent avait 1 nd de moins ou de plus, pour juger de la sensibilité. Les moments arrêtés (moins de 1,5 nd) sont exclus.</p></section>`;
 }
 
 export async function buildReport(an, ans, nar, det, api) {
@@ -598,19 +599,19 @@ td.n{font-family:ui-monospace,Menlo,monospace;font-size:13px;white-space:nowrap}
 .g{stroke:var(--line)}.ax{font:11px ui-monospace,Menlo,monospace;fill:var(--muted)}.fc{stroke:var(--muted);stroke-width:2;stroke-dasharray:6 5}.ob{fill:var(--accent)}
 .lg{display:flex;flex-wrap:wrap;gap:6px 16px;padding:10px 14px;font-size:13px;color:var(--muted);border-top:1px solid var(--line)}.lg i{display:inline-block;width:22px;height:4px;border-radius:2px;vertical-align:middle;margin-right:6px}
 </style></head><body><div class="wrap">
-<header style="display:grid;gap:8px"><div class="eyebrow">Débrief · J80 · Rade Tactique</div>${ans.place === '1' ? '<div class="win">Victoire</div>' : ''}<h1>${esc(title)}, ${esc(date)}</h1>
+<header style="display:grid;gap:8px"><div class="eyebrow">Débrief · ${esc(ESPACE.bateau.classe)} · ${esc(ESPACE.app)}</div>${ans.place === '1' ? '<div class="win">Victoire</div>' : ''}<h1>${esc(title)}, ${esc(date)}</h1>
 <div class="meta"><span class="chip">${esc(ans.course.title)}${ans.ban ? ` : ${esc(ans.table?.B?.short || 'B')} à ${String(ans.ban.nm).replace('.', ',')} Nq, axe ${fmtBrg(ans.ban.dir)}` : ''}${ans.reduced ? ', réduit' : ''}</span><span class="chip">Départ ${hm(an.tStart)}${ans.falseStarts ? ` après ${ans.falseStarts} rappel${ans.falseStarts > 1 ? 's' : ''}` : ''}</span><span class="chip">Arrivée ${hms(an.tFin)}</span><span class="chip">Course ${mins(total)}</span><span class="chip">${nm(dist)} parcourus pour ${nm(direct)} de route directe</span>${ans.place ? `<span class="chip">Classement ${esc(ans.place)}${ans.fleet ? ' / ' + esc(ans.fleet) : ''}</span>` : ''}</div></header>
 <div class="keys"><div class="key good"><span class="k">Ce qui a marché</span><p>${esc(nar.resume.bien)}</p></div><div class="key warn"><span class="k">Ce qui a coûté</span><p>${esc(nar.resume.coute)}</p></div><div class="key bad"><span class="k">La météo</span><p>${esc(nar.resume.meteo)}</p></div></div>
 <section><h2>1 · Le parcours</h2><div class="tbl"><table><tr><th>Bord</th><th>Passage</th><th>Allure</th><th>Route directe</th><th>Parcouru</th><th>Vent</th></tr>${legRows}</table></div>
 <div class="fig">${svg}<div class="lg"><span><i style="background:#2b8a3e"></i>&gt; 5 nd</span><span><i style="background:#0d6e8a"></i>3,5–5 nd</span><span><i style="background:#c27c0e"></i>2–3,5 nd</span><span><i style="background:#c92a2a"></i>&lt; 2 nd</span><span><i style="background:#00a6c8"></i>route conseillée</span></div></div></section>
 <section><h2>2 · Le vent</h2><div class="fig">${wsvg}<div class="lg"><span><i style="background:var(--accent)"></i>vent déduit de vos changements d’amure</span><span><i style="background:var(--muted)"></i>prévision</span></div></div>
-<p class="note">Le vent est déduit de la trace : la direction vient de l’angle entre vos deux amures, la force de votre vitesse comparée à la polaire J80. Les temps « conseil » servent à comparer des choix de route, pas à juger la vitesse.</p></section>
+<p class="note">Le vent est déduit de la trace : la direction vient de l’angle entre vos deux amures, la force de votre vitesse comparée à la polaire ${esc(ESPACE.bateau.classe)}. Les temps « conseil » servent à comparer des choix de route, pas à juger la vitesse.</p></section>
 <section><h2>3 · La stratégie de l’app avec ce vent</h2><div class="legs">${stratCards}</div></section>
 <section><h2>4 · Ce que vous avez fait</h2><div class="steps">${steps.map(([t, x]) => `<div class="step"><span class="t">${t}</span><p>${x}</p></div>`).join('')}</div>${ans.notes ? `<p><b>Sur l’eau :</b> ${esc(ans.notes)}</p>` : ''}</section>
 ${polarSection(an)}
 <section><h2>6 · Les écarts</h2><div class="tbl"><table class="wide"><tr><th>Bord</th><th>Route conseillée</th><th>Votre route</th><th>Temps réel / conseil</th><th>Lecture</th></tr>${gapRows}</table></div></section>
 <section><h2>7 · À retenir</h2><ul class="list">${(nar.retenir || []).map((x) => `<li>${esc(x)}</li>`).join('')}</ul></section>
-<p class="note">Rapport généré par Rade Tactique${nar.ai ? ', rédaction assistée' : ''} le ${new Date().toLocaleDateString('fr-FR')}.</p>
+<p class="note">Rapport généré par ${esc(ESPACE.app)}${nar.ai ? ', rédaction assistée' : ''} le ${new Date().toLocaleDateString('fr-FR')}.</p>
 </div></body></html>`;
   return html;
 }

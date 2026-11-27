@@ -9,17 +9,47 @@
   // plan d’eau choisi dans l’app (rade.state, liste fermée) : ajouté à la requête seulement hors de Toulon (07-09, D-11 ; corps de la v42 à Toulon)
   const brest = (() => { try { return JSON.parse(localStorage.getItem('rade.state') || '{}')?.venue === 'brest'; } catch { return false; /* stockage illisible : Toulon */ } })();
   const venueBody = () => (brest ? { venue: 'brest' } : {});
+  // Espace de la page (08-09, D-06, D-07) : même règle que l’app (js/espaces.js : hôte connu, sinon rade.espace.v1, sinon Naos). Hors de Naos :
+  // note du bateau et de l’épreuve en tête de page (longueurs calculées depuis le bateau de l’espace), libellé des IC de l’épreuve, arbitre
+  // présenté avec les règles locales ; partie de Brest, lien du guide de Naos cachés. Naos : la page de la v43, rien n’est touché.
+  const EPREUVES = {
+    tofinou: { ic: 'IC du Challenge de la Baie', regles: 'Challenge de la Baie : Règles d’introduction à la régate (RIR), pénalité d’un tour, VHF 72.', locales: 'les règles locales du Challenge de la Baie' },
+  };
+  let epreuve = null;
+  const dixieme = (x) => (Math.round(x * 10) / 10).toFixed(1).replace('.', ',');
+  const noteEspace = (e, ep) => {
+    const L = e.bateau.longueur;
+    const box = document.createElement('section'); box.id = 'espace';
+    const card = document.createElement('div'); card.className = 'card';
+    const p1 = document.createElement('p'); p1.id = 'noteEspace';
+    p1.textContent = `${e.bateau.classe} : zone = 3 longueurs = ${dixieme(3 * L)} m ; deux longueurs = ${dixieme(2 * L)} m. ${ep.regles}`;
+    const p2 = document.createElement('p'); p2.className = 'small';
+    p2.textContent = 'Plus bas, les exemples donnent les longueurs d’un autre bateau et les instructions d’un autre club : au Challenge, ce sont celles-ci qui comptent.';
+    card.append(p1, p2); box.append(card);
+    document.querySelector('main')?.prepend(box);
+    const lead = document.querySelector('#arbitre .lead');
+    if (lead) lead.textContent = `Décrivez la situation avec vos mots : l’arbitre de poche répond en s’appuyant sur le texte officiel des règles 2025-2028 et ${ep.locales}, avec les règles citées en français et en anglais.`;
+    const brestSec = document.querySelector('#brest'); if (brestSec) brestSec.hidden = true;
+    for (const a of document.querySelectorAll('nav.toc a[href="#brest"], .hero a[href="guide.html"]')) a.remove();      // liens stylés : retirés, pas cachés
+  };
+  const espacePret = import('./espaces.js').then(({ ESPACES, bootEspace }) => {
+    const id = bootEspace(location.hostname, localStorage);
+    if (id === 'naos' || !Object.hasOwn(EPREUVES, id)) return;
+    epreuve = EPREUVES[id];
+    noteEspace(ESPACES[id], epreuve);
+  }).catch(() => { /* registre des espaces illisible : page de Naos */ });
   const add = (cls, html) => { const d = document.createElement('div'); d.className = 'msg ' + cls; d.innerHTML = html; log.appendChild(d); d.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); return d; };
   const render = (a) => `<button type="button" class="say-btn" aria-label="Lire la réponse à voix haute" title="Lire à voix haute">🔊</button><div class="verdict">${esc(a.verdict)}</div>${para(a.explication)}
     ${(a.regles || []).map((r) => `<div class="rn">Règle ${esc(r.numero)} · ${esc(r.titre)}</div><div class="ref">
       <blockquote><span class="lg">FR</span>« ${esc(r.fr)} » (traduction)</blockquote>
       <blockquote class="en"><span class="lg">EN</span>« ${esc(String(r.en).replace(/\s+/g, ' ').trim())} »${r.verifie ? '' : ' <b style="font-style:normal;color:var(--accent)">à vérifier</b>'}</blockquote></div>`).join('')}
-    ${a.ic ? `<div class="note"><b>${brest ? 'IC du GPEN' : 'IC CVAT'} :</b> ${esc(a.ic)}</div>` : ''}${a.attention ? `<div class="note"><b>Attention :</b> ${esc(a.attention)}</div>` : ''}`;
+    ${a.ic ? `<div class="note"><b>${epreuve ? esc(epreuve.ic) : brest ? 'IC du GPEN' : 'IC CVAT'} :</b> ${esc(a.ic)}</div>` : ''}${a.attention ? `<div class="note"><b>Attention :</b> ${esc(a.attention)}</div>` : ''}`;
   async function ask(q) {
     q = q.trim(); if (!q || go.disabled) return;
     add('me', esc(q)); input.value = ''; go.disabled = true; $('#chatChips').hidden = true;
     const wait = add('bot', '<span class="dots">L’arbitre consulte les règles</span>');
     try {
+      await espacePret;                                                     // libellé des IC de l’espace connu avant la réponse
       const r = await fetch('api/rules', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ question: q, history, ...venueBody() }) });
       const a = await r.json().catch(() => ({}));
       // 429 : quota du jour ou budget du mois, le serveur donne le message en français (affiché par textContent, borné)

@@ -54,7 +54,7 @@ function telephone(nom, M) {
   p.deps = {
     now: () => clock.t,
     async fetchJson(method, query, body) {
-      const r = await faux.invoke(handler, { method, url: '/api/archive?' + new URLSearchParams(query), body, headers: { 'x-rt-membre': encodeURIComponent(nom) } });
+      const r = await faux.invoke(handler, { method, url: '/api/archive?' + new URLSearchParams(query), body, headers: { 'x-rt-membre': encodeURIComponent(nom), 'x-rt-espace': 'naos' } });
       return { status: r.status, body: r.body };
     },
     getState: () => p.st, setState: (st) => { p.st = st; }, getMarks: () => ({}), setMarks() {},

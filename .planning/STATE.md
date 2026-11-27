@@ -1,19 +1,19 @@
 ---
 gsd_state_version: "1.0"
-current_phase: 07
-current_phase_name: "Plans d'eau : Toulon et rade de Brest (GPEN)"
-status: complete
-stopped_at: "07-10 tâche 1 faite (v43 locale, 6e4b0e3) — point de décision : « publie » de Romain"
-last_updated: "2026-11-19T11:34:55.929Z"
-last_activity: 2026-11-19
-last_activity_desc: Plan 07-10 tâche 1 — v43 prête en local (débrief GPEN, briefing titré, guide et aide), toutes les gardes vertes ; point de décision « publie »
-state_head: 6e4b0e3e157dd80497394dd93e009fc8c2c7e642
+current_phase: 08
+current_phase_name: "Espace Tofinou : rade de Bormes – Le Lavandou, Tofinou 9.5, accès séparé"
+status: in_progress
+stopped_at: 08-10 tâche 1 faite (v44 prête en local) ; point de décision de la tâche 2 en attente (poussée, PR brouillon, aperçu, « publie »)
+last_updated: "2026-11-27T00:51:33.221Z"
+last_activity: 2026-11-26
+last_activity_desc: Plan 08-09 — IA de l’espace Tofinou (consignes propres, quota par espace + prénom) et note du Tofinou sur la page des règles ; Naos identique à la v43
+state_head: 8078eba7c022832143a7f600f0c02b0ed3eda985
 progress:
-  total_phases: 7
-  completed_phases: 5
-  total_plans: 38
-  completed_plans: 38
-  percent: 71
+  total_phases: 8
+  completed_phases: 6
+  total_plans: 49
+  completed_plans: 49
+  percent: 75
 ---
 
 # Project State
@@ -23,16 +23,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-10-19)
 
 **Core value:** Le jour de la régate, l'équipage peut ouvrir l'épreuve, s'en servir en mer sans que rien ne lâche, et retrouver ensuite le débrief : des conseils et des chiffres justes, fiables sur l'eau, et partagés par tout l'équipage.
-**Current focus:** Phase 07 — Plans d'eau : Toulon et rade de Brest (GPEN)
+**Current focus:** Phase 08 — Espace Tofinou : rade de Bormes – Le Lavandou
 
 ## Current Position
 
-Phase: 07 (Plans d'eau : Toulon et rade de Brest (GPEN)) — COMPLETE
-Plan: 10 of 10
-Status: v43 en production le 2026-11-19 (PR #17, « publie » de Romain)
-Last activity: 2026-11-19 — Plan 07-10 tâche 1 : débrief des parcours du GPEN (reconstruits comme une banane, noms 1/2/3S/3P), titre du parcours au briefing de Brest, guide/aide/règles/description pour les plans d’eau ; 849 tests (848 verts, 1 sauté : instantané de Brest absent, limite Open-Meteo), 36/36 scénarios, compat-v42 8/8, compat-v41 7/7, ouvertures 418 ms Toulon / 403 ms Brest, horloge audio 3,4 ms ; v43 (5b9ef2068c), porte de production verte ; main inchangée (56f6625)
+Phase: 08 (Espace Tofinou : rade de Bormes – Le Lavandou, Tofinou 9.5, accès séparé) — EN COURS
+Plan: 10 of 11 terminés (08-01, 08-02, 08-03, 08-04, 08-05, 08-06, 08-07, 08-08, 08-09)
+Status: aperçu apercu-phase-08 ; v43 en production (PR #17)
+Last activity: 2026-11-26 — Plan 08-09 : IA ouverte à l’espace Tofinou (IA_ESPACES = naos, tofinou) avec ses consignes fixes (api/_tofinou.js : Tofinou 9.5, zone 28,4 m, Challenge de la Baie, RIR, un tour, VHF 72) choisies par l’en-tête du middleware pour l’arbitre, le débrief, la dictée et la lecture des IC ; quota de 30 par espace + prénom ; page des règles chez Tofinou : note du bateau et de l’épreuve, « IC du Challenge de la Baie », rubrique IA de l’aide ; Naos identique (gel v43, empreintes, page des règles capturée sur 5e9b8a5) ; 1009 tests (1007 verts, 2 sautés), gardes vertes, scénarios tofinou-ia, ia, arbitre, ia-erreurs, gpen, guide, naos-cles verts ; instantanés de Bormes et de Brest refusés par Open-Meteo (limite quotidienne)
 
-Progress: [███████░░░] 71%
+Progress: [████████░░] 75%
 
 ## Performance Metrics
 
@@ -96,6 +96,16 @@ Progress: [███████░░░] 71%
 | Phase 07 P08 | 38min | 3 tasks | 8 files |
 | Phase 07 P09 | 55min | 3 tasks | 24 files |
 | Phase 07 P10 | 75min | 1 tasks | 12 files |
+| Phase 08 P01 | 13min | 3 tasks | 7 files |
+| Phase 08 P02 | 17min | 3 tasks | 17 files |
+| Phase 08 P03 | 18min | 2 tasks | 16 files |
+| Phase 08 P04 | 41min | 3 tasks | 23 files |
+| Phase 08 P05 | 75min | 2 tasks | 19 files |
+| Phase 08 P06 | 25min | 2 tasks | 18 files |
+| Phase 08 P07 | 25min | 2 tasks | 9 files |
+| Phase 08 P08 | 24min | 2 tasks | 20 files |
+| Phase 08 P09 | 20 min | 2 tasks | 17 files |
+| Phase 08 P11 | 35min | 3 tasks | 17 files |
 
 ## Accumulated Context
 
@@ -202,6 +212,38 @@ Décisions récentes qui orientent le travail en cours :
 - [Phase 07]: Fiche gpen-2027 semée en local sur chaque téléphone, instant fixe et sans auteur, jamais envoyée ; pierre tombale et marqueur rade.seed.gpen.v1 empêchent tout nouveau semis
 - [Phase 07]: Consignes d’IA choisies dans une table fermée { toulon, brest } (api/_gpen.js) ; consignes de Toulon figées par leurs empreintes v42 capturées sur 56f6625
 - [Phase 07]: 07-10 : trace d’un parcours du GPEN débriefée comme une banane (courseBan, noms 1/2/3S/3P, ligne recentrée) ; briefing de Brest titré ; instantané météo de Brest absent (limite Open-Meteo), v43 publiée sans
+- [Phase 08]: 08-01 : gel de Naos v43 capturé sur l’extraction de 5e9b8a5 (tests/naos.test.mjs dans npm test, scénario naos-cles) ; tools/gardes-toulon.mjs rejoue six gardes (Toulon, SNPM, départ, tests figés, Naos, Brest)
+- [Phase 08]: 08-01 : différences admises pour Naos (espace/espaces de /api/membre, x-rt-espace: naos, AJOUTS_SHELL ≤ 64 Ko) jamais exigées, acceptées seulement si le code courant rend exactement « naos »
+- [Phase 08]: 08-01 : en v43 un x-rt-espace forgé par le navigateur est transmis aux fonctions /api/ ; 08-02 doit l’écraser
+- [Phase 08]: Espaces (08-02) : hôte connu → son espace s’il est ouvert au code, sinon réponse d’un code inconnu ; hôte inconnu (aperçu) → premier espace du code (naos d’abord)
+- [Phase 08]: Espaces (08-02) : archive et IA contrôlent le prénom d’abord (membre_inconnu), puis l’espace (espace_inconnu) : gel de Naos inchangé
+- [Phase 08]: Espaces (08-02) : createIA({ espacesIA = IA_ESPACES }) pour tester le quota par espace ; IA de Tofinou fermée (503 ia_espace) jusqu’à 08-08
+- [Phase 08]: Espaces (08-02) : hors de Naos, seuls les recalages partagés (doc.marks) sont vidés ; les bouées des régates (IC) restent
+- [Phase 08]: 08-03 : pack de Bormes construit par l’API principale d’OpenStreetMap (Overpass injoignable, aucun miroir tiers) ; Levant non urbain par la clé urban de la configuration
+- [Phase 08]: 08-03 : instantané météo de Bormes non produit (Open-Meteo, limite quotidienne) : à produire en 08-09 avant la release
+- [Phase 08]: 08-04 : espace de la session fixé avant le plan d’eau (js/espaces.js, hôte connu → espace, sinon rade.espace.v1, sinon Naos) ; Naos sans clé ni requête nouvelle
+- [Phase 08]: 08-04 : graines par paramètre (migrate, seedNorm, seedGpen) et valeurs communes du CVAT par setCommuns ; T11 contre une fixture capturée sur 5e9b8a5 (pas de git pendant npm test)
+- [Phase 08]: 08-04 : garde de synchronisation sur hôte inconnu (aucun /api/archive avant /api/membre ; appareil vierge → adoption et rechargement ; sinon arrêt) ; plafonds de Tofinou à la moitié de ceux de Naos
+- [Phase 08]: Polaire du Tofinou 9.5 : certificat ORC Club 2026 du sister-ship 03510004F1O, méthode de tools/build_polar.mjs sans extrapolation ; génois par défaut, foc estimé au choix (rade.bateau.v1, jamais pour Naos)
+- [Phase 08]: Pertes 11 s / 8 s par routeOpts seulement quand ctx.bateau est posé (hors de Naos) ; tirant d’eau 2,20 / 1,20 m affiché « à confirmer », sans calcul
+- [Phase 08]: js/bateau.js (polaire et voile par espace) ajouté au SHELL ; onglet de Naos comparé à la v43 par tests/fixtures/j80-v43.json
+- [Phase 08]: 08-06 : manifeste de Tofinou servi sans code sur ses hôtes seulement (code exigé ailleurs) : ensemble public de l’hôte de Naos identique à la v43
+- [Phase 08]: 08-06 : /manifest.webmanifest traité en premier par une enveloppe du middleware (GET/HEAD, jamais refusé), réécrit sur un hôte de Tofinou ; manifestePour partagé avec le serveur local
+- [Phase 08]: 08-06 : « Changer d’espace » dans l’aide pour un membre de plusieurs espaces sur un hôte connu, espaces gardés en mémoire seulement
+- [Phase 08]: 08-07 : zone du Levant tracée large — points 27, 3, 4, 28 écartés (contour qui se touchait), segment 26 → 29, zone 6 interdite toute l’année, bande de 200 m calculée sur data/bormes.coast.json
+- [Phase 08]: 08-07 : carte « État de la mer » par plan d’eau (merTexte, js/venues.js) ; Toulon garde les chaînes de la v43, Bormes nomme sa baie et le courant général d’ouest en information
+- [Phase 08]: 08-07 : voile d’avant du Tofinou (Génois / Foc) dans le type de bord via ctx.voileAvant ; Naos garde « Foc »
+- [Phase 08]: 08-08 : champ facultatif jours d’une régate (statut, verrou, sceau, rattachement par jour de course) ; sans jours, règles de la v43 (fixture jours-v43.json)
+- [Phase 08]: 08-08 : fiche baie-2026-2027 semée dans l’espace Tofinou seulement (marqueur rade.seed.baie.v1) ; archive de Naos sans réserve nouvelle (politique v43)
+- [Phase 08]: 08-08 : catalogue de Bormes — numéro officiel, sens inverse = numéro + 50, croisière du 5 = 25/75 ; points de passage PCS et BAG pour le tour de Port-Cros
+- [Phase 08]: 08-08 : banane n° 4 depuis la ligne « Milieu de la baie » (43,120 N 6,392 E), parcours par défaut de Bormes ; lineDefaut et sansClasses dans le descripteur
+- [Phase 08]: 08-09 : IA de Tofinou ouverte avec ses consignes fixes (api/_tofinou.js : Tofinou 9.5, 28,4 m, Challenge de la Baie, RIR, un tour, VHF 72), choisies par l’en-tête du middleware ; Naos garde les octets de la v43 ; texte des RIR non embarqué (« à vérifier dans les RIR »)
+- [Phase 08]: 08-09 : page des règles chez Tofinou : note du bateau et de l’épreuve, « IC du Challenge de la Baie », partie de Brest et guide de Naos retirés ; Naos identique à la v43 (DOM capturé sur 5e9b8a5)
+- [Phase 08]: 08-11 : éditeur de parcours dans la fiche de la régate, ouvert par ESPACE.editeurParcours (Tofinou vrai, Naos faux) ; sans option, vues de la v43
+- [Phase 08]: 08-11 : identifiants de bouées (X1000–X9999) et de parcours (1000–9999) saisis tirés au hasard parmi les libres, pour la fusion par éléments hors réseau
+- [Phase 08]: 08-11 : classes du CVAT masquées à Bormes (sansClasses), cls gardé ; libellés des IC de Tofinou dans ESPACES.tofinou.textesIC ; exemple de saisie de Bormes = La Fourmigue
+- [Phase 08]: 08-11 : en course, dans l’espace Tofinou, éditeur inactif et gestes Confirmer / Corriger / Ignorer refusés
+- [Phase 08]: 08-10 : v44 préparée (guide de l’espace Tofinou, gardes vertes, release) sans instantané météo de Bormes (Open-Meteo refusé) ; production sur « publie » de Romain seulement
 
 ### Pending Todos
 
@@ -243,6 +285,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-11-19T11:34:55.747Z
-Stopped at: 07-10 tâche 1 faite (v43 locale, 6e4b0e3) — point de décision : « publie » de Romain
-Resume file: .planning/phases/07-plans-d-eau/07-10-PLAN.md
+Last session: 2026-11-27T00:51:32.796Z
+Stopped at: 08-10 tâche 1 faite (v44 prête en local) ; point de décision de la tâche 2 en attente (poussée, PR brouillon, aperçu, « publie »)
+Resume file: .planning/phases/08-espace-tofinou/08-10-SUMMARY.md

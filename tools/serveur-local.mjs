@@ -2,12 +2,14 @@
 //   - les en-têtes de sécurité de vercel.json sont posés, règle par règle, avec l’émulation des motifs `source` de Vercel ;
 //   - la liste blanche du middleware (cheminDeLApp, la MÊME fonction qu’en production) refuse tout ce qui n’est pas l’app : 404, et le chemin
 //     est noté dans `refuses`, pour que l’outil échoue si l’app demandait un jour un chemin interne.
+//   - émulation de la seule réécriture du manifeste par hôte (phase 8, D-07) : sur un hôte de Tofinou (`tofinou.localhost` en essai),
+//     /manifest.webmanifest sert le fichier que nomme manifestePour, la MÊME règle que le middleware (testée par tests/espaces.test.mjs).
 // Rien ne démarre à l’import du module. Aucun code d’accès, aucune empreinte : le middleware n’est pas exécuté, seule sa liste blanche l’est.
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
 import { extname, join, normalize } from 'node:path';
-import { cheminDeLApp } from '../middleware.js';
+import { cheminDeLApp, manifestePour } from '../middleware.js';
 
 export const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
@@ -63,7 +65,8 @@ export async function demarreServeur({ root, entetes = root }) {
     try {
       const brut = new URL(req.url, 'http://x').pathname;      // chemin brut, tel que le middleware le reçoit
       if (!cheminDeLApp(brut)) { refuses.push(brut); res.writeHead(404); res.end(); return; }
-      let u = decodeURIComponent(brut);
+      const hote = String(req.headers.host || '').replace(/:\d+$/, '');
+      let u = decodeURIComponent(brut === '/manifest.webmanifest' ? manifestePour(hote) || brut : brut);
       if (u.endsWith('/')) u += 'index.html';
       const f = normalize(join(root, u));
       if (f !== root.slice(0, -1) && !f.startsWith(root)) throw new Error('hors dépôt');

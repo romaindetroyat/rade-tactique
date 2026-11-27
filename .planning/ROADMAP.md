@@ -265,3 +265,54 @@ Plans:
 
 **Wave 10** *(blocked on Wave 9 completion)*
 - [x] 07-10-PLAN.md — Guide et aide, vérification complète (gardes Toulon, compatibilités, tous les scénarios, mesures), v43 (`npm run release`), porte en `VERCEL_ENV=production`, poussée et PR brouillon par l'orchestrateur, production seulement sur « publie » de Romain au plus tard le 10/12 (vague 10, non autonome) — partie autonome faite (v43 locale, 6e4b0e3) ; production en attente de « publie »
+
+### Phase 8: Espace Tofinou : rade de Bormes – Le Lavandou, Tofinou 9.5, accès séparé
+
+**Goal:** Un second espace « Tofinou — Bormes », cloisonné de Naos — adresse distincte, archive séparée côté serveur, quota d'IA par espace et prénom, consignes d'IA propres —, pour le Tofinou 9.5 de Frédéric (et Romain) dans la rade de Bormes – Le Lavandou : polaire du Tofinou 9.5, plan d'eau de Bormes hors réseau avec ses vents et ses zones, catalogue et fiche du Challenge de la Baie 2026-2027 ; rien ne change pour Naos (J80, Toulon, Brest) ; v44 en production dès qu'elle est prête et vérifiée, sur « publie » de Romain, au plus tard le 10/12/2026 (règle des 48 h avant la régate de Toulon du 13/12), sinon après le 13/12.
+**Requirements**: ESPACE-01, ESPACE-02, ESPACE-03, ESPACE-04, ESPACE-05, ESPACE-06, ESPACE-07, TOF-01, TOF-02, TOF-03, TOF-04, TOF-05, TOF-06
+**Depends on:** Phase 7
+**Success Criteria** (what must be TRUE):
+  1. Naos est identique à la v43 : gel capturé sur 5e9b8a5 avant toute modification (réponses du middleware, chemins Blob, consignes d'IA, clés de stockage, liste hors réseau, pack de Brest), gardes Toulon (`node tools/gardes-toulon.mjs`) et garde SNPM vertes ; même URL, même archive `prod/light.json`, mêmes clés locales ; ce gel et ces gardes sont la condition absolue de publication : une garde rouge sans explication = rien de publié avant le 13/12
+  2. Le code décide de l'espace : un membre Tofinou ne lit ni n'écrit rien de Naos (archive, traces, rapports, vents figés, corbeille, quotas), même avec un en-tête `x-rt-espace` forgé ou absent ; un code d'un espace est refusé sur l'adresse de l'autre ; pack de Brest refusé à Tofinou, pack de Bormes refusé à Naos ; aucune graine SNPM ni GPEN côté Tofinou ; aucun envoi croisé depuis un navigateur (garde de synchronisation)
+  3. L'espace Tofinou vit à sa propre adresse (`tofinou-bormes.vercel.app`, ajoutée par Romain dans Vercel), s'installe sous le nom « Tofinou Bormes » (manifeste réécrit par le middleware) et s'ouvre hors réseau sur Bormes ; Romain passe d'un espace à l'autre par « Changer d'espace » ; Frédéric n'a que Tofinou ; son code, créé par l'orchestrateur et remis à Romain dans la conversation, n'entre dans le dépôt que par son empreinte ; un outil crée les codes suivants de la même façon
+  4. À Bormes : pack (relief, côte, fond de carte, instantané), lieux, marques fixes et bouées « position à confirmer », dangers, zones interdites (Levant militaire, Brégançon) évitées par le routage et règles de Port-Cros « à compléter sur carte marine », régimes de vent propres (mistral d'ouest) marqués selon leur origine, courant d'ouest en information, ni marée ni modèle de courant, aucun texte de Toulon
+  5. Le Tofinou 9.5 navigue avec la polaire du certificat ORC de son sister-ship (génois par défaut, foc disponible), recalable, avec sa longueur (9,47 m), ses pertes aux manœuvres et son tirant d'eau, présentée comme une estimation
+  6. La fiche « Challenge de la Baie 2026-2027 » est semée dans l'espace Tofinou (sept manches, manche 1 le dimanche 11/10, ouverte les jours de course seulement) avec son catalogue (neuf parcours, sens inverse, banane n° 4) ; l'arbitre, le débrief et la dictée suivent les consignes du Tofinou (RIR, un tour, VHF 72), celles de Naos restent identiques ; quota de 30 appels par jour par espace + prénom
+  7. v44 sur l'aperçu `apercu-phase-08`, vérifiée (tous les scénarios, cloisonnement sur l'adresse réelle, iPhone), puis en production sur « publie » de Romain dès qu'elle est prête, au plus tard le 10/12/2026 (sinon à partir du 14/12), jamais dans les 48 h avant une régate ni pendant une course ; domaine de Tofinou ajouté par Romain dans Vercel
+  8. Dans l'espace Tofinou, Frédéric charge ses propres IC de bout en bout (PDF → IA avec les consignes d'IC du Tofinou → relecture → bouées « à confirmer » bornées à Bormes → parcours), avec l'archive et le quota de l'espace ; un éditeur de parcours à la main (« Créer un parcours » / « Modifier le parcours » : bouées confirmées avec côté, porte, arrivée sur la ligne ou distincte, tours ; bouées par position saisie ou touchée sur la carte, à confirmer) est partagé par l'archive Tofinou, refusé pendant une course, et n'apparaît pas dans l'espace Naos
+
+**Plans:** 10/11 plans executed (vagues séquentielles : mêmes fichiers générés `sw.js`, `js/version.js`, mêmes `js/app.js` et `tools/regate-e2e.mjs`)
+
+Plans:
+**Wave 1**
+- [x] 08-01-PLAN.md — Gel de Naos v43 sur 5e9b8a5 avant toute modification : middleware, archive, compteur d'IA, consignes, liste hors réseau, pack de Brest (`tests/naos.test.mjs`), clés et requêtes de l'app (scénario `naos-cles`), gardes ajoutées à `tools/gardes-toulon.mjs` (vague 1)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+- [x] 08-02-PLAN.md — Serveur cloisonné, inerte pour Naos : `api/_espace.js`, table TOFINOU (empreinte du code de Frédéric fournie hors du dépôt, copie de la ligne de Romain), `x-rt-espace`, `/api/membre` `{ membre, espace, espaces }`, préfixes `tofinou/…`, refus 403, politique de l'archive (plans d'eau, graines, recalages), quota par espace + prénom, IA fermée hors des espaces ouverts, packs par espace, outil `tools/codes-acces.mjs` (empreinte seule) (vague 2)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+- [x] 08-03-PLAN.md — Pack de Bormes : `tools/venues/bormes.json`, outils paramétrés (Levant militaire non urbain, instantané météo par configuration), `data/bormes.*`, valeurs de contrôle, sources et licences (vague 3)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+- [x] 08-04-PLAN.md — App consciente de l'espace : registre `js/espaces.js` par hôte, espace fixé avant le plan d'eau, `js/venue-bormes.js` (borne ouest 6,20° E), plans d'eau et graines par espace, garde de synchronisation, plafonds d'archive de Tofinou ; scénarios `tofinou-demarrage`, `espace-garde` (vague 4)
+
+**Wave 5** *(blocked on Wave 4 completion)*
+- [x] 08-05-PLAN.md — Bateau Tofinou 9.5 : polaire du certificat ORC (génois, foc estimé), polaire par défaut de l'espace, pertes 11 s / 8 s, longueur, tirant d'eau, onglet « Tofinou » (vague 5)
+
+**Wave 6** *(blocked on Wave 5 completion)*
+- [x] 08-06-PLAN.md — Identité par espace : manifeste réécrit par le middleware sur l'adresse de Tofinou (public), page d'accès, titre, aide, débrief, « Changer d'espace » (vague 6)
+
+**Wave 7** *(blocked on Wave 6 completion)*
+- [x] 08-07-PLAN.md — Savoir local de Bormes : zones interdites (Levant, Brégançon), Port-Cros, marques, lieux, dangers, régimes et vents prédéfinis, textes du lieu, plus de texte de Toulon à Bormes ; scénario `bormes-local` (vague 7)
+
+**Wave 8** *(blocked on Wave 7 completion)*
+- [x] 08-08-PLAN.md — Challenge de la Baie : jours de course d'une régate (`jours`), fiche semée dans l'espace Tofinou (sept manches, 11/10), catalogue (côtiers, sens inverse, banane n° 4) ; scénario `baie` (vague 8)
+
+**Wave 9** *(blocked on Wave 8 completion)*
+- [x] 08-09-PLAN.md — IA de l'espace Tofinou : consignes propres (arbitre, débrief, dictée, IC ; Tofinou 9.5, RIR, un tour, VHF 72), consignes de Naos identiques, IA ouverte avec quota par espace + prénom ; note des règles ; scénario `tofinou-ia` (vague 9)
+
+**Wave 10** *(blocked on Wave 9 completion)*
+- [x] 08-11-PLAN.md — IC et parcours de l'équipage Tofinou (D-16, D-17) : IC de Frédéric de bout en bout à Bormes (PDF d'essai, IA avec les consignes d'IC du Tofinou, quota et archive de l'espace, bornes de Bormes, libellés sans texte de Naos ; scénario `tofinou-ic`) ; éditeur de parcours à la main dans l'espace Tofinou seulement (`js/regedit.js` : bouées saisies ou touchées sur la carte à confirmer, parcours avec côtés, porte, arrivée, tours ; partage par éléments, `tools/compat-v43.mjs`, refus en course, rien chez Naos ; scénario `tofinou-parcours`) (vague 10)
+
+**Wave 11** *(blocked on Wave 10 completion)*
+- [ ] 08-10-PLAN.md — Livraison : guide Tofinou court, vérification complète, v44 (`npm run release`) seulement si le gel de Naos et les gardes Toulon sont verts, poussée et PR brouillon par l'orchestrateur, aperçu vérifié sur l'adresse réelle, production seulement sur « publie » de Romain au plus tard le 10/12 (sinon à partir du 14/12), domaine passé en Production (vague 11, non autonome)

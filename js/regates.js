@@ -15,8 +15,16 @@ const EVENTS_KEY = 'rade.events.v1';            // ancienne clé des fiches IC :
 export const STATUS_LABEL = { avenir: 'En préparation', aujourdhui: 'En cours', passee: 'Terminée' };
 export const GROUP_LABEL = { avenir: 'En préparation', aujourdhui: 'En cours', passee: 'Terminées' };
 export const MAX_NAME = 80, MAX_CLUB = 40, MAX_NOTE = 200, MAX_IC_TEXT = 20000;
-// Valeurs communes aux régates CVAT (signaux de départ règle 26, pavillons de classe habituels), comme js/events.js
+// Valeurs communes aux régates CVAT (signaux de départ règle 26, pavillons de classe habituels), comme js/events.js : mêlées aux fiches de
+// l’espace Naos seulement (08-04, D-05). Réglage du module posé une fois par js/app.js (`setCommuns`), Naos par défaut ; hors de Naos, une fiche
+// n’a que ce que ses IC disent (listes vides sinon).
 const COMMON = { sequence: SNPM.sequence, classes: SNPM.classes, groups: SNPM.groups };
+const SANS_COMMUN = { sequence: [], classes: [], groups: [] };
+let communs = true;
+export const setCommuns = (oui) => { communs = oui !== false; };
+// Graines de l’espace (identifiants des fiches semées) : celles de Naos par défaut (js/espaces.js, ESPACES.naos.graines)
+const GRAINES_NAOS = ['snpm-2026', 'gpen-2027'];
+const seme = (graines, id) => (Array.isArray(graines) ? graines : GRAINES_NAOS).includes(id);
 
 // ───────────────────────── dates
 
@@ -29,11 +37,23 @@ export function isDate(s) {
 }
 export const isTime = (s) => /^([01]\d|2[0-3]):[0-5]\d$/.test(s || '');
 export const lastDay = (r) => r?.dateEnd || r?.dateStart || '';
+// Jours de course d’une régate en saison (08-08, D-13 : Challenge de la Baie, sept dimanches d’octobre à avril) : liste `jours` de dates
+// AAAA-MM-JJ, triée et sans doublon, sinon null. Une régate sans `jours` (toutes celles de Naos) garde exactement les règles de la v43 :
+// tous les jours du premier au dernier sont des jours de régate.
+export const MAX_JOURS = 30;
+export function joursOf(r) {
+  if (!Array.isArray(r?.jours)) return null;
+  const j = [...new Set(r.jours.filter((d) => typeof d === 'string' && isDate(d)))].sort().slice(0, MAX_JOURS);
+  return j.length ? j : null;
+}
 
-// 'avenir' | 'aujourdhui' | 'passee' : jour de Paris de `now`, jamais l’heure ni le fuseau du téléphone ; sans date : à venir (brouillon)
+// 'avenir' | 'aujourdhui' | 'passee' : jour de Paris de `now`, jamais l’heure ni le fuseau du téléphone ; sans date : à venir (brouillon).
+// Avec des jours de course : « En cours » ces jours-là seulement, « En préparation » entre deux jours, « Terminée » après le dernier.
 export function regattaStatus(r, now) {
   if (!r?.dateStart) return 'avenir';
-  const d = parisClock(now).date, end = lastDay(r);
+  const d = parisClock(now).date, j = joursOf(r);
+  if (j) return j.includes(d) ? 'aujourdhui' : d < j[j.length - 1] ? 'avenir' : 'passee';
+  const end = lastDay(r);
   return d < r.dateStart ? 'avenir' : d > end ? 'passee' : 'aujourdhui';
 }
 // Saison = année civile du premier jour
@@ -47,8 +67,10 @@ export function todayRegatta({ now, list, currentId }) {
 }
 // Dates du verrou « journée de régate » : la régate d’aujourd’hui dans la liste, ouverte ou non. Le verrou ne dépend pas de la régate ouverte
 // à l’écran (CONTEXT, contraintes) ; l’ancien repli sur la courante ne verrouillait jamais (le verrou ne lit que isRaceDay).
+// Régate à jours de course : le verrou porte sur ce seul jour (sinon toute la saison serait une « journée de régate »).
 export function lockDates({ now, list }) {
   const r = todayRegatta({ now, list });
+  if (r && joursOf(r)) { const d = parisClock(now).date; return { raceFrom: d, raceTo: d }; }
   return { raceFrom: r?.dateStart || null, raceTo: r?.dateEnd || r?.dateStart || null };
 }
 // Régate d’id donné, sinon null : jamais de repli sur la première
@@ -97,7 +119,8 @@ export function fromEvent(ev, now, by = null) {
 }
 // Une graine déjà présente sur un téléphone et jamais revalidée (`ic.read === 'reprise'`) est ramenée à la graine commune ; une fiche relue
 // (autre lecture) et toute autre régate restent le même objet, un état inchangé aussi.
-export function seedNorm(st) {
+export function seedNorm(st, { graines } = {}) {
+  if (!seme(graines, SEED_ID)) return st;                    // espace sans la Coupe SNPM : sans effet
   let changed = false;
   const list = (st?.list || []).map((r) => {
     if (r.id !== SEED_ID || r.ic?.read !== 'reprise') return r;
@@ -159,7 +182,8 @@ export function gpenSeed() {
 }
 // Sème la fiche si elle manque, si l’index n’en porte pas la pierre tombale et si le marqueur local n’est pas posé (une fiche supprimée par
 // l’équipage ne revient jamais) ; pose le marqueur ensuite (et quand la fiche est déjà là ou supprimée). Rend le même objet si rien ne change.
-export function seedGpen(st, { storage = null } = {}) {
+export function seedGpen(st, { storage = null, graines } = {}) {
+  if (!seme(graines, GPEN_ID)) return st;                    // espace sans le GPEN : ni fiche ni marqueur
   const list = st?.list || [];
   const has = list.some((r) => r.id === GPEN_ID), tomb = !!(st?.tomb?.[GPEN_ID] || st?.tomb?.[`regatta:${GPEN_ID}`]);
   let mark = null;
@@ -167,6 +191,74 @@ export function seedGpen(st, { storage = null } = {}) {
   const pose = () => { try { storage?.setItem(GPEN_SEED_KEY, '1'); } catch { /* stockage refusé : l’index garde la fiche ou sa pierre tombale */ } };
   if (has || tomb || mark) { if (!mark) pose(); return st; }
   const next = { ...st, list: [...list, gpenSeed()] };
+  pose();
+  return next;
+}
+
+// ───────────────────────── fiche « Challenge de la Baie 2026-2027 » semée dans l’espace Tofinou (08-08, D-13)
+// Même fiche sur chaque téléphone de l’espace (identifiant, instant et dates de modification fixes, sans auteur), comme le GPEN : la semer ne crée
+// aucune modification à envoyer. D’après l’avis de course (5 octobre 2026) et les fiches de course des manches 1 et 2 (08-RESEARCH-PLAN-EAU.md
+// § 2.1 à 2.3). Sept manches sur huit dimanches (finale sur deux jours) : `jours` en fait une régate « du jour » ces jours-là seulement.
+// Manche 1 le dimanche 11 octobre 2026 (fiche de course, site de la ville, classement) et non le « dimanche 10 octobre » de l’avis (coquille).
+// Manches sans heure (aucune heure de départ publiée) : premier signal à 11 h dans les IC. Aucun nom de personne.
+export const BAIE_ID = 'baie-2026-2027';
+export const BAIE_AT = Date.UTC(2026, 10, 26, 0, 0, 0);
+export const BAIE_SEED_KEY = 'rade.seed.baie.v1';
+export const BAIE_SOURCE = 'Avis de course et fiches de course du Challenge de la Baie 2026-2027';
+export const BAIE_JOURS = Object.freeze(['2026-10-11', '2026-11-08', '2026-12-13', '2027-01-17', '2027-02-14', '2027-03-14', '2027-04-10', '2027-04-11']);
+const LAV = 'Le Lavandou, ligne devant Le Lavandou', BOR = 'Bormes, ligne devant Bormes – La Favière';
+const BAIE_MANCHES = [
+  ['2026-10-11', `Manche 1 — ${LAV}`], ['2026-11-08', `Manche 2 — ${LAV}`], ['2026-12-13', `Manche 3 — ${BOR}`], ['2027-01-17', `Manche 4 — ${BOR}`],
+  ['2027-02-14', `Manche 5 — ${BOR}`], ['2027-03-14', `Manche 6 — ${LAV}`], ['2027-04-10', `Finale (manche 7), premier jour — ${LAV}`],
+  ['2027-04-11', `Finale (manche 7), second jour — ${LAV}`],
+].map(([date, lieu]) => [date, `${lieu} (position à confirmer). Briefing 10 h, premier signal 11 h. Parcours affiché par le comité.`]);
+export const BAIE_IC = Object.freeze({
+  event: 'Challenge de la Baie 2026-2027',
+  firstWarning: '11:00',
+  lastFinishSignal: '',
+  vhf: 72,
+  committee: '',
+  zone: 'De La Londe à Cavalaire, prolongeable jusqu’aux îles de Port-Cros et du Levant ; parcours construits (banane) ou côtiers',
+  classes: [],
+  groups: ['Groupe 3 : rating OSIRIS jusqu’à 22', 'Groupe 4 : rating OSIRIS au-delà de 22 (Tofinou 9.5 : 26,5, certificat du sister-ship)'],
+  sequence: [],
+  keyRules: [
+    'D’après l’avis de course (5 octobre 2026) et les fiches de course des manches 1 et 2 : à vérifier sur la fiche de course de chaque manche.',
+    'Sept manches : 11 octobre et 8 novembre 2026 au Lavandou ; 13 décembre 2026, 17 janvier et 14 février 2027 à Bormes ; 14 mars 2027 au Lavandou ; finale les 10 et 11 avril 2027 au Lavandou. Manche 1 le dimanche 11 octobre (l’avis de course écrit « dimanche 10 octobre » : coquille).',
+    'Briefing à 10 h, premier signal à 11 h.',
+    'Règles d’introduction à la régate (RIR) et non les règles de course complètes ; pénalité d’un tour.',
+    'VHF 72.',
+    'Départ et arrivée entre le bateau comité et une bouée cylindrique orange ; arrivée sur la ligne de départ.',
+    'Marques de parcours : bouées cylindriques orange siglées Yacht Club Lavandou ; dégagement et changement de parcours : bouée cylindrique rouge siglée Le Lavandou.',
+    'Parcours affiché au signal d’avertissement : numéro de l’annexe des parcours (1 à 10, pas de 8) ; suivi de « R », le parcours se court en sens inverse. Pavillon D : bouée de dégagement ; pavillon vert : dégagement à laisser à tribord.',
+    'Un bateau qui ne part pas dans les 4 minutes après son signal de départ est classé DNS.',
+    'Bout-dehors sorti seulement pour établir et porter le spinnaker.',
+    'Ancre rangée dans la baille au départ.',
+    'Classement OSIRIS en temps sur temps : groupe 3 (rating jusqu’à 22), groupe 4 (rating au-delà de 22) ; le Tofinou 9.5 (rating 26,5 du certificat du sister-ship) court dans le groupe 4.',
+    'Lignes : devant Le Lavandou (manches 1, 2, 6 et finale), devant Bormes – La Favière (manches 3 à 5) ; positions lues sur les croquis, à confirmer sur l’eau.',
+  ],
+});
+// Fiche neuve (objet frais à chaque appel, jamais partagé entre deux états) ; une manche par jour de course, identifiant fixe « m » + jour
+export function baieSeed() {
+  const races = BAIE_MANCHES.map(([date, note], i) => ({ n: i + 1, id: `m${date.replace(/-/g, '')}`, date, time: '', courseId: null, cls: 'G', laps: 2, note, by: null, at: BAIE_AT, u: BAIE_AT, ub: null }));
+  return {
+    id: BAIE_ID, name: 'Challenge de la Baie 2026-2027', club: 'Yacht Club du Lavandou · École de voile municipale du Lavandou · Club de voile de Bormes',
+    dateStart: BAIE_JOURS[0], dateEnd: BAIE_JOURS[BAIE_JOURS.length - 1], jours: [...BAIE_JOURS], season: seasonOf(BAIE_JOURS[0]),
+    races, ic: { fields: structuredClone({ ...BAIE_IC }), text: '', source: BAIE_SOURCE, read: 'semee', excerpts: {}, validated: { by: null, at: BAIE_AT } },
+    marks: [], courses: [], frozen: {}, traces: [], by: null, at: BAIE_AT, venue: 'bormes', u: BAIE_AT, ub: null, vu: BAIE_AT, tomb: {}, hist: [],
+  };
+}
+// Comme seedGpen : semée si l’espace la porte (`graines`), si elle manque, sans pierre tombale ni marqueur ; marqueur posé ensuite.
+// Sans effet dans l’espace Naos (aucune fiche, aucun marqueur).
+export function seedBaie(st, { storage = null, graines } = {}) {
+  if (!seme(graines, BAIE_ID)) return st;
+  const list = st?.list || [];
+  const has = list.some((r) => r.id === BAIE_ID), tomb = !!(st?.tomb?.[BAIE_ID] || st?.tomb?.[`regatta:${BAIE_ID}`]);
+  let mark = null;
+  try { mark = storage?.getItem(BAIE_SEED_KEY) ?? null; } catch { mark = null; /* stockage illisible : l’index décide seul */ }
+  const pose = () => { try { storage?.setItem(BAIE_SEED_KEY, '1'); } catch { /* stockage refusé : l’index garde la fiche ou sa pierre tombale */ } };
+  if (has || tomb || mark) { if (!mark) pose(); return st; }
+  const next = { ...st, list: [...list, baieSeed()] };
   pose();
   return next;
 }
@@ -181,7 +273,8 @@ export function saveRegattas(storage, st) {
 // Lit l’index ; sinon le crée une seule fois depuis rade.events.v1 (jamais modifiée), sinon sème la Coupe SNPM comme le faisait js/events.js.
 // L’état rendu n’a jamais de clé `current` : un index d’avant (v36) qui en portait une est réécrit une seule fois sans elle, donc plus aucune
 // régate n’est ouverte d’office (D-A4, D-A5). Les régates, elles, ne bougent pas.
-export function migrate({ storage, now = Date.now(), by = null }) {
+// Hors de Naos (`graines` sans la Coupe SNPM) : ni graine ni reprise des fiches rade.events.v1 (fiches CVAT de Naos), index vide.
+export function migrate({ storage, now = Date.now(), by = null, graines }) {
   const cur = readJSON(storage, KEY);
   if (cur && cur.v === VERSION && Array.isArray(cur.list)) {
     if (!('current' in cur)) return cur;
@@ -189,6 +282,7 @@ export function migrate({ storage, now = Date.now(), by = null }) {
     saveRegattas(storage, index);
     return index;
   }
+  if (!seme(graines, SEED_ID)) { const vide = { v: VERSION, list: [] }; saveRegattas(storage, vide); return vide; }
   const ev = readJSON(storage, EVENTS_KEY);
   const fiches = Array.isArray(ev?.list) && ev.list.length ? ev.list : [{ id: 'snpm-2026', ...SNPM, source: 'IC fournies (PDF)' }];
   const list = fiches.map((e) => fromEvent(e, now, by));
@@ -232,7 +326,7 @@ export function removeRegatta(st, id) {
 export function icOf(r) {
   const f = r?.ic?.fields || {};
   return {
-    ...COMMON, firstWarning: '', lastFinishSignal: '', vhf: null, committee: '', zone: '', keyRules: [],
+    ...(communs ? COMMON : SANS_COMMUN), firstWarning: '', lastFinishSignal: '', vhf: null, committee: '', zone: '', keyRules: [],
     ...f,
     id: r?.id, event: r?.name || '', date: r?.dateStart || '', dateEnd: r?.dateEnd || '', text: r?.ic?.text || '', source: r?.ic?.source || '',
   };
@@ -257,9 +351,11 @@ export function groupByStatus(list, now) {
 
 // ───────────────────────── manches
 
-// Jours de la régate (premier au dernier), AAAA-MM-JJ
+// Jours de la régate (premier au dernier, ou ses jours de course), AAAA-MM-JJ
 export function daysOf(r) {
   if (!isDate(r?.dateStart)) return [];
+  const j = joursOf(r);
+  if (j) return j;
   const out = [], end = isDate(lastDay(r)) ? lastDay(r) : r.dateStart;
   for (let t = Date.parse(r.dateStart + 'T12:00:00Z'), i = 0; i < 31; t += 864e5, i++) { const d = new Date(t).toISOString().slice(0, 10); if (d > end) break; out.push(d); }
   return out;

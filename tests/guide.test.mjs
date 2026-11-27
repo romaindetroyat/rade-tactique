@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { parseHTML } from 'linkedom';
 import { ROOT } from './helpers/setup.mjs';
+import { BORMES } from '../js/venue-bormes.js';
 
 const lire = (f) => readFileSync(ROOT + f, 'utf8');
 const html = lire('guide.html');
@@ -234,4 +235,74 @@ test('retour au port : le guide (#apres et la carte « Rentrer au port ») et l�
   assert.match(cTexte, /un chrono, une trace, le mode départ ou un GPS tournent/, 'la raison : tant que l’un d’eux tourne, l’app se croit en course');
   assert.match(aideTexte, /s’arrête de lui-même/, 'l’aide intégrée dit la même chose');
   assert.match(aideTexte, /Arrêter le GPS\s*\(sinon l’app se croit encore en course\)/, 'l’aide garde « Arrêter le GPS » pour le GPS allumé à la main');
+});
+
+// ───────────────────────── guide court de l’espace Tofinou (guide-tofinou.html, 08-10, D-15, D-16, D-17, D-18)
+// Même charte que guide.html, ouvert par l’aide de l’espace Tofinou (GUIDE_TOFINOU) ; le guide de Naos ci-dessus reste celui de la v43.
+const htmlT = lire('guide-tofinou.html');
+const docT = parseHTML(htmlT).document;
+const texteT = espaces(docT.body.textContent);
+const SECTIONS_T = ['entrer', 'horsreseau', 'challenge', 'ic', 'bateau', 'trace', 'vents', 'zones', 'ia', 'espace', 'sources'];
+
+test('guide Tofinou : page française autonome, un seul titre, sections dans la barre, ancres résolues, dans la liste hors réseau', () => {
+  assert.equal(docT.documentElement.getAttribute('lang'), 'fr');
+  assert.equal(docT.querySelectorAll('h1').length, 1);
+  assert.ok(docT.querySelector('meta[name=viewport]'));
+  const ids = [...htmlT.matchAll(/\sid="([^"]+)"/g)].map((m) => m[1]);
+  assert.equal(new Set(ids).size, ids.length, 'identifiants uniques');
+  assert.deepEqual([...docT.querySelectorAll('section[id]')].map((s) => s.id), SECTIONS_T);
+  const barre = docT.querySelector('nav.toc');
+  for (const id of SECTIONS_T) assert.ok(barre.querySelector(`a[href="#${id}"]`), `#${id} dans la barre`);
+  for (const a of docT.querySelectorAll('a[href^="#"]')) assert.ok(docT.getElementById(a.getAttribute('href').slice(1)), `lien ${a.getAttribute('href')} sans destination`);
+  assert.equal(docT.querySelectorAll('script, iframe, object, embed, link[rel~=stylesheet]').length, 0, 'ni script, ni cadre, ni feuille séparée');
+  for (const el of docT.querySelectorAll('[src], [href]')) assert.ok(!/^(?:https?:)?\/\//i.test(el.getAttribute('src') ?? el.getAttribute('href')), 'ressource extérieure');
+  for (const st of docT.querySelectorAll('style')) assert.ok(!/@import|url\(/i.test(st.textContent), 'ni @import ni url()');
+  assert.equal(docT.querySelector('a[href="guide.html"], a[href^="guide.html#"]'), null, 'pas de lien vers le guide de Naos');
+  assert.match(lire('sw.js'), /const SHELL = \[[^\]]*"guide-tofinou\.html"/, 'guide-tofinou.html dans la liste hors réseau');
+  assert.ok(lire('js/help.js').includes('href="guide-tofinou.html"'), 'ouvert par l’aide de l’espace Tofinou');
+});
+
+// Repères exigés (D-15 et le plan 08-10) : formulations imposées qui empêchent de présenter zones, bouées, vents ou polaire comme officiels
+const EXIGEES_T = [
+  'Tofinou Bormes', 'lien personnel reçu de Romain', 'Une fois par appareil et par adresse', 'Télécharger le plan d’eau', 'Prêt hors réseau', 'mode avion',
+  'Challenge de la Baie 2026-2027', '11 octobre', 'VHF 72', 'RIR', 'pénalité d’un tour', '« R »', 'Parcours 4 — banane (construite)', 'banane n° 4', 'position à confirmer',
+  // IC et éditeur (D-16, D-17)
+  'Lire avec l’IA', 'Valider les IC', 'Bouées et parcours de la régate', 'Bouée de régate ici…', 'Créer un parcours', 'Modifier le parcours', 'reste « à confirmer »',
+  'Pendant une course, rien ne se modifie',
+  // bateau
+  'Génois', 'Foc d’origine', 'sister-ship', 'à recaler', 'Performance de l’équipage par rapport à la polaire', 'débrief', 'polaire personnelle', 'à confirmer avec le skipper',
+  'Spi dès', 'repère indicatif', 'approximations',
+  // trace (D-18)
+  'Open GPX Tracker', 'GPS Logger de BasicAirData', 'Geo Tracker', 'démarrez l’enregistrement', 'l’écran peut s’éteindre', 'arrêtez l’enregistrement', 'Exportez le GPX',
+  'Importer un fichier GPX', 'range la trace dans la régate du jour',
+  // vents, zones, courant, IA, espace, sources
+  '(à confirmer sur l’eau)', 'Levant', 'Brégançon', 'à compléter sur carte marine', 'Port-Cros', '5 nd à moins de 300 m', 'courant général porte en général à l’ouest', 'information',
+  '30 appels par personne et par jour', 'Limite d’IA du jour atteinte — reprise demain', 'Changer d’espace', 'Romain',
+  'OpenStreetMap (ODbL)', 'EMODnet', 'AWS Terrain Tiles', 'Open-Meteo', 'Météo-France', 'certificat ORC', 'ne remplace pas les cartes et ouvrages nautiques officiels',
+];
+const INTERDITES_T = [
+  ...INTERDITES.slice(1, 6),
+  [/CVAT|GPEN|Naos|Toulon|Brest|Coupe SNPM/, 'aucun texte de l’autre espace'],
+  [/officielle?s?\s+(?:du club|des bouées)|positions? exactes?/i, 'jamais de position ou de zone présentée comme officielle'],
+];
+
+test('guide Tofinou : repères exigés présents, formules interdites absentes, apostrophe typographique', () => {
+  for (const p of EXIGEES_T) assert.ok(texteT.includes(p), `phrase exigée absente : « ${p} »`);
+  for (const [motif, raison] of INTERDITES_T) assert.doesNotMatch(htmlT, motif, raison);
+  const m = /\p{L}'\p{L}/u.exec(docT.body.textContent);
+  assert.equal(m, null, m && `apostrophe droite dans « ${docT.body.textContent.slice(Math.max(0, m.index - 20), m.index + 20)} »`);
+});
+
+test('guide Tofinou : chaque libellé en style touche (span.k) et chaque libellé cité de l’app existe dans le code', () => {
+  const touches = [...docT.querySelectorAll('span.k')].map((el) => espaces(el.textContent));
+  assert.ok(touches.length >= 15, `libellés cités (${touches.length})`);
+  assert.deepEqual([...new Set(touches.filter((t) => !t || !CODE.includes(norm(t))))], [], 'libellés introuvables dans le code');
+  // libellés de l’app cités entre guillemets : à retrouver dans le code (menus système et nom d’installation exceptés)
+  // titres des parcours : construits par js/venue-bormes.js (gabarit « Parcours n — titre »), lus dans le catalogue du plan d’eau
+  const libres = ['Sur l’écran d’accueil', 'R', 'Tofinou Bormes'];
+  const titres = BORMES.COURSES.map((c) => c.title);
+  const cites = [...new Set([...texteT.matchAll(/«\s*([^»]+?)\s*»/g)].map((x) => x[1]))];
+  assert.ok(cites.length >= 8, `citations lues (${cites.length})`);
+  assert.deepEqual(cites.filter((c) => !libres.includes(c) && !titres.includes(c) && !CODE.includes(norm(c))), [], 'citations introuvables dans le code');
+  assert.ok(CODE.includes(norm('Tofinou Bormes')), 'nom d’installation du registre des espaces');
 });

@@ -9,8 +9,12 @@ import { ROOT } from './helpers/setup.mjs';
 import { bodyOf } from './helpers/scan.mjs';
 import {
   KEY, VERSION, STATUS_LABEL, GROUP_LABEL, regattaStatus, seasonOf, todayRegatta, lockDates, openRegatta, openAtBoot, openOnNewDay, fromEvent, migrate, saveRegattas, newId, createRegatta,
-  upsertRegatta, removeRegatta, icOf, groupByStatus, SEED_AT, seedNorm, backfillAuthor,
+  upsertRegatta, removeRegatta, icOf, groupByStatus, SEED_AT, seedNorm, backfillAuthor, seedGpen, setCommuns, GPEN_SEED_KEY,
 } from '../js/regates.js';
+import { join } from 'node:path';
+import { ESPACES } from '../js/espaces.js';
+import { VENUES } from '../js/venues.js';
+import { releve, demarre, memoire, CAS } from './helpers/graines.mjs';
 import { parisClock, isRaceDay } from '../js/racelock.js';
 import { escHTML, byLine, listHTML, noRegattaHTML, newRegattaFormHTML, sheetHTML, historySectionHTML, tracesSectionHTML, venueCardHTML } from '../js/regview.js';
 import { IC as SNPM } from '../js/courses.js';
@@ -563,7 +567,7 @@ test('garde : /api/membre est demandée après la marque rt:ui (jamais attendue 
 test('garde : tout élément créé porte l’auteur donné par le middleware (plus de by: null en dur dans les créations de js/app.js)', () => {
   for (const f of ['renderIC', 'chooseRace']) assert.ok(!/\bby:\s*null\b/.test(bodyOf(app, f)), `${f} : by: null en dur`);
   assert.match(bodyOf(app, 'renderIC'), /by: who\(\)/);
-  assert.match(app, /migrate\(\{ storage: localStore\(\), now: Date\.now\(\), by: who\(\) \}\)|migrate\(\{[^}]*by: membre\(/, 'la reprise des fiches porte l’auteur déjà connu de l’appareil');
+  assert.match(app, /migrate\(\{ storage: localStore\(\), now: Date\.now\(\), by: who\(\)(, graines: ESPACE\.graines)? \}\)|migrate\(\{[^}]*by: membre\(/, 'la reprise des fiches porte l’auteur déjà connu de l’appareil');
 });
 
 test('garde : aucune chaîne hexadécimale de 64 caractères (empreinte) dans les tests ni dans l’outil de bout en bout', () => {
@@ -588,7 +592,7 @@ test('garde : la régate ouverte est un état de la page (OPEN), posé au charge
   // règle d’ouverture du lancement ; depuis 07-05, avec le plan d’eau chargé (`here`) et la régate demandée par « Passer » (`reopen`)
   assert.match(app, /^let OPEN = openAtBoot\(\{ now: Date\.now\(\), list: REG\.list, here: \(r\) => venueOf\(r\) === VENUE\.id, reopen: REOPEN \}\);$/m);
   const lignes = app.split('\n');
-  const iMigrate = lignes.findIndex((l) => /^let REG = migrate\(/.test(l)), iSeed = lignes.findIndex((l) => /seedNorm\(REG\)/.test(l)), iOpen = lignes.findIndex((l) => /^let OPEN = /.test(l)), iIC = lignes.findIndex((l) => /^let IC = /.test(l));
+  const iMigrate = lignes.findIndex((l) => /^let REG = migrate\(/.test(l)), iSeed = lignes.findIndex((l) => /seedNorm\(REG(, \{ graines: ESPACE\.graines \})?\)/.test(l)), iOpen = lignes.findIndex((l) => /^let OPEN = /.test(l)), iIC = lignes.findIndex((l) => /^let IC = /.test(l));
   assert.ok(iMigrate >= 0 && iSeed > iMigrate && iOpen > iSeed && iIC > iOpen, 'ordre : migrate, seedNorm, OPEN, puis IC');
   // OPEN n’est affecté que par sa déclaration et dans le corps de setOpen
   const hors = app.replace(bodyOf(app, 'setOpen'), '').replace(/^let OPEN = .*$/m, '');
@@ -687,7 +691,7 @@ test('backfillAuthor : l’auteur de la validation d’une graine commune (insta
 
 test('garde : js/app.js normalise la graine au chargement (index réécrit seulement si l’objet change), copie de secours et legacyStamp avant le premier envoi', () => {
   const app = readFileSync(ROOT + 'js/app.js', 'utf8');
-  assert.match(app, /seedNorm\(REG\)/);
+  assert.match(app, /seedNorm\(REG, \{ graines: ESPACE\.graines \}\)/, 'graines de l’espace (08-04)');
   assert.match(app, /seeded !== REG\)[^\n]*saveRegattas\(/, 'réécrit seulement si l’objet a changé');
   assert.match(bodyOf(app, 'syncNow'), /!SYNC\.first[^\n]*legacyStamp\(REG\)/);
   assert.match(app, /rade\.regates\.v1\.bak/);
@@ -977,5 +981,221 @@ test('fiche GPEN : « En préparation » le 5 décembre 2026, puce « Rade de Br
 
 test('câblage : seedGpen appelé juste après seedNorm, l’index réécrit seulement si l’objet change', () => {
   const app = readFileSync(ROOT + 'js/app.js', 'utf8');
-  assert.match(app, /\{ const seeded = seedNorm\(REG\); if \(seeded !== REG\) \{ REG = seeded; saveRegattas\(localStore\(\), REG\); \} \}\n\/\/ [^\n]*\n\{ const g = seedGpen\(REG, \{ storage: localStore\(\) \}\); if \(g !== REG\) \{ REG = g; saveRegattas\(localStore\(\), REG\); \} \}/);
+  assert.match(app, /\{ const seeded = seedNorm\(REG, \{ graines: ESPACE\.graines \}\); if \(seeded !== REG\) \{ REG = seeded; saveRegattas\(localStore\(\), REG\); \} \}\n\/\/ [^\n]*\n\{ const g = seedGpen\(REG, \{ storage: localStore\(\), graines: ESPACE\.graines \}\); if \(g !== REG\) \{ REG = g; saveRegattas\(localStore\(\), REG\); \} \}/);
+  // graines et valeurs communes de l’espace, posées avant le premier migrate (08-04)
+  assert.match(app, /setCommuns\(ESPACE\.id === 'naos'\);\nlet REG = migrate\(\{ storage: localStore\(\), now: Date\.now\(\), by: who\(\), graines: ESPACE\.graines \}\);/);
+});
+
+// ───────────────────────── graines et plans d’eau par espace (08-04, D-05)
+
+const REF_V43 = JSON.parse(readFileSync(join(ROOT, 'tests/fixtures/graines-v43.json'), 'utf8'));
+
+test('T11 : graines par espace — Naos sème exactement comme la v43 (index, clés, IC, fusion : tests/fixtures/graines-v43.json, capturé sur 5e9b8a5) ; Tofinou ne sème rien et ne pose aucun marqueur', async () => {
+  assert.equal(REF_V43.from, '5e9b8a5');
+  const defaut = await releve(ROOT);                                                  // appels de la v43, sans graines (défaut : Naos)
+  assert.deepEqual(defaut.cas, REF_V43.cas, 'semis de Naos par défaut');
+  assert.deepEqual(defaut.ic, REF_V43.ic, 'icOf des fiches de Naos (Toulon et Brest)');
+  assert.deepEqual(defaut.fusion, REF_V43.fusion, 'fusion d’un document de Naos');
+  const naos = await releve(ROOT, { graines: ESPACES.naos.graines });
+  assert.deepEqual(naos.cas, REF_V43.cas, 'semis de Naos avec ses graines');
+  const R = await import('../js/regates.js');
+  const g = { graines: ESPACES.tofinou.graines };
+  for (const [nom, init] of Object.entries(CAS())) {
+    const st = memoire(init);
+    const REG = demarre(R, st, g);
+    assert.ok(!REG.list.some((r) => ['snpm-2026', 'gpen-2027'].includes(r.id)) || nom === 'graine', `${nom} : aucune graine de Naos semée`);
+    assert.ok(!st.ecrits.includes(GPEN_SEED_KEY), `${nom} : aucun marqueur ${GPEN_SEED_KEY} écrit`);
+    assert.ok(st.ecrits.every((k) => k === KEY), `${nom} : seul l’index est écrit (${st.ecrits.join(', ')})`);
+  }
+  const neuf = memoire(), vide = demarre(R, neuf, g);
+  assert.deepEqual(vide.list, [], 'appareil neuf de Tofinou : index vide');
+  assert.deepEqual(Object.keys(neuf.dump()), [KEY]);
+  assert.deepEqual(demarre(R, memoire(CAS().events), g).list, [], 'ancienne fiche rade.events.v1 (Naos) : jamais reprise dans l’espace Tofinou');
+  // seedNorm et seedGpen sans leurs graines : même objet, rien d’écrit
+  const st0 = { v: 1, list: [{ id: 'snpm-2026', ic: { read: 'reprise', validated: { by: 'X', at: 1 } }, at: 1 }] };
+  assert.equal(R.seedNorm(st0, g), st0, 'seedNorm sans la Coupe SNPM dans les graines : sans effet');
+  assert.notEqual(R.seedNorm(st0), st0, 'Naos : la graine est ramenée à la fiche commune, comme en v43');
+  const m = memoire(), s1 = { v: 1, list: [] };
+  assert.equal(seedGpen(s1, { storage: m, ...g }), s1); assert.deepEqual(m.ecrits, []);
+});
+
+test('IC d’une fiche de l’espace Tofinou : ni signaux, ni pavillons de classe, ni groupes du CVAT ; Naos inchangé après le retour du réglage', () => {
+  const r = createRegatta({ name: 'Challenge', dateStart: '2026-12-05', club: 'CNBL', venue: 'bormes' }, { now: t('2026-12-01T10:00:00Z'), by: 'Frédéric' }).regatta;
+  assert.equal(r.venue, 'bormes');
+  try {
+    setCommuns(false);
+    const ic = icOf(r);
+    assert.deepEqual([ic.sequence, ic.classes, ic.groups], [[], [], []]);
+    const lue = icOf({ ...r, ic: { fields: { classes: [['T', 'Tofinou']] }, text: '' } });
+    assert.deepEqual(lue.classes, [['T', 'Tofinou']], 'les valeurs lues dans ses IC restent');
+  } finally { setCommuns(true); }
+  assert.deepEqual(icOf(r).sequence, SNPM.sequence, 'Naos : valeurs communes CVAT, comme en v43');
+});
+
+test('formulaire de régate : plans d’eau de l’espace seulement (Naos : Toulon et Brest, comme en v43 ; Tofinou : Bormes, par défaut)', () => {
+  const opts = (html) => [...parseHTML(`<html><body>${html}</body></html>`).document.querySelectorAll('#rgVenue option')].map((o) => [o.value, o.hasAttribute('selected')]);
+  assert.deepEqual(opts(newRegattaFormHTML({ venue: 'bormes' })), [['toulon', true], ['brest', false]], 'Naos : Bormes jamais proposé');
+  const T = { ids: ESPACES.tofinou.venues, defaut: ESPACES.tofinou.venueDefaut };
+  for (const v of [undefined, 'toulon', 'brest', 'bormes', '__proto__']) assert.deepEqual(opts(newRegattaFormHTML({ venue: v }, {}, T)), [['bormes', true]], String(v));
+  assert.match(newRegattaFormHTML({}, {}, T), /<option value="bormes" selected>Rade de Bormes – Le Lavandou<\/option>/);
+});
+
+test('carte « Plan d’eau » : Naos identique avec ou sans la liste de l’espace ; Tofinou sans « Revenir à la rade de Toulon » ni autre plan d’eau, sources de Bormes', () => {
+  const base = { venues: VENUES, status: { state: 'ready', bytes: 3604097 } };
+  for (const o of [{ venueId: 'toulon' }, { venueId: 'brest' }, { venueId: 'toulon', locked: true }, { venueId: 'brest', status: { state: 'stale', bytes: 1 } }]) {
+    assert.equal(venueCardHTML({ ...base, ...o, packId: 'brest', ids: ['toulon', 'brest'] }), venueCardHTML({ ...base, ...o }), JSON.stringify(o));
+  }
+  const tof = (o = {}) => parseHTML(`<html><body>${venueCardHTML({ ...base, venueId: 'bormes', packId: 'bormes', ids: ['bormes'], ...o })}</body></html>`).document;
+  const d = tof();
+  assert.equal(d.querySelector('#pkGo') === null, true, 'aucun autre plan d’eau : pas de bouton de bascule');
+  assert.match(d.querySelector('#pkHere').textContent, /Ce téléphone : Rade de Bormes – Le Lavandou/);
+  assert.equal(d.querySelector('#pkState').textContent, 'Rade de Bormes – Le Lavandou : Prêt hors réseau');
+  const txt = d.querySelector('#pkCard').textContent;
+  assert.ok(!/Toulon|Brest/.test(txt), txt);
+  assert.match(txt, /Rade de Bormes – Le Lavandou : © contributeurs OpenStreetMap \(ODbL\), EMODnet Bathymetry, AWS Terrain Tiles \(Terrarium\)\. Ne remplace pas les cartes et ouvrages nautiques officiels\./);
+  assert.equal(tof({ status: { state: 'absent', bytes: 3604097 } }).querySelector('#pkDl') !== null, true, 'pack absent : « Télécharger le plan d’eau »');
+});
+
+// ───────────────────────── jours de course et Challenge de la Baie 2026-2027 (08-08, D-13)
+
+const REF_JOURS = JSON.parse(readFileSync(join(ROOT, 'tests/fixtures/jours-v43.json'), 'utf8'));
+const JOURS_BAIE = ['2026-10-11', '2026-11-08', '2026-12-13', '2027-01-17', '2027-02-14', '2027-03-14', '2027-04-10', '2027-04-11'];
+const saison = (over = {}) => regate({ id: 'saison', dateStart: '2026-10-11', dateEnd: '2027-04-11', jours: [...JOURS_BAIE], ...over });
+// midi de Paris le jour d (heure d’hiver ou d’été sans effet sur le jour)
+const midi = (d) => Date.parse(`${d}T10:00:00Z`);
+
+test('jours : sans jours, statut, régate du jour, verrou, ouverture, jours, sceau et rattachement d’une trace identiques à la v43 (tests/fixtures/jours-v43.json, capturé sur 5e9b8a5)', async () => {
+  assert.equal(REF_JOURS.from, '5e9b8a5');
+  const { releve: releveJours } = await import('./helpers/jours.mjs');
+  const r = await releveJours(ROOT);
+  for (const k of ['statut', 'jour', 'ouverture', 'jours', 'sceau', 'trace']) assert.deepEqual(r[k], REF_JOURS[k], k);
+});
+
+test('jours : « En cours » les jours de course seulement, « En préparation » entre deux, « Terminée » après le dernier ; minuit de Paris', () => {
+  const r = saison();
+  assert.equal(regattaStatus(r, midi('2026-12-13')), 'aujourdhui');
+  assert.equal(regattaStatus(r, midi('2026-12-14')), 'avenir');
+  assert.equal(regattaStatus(r, midi('2026-10-10')), 'avenir', 'le samedi 10 octobre n’est pas un jour de course');
+  assert.equal(regattaStatus(r, midi('2026-10-11')), 'aujourdhui');
+  assert.equal(regattaStatus(r, midi('2027-04-10')), 'aujourdhui');
+  assert.equal(regattaStatus(r, midi('2027-04-11')), 'aujourdhui');
+  assert.equal(regattaStatus(r, midi('2027-04-12')), 'passee');
+  assert.equal(regattaStatus(r, t('2026-12-12T22:59:00Z')), 'avenir', '23 h 59 le 12/12 à Paris');
+  assert.equal(regattaStatus(r, t('2026-12-12T23:00:00Z')), 'aujourdhui', 'minuit le 13/12 à Paris');
+  assert.equal(regattaStatus(r, t('2026-12-13T23:00:00Z')), 'avenir', 'minuit le 14/12 à Paris');
+  // liste mal formée : dates impossibles, doublons, désordre → jours valides triés ; vide → règles de la v43
+  const R = { joursOf: null };
+  return import('../js/regates.js').then((M) => {
+    R.joursOf = M.joursOf;
+    assert.deepEqual(R.joursOf({ jours: ['2027-01-17', '2026-02-30', '2026-12-13', '2026-12-13', 7, null] }), ['2026-12-13', '2027-01-17']);
+    assert.equal(R.joursOf({ jours: [] }), null); assert.equal(R.joursOf({ jours: 'x' }), null); assert.equal(R.joursOf({}), null);
+    assert.equal(regattaStatus(saison({ jours: [] }), midi('2026-12-14')), 'aujourdhui', 'jours vides : toute la période, comme en v43');
+    assert.deepEqual(M.daysOf(r), JOURS_BAIE, 'manches possibles : les jours de course');
+  });
+});
+
+test('jours : verrou « journée de régate » et ouverture au démarrage le jour d’une manche seulement', () => {
+  const list = [saison()];
+  assert.deepEqual(lockDates({ now: midi('2027-01-17'), list }), { raceFrom: '2027-01-17', raceTo: '2027-01-17' });
+  assert.deepEqual(lockDates({ now: midi('2027-01-18'), list }), { raceFrom: null, raceTo: null });
+  assert.deepEqual(lockDates({ now: midi('2027-04-10'), list }), { raceFrom: '2027-04-10', raceTo: '2027-04-10' });
+  assert.equal(isRaceDay({ now: midi('2027-01-17'), ...lockDates({ now: midi('2027-01-17'), list }) }), true);
+  assert.equal(isRaceDay({ now: midi('2026-12-20'), ...lockDates({ now: midi('2026-12-20'), list }) }), false, 'pas de verrou un dimanche sans manche');
+  assert.equal(openAtBoot({ now: midi('2026-12-13'), list }), 'saison');
+  assert.equal(openAtBoot({ now: midi('2026-12-14'), list }), null, 'entraînement libre le lendemain');
+  assert.equal(todayRegatta({ now: midi('2026-11-01'), list }), null);
+  assert.deepEqual(openOnNewDay({ now: midi('2026-12-13'), list, openId: null, day: '2026-12-12' }), { day: '2026-12-13', openId: 'saison' });
+  assert.deepEqual(openOnNewDay({ now: midi('2026-12-14'), list, openId: 'saison', day: '2026-12-13' }), { day: '2026-12-14', openId: 'saison' }, 'l’écran n’est pas retiré');
+});
+
+test('jours : sceau du vent du jour au premier signal des IC CHAQUE jour de course, sinon à la fin du jour ; trace rangée dans la régate de son jour seulement', async () => {
+  const { sealAt, parisInstant } = await import('../js/gel.js');
+  const { matchRegattas } = await import('../js/attach.js');
+  const r = saison({ ic: { fields: { firstWarning: '11:00' } } });
+  assert.deepEqual(sealAt(r, '2027-01-17'), { at: parisInstant('2027-01-17', 11, 0), signal: 'ic' });
+  assert.equal(sealAt(r, '2027-01-18'), null, 'hors des jours de course');
+  assert.deepEqual(sealAt(saison(), '2027-01-17'), { at: parisInstant('2027-01-18', 0, 0), signal: 'inconnu' }, 'sans heure : fin de CE jour, pas de la saison');
+  const pts = (d) => Array.from({ length: 61 }, (_, i) => [Date.parse(`${d}T10:00:00Z`) + i * 60e3, 43.12, 6.39, 5, 90, 5]);
+  assert.equal(matchRegattas(pts('2027-01-17'), [r]).how, 'unique');
+  assert.equal(matchRegattas(pts('2027-01-18'), [r]).how, 'proche', 'lendemain d’une manche : proposition');
+  assert.equal(matchRegattas(pts('2026-12-01'), [r]).how, 'aucune', 'un jour de la saison sans manche : aucune régate');
+});
+
+test('seedBaie : fiche baie-2026-2027 semée une seule fois dans l’espace Tofinou (marqueur rade.seed.baie.v1), jamais ressemée après suppression ; sans effet chez Naos', async () => {
+  const R = await import('../js/regates.js'), M = await import('../js/archmerge.js');
+  assert.equal(R.BAIE_ID, 'baie-2026-2027'); assert.equal(R.BAIE_SEED_KEY, 'rade.seed.baie.v1');
+  const g = { graines: ESPACES.tofinou.graines };
+  const s = mem(), st = migrate({ storage: s, now: t('2026-11-27T08:00:00Z'), by: 'Frédéric', ...g });
+  assert.deepEqual(st.list, []);
+  const n = R.seedBaie(st, { storage: s, ...g });
+  assert.deepEqual(n.list.map((r) => r.id), ['baie-2026-2027']);
+  assert.equal(s.getItem('rade.seed.baie.v1'), '1', 'marqueur posé');
+  assert.equal(R.seedBaie(n, { storage: mem(), ...g }), n, 'déjà là : même objet');
+  // supprimée : pierre tombale, marqueur ; rien n’est ressemé
+  const sans = M.stampState(n, removeRegatta(n, 'baie-2026-2027'), { now: t('2026-11-28T08:00:00Z'), by: 'Frédéric' }).st;
+  assert.ok(sans.tomb['baie-2026-2027']);
+  assert.equal(R.seedBaie(sans, { storage: mem(), ...g }), sans);
+  const vide = { v: 1, list: [] };
+  assert.equal(R.seedBaie(vide, { storage: mem({ 'rade.seed.baie.v1': '1' }), ...g }), vide, 'marqueur posé : rien');
+  // Naos (graines de Naos, ou défaut) : ni fiche ni marqueur
+  for (const opts of [{}, { graines: ESPACES.naos.graines }]) {
+    const m = memoire(), s0 = { v: 1, list: [] };
+    assert.equal(R.seedBaie(s0, { storage: m, ...opts }), s0); assert.deepEqual(m.ecrits, []);
+  }
+  // stockage illisible : semée quand même, sans exception
+  const casse = { getItem() { throw new Error('refus'); }, setItem() { throw new Error('refus'); } };
+  assert.ok(R.seedBaie(vide, { storage: casse, ...g }).list.some((r) => r.id === 'baie-2026-2027'));
+  // deux téléphones : même fiche (canon), la fusion n’en garde qu’une, avec ses jours
+  const a = R.seedBaie(vide, { storage: mem(), ...g }), b = R.seedBaie({ v: 1, list: [] }, { storage: mem(), ...g });
+  assert.equal(M.canon(M.toShared(a.list[0])), M.canon(M.toShared(b.list[0])));
+  const Y = await import('../js/archsync.js');
+  const doc = M.mergeDoc(Y.buildDoc(M.legacyStamp(a), { marks: {} }), Y.buildDoc(M.legacyStamp(b), { marks: {} }));
+  assert.deepEqual(Object.keys(doc.regattas), ['baie-2026-2027']);
+  assert.deepEqual(doc.regattas['baie-2026-2027'].jours, JOURS_BAIE);
+  assert.equal(M.legacyStamp(a).list[0].ub, null, 'graine sans auteur');
+});
+
+test('fiche du Challenge de la Baie : sept manches (huit jours), manche 1 le dimanche 11/10, Bormes, règles de l’avis et des fiches de course, aucun nom de personne', async () => {
+  const R = await import('../js/regates.js');
+  const f = R.baieSeed();
+  assert.notEqual(f, R.baieSeed(), 'objet neuf à chaque appel');
+  assert.deepEqual(f.jours, JOURS_BAIE);
+  assert.equal(f.dateStart, '2026-10-11'); assert.equal(f.dateEnd, '2027-04-11'); assert.equal(f.season, '2026'); assert.equal(f.venue, 'bormes');
+  assert.equal(f.name, 'Challenge de la Baie 2026-2027');
+  assert.equal(f.club, 'Yacht Club du Lavandou · École de voile municipale du Lavandou · Club de voile de Bormes');
+  assert.equal(f.at, R.BAIE_AT); assert.equal(f.by, null); assert.equal(f.u, R.BAIE_AT); assert.equal(f.ub, null); assert.equal(f.vu, R.BAIE_AT);
+  assert.equal(f.ic.read, 'semee'); assert.equal(f.ic.source, 'Avis de course et fiches de course du Challenge de la Baie 2026-2027');
+  assert.deepEqual(f.ic.validated, { by: null, at: R.BAIE_AT });
+  // dimanches
+  for (const d of JOURS_BAIE.filter((x) => x !== '2027-04-10')) assert.equal(new Date(`${d}T12:00:00Z`).getUTCDay(), 0, `${d} est un dimanche`);
+  assert.equal(new Date('2027-04-10T12:00:00Z').getUTCDay(), 6, 'finale : samedi 10 et dimanche 11 avril');
+  // manches : une par jour, sans heure inventée, identifiant fixe, lieux
+  assert.deepEqual(f.races.map((m) => [m.n, m.id, m.date, m.time]), JOURS_BAIE.map((d, i) => [i + 1, `m${d.replace(/-/g, '')}`, d, '']));
+  assert.ok(f.races.every((m) => m.courseId === null && m.u === R.BAIE_AT && m.ub === null && m.by === null && m.note.length <= 200));
+  assert.match(f.races[0].note, /^Manche 1 — Le Lavandou/); assert.match(f.races[2].note, /^Manche 3 — Bormes/); assert.match(f.races[4].note, /^Manche 5 — Bormes/);
+  assert.match(f.races[5].note, /^Manche 6 — Le Lavandou/); assert.match(f.races[6].note, /^Finale \(manche 7\), premier jour/); assert.match(f.races[7].note, /^Finale \(manche 7\), second jour/);
+  const ic = icOf(f), regles = ic.keyRules.join('\n');
+  assert.equal(ic.vhf, 72); assert.equal(ic.firstWarning, '11:00');
+  for (const re of [/VHF 72/, /Règles d’introduction à la régate \(RIR\)/, /pénalité d’un tour/, /Briefing à 10 h, premier signal à 11 h/, /4 minutes[^\n]*DNS/, /Bout-dehors[^\n]*spinnaker/,
+    /entre le bateau comité et une bouée cylindrique orange/, /bouée cylindrique rouge siglée Le Lavandou/, /« R »[^\n]*sens inverse/, /Pavillon D[^\n]*pavillon vert : dégagement à laisser à tribord/,
+    /groupe 4/, /dimanche 11 octobre/, /devant Le Lavandou[^\n]*devant Bormes – La Favière/]) assert.match(regles, re);
+  // aucun « 10 octobre » comme date de manche : seulement cité comme la coquille de l’avis
+  const tout = JSON.stringify(f);
+  assert.equal((tout.match(/10 octobre/g) || []).length, 1); assert.match(regles, /écrit « dimanche 10 octobre » : coquille/);
+  assert.ok(!/'/.test(tout.replace(/"[a-zA-Z]+":/g, '')), 'apostrophe typographique ’');
+  assert.ok(!/CVAT|Toulon|J80|Naos|SNPM|GPEN/.test(tout), 'rien de Naos');
+  // vue : « En cours » le 13/12, « En préparation » le 14/12, mention de la fiche semée propre au Challenge
+  const { document } = parseHTML(`<div>${sheetHTML(f, { now: midi('2026-12-13') })}</div>`);
+  const txt = document.querySelector('#rgSheet').textContent.replace(/\s+/g, ' ');
+  assert.match(txt, /Challenge de la Baie 2026-2027/); assert.match(txt, /En cours/); assert.match(txt, /8 jours de course, du dim\. 11 oct\. au dim\. 11 avr\. 2027/);
+  assert.match(txt, /Fiche semée par l’app \(avis de course et fiches de course 2026-2027\) — à vérifier sur la fiche de course de chaque manche\./);
+  assert.ok(!/IC 2027/.test(txt));
+  assert.equal(document.querySelectorAll('script, img, iframe').length, 0);
+  assert.equal(regattaStatus(f, midi('2026-12-14')), 'avenir');
+});
+
+test('câblage : seedBaie appelé juste après seedGpen (même forme), marqueur retiré à l’adoption d’un autre espace avec celui du GPEN', () => {
+  const app = readFileSync(ROOT + 'js/app.js', 'utf8');
+  assert.match(app, /\{ const g = seedGpen\(REG, \{ storage: localStore\(\), graines: ESPACE\.graines \}\); if \(g !== REG\) \{ REG = g; saveRegattas\(localStore\(\), REG\); \} \}\n\/\/ [^\n]*\n\{ const g = seedBaie\(REG, \{ storage: localStore\(\), graines: ESPACE\.graines \}\); if \(g !== REG\) \{ REG = g; saveRegattas\(localStore\(\), REG\); \} \}/);
+  assert.match(app, /for \(const k of \[REG_KEY, GPEN_SEED_KEY, BAIE_SEED_KEY, 'rade\.state'\]\) localStorage\.removeItem\(k\);/);
 });

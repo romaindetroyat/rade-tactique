@@ -59,7 +59,7 @@ function telephone(nom, M) {
   p.deps = {
     now: () => clock.t,
     async fetchJson(method, query, body) {
-      const r = await faux.invoke(handler, { method, url: '/api/archive?' + new URLSearchParams(query), body, headers: { 'x-rt-membre': encodeURIComponent(nom) } });
+      const r = await faux.invoke(handler, { method, url: '/api/archive?' + new URLSearchParams(query), body, headers: { 'x-rt-membre': encodeURIComponent(nom), 'x-rt-espace': 'naos' } });
       return { status: r.status, body: r.body };
     },
     getState: () => p.st, setState: (st) => { p.st = st; }, getMarks: () => ({}), setMarks() {},
@@ -69,7 +69,7 @@ function telephone(nom, M) {
 }
 const A = telephone('Teiva', V43), B = telephone('Thibaud', V42);
 const tour = async (...ps) => { for (let i = 0; i < 2; i++) for (const p of ps) { avance(30e3); const r = await p.sync(); exige(!r?.error, `${p.nom} : ${JSON.stringify(r)}`); } };
-const enLigne = async (id) => (await faux.invoke(handler, { method: 'GET', url: '/api/archive?k=light', headers: { 'x-rt-membre': 'Romain' } })).body.doc.regattas[id];
+const enLigne = async (id) => (await faux.invoke(handler, { method: 'GET', url: '/api/archive?k=light', headers: { 'x-rt-membre': 'Romain', 'x-rt-espace': 'naos' } })).body.doc.regattas[id];
 // ce que les deux versions connaissent d’une régate (sans le plan d’eau, que la v42 ignore) : doit être identique des deux côtés
 const sansLieu = ({ venue, vu, ...r }) => r;
 const partage = (p, id) => { const r = p.reg(id); return V43.arch.canon(sansLieu({ ...V43.arch.toShared(r), races: (r.races || []).map(({ n, ...m }) => m) })); };

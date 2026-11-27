@@ -1,5 +1,7 @@
 // Archive partagée de l’équipage (Vercel, fonction Node) : lit et écrit le stockage Vercel Blob PRIVÉ pour le compte des trois équipiers.
 // Le middleware a déjà vérifié le code d’accès et pose l’en-tête `x-rt-membre` (prénom, encodé) : c’est la seule source de l’auteur, jamais le corps.
+// Phase 8 : il pose aussi `x-rt-espace` ; sans espace valide, 403 `espace_inconnu` avant tout accès au magasin. Les chemins sont calculés par
+// `prefixe(espace)` d’api/_espace.js : Naos `prod/…` et `preview/…` (inchangés), un autre espace `<espace>/prod/…` ou `<espace>/preview/…`.
 // Variables d’environnement : BLOB_READ_WRITE_TOKEN (ou BLOB_STORE_ID + OIDC), VERCEL_ENV. Aucune URL Blob n’est jamais renvoyée au client.
 // Routes (toutes sur /api/archive, paramètre k) :
 //   GET  ?k=light[&rev=…]   document léger partagé { rev, doc, env } (ou { unchanged, rev, env } si rev est à jour)
@@ -15,7 +17,8 @@
 
 import { pipeline } from 'node:stream/promises';
 import { Readable } from 'node:stream';
-import { mergeDoc, emptyDoc, docEquals, canon, sameBody, slug, LOCAL_ONLY, FICHE, LISTS, MAX_HIST, VENUE_IDS } from '../js/archmerge.js';
+import { mergeDoc, emptyDoc, docEquals, canon, sameBody, slug, LOCAL_ONLY, FICHE, LISTS, MAX_HIST } from '../js/archmerge.js';
+import { espaceDe, prefixe, env, POLITIQUE } from './_espace.js';
 
 export const MAX_LIGHT = 3_500_000, MAX_REGATTA = 150_000, MAX_REGATTAS = 200;
 export const MAX_HEAVY = { trace: 4_000_000, report: 3_000_000, day: 600_000 };       // octets ; la plateforme refuse de toute façon au-delà de 4,5 Mo
@@ -26,8 +29,13 @@ const DANGER = new Set(['__proto__', 'constructor', 'prototype']);
 const fail = (message, status) => Object.assign(new Error(message), { status });
 const validId = (id) => (typeof id === 'string' || Number.isFinite(id)) && ID.test(String(id));    // un identifiant absent ne devient pas la chaîne « undefined »
 const isObj = (x) => x && typeof x === 'object' && !Array.isArray(x);
-// Les données d’un aperçu ne se mélangent jamais à celles de la production (le même magasin est branché aux deux environnements)
-export const prefix = () => (process.env.VERCEL_ENV === 'production' ? 'prod' : 'preview');
+// date calendaire réelle AAAA-MM-JJ (le 30 février est refusé), comme isDate de js/regates.js (non importé : la fonction n’embarque que js/archmerge.js)
+const dateReelle = (s) => { const m = typeof s === 'string' ? /^(\d{4})-(\d{2})-(\d{2})$/.exec(s) : null; if (!m) return false; const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3])); return d.getUTCFullYear() === +m[1] && d.getUTCMonth() === +m[2] - 1 && d.getUTCDate() === +m[3]; };
+export const MAX_JOURS = 30;
+const joursValides = (j) => Array.isArray(j) && j.length >= 1 && j.length <= MAX_JOURS && j.every(dateReelle);
+// Les données d’un aperçu ne se mélangent jamais à celles de la production (le même magasin est branché aux deux environnements) ;
+// gardée pour la parité avec api/_ia.js : c’est le préfixe de Naos et la valeur `env` des réponses
+export const prefix = env;
 const bornee = (e) => String(e?.message || e).slice(0, 300);
 
 // ───────────────────────── validation et attribution
@@ -45,8 +53,12 @@ const mark = (v, now) => {                                                      
   return o;
 };
 
-// Document reçu → document propre : limites, clés refusées, `sel` retiré, dates futures ramenées à maintenant
-export function cleanDoc(doc, now) {
+// Document reçu → document propre : limites, clés refusées, `sel` retiré, dates futures ramenées à maintenant.
+// `espace` (posé par le middleware) choisit la politique d’api/_espace.js : Naos = v43 ; ailleurs, régate d’un autre plan d’eau ou graine de
+// Naos refusée (400, rien n’est écrit), recalages de bouées vidés.
+export function cleanDoc(doc, now, espace = 'naos') {
+  const pol = POLITIQUE[espace];
+  if (!pol) throw fail('espace_inconnu', 403);
   if (!isObj(doc)) throw fail('document illisible', 400);
   if (doc.v != null && doc.v !== 1) throw fail('version de format inconnue : mettez l’app à jour', 400);
   if (JSON.stringify(doc).length > MAX_LIGHT) throw fail('document trop volumineux', 413);
@@ -55,6 +67,12 @@ export function cleanDoc(doc, now) {
   for (const id of ids) {
     const r = doc.regattas[id];
     if (!ID.test(id) || !isObj(r) || r.id !== id) throw fail(`régate invalide : ${id.slice(0, 20)}`, 400);
+    if (espace !== 'naos') {
+      // plan d’eau absent = Toulon (régates de Naos d’avant la v43) ; une graine de Naos n’entre jamais dans un autre espace
+      const venue = r.venue === undefined ? 'toulon' : r.venue;
+      if (pol.reserves.includes(id)) throw fail('regate_reservee', 400);
+      if (!(typeof venue === 'string' && pol.venues.includes(venue))) throw fail('plan_d_eau_refuse', 400);
+    }
     if (JSON.stringify(r).length > MAX_REGATTA) throw fail('régate trop volumineuse', 413);
     const c = { ...r }; for (const k of LOCAL_ONLY) delete c[k];
     for (const key of Object.values(LISTS)) {
@@ -65,13 +83,15 @@ export function cleanDoc(doc, now) {
     c.tomb = tombs(c.tomb, now);
     c.hist = (Array.isArray(c.hist) ? c.hist : []).filter((x) => isObj(x) && Number.isFinite(x.t) && typeof x.kind === 'string').slice(0, MAX_HIST);
     // plan d’eau (07-05) : liste blanche ; une valeur inconnue (téléphone plus récent, objet, nom hostile) est retirée sans refuser la régate
-    if (!(typeof c.venue === 'string' && VENUE_IDS.includes(c.venue))) { delete c.venue; delete c.vu; }
+    if (!(typeof c.venue === 'string' && pol.venues.includes(c.venue))) { delete c.venue; delete c.vu; }
     else if (!Number.isFinite(c.vu)) delete c.vu;
     else c.vu = clampT(c.vu, now);
+    // jours de course (08-08, D-13) : liste de 1 à 30 dates AAAA-MM-JJ réelles, sinon retirée sans refuser la régate (aucune régate de Naos n’en a)
+    if ('jours' in c && !joursValides(c.jours)) delete c.jours;
     out.regattas[id] = clampU(c, now);
   }
   out.tomb = tombs(doc.tomb, now);
-  for (const [k, v] of Object.entries(isObj(doc.marks) ? doc.marks : {})) if (!DANGER.has(k) && MARK_KEY.test(k) && isObj(v) && Number.isFinite(v.t)) out.marks[k] = mark(v, now);
+  if (pol.recalage) for (const [k, v] of Object.entries(isObj(doc.marks) ? doc.marks : {})) if (!DANGER.has(k) && MARK_KEY.test(k) && isObj(v) && Number.isFinite(v.t)) out.marks[k] = mark(v, now);
   return out;
 }
 
@@ -226,11 +246,13 @@ export function createHandler({ blob, now = Date.now } = {}) {
     res.setHeader?.('Cache-Control', 'no-store');
     const who = membre(req.headers?.['x-rt-membre']);
     if (!who) return res.status(403).json({ error: 'membre_inconnu' });         // fermé par défaut : sans prénom du middleware, rien n’est lu
+    const espace = espaceDe(req.headers?.['x-rt-espace']);
+    if (!espace) return res.status(403).json({ error: 'espace_inconnu' });     // fermé par défaut : sans espace du middleware, rien n’est lu (jamais Naos par défaut)
     if (!sdk && !process.env.BLOB_READ_WRITE_TOKEN && !process.env.BLOB_STORE_ID) return res.status(503).json({ error: 'no_blob' });
     const q = req.query || Object.fromEntries(new URL(req.url || '/', 'http://x').searchParams);
     if (q.k !== 'light' && !Object.hasOwn(MAX_HEAVY, q.k)) return res.status(400).json({ error: 'k inconnu' });
     if (req.method !== 'GET' && req.method !== 'PUT') return res.status(405).json({ error: 'GET ou PUT' });
-    const P = prefix(), path = `${P}/light.json`;
+    const P = prefixe(espace), E = env(), path = `${P}/light.json`;
     try {
       if (q.k !== 'light') {
         const chemin = heavyPath(P, q, req.method, who);
@@ -240,19 +262,19 @@ export function createHandler({ blob, now = Date.now } = {}) {
       const B = await getBlob();
       if (req.method === 'GET') {
         const r = await B.get(path, { access: 'private', useCache: false, ...(q.rev ? { ifNoneMatch: String(q.rev) } : {}) });
-        if (!r) return res.status(200).json({ rev: null, doc: emptyDoc(), env: P });
-        if (r.statusCode === 304) return res.status(200).json({ unchanged: true, rev: revision(r.blob.etag) || String(q.rev), env: P });
+        if (!r) return res.status(200).json({ rev: null, doc: emptyDoc(), env: E });
+        if (r.statusCode === 304) return res.status(200).json({ unchanged: true, rev: revision(r.blob.etag) || String(q.rev), env: E });
         let doc;
         try { doc = { ...emptyDoc(), ...JSON.parse(await readText(r.stream)) }; } catch { throw fail('document stocké illisible', 502); }
-        return res.status(200).json({ rev: revision(r.blob.etag), doc, env: P });
+        return res.status(200).json({ rev: revision(r.blob.etag), doc, env: E });
       }
-      const t = now(), incoming = cleanDoc(req.body?.doc, t);
+      const t = now(), incoming = cleanDoc(req.body?.doc, t, espace);
       const out = await mutateLight(B, path, (stored) => {
         const merged = mergeDoc(stored, attribute(incoming, stored, who));
         const trash = Object.keys(stored.regattas || {}).filter((id) => !merged.regattas[id]).map((id) => ({ id, t, value: stored.regattas[id] }));
         return { doc: merged, trash };
       });
-      return res.status(200).json({ ...out, env: P });
+      return res.status(200).json({ ...out, env: E });
     } catch (err) {
       if (sdk && err instanceof sdk.BlobServiceRateLimited) { res.setHeader?.('Retry-After', String(err.retryAfter || 60)); return res.status(429).json({ error: 'limite du stockage atteinte, réessayez plus tard' }); }
       return res.status(err.status || 502).json({ error: bornee(err) });

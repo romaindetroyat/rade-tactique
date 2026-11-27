@@ -22,7 +22,7 @@ const doc = (...rs) => ({ v: 1, regattas: Object.fromEntries(rs.map((r) => [r.id
 // Un téléphone : appelle le gestionnaire avec le prénom que poserait le middleware (encodé, comme en production)
 function installe(opts = {}) {
   const blob = createFakeBlob(opts.blob), handler = createHandler({ blob, now: () => T });
-  const phone = (nom) => (method, url, body, headers = {}) => invoke(handler, { method, url, body, headers: { 'x-rt-membre': encodeURIComponent(nom), ...headers } });
+  const phone = (nom) => (method, url, body, headers = {}) => invoke(handler, { method, url, body, headers: { 'x-rt-membre': encodeURIComponent(nom), 'x-rt-espace': 'naos', ...headers } });
   return { blob, handler, romain: phone('Romain'), teiva: phone('Teiva'), thibaud: phone('Thibaud') };
 }
 const PUT = '/api/archive?k=light', GET = '/api/archive?k=light';
@@ -142,7 +142,7 @@ test('sans magasin configuré : 503 no_blob ; sans client injecté la fonction n
   const jeton = process.env.BLOB_READ_WRITE_TOKEN, id = process.env.BLOB_STORE_ID;
   delete process.env.BLOB_READ_WRITE_TOKEN; delete process.env.BLOB_STORE_ID;
   try {
-    const r = await invoke(createHandler(), { method: 'GET', url: GET, headers: { 'x-rt-membre': 'Teiva' } });
+    const r = await invoke(createHandler(), { method: 'GET', url: GET, headers: { 'x-rt-membre': 'Teiva', 'x-rt-espace': 'naos' } });
     assert.equal(r.status, 503);
     assert.deepEqual(r.body, { error: 'no_blob' });
   } finally {
@@ -157,7 +157,7 @@ test('bout à bout serveur : l’en-tête produit par le vrai middleware, passé
     const res = await middleware(new Request('https://rade.test/api/archive?k=light', { method: 'PUT', headers: { cookie: COOKIE_TEST, 'x-rt-membre': encodeURIComponent('Usurpateur'), 'content-type': 'application/json' }, body: '{}' }));
     assert.equal(res.headers.get('x-middleware-next'), '1');
     const transmis = res.headers.get('x-middleware-request-x-rt-membre');
-    const r = await invoke(handler, { method: 'PUT', url: PUT, body: { doc: doc(regatta({ by: 'Usurpateur', races: [manche('2026-11-07', '10:55')] })) }, headers: { 'x-rt-membre': transmis } });
+    const r = await invoke(handler, { method: 'PUT', url: PUT, body: { doc: doc(regatta({ by: 'Usurpateur', races: [manche('2026-11-07', '10:55')] })) }, headers: { 'x-rt-membre': transmis, 'x-rt-espace': res.headers.get('x-middleware-request-x-rt-espace') } });
     assert.equal(r.status, 200);
     assert.equal(r.body.doc.regattas.rgA.by, prenom);
     assert.equal(r.body.doc.regattas.rgA.races[0].by, prenom);
@@ -182,7 +182,7 @@ test('fermée par défaut : sans prénom valide du middleware (absent, vide, non
 
 test('un prénom accentué passe encodé dans l’en-tête et signe correctement', async () => {
   const { handler } = installe();
-  const r = await invoke(handler, { method: 'PUT', url: PUT, body: { doc: doc(regatta()) }, headers: { 'x-rt-membre': encodeURIComponent('Éloïse-Marie') } });
+  const r = await invoke(handler, { method: 'PUT', url: PUT, body: { doc: doc(regatta()) }, headers: { 'x-rt-membre': encodeURIComponent('Éloïse-Marie'), 'x-rt-espace': 'naos' } });
   assert.equal(r.status, 200);
   assert.equal(r.body.doc.regattas.rgA.by, 'Éloïse-Marie');
 });
@@ -377,7 +377,7 @@ test('écritures simultanées au-delà de 4 essais : 409 ; une erreur du magasin
   assert.equal(blob.ops.get - avant, 4, 'quatre essais, pas un de plus');
   // une panne du magasin autre qu'une course perdue ressort telle quelle (502), sans relire quatre fois
   const b2 = createFakeBlob(), h = createHandler({ blob: b2, now: () => T });
-  const phone = (nom) => (corps) => invoke(h, { method: 'PUT', url: PUT, body: corps, headers: { 'x-rt-membre': nom } });
+  const phone = (nom) => (corps) => invoke(h, { method: 'PUT', url: PUT, body: corps, headers: { 'x-rt-membre': nom, 'x-rt-espace': 'naos' } });
   await phone('Teiva')({ doc: doc(regatta()) });
   const lus = b2.ops.get;
   b2.failNext(new b2.BlobError('boum'), { op: 'put' });
@@ -694,4 +694,117 @@ test('ETag faible du CDN (W/"…") : la révision lue sert à ifMatch sans le pr
   assert.equal(deux.status, 200, 'la seconde écriture (écrasement sous ifMatch) passe');
   assert.equal(deux.body.changed, true);
   assert.ok(!String(deux.body.rev).startsWith('W/'));
+});
+
+// ───────────────────────── politique de l’archive par espace (phase 8, D-04, D-05) : T7
+
+function installeEspace(espace, opts = {}) {
+  const blob = createFakeBlob(opts.blob), handler = createHandler({ blob, now: () => T });
+  const phone = (nom) => (method, url, body) => invoke(handler, { method, url, body, headers: { 'x-rt-membre': encodeURIComponent(nom), 'x-rt-espace': espace } });
+  return { blob, handler, romain: phone('Romain'), frederic: phone('Frédéric') };
+}
+const RECALAGE = { 7: { lat: 43.0712, lon: 5.9341, src: 'trace', t: 1600 } };
+
+test('T7 : archive Tofinou — régate sans plan d’eau (Toulon), d’un autre plan d’eau ou de Brest → 400 plan_d_eau_refuse, rien d’écrit', async () => {
+  const { blob, frederic } = installeEspace('tofinou');
+  for (const over of [{}, { venue: 'toulon' }, { venue: 'brest', vu: 1200 }, { venue: 'lorient' }, { venue: 'Bormes' }, { venue: ['bormes'] }, { venue: '__proto__' }]) {
+    const r = await frederic('PUT', PUT, { doc: doc(regatta(over)) });
+    assert.equal(r.status, 400, JSON.stringify(over));
+    assert.deepEqual(r.body, { error: 'plan_d_eau_refuse' });
+  }
+  // une seule régate hors plan d’eau suffit à refuser tout le document
+  const mix = await frederic('PUT', PUT, { doc: doc(regatta({ id: 'rgB', venue: 'bormes' }), regatta({ id: 'rgT' })) });
+  assert.equal(mix.status, 400);
+  assert.equal(blob.ops.put, 0, 'rien d’écrit');
+});
+
+test('T7 : archive Tofinou — graines de Naos (snpm-2026, gpen-2027) → 400 regate_reservee, même au plan d’eau de Bormes ; rien d’écrit', async () => {
+  const { blob, frederic } = installeEspace('tofinou');
+  for (const id of ['snpm-2026', 'gpen-2027']) {
+    for (const over of [{ venue: 'bormes' }, {}, { venue: 'brest' }]) {
+      const r = await frederic('PUT', PUT, { doc: doc(regatta({ id, ...over })) });
+      assert.equal(r.status, 400, `${id} ${JSON.stringify(over)}`);
+      assert.ok(['regate_reservee', 'plan_d_eau_refuse'].includes(r.body.error));
+      if (over.venue === 'bormes') assert.deepEqual(r.body, { error: 'regate_reservee' });
+    }
+  }
+  assert.equal(blob.ops.put, 0, 'rien d’écrit');
+});
+
+test('T7 : archive Tofinou — régate de Bormes acceptée, rangée sous tofinou/, recalages de bouées vidés, bouées de la régate gardées', async () => {
+  for (const env of [undefined, 'production']) {
+    await avecEnv(env, async () => {
+      const P = env === 'production' ? 'prod' : 'preview';
+      const { blob, frederic } = installeEspace('tofinou');
+      const marques = [{ id: 'B1', name: 'B1', lat: 43.12, lon: 6.40, src: 'ic', u: 1500 }];
+      const r = await frederic('PUT', PUT, { doc: { ...doc(regatta({ venue: 'bormes', vu: 1200, marks: marques })), marks: RECALAGE } });
+      assert.equal(r.status, 200);
+      assert.equal(r.body.env, P, 'env reste prod ou preview');
+      assert.deepEqual(r.body.doc.marks, {}, 'recalages vidés hors de Naos');
+      assert.equal(r.body.doc.regattas.rgA.venue, 'bormes');
+      assert.equal(r.body.doc.regattas.rgA.marks.length, 1, 'les bouées de la régate (IC) restent');
+      assert.equal(r.body.doc.regattas.rgA.by, 'Frédéric');
+      assert.deepEqual([...blob.store.keys()], [`tofinou/${P}/light.json`]);
+      assert.ok(blob.ops.log.every((o) => o.path.startsWith(`tofinou/${P}/`)));
+    });
+  }
+});
+
+test('T7 : archive Naos — politique de la v43 : « bormes » retiré comme un plan d’eau inconnu, recalages gardés, graines acceptées', async () => {
+  const { blob, romain } = installeEspace('naos');
+  const r = await romain('PUT', PUT, { doc: { ...doc(regatta({ venue: 'bormes', vu: 1200 }), regatta({ id: 'snpm-2026' }), regatta({ id: 'gpen-2027', venue: 'brest', vu: 1200 })), marks: RECALAGE } });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.doc.regattas.rgA.venue, undefined, 'plan d’eau inconnu de Naos retiré sans refuser la régate');
+  assert.equal(r.body.doc.regattas.rgA.vu, undefined);
+  assert.equal(r.body.doc.regattas['gpen-2027'].venue, 'brest');
+  assert.ok(r.body.doc.regattas['snpm-2026']);
+  assert.deepEqual(Object.keys(r.body.doc.marks), ['7'], 'recalages de Naos gardés');
+  assert.deepEqual([...blob.store.keys()], ['preview/light.json']);
+});
+
+test('cleanDoc : politique lue par espace (Naos par défaut = v43), erreurs nommées hors de Naos', () => {
+  const d = { ...doc(regatta({ venue: 'bormes' })), marks: RECALAGE };
+  assert.equal(cleanDoc(d, T).regattas.rgA.venue, undefined, 'défaut : Naos');
+  assert.deepEqual(Object.keys(cleanDoc(d, T, 'naos').marks), ['7']);
+  const t = cleanDoc(d, T, 'tofinou');
+  assert.equal(t.regattas.rgA.venue, 'bormes');
+  assert.deepEqual(t.marks, {});
+  assert.throws(() => cleanDoc(doc(regatta()), T, 'tofinou'), (e) => e.message === 'plan_d_eau_refuse' && e.status === 400);
+  assert.throws(() => cleanDoc(doc(regatta({ id: 'gpen-2027', venue: 'bormes' })), T, 'tofinou'), (e) => e.message === 'regate_reservee' && e.status === 400);
+});
+
+// ───────────────────────── jours de course et fiche du Challenge de la Baie (08-08, D-13, T-08-27, T-08-28)
+
+test('cleanDoc : jours de course gardés (1 à 30 dates AAAA-MM-JJ réelles), sinon retirés sans refuser la régate ; Naos sans jours inchangé', () => {
+  const ok = ['2026-10-11', '2026-11-08', '2027-04-11'];
+  for (const esp of ['tofinou', 'naos']) {
+    const v = esp === 'tofinou' ? { venue: 'bormes', vu: 1200 } : {};
+    assert.deepEqual(cleanDoc(doc(regatta({ ...v, jours: ok })), T, esp).regattas.rgA.jours, ok, esp);
+    assert.deepEqual(cleanDoc(doc(regatta({ ...v, jours: Array.from({ length: 30 }, (_, i) => `2027-01-${String(i + 1).padStart(2, '0')}`) })), T, esp).regattas.rgA.jours.length, 30);
+    for (const mauvais of [[], Array.from({ length: 31 }, (_, i) => `2027-01-${String(i + 1).padStart(2, '0')}`), ['2026-02-30'], ['2026-10-11', 'demain'], ['2026-10-11T00:00'], '2026-10-11', { 0: '2026-10-11' }, [20261011], null]) {
+      const c = cleanDoc(doc(regatta({ ...v, jours: mauvais })), T, esp).regattas.rgA;
+      assert.ok(!('jours' in c), `${esp} : ${JSON.stringify(mauvais)?.slice(0, 40)} retiré`);
+      assert.equal(c.name, 'Coupe test', 'la régate reste');
+    }
+  }
+  // régate de Naos sans jours : document propre identique (aucune clé ajoutée)
+  assert.ok(!('jours' in cleanDoc(doc(regatta()), T, 'naos').regattas.rgA));
+});
+
+test('fiche du Challenge de la Baie : acceptée par l’archive Tofinou (rangée sous tofinou/, jours relus par un second téléphone), jamais vue par l’archive de Naos', async () => {
+  const { baieSeed } = await import('../js/regates.js');
+  const blob = createFakeBlob(), handler = createHandler({ blob, now: () => T });
+  const tel = (nom, espace) => (method, url, body) => invoke(handler, { method, url, body, headers: { 'x-rt-membre': encodeURIComponent(nom), 'x-rt-espace': espace } });
+  const f = baieSeed(), d = { ...emptyDoc(), regattas: { [f.id]: f } };
+  const r = await tel('Frédéric', 'tofinou')('PUT', PUT, { doc: d });
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.body.doc.regattas[f.id].jours, f.jours);
+  assert.equal(r.body.doc.regattas[f.id].venue, 'bormes');
+  assert.equal(r.body.doc.regattas[f.id].races.length, 8);
+  assert.deepEqual([...blob.store.keys()], ['tofinou/preview/light.json']);
+  const lu = await tel('Romain', 'tofinou')('GET', GET);
+  assert.deepEqual(lu.body.doc.regattas[f.id].jours, f.jours, 'second téléphone Tofinou : jours relus');
+  const naos = await tel('Romain', 'naos')('GET', GET);
+  assert.ok(!naos.body.doc?.regattas?.[f.id], 'archive de Naos : aucune fiche du Challenge');
+  assert.ok(![...blob.store.keys()].some((k) => k.startsWith('preview/') || k.startsWith('prod/')), 'rien sous les préfixes de Naos');
 });

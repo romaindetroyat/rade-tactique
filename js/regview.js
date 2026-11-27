@@ -2,13 +2,14 @@
 // tout texte venu d’une régate (nom, club, note, auteur) passe par escHTML ; les attributs sont toujours entre guillemets doubles.
 
 import { parisClock } from './racelock.js';
-import { regattaStatus, STATUS_LABEL, MAX_NAME, MAX_CLUB, MAX_NOTE, daysOf } from './regates.js';
+import { regattaStatus, STATUS_LABEL, MAX_NAME, MAX_CLUB, MAX_NOTE, daysOf, joursOf, BAIE_SOURCE } from './regates.js';
 import { clockOf } from './gel.js';
 import { MODELS } from './weather.js';
 import { STATUS, waitingFor, fmtPos, sideTxt } from './regmarks.js';
 import { MAX_HIST, slug } from './archmerge.js';
 import { fmtMo } from './pack.js';
-import { VENUES, VENUE_IDS, venueOf } from './venues.js';
+import { VENUES, venueOf } from './venues.js';
+import { ESPACE } from './espaces.js';
 
 // Échappe & < > " ' (le esc() d’app.js laisse passer l’apostrophe)
 export const escHTML = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', '\'': '&#39;' }[c]));
@@ -26,6 +27,8 @@ const DAY_Y = new Intl.DateTimeFormat('fr-FR', { weekday: 'short', day: 'numeric
 const at12 = (s) => new Date(s + 'T12:00:00Z');
 export function datesLabel(r) {
   if (!r?.dateStart) return 'date à préciser';
+  const j = joursOf(r);                                    // régate en saison (08-08) : le nombre de jours de course, puis la saison
+  if (j) return `${j.length} jour${j.length > 1 ? 's' : ''} de course, du ${DAY.format(at12(j[0]))} au ${DAY_Y.format(at12(j[j.length - 1]))}`;
   return r.dateEnd && r.dateEnd > r.dateStart ? `du ${DAY.format(at12(r.dateStart))} au ${DAY_Y.format(at12(r.dateEnd))}` : DAY_Y.format(at12(r.dateStart));
 }
 const CHIP = { avenir: 'chip pres', aujourdhui: 'chip good', passee: 'chip' };
@@ -67,10 +70,14 @@ export function noRegattaHTML() {
 // error : message du dernier échec ; locked : course en cours (chrono, mode départ, trace, GPS) : le changement est refusé.
 export const PACK_STATE = { ready: 'Prêt hors réseau', stale: 'Mise à jour à télécharger', absent: 'À télécharger' };
 export const BREST_SOURCES = 'Rade de Brest : © contributeurs OpenStreetMap (ODbL), EMODnet Bathymetry, AWS Terrain Tiles (Terrarium). Ne remplace pas les cartes et ouvrages nautiques officiels.';
-export function venueCardHTML({ venueId = 'toulon', venues = {}, status = null, busy = null, error = null, locked = false, packId = 'brest' } = {}) {
+export const BORMES_SOURCES = 'Rade de Bormes – Le Lavandou : © contributeurs OpenStreetMap (ODbL), EMODnet Bathymetry, AWS Terrain Tiles (Terrarium). Ne remplace pas les cartes et ouvrages nautiques officiels.';
+const SOURCES = { brest: BREST_SOURCES, bormes: BORMES_SOURCES };
+// ids : plans d’eau de l’espace (Naos : Toulon et Brest, carte de la v43) ; la bascule n’est proposée que vers un plan d’eau de l’espace
+export function venueCardHTML({ venueId = 'toulon', venues = {}, status = null, busy = null, error = null, locked = false, packId = 'brest', ids = ESPACE.venues } = {}) {
   const nom = (id) => venues[id]?.nom || id;
   const ici = venueId === packId;
   const target = ici ? 'toulon' : packId;
+  const bascule = ids.includes(target) && ids.includes(venueId);              // espace à un seul plan d’eau (Tofinou) : aucune bascule
   const st = status?.state && Object.hasOwn(PACK_STATE, status.state) ? status.state : null;
   const taille = status?.bytes ? ` (${fmtMo(status.bytes)})` : '';
   const etat = st ? `${PACK_STATE[st]}${st === 'ready' ? '' : taille}` : 'état en cours de lecture…';
@@ -83,17 +90,18 @@ export function venueCardHTML({ venueId = 'toulon', venues = {}, status = null, 
     <p class="small" id="pkHere">Ce téléphone : <b>${escHTML(nom(venueId))}</b>${venueId === 'toulon' ? '' : ' · entraînement libre sur ce plan d’eau'}</p>
     <p class="small" id="pkState">${escHTML(nom(packId))} : <b>${escHTML(etat)}</b>${st === 'stale' ? ' · l’ancienne version reste utilisable hors réseau' : ''}</p>
     ${error ? `<div class="notice small" id="pkErr">Téléchargement impossible : ${escHTML(error)}. Rien n’a été enregistré ; l’ancienne version, s’il y en a une, reste utilisable.</div>` : ''}
-    <div class="btns" style="margin:6px 0 0">${dl}<button type="button" class="btn small ${ici ? 'alt' : 'acc'}" id="pkGo" data-to="${escHTML(target)}"${locked || busy ? ' disabled' : ''}>${escHTML(go)}</button></div>
-    ${locked ? '<div class="small muted" id="pkLock">Pas pendant une course : changer de plan d’eau recharge l’app.</div>' : '<div class="small muted">Changer de plan d’eau recharge l’app ; parcours, ligne, relevés et vent manuel sont gardés par plan d’eau, la polaire et les réglages du bateau sont communs.</div>'}
-    <div class="small muted" style="margin-top:4px">${escHTML(BREST_SOURCES)}</div></div>`;
+    <div class="btns" style="margin:6px 0 0">${dl}${bascule ? `<button type="button" class="btn small ${ici ? 'alt' : 'acc'}" id="pkGo" data-to="${escHTML(target)}"${locked || busy ? ' disabled' : ''}>${escHTML(go)}</button>` : ''}</div>
+    ${!bascule ? '' : locked ? '<div class="small muted" id="pkLock">Pas pendant une course : changer de plan d’eau recharge l’app.</div>' : '<div class="small muted">Changer de plan d’eau recharge l’app ; parcours, ligne, relevés et vent manuel sont gardés par plan d’eau, la polaire et les réglages du bateau sont communs.</div>'}
+    <div class="small muted" style="margin-top:4px">${escHTML(SOURCES[packId] ?? BREST_SOURCES)}</div></div>`;
 }
 
 // Formulaire de création : nom, premier jour, club ; dernier jour facultatif ; plan d’eau (D-06, défaut : celui du téléphone, `draft.venue`).
-// draft garde la saisie quand l’écran est redessiné.
-export function newRegattaFormHTML(draft = {}, errors = {}) {
+// draft garde la saisie quand l’écran est redessiné. Plans d’eau proposés : ceux de l’espace (`ids`, défaut : espace courant), sinon son défaut.
+export function newRegattaFormHTML(draft = {}, errors = {}, { ids = ESPACE.venues, defaut = ESPACE.venueDefaut } = {}) {
   const err = (k) => (errors[k] ? `<div class="rgerr" data-err="${k}">${escHTML(errors[k])}</div>` : '');
-  const ici = VENUE_IDS.includes(draft.venue) ? draft.venue : 'toulon';
-  const lieux = VENUE_IDS.map((id) => `<option value="${escHTML(id)}"${id === ici ? ' selected' : ''}>${escHTML(VENUES[id].nom)}</option>`).join('');
+  const ouverts = ids.filter((id) => Object.hasOwn(VENUES, id));
+  const ici = ouverts.includes(draft.venue) ? draft.venue : defaut;
+  const lieux = ouverts.map((id) => `<option value="${escHTML(id)}"${id === ici ? ' selected' : ''}>${escHTML(VENUES[id].nom)}</option>`).join('');
   return `<div class="card" id="rgForm"><h3>Nouvelle régate <small>trois champs</small></h3>
     <label class="f" for="rgName">Nom</label><input id="rgName" type="text" maxlength="${MAX_NAME}" autocomplete="off" placeholder="Coupe de…" value="${escHTML(draft.name)}">${err('name')}
     <label class="f" for="rgStart">Premier jour</label><input id="rgStart" type="date" value="${escHTML(draft.dateStart)}">${err('dateStart')}
@@ -109,11 +117,13 @@ const courseLabel = (id, courses) => (id == null ? 'parcours à préciser' : cou
 // Une ligne par manche : numéro, jour, signal d’avertissement, parcours, classe, tours, auteur (et dernière modification) ; « Choisir cette manche »,
 // « ✎ Modifier » et suppression. `editing` : la manche dont le formulaire de modification est ouvert (ses boutons sont masqués).
 // « modifiée par » : u/ub posés par le marquage et signés par le serveur, quand la manche a changé plus d’une minute après sa création.
-function raceRowHTML(m, { courses, chosen, editing }) {
+// sansClasses (08-11, WINDOWS n° 15) : plan d’eau sans classes du CVAT (Bormes) : la classe n’est ni montrée ni proposée, la valeur `cls` de la
+// manche est gardée telle quelle (archive et v43) ; sans l’option, vue de la v43
+function raceRowHTML(m, { courses, chosen, editing, sansClasses = false }) {
   const signal = m.time ? `signal ${escHTML(m.time)}` : 'signal : heure inconnue';
   const modif = typeof m.ub === 'string' && m.ub && Number.isFinite(m.u) && Number.isFinite(m.at) && m.u - m.at > 60000 ? ` · modifiée ${byLine(m.ub, m.u)}` : '';
   return `<div class="rgrace${chosen ? ' on' : ''}${editing ? ' edit' : ''}" data-n="${m.n}"><div class="rgrh"><b>Manche ${m.n}</b> <span class="small">${escHTML(dayLabel(m.date))} · ${signal}</span>${chosen ? ' <span class="chip good">choisie</span>' : ''}</div>`
-    + `<div class="small">${escHTML(courseLabel(m.courseId, courses))} · classe ${escHTML(m.cls)} · ${m.laps} tour${m.laps > 1 ? 's' : ''}</div>`
+    + `<div class="small">${escHTML(courseLabel(m.courseId, courses))}${sansClasses ? '' : ` · classe ${escHTML(m.cls)}`} · ${m.laps} tour${m.laps > 1 ? 's' : ''}</div>`
     + `${m.note ? `<div class="small"><i>${escHTML(m.note)}</i></div>` : ''}<div class="small muted">${byLine(m.by, m.at)}${modif}</div>`
     + (editing ? '<div class="small muted">Modification en cours, ci-dessous.</div>'
       : `<div class="btns" style="margin-top:6px"><button type="button" class="btn small acc" data-race="${m.n}">Choisir cette manche</button><button type="button" class="btn small alt" data-edrace="${m.n}" aria-label="Modifier la manche ${m.n}">✎ Modifier</button><button type="button" class="btn small alt" data-rmrace="${m.n}" aria-label="Supprimer la manche ${m.n}">✕</button></div>`)
@@ -121,7 +131,7 @@ function raceRowHTML(m, { courses, chosen, editing }) {
 }
 // Petit formulaire « Ajouter une manche » : jour (parmi ceux de la régate), signal d’avertissement, parcours, classe, tours, note.
 // Le même formulaire, prérempli, sert à « Modifier la manche » quand `d.edit` porte le rang de la manche : « Enregistrer » au lieu d’« Ajouter la manche ».
-function raceFormHTML(r, d, errors, courses) {
+function raceFormHTML(r, d, errors, courses, { sansClasses = false } = {}) {
   const err = (k) => (errors[k] ? `<div class="rgerr" data-err="${k}">${escHTML(errors[k])}</div>` : '');
   const sel = (v, x) => (String(v ?? '') === String(x) ? ' selected' : '');
   const edit = Number.isInteger(d.edit) ? d.edit : null;
@@ -130,7 +140,7 @@ function raceFormHTML(r, d, errors, courses) {
     <div class="row2"><div><label class="f" for="rcDate">Jour</label><select id="rcDate">${dates.map((x) => `<option value="${escHTML(x)}"${sel(d.date, x)}>${escHTML(dayLabel(x))}</option>`).join('')}</select>${err('date')}</div>
     <div><label class="f" for="rcTime">Signal d’avertissement</label><input id="rcTime" type="time" value="${escHTML(d.time)}">${err('time')}</div></div>
     <label class="f" for="rcCourse">Parcours</label><select id="rcCourse"><option value="">parcours à préciser</option>${courses.map((c) => `<option value="${escHTML(c.id)}"${sel(d.courseId, c.id)}>${escHTML(c.title)}</option>`).join('')}</select>${err('courseId')}
-    <div class="row2"><div><label class="f" for="rcCls">Classe</label><select id="rcCls"><option value="G"${sel(d.cls, 'G')}>G (grand)</option><option value="P"${sel(d.cls, 'P')}>P (petit)</option></select>${err('cls')}</div>
+    <div class="row2">${sansClasses ? '' : `<div><label class="f" for="rcCls">Classe</label><select id="rcCls"><option value="G"${sel(d.cls, 'G')}>G (grand)</option><option value="P"${sel(d.cls, 'P')}>P (petit)</option></select>${err('cls')}</div>`}
     <div><label class="f" for="rcLaps">Tours</label><select id="rcLaps">${[1, 2, 3, 4].map((n) => `<option value="${n}"${sel(d.laps, n)}>${n}</option>`).join('')}</select>${err('laps')}</div></div>
     <label class="f" for="rcNote">Note <small>facultatif</small></label><input id="rcNote" type="text" maxlength="${MAX_NOTE}" autocomplete="off" value="${escHTML(d.note)}">${err('note')}
     ${edit != null ? '<p class="small muted">Changer le jour ou l’heure déplace la manche chez tout l’équipage, à la synchronisation suivante.</p>' : ''}
@@ -161,15 +171,15 @@ const hm = (h) => { const m = Math.round(h * 60); return `${pad2(Math.floor(m / 
 const dur = (h) => { const m = Math.round(h * 60); return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${pad2(m % 60)}`; };
 const SIDE = { t: ' (à tribord)', b: ' (à bâbord)' };
 // Route conseillée figée : réglages en une ligne, puis le détail des bords dans un <details> (déjà dans l’index : aucune requête)
-function strategyHTML(s, courses) {
+function strategyHTML(s, courses, sansClasses = false) {
   if (!s) return '<div class="small muted">Route conseillée : pas encore figée (aucune analyse faite ce jour-là).</div>';
   const legs = s.legs || [];
-  return `<div class="small">Route conseillée figée : ${escHTML(courseLabel(s.courseId, courses))} · classe ${escHTML(s.cls)} · ${s.laps} tour${s.laps > 1 ? 's' : ''} · départ ${hm(s.startTime)} · ${s.nLegs} bord${s.nLegs > 1 ? 's' : ''} · arrivée estimée en ${dur(s.total)}</div>`
+  return `<div class="small">Route conseillée figée : ${escHTML(courseLabel(s.courseId, courses))}${sansClasses ? '' : ` · classe ${escHTML(s.cls)}`} · ${s.laps} tour${s.laps > 1 ? 's' : ''} · départ ${hm(s.startTime)} · ${s.nLegs} bord${s.nLegs > 1 ? 's' : ''} · arrivée estimée en ${dur(s.total)}</div>`
     + `<details class="rgdet"><summary class="small">Détail des bords (${legs.length})</summary>${legs.map((l, i) => `<div class="small rgleg" data-rgleg="${i + 1}">`
       + `<span class="rgdn">${i + 1} · ${escHTML(l.name)}</span>${SIDE[l.side] || ''} · cap ${Math.round(l.brg)}° · ${(l.dist / 1852).toFixed(1).replace('.', ',')} Nq · ${dur(l.time / 3600)}`
       + `<br>${escHTML(l.type)} · vent ${Math.round(l.windDir)}° ${Math.round(l.windSpd)} nd${l.advice ? `<br><i>${escHTML(l.advice)}</i>` : ''}</div>`).join('')}</details>`;
 }
-function windDayHTML(day, f, { now, courses }) {
+function windDayHTML(day, f, { now, courses, sansClasses = false }) {
   const head = `<div class="rgh"><span class="rgdn">${escHTML(dayLabel(day))}</span></div>`;
   if (!f) {
     const passe = day < parisClock(now).date;
@@ -181,13 +191,13 @@ function windDayHTML(day, f, { now, courses }) {
   return `<div class="rgwind" data-day="${escHTML(day)}">${head}`
     + `<div class="small"><span class="rgwf">Figé automatiquement à ${clockOf(f.at)}</span> · <span class="muted">${byLine(f.by, f.at)}</span></div>`
     + `<div class="small">${escHTML(prev)}${f.model ? ` · modèle ${escHTML(modelLabel(f.model))}` : ''} · ${nRel(f.nObs ?? 0)}</div>${ws}`
-    + `${etat ? `<div class="small">${escHTML(etat)}</div>` : ''}${strategyHTML(f.strategy, courses)}</div>`;
+    + `${etat ? `<div class="small">${escHTML(etat)}</div>` : ''}${strategyHTML(f.strategy, courses, sansClasses)}</div>`;
 }
 // Section « Vent du jour » : une entrée par jour de la régate
-export function windSectionHTML(r, { now = Date.now(), courses = [] } = {}) {
+export function windSectionHTML(r, { now = Date.now(), courses = [], sansClasses = false } = {}) {
   const jours = daysOf(r);
   if (!jours.length) return '';
-  return `<div class="rgwinds"><h4>Vent du jour</h4>${jours.map((d) => windDayHTML(d, r.frozen?.[d] || null, { now, courses })).join('')}</div>`;
+  return `<div class="rgwinds"><h4>Vent du jour</h4>${jours.map((d) => windDayHTML(d, r.frozen?.[d] || null, { now, courses, sansClasses })).join('')}</div>`;
 }
 
 // ───────────────────────── traces rangées dans la régate (ARCH-02, ARCH-04)
@@ -237,11 +247,14 @@ export function downloadHTML(r, opts) {
 // markFix : saisie de correction en cours { id, txt, err, ask } (état de la page) ; tout texte venu des IC passe par escHTML.
 const MK_STATE = { a_confirmer: 'chip mid', confirmee: 'chip good', ignoree: 'chip' };
 const MK_LABEL = { a_confirmer: 'à confirmer', confirmee: 'confirmée', ignoree: 'ignorée' };
-function markRowHTML(m, markFix, { nmOf, exemple }) {
+// editeur (08-11, espace Tofinou) : bouée ajoutée à la main dite « Ajoutée … », boutons inactifs pendant une course (`locked`) ; sans lui, vue de la v43
+const HAND_ORIG = new Set(['saisie', 'carte']);
+function markRowHTML(m, markFix, { nmOf, exemple, editeur = false, locked = false }) {
   const id = escHTML(m.id), fix = markFix?.id === m.id ? markFix : null, hasPos = Number.isFinite(m.lat) && Number.isFinite(m.lon);
-  const pend = m.status === STATUS.A_CONFIRMER;
+  const pend = m.status === STATUS.A_CONFIRMER, dis = editeur && locked ? ' disabled' : '';
+  const lue = editeur && HAND_ORIG.has(m.origine) ? 'Ajoutée' : 'Lue';
   const who = m.status === STATUS.CONFIRMEE && m.confirmed ? `Confirmée ${byLine(m.confirmed.by, m.confirmed.at)}`
-    : m.status === STATUS.IGNOREE && m.ignored ? `Ignorée ${byLine(m.ignored.by, m.ignored.at)}` : `Lue ${byLine(m.by, m.at)}`;
+    : m.status === STATUS.IGNOREE && m.ignored ? `Ignorée ${byLine(m.ignored.by, m.ignored.at)}` : `${lue} ${byLine(m.by, m.at)}`;
   const moved = m.moved ? ` · position corrigée ${byLine(m.moved.by, m.moved.at)}` : '';
   let html = `<div class="rgmk${m.status === STATUS.IGNOREE ? ' off' : ''}" data-mk-row="${id}"><div class="rgh"><span class="rgdn">${id} ${escHTML(m.name)}${pend ? ' ?' : ''}</span> <span class="${MK_STATE[m.status] || 'chip'}">${escHTML(MK_LABEL[m.status] || m.status)}</span></div>`
     + `<div class="small">${hasPos ? `${escHTML(fmtPos(m.lat, m.lon))}` : '<b>position à saisir</b>'} · ${escHTML(m.src || 'IC')}</div>`
@@ -252,12 +265,12 @@ function markRowHTML(m, markFix, { nmOf, exemple }) {
       + `<div class="small rgerr" id="mkxErr">${escHTML(fix.err || '')}</div><div class="btns" style="margin:6px 0 0"><button type="button" class="btn small acc" id="mkxOk">${ask}</button><button type="button" class="btn small alt" id="mkxNo">Annuler</button></div>`;
   } else if (m.status !== STATUS.IGNOREE) {
     html += `<div class="btns" style="margin-top:6px">${hasPos ? `<button type="button" class="btn small alt" data-mk-voir="${id}">Voir sur la carte</button>` : ''}`
-      + `${pend && hasPos ? `<button type="button" class="btn small acc" data-mk-ok="${id}">Confirmer</button>` : ''}`
-      + `<button type="button" class="btn small alt" data-mk-fix="${id}">${hasPos ? 'Corriger la position' : 'Saisir la position'}</button><button type="button" class="btn small alt" data-mk-ign="${id}">Ignorer</button></div>`;
+      + `${pend && hasPos ? `<button type="button" class="btn small acc" data-mk-ok="${id}"${dis}>Confirmer</button>` : ''}`
+      + `<button type="button" class="btn small alt" data-mk-fix="${id}"${dis}>${hasPos ? 'Corriger la position' : 'Saisir la position'}</button><button type="button" class="btn small alt" data-mk-ign="${id}"${dis}>Ignorer</button></div>`;
   }
   return html + '</div>';
 }
-function courseRowHTML(r, c) {
+function courseRowHTML(r, c, ed = null) {
   const name = new Map((r.marks || []).map((m) => [m.id, m]));
   const nm = (id) => escHTML(name.get(id)?.name || id);
   // une porte s’écrit « porte 4s / 4p » ; l’arrivée distincte du départ, sous la suite (noms des bouées de la régate, sinon l’identifiant)
@@ -267,11 +280,66 @@ function courseRowHTML(r, c) {
   const etat = c.incomplete ? `<span class="chip low">incomplet : ${c.missing?.length ? `bouée inconnue (${escHTML(c.missing.join(', '))})` : 'aucune bouée lue'}</span>`
     : wait.length ? `<span class="chip mid">en attente de : ${wait.map((id) => escHTML(`${id} ${name.get(id)?.name || ''}`.trim())).join(', ')}</span>`
       : '<span class="chip good">proposé dans l’onglet Parcours</span>';
+  if (ed) return courseRowEdHTML(r, c, { seq, fin, etat, ed });
   return `<div class="rgmk" data-co-row="${escHTML(c.id)}"><div class="rgh"><span class="rgdn">${escHTML(c.name)} (IC)</span> ${etat}</div><div class="small">${seq}</div>${fin}`
     + `${c.excerpt ? `<div class="small muted">Extrait : « ${escHTML(c.excerpt)} »</div>` : ''}<div class="small muted">Lu ${byLine(c.by, c.at)}</div></div>`;
 }
-// Section « Bouées » de la fiche : rien tant que la régate n’a ni bouée ni parcours lus dans ses IC
-export function marksSectionHTML(r, { markFix = null, nmOf = (d) => `${(d / 1852).toFixed(1).replace('.', ',')} Nq` } = {}) {
+// Ligne d’un parcours avec l’éditeur (08-11, D-17) : « (saisi) » ou « (IC) », tours et passage entre les tours, « Modifier le parcours » et
+// « Supprimer le parcours » (deux touches), inactifs pendant une course ; masqués pendant sa propre modification
+function courseRowEdHTML(r, c, { seq, fin, etat, ed }) {
+  const saisi = c.origine === 'saisie', id = escHTML(c.id), dis = ed.locked ? ' disabled' : '';
+  const n = Number.isInteger(c.laps) && c.laps > 1 ? c.laps : 1;
+  const tours = n > 1 ? `<div class="small">${n} tours · entre deux tours : ${c.lapLine === false ? 'sans repasser la ligne' : 'par la ligne de départ'}</div>` : '';
+  const auteur = saisi ? `Saisi ${byLine(c.by, c.at)}${c.edited ? ` · modifié ${byLine(c.edited.by, c.edited.at)}` : ''}` : `Lu ${byLine(c.by, c.at)}`;
+  const enCours = ed.courseEdit?.id != null && ed.courseEdit.id === c.id;
+  const btns = enCours ? '<div class="small muted">Modification en cours, ci-dessous.</div>'
+    : `<div class="btns" style="margin-top:6px"><button type="button" class="btn small alt" data-co-edit="${id}"${dis}>Modifier le parcours</button><button type="button" class="btn small alt" data-co-del="${id}"${dis}>Supprimer le parcours</button></div>`;
+  return `<div class="rgmk" data-co-row="${id}"><div class="rgh"><span class="rgdn">${escHTML(c.name)} (${saisi ? 'saisi' : 'IC'})</span> ${etat}</div><div class="small">${seq}</div>${fin}${tours}`
+    + `${c.excerpt ? `<div class="small muted">Extrait : « ${escHTML(c.excerpt)} »</div>` : ''}<div class="small muted">${auteur}</div>${btns}</div>`;
+}
+// Formulaire « Ajouter une bouée » (08-11) : markAdd = { name, txt, err } (état de la page) ; position d’exemple du plan d’eau de la régate
+export function markAddHTML(markAdd, { exemple, locked = false } = {}) {
+  const d = markAdd || {};
+  return `<div class="rgrform" id="mkaForm"><h4>Nouvelle bouée <small>elle restera « à confirmer » jusqu’à votre confirmation</small></h4>`
+    + `<label class="f" for="mkaName">Nom</label><input id="mkaName" type="text" maxlength="40" autocomplete="off" value="${escHTML(d.name)}">`
+    + `<label class="f" for="mkaPos">Position</label><input id="mkaPos" type="text" inputmode="text" autocomplete="off" placeholder="${escHTML(exemple)}" value="${escHTML(d.txt)}">`
+    + `<div class="small muted">Degrés et minutes, par exemple ${escHTML(exemple)}, ou touchez la carte puis « Bouée de régate ici… ».</div>`
+    + `<div class="small rgerr" id="mkaErr">${escHTML(d.err || '')}</div>`
+    + `<div class="btns" style="margin:6px 0 0"><button type="button" class="btn small acc" id="mkaOk"${locked ? ' disabled' : ''}>Ajouter la bouée</button><button type="button" class="btn small alt" id="mkaNo">Annuler</button></div></div>`;
+}
+const FIN_LABEL = { ligne: 'Sur la ligne de départ', comite: 'Entre le Comité et une bouée', pres: 'Près d’une bouée' };
+// Formulaire du parcours (08-11, D-17) : d = brouillon de courseDraft (js/regedit.js), errors = sortie de checkCourseDraft. Seules les bouées
+// CONFIRMÉES de la régate sont proposées.
+export function courseFormHTML(r, d, errors = {}, { locked = false } = {}) {
+  const err = (k) => (errors[k] ? `<div class="rgerr" data-err="${escHTML(k)}">${escHTML(errors[k])}</div>` : '');
+  const conf = (r?.marks || []).filter((m) => m.status === STATUS.CONFIRMEE && Number.isFinite(m.lat) && Number.isFinite(m.lon));
+  const opt = (v, cur, txt) => `<option value="${escHTML(v)}"${String(cur ?? '') === String(v) ? ' selected' : ''}>${escHTML(txt)}</option>`;
+  const marques = (cur, attr, i, quoi) => `<select ${attr}="${i}" aria-label="${escHTML(quoi)}">${opt('', cur, '— bouée —')}${conf.map((m) => opt(m.id, cur, `${m.id} ${m.name}`)).join('')}</select>`;
+  const steps = (d.steps || []).map((s, i) => {
+    const corps = s.kind === 'gate'
+      ? `porte ${marques(s.mark, 'data-st-mark', i, `Première bouée de la porte ${i + 1}`)} / ${marques(s.gate, 'data-st-gate', i, `Seconde bouée de la porte ${i + 1}`)}`
+      : `${marques(s.mark, 'data-st-mark', i, `Bouée de l’étape ${i + 1}`)}<select data-st-side="${i}" aria-label="Côté de l’étape ${i + 1}">${opt('', s.side, '— côté —')}${opt('b', s.side, 'à bâbord')}${opt('t', s.side, 'à tribord')}</select>`;
+    return `<div class="rgstep" data-step="${i}"><span class="small"><b>${i + 1}</b></span> <select data-st-kind="${i}" aria-label="Type de l’étape ${i + 1}">${opt('mark', s.kind, 'bouée')}${opt('gate', s.kind, 'porte')}</select> ${corps}`
+      + ` <button type="button" class="btn small alt" data-st-up="${i}" aria-label="Monter l’étape ${i + 1}"${i === 0 ? ' disabled' : ''}>↑</button><button type="button" class="btn small alt" data-st-down="${i}" aria-label="Descendre l’étape ${i + 1}"${i === d.steps.length - 1 ? ' disabled' : ''}>↓</button><button type="button" class="btn small alt" data-st-del="${i}" aria-label="Retirer l’étape ${i + 1}">✕</button>${err(`step.${i}`)}</div>`;
+  });
+  const f = d.finish || { kind: 'ligne', mark: '' }, n = Number(d.laps) || 1;
+  const finMark = f.kind === 'ligne' ? '' : `<select id="coFinMark" aria-label="Bouée de l’arrivée">${opt('', f.mark, '— bouée —')}${conf.map((m) => opt(m.id, f.mark, `${m.id} ${m.name}`)).join('')}</select>`;
+  const edit = d.id != null;
+  return `<div class="rgrform" id="coForm"${edit ? ` data-edit="${escHTML(d.id)}"` : ''}><h4>${edit ? 'Modifier le parcours' : 'Créer un parcours'}</h4>${err('course')}`
+    + (conf.length ? '' : '<p class="small notice" id="coNone">Aucune bouée confirmée dans la régate : confirmez d’abord une bouée (ou ajoutez-en une, puis confirmez-la).</p>')
+    + `<label class="f" for="coName">Nom</label><input id="coName" type="text" maxlength="60" autocomplete="off" value="${escHTML(d.name)}">${err('name')}`
+    + `<label class="f">Étapes <small>dans l’ordre, après le départ</small></label>${steps.join('')}${err('steps')}`
+    + `<div class="btns" style="margin:4px 0"><button type="button" class="btn small alt" id="coStepAdd">＋ Ajouter une étape</button></div>`
+    + `<label class="f" for="coFin">Arrivée</label><select id="coFin">${['ligne', 'comite', 'pres'].map((k) => opt(k, f.kind, FIN_LABEL[k])).join('')}</select> ${finMark}${err('finish')}`
+    + `<div class="row2"><div><label class="f" for="coLaps">Tours</label><select id="coLaps">${[1, 2, 3, 4].map((k) => opt(k, n, String(k))).join('')}</select>${err('laps')}</div>`
+    + `<div>${n > 1 ? `<label class="f" for="coLapLine">Entre deux tours</label><select id="coLapLine">${opt('1', d.lapLine === false ? '0' : '1', 'par la ligne de départ')}${opt('0', d.lapLine === false ? '0' : '1', 'sans repasser la ligne')}</select>` : ''}${err('lapLine')}</div></div>`
+    + `<div class="btns"><button type="button" class="btn acc" id="coSave"${locked ? ' disabled' : ''}>Enregistrer le parcours</button><button type="button" class="btn alt" id="coCancel">Annuler</button></div></div>`;
+}
+// Section « Bouées » de la fiche : rien tant que la régate n’a ni bouée ni parcours lus dans ses IC.
+// editeur (08-11, D-17, espace Tofinou seulement) : section « Bouées et parcours de la régate » toujours affichée, avec l’éditeur (voir
+// editorSectionHTML) ; sans lui, HTML de la v43.
+export function marksSectionHTML(r, { markFix = null, nmOf = (d) => `${(d / 1852).toFixed(1).replace('.', ',')} Nq`, editeur = false, locked = false, markAdd = null, courseEdit = null, courseErr = {} } = {}) {
+  if (editeur) return editorSectionHTML(r, { markFix, nmOf, locked, markAdd, courseEdit, courseErr });
   const ms = r?.marks || [], cs = r?.courses || [];
   if (!ms.length && !cs.length) return '';
   const pend = ms.filter((m) => m.status === STATUS.A_CONFIRMER).length;
@@ -279,6 +347,22 @@ export function marksSectionHTML(r, { markFix = null, nmOf = (d) => `${(d / 1852
   return `<div class="rgmarks"><h4>Bouées <small>lues dans les IC${pend ? ` · ${pend} à confirmer` : ''}</small></h4>`
     + `<p class="small muted">Une bouée « à confirmer » n’est ni dans le routage, ni dans le mode départ, ni dans le débrief. Vérifiez-la sur zone : le Comité fait foi.</p>`
     + `${ms.map((m) => markRowHTML(m, markFix, { nmOf, exemple })).join('')}${cs.length ? `<h4>Parcours lus</h4>${cs.map((c) => courseRowHTML(r, c)).join('')}` : ''}</div>`;
+}
+
+function editorSectionHTML(r, { markFix, nmOf, locked, markAdd, courseEdit, courseErr }) {
+  const ms = r?.marks || [], cs = r?.courses || [];
+  const pend = ms.filter((m) => m.status === STATUS.A_CONFIRMER).length;
+  const exemple = VENUES[venueOf(r)].exemple || '43°05.845N 005°56.049E';
+  const dis = locked ? ' disabled' : '';
+  const ed = { locked, courseEdit };
+  return `<div class="rgmarks" id="rgEdit"><h4>Bouées et parcours de la régate <small>${pend ? `${pend} bouée${pend > 1 ? 's' : ''} à confirmer` : 'lus dans les IC ou saisis dans l’app'}</small></h4>`
+    + `<p class="small muted">Une bouée « à confirmer » n’est ni dans le routage, ni dans le mode départ, ni dans le débrief, ni dans un parcours. Vérifiez-la sur zone : le Comité fait foi.</p>`
+    + (locked ? '<div class="small notice" id="rgEditLock">Course en cours : parcours et bouées modifiables après la course.</div>' : '')
+    + ms.map((m) => markRowHTML(m, markFix, { nmOf, exemple, editeur: true, locked })).join('')
+    + (markAdd ? markAddHTML(markAdd, { exemple, locked }) : `<div class="btns" style="margin:6px 0"><button type="button" class="btn small acc" id="mkNew"${dis}>＋ Ajouter une bouée</button></div>`)
+    + `<h4>Parcours</h4>${cs.length ? cs.map((c) => courseRowHTML(r, c, ed)).join('') : '<p class="small muted">Aucun parcours dans la régate : ceux du plan d’eau restent proposés dans l’onglet Parcours.</p>'}`
+    + (courseEdit ? courseFormHTML(r, courseEdit, courseErr || {}, { locked }) : `<div class="btns" style="margin:6px 0"><button type="button" class="btn small acc" id="coNew"${dis}>Créer un parcours</button></div>`)
+    + '</div>';
 }
 
 // ───────────────────────── historique des valeurs écrasées (D-04)
@@ -289,24 +373,24 @@ const HIST_MAX_LINES = MAX_HIST, HIST_MAX_CHARS = 120;
 const str = (x) => (typeof x === 'string' || typeof x === 'number' ? String(x) : '');
 const jour = (d) => (/^\d{4}-\d{2}-\d{2}$/.test(str(d)) ? `${d.slice(8, 10)}/${d.slice(5, 7)}` : str(d).slice(0, 20));
 // Ancienne valeur en une ligne de texte brut (échappée plus tard), sans jamais lever
-function histValue(kind, v) {
+function histValue(kind, v, sansClasses = false) {
   if (v == null) return '(texte des IC non conservé)';
   if (typeof v !== 'object' || Array.isArray(v)) return '';
   const nom = str(v.name);
   if (kind === 'head') return [nom, str(v.club), v.dateStart ? `${jour(v.dateStart)}${v.dateEnd && v.dateEnd !== v.dateStart ? ` au ${jour(v.dateEnd)}` : ''}` : ''].filter(Boolean).join(' · ');
-  if (kind === 'race') return [v.date ? `jour ${jour(v.date)}` : '', v.time ? `signal ${str(v.time)}` : 'signal : heure inconnue', v.cls ? `classe ${str(v.cls)}` : ''].filter(Boolean).join(' · ');
+  if (kind === 'race') return [v.date ? `jour ${jour(v.date)}` : '', v.time ? `signal ${str(v.time)}` : 'signal : heure inconnue', v.cls && !sansClasses ? `classe ${str(v.cls)}` : ''].filter(Boolean).join(' · ');
   if (kind === 'mark') return [nom, Number.isFinite(v.lat) && Number.isFinite(v.lon) ? fmtPos(v.lat, v.lon) : ''].filter(Boolean).join(' · ');
   if (kind === 'trace') return [nom, Number.isFinite(v.start) ? tClock(v.start) : ''].filter(Boolean).join(' · ');
   return nom;
 }
 const clip = (x) => (x.length > HIST_MAX_CHARS ? x.slice(0, HIST_MAX_CHARS - 1) + '…' : x);
-export function historySectionHTML(r) {
+export function historySectionHTML(r, { sansClasses = false } = {}) {
   const list = (Array.isArray(r?.hist) ? r.hist : []).filter((x) => x && typeof x === 'object' && Number.isFinite(x.t) && typeof x.kind === 'string')
     .sort((a, b) => b.t - a.t).slice(0, HIST_MAX_LINES);
   if (!list.length) return '';
   const lignes = list.map((x) => {
     const quand = x.t > 0 ? tClock(x.t) : '—', par = typeof x.by === 'string' && x.by ? `par ${escHTML(x.by.slice(0, 40))}` : '—';
-    return `<div class="small rghl" data-kind="${escHTML(HIST_KIND[x.kind] ? x.kind : 'autre')}"><span class="rghk">${HIST_KIND[x.kind] || 'Modification'}</span> · ${quand} · ${par} · <span class="muted rghv">${escHTML(clip(histValue(x.kind, x.v)))}</span></div>`;
+    return `<div class="small rghl" data-kind="${escHTML(HIST_KIND[x.kind] ? x.kind : 'autre')}"><span class="rghk">${HIST_KIND[x.kind] || 'Modification'}</span> · ${quand} · ${par} · <span class="muted rghv">${escHTML(clip(histValue(x.kind, x.v, sansClasses)))}</span></div>`;
   });
   return `<details class="rghist"><summary class="small">Historique (${list.length})</summary>`
     + `<p class="small muted">Valeurs remplacées par une modification plus récente : quoi, de qui, quand, et ce qu’elle contenait avant.</p>${lignes.join('')}</details>`;
@@ -314,18 +398,19 @@ export function historySectionHTML(r) {
 
 // Fiche de la régate ouverte : nom, club, dates, statut, auteur, puis les manches (courses = parcours connus [{ id, title }], pour les libellés ;
 // choices = parcours proposés dans « Ajouter une manche », ceux de la régate quand elle en a) et le vent du jour
-export function sheetHTML(r, { now = Date.now(), courses = [], choices = courses, raceDraft = null, raceErrors = {}, markFix = null, nmOf, local = null, daysLocal = null, me = null, tipHtml = '' } = {}) {
+// semee (08-11) : notice d’une fiche semée propre à l’espace (sans elle, celle de la v43 ; la fiche du Challenge garde la sienne)
+export function sheetHTML(r, { now = Date.now(), courses = [], choices = courses, raceDraft = null, raceErrors = {}, markFix = null, nmOf, local = null, daysLocal = null, me = null, tipHtml = '', semee = null, sansClasses = false, editeur = null } = {}) {
   if (!r) return '';
   const races = r.races || [];
   return `<div class="card" id="rgSheet"><h3><span>${escHTML(r.name)}</span><small>${escHTML(r.club || 'club à préciser')}</small></h3>
     <div class="small">${escHTML(datesLabel(r))} ${statusChip(r, now)}${venueChip(r)}</div>
     <div class="small muted" style="margin-top:4px">Créée ${byLine(r.by, r.at)}</div>
-    ${r.ic?.read === 'semee' ? '<div class="notice small" id="rgSemee" style="margin-top:6px">Fiche semée par l’app (IC 2026) — à vérifier avec les IC 2027.</div>' : ''}
-    <div class="rgraces"><h4>Manches</h4>${races.length ? races.map((m) => raceRowHTML(m, { courses, chosen: r.sel === m.n, editing: Number.isInteger(raceDraft?.edit) && (raceDraft.id != null ? raceDraft.id === m.id : raceDraft.edit === m.n) })).join('') : '<p class="small muted">Aucune manche : ajoutez-en une avec son heure de signal et son parcours.</p>'}
-    ${raceDraft ? raceFormHTML(r, raceDraft, raceErrors, choices) : '<div class="btns"><button type="button" class="btn small acc" id="rcNew">＋ Ajouter une manche</button></div>'}</div>
-    ${marksSectionHTML(r, { markFix, nmOf })}
-    ${windSectionHTML(r, { now, courses })}
+    ${r.ic?.read === 'semee' ? `<div class="notice small" id="rgSemee" style="margin-top:6px">${r.ic.source === BAIE_SOURCE ? 'Fiche semée par l’app (avis de course et fiches de course 2026-2027) — à vérifier sur la fiche de course de chaque manche.' : semee ? escHTML(semee) : 'Fiche semée par l’app (IC 2026) — à vérifier avec les IC 2027.'}</div>` : ''}
+    <div class="rgraces"><h4>Manches</h4>${races.length ? races.map((m) => raceRowHTML(m, { courses, sansClasses, chosen: r.sel === m.n, editing: Number.isInteger(raceDraft?.edit) && (raceDraft.id != null ? raceDraft.id === m.id : raceDraft.edit === m.n) })).join('') : '<p class="small muted">Aucune manche : ajoutez-en une avec son heure de signal et son parcours.</p>'}
+    ${raceDraft ? raceFormHTML(r, raceDraft, raceErrors, choices, { sansClasses }) : '<div class="btns"><button type="button" class="btn small acc" id="rcNew">＋ Ajouter une manche</button></div>'}</div>
+    ${marksSectionHTML(r, { markFix, nmOf, ...(editeur ? { editeur: true, ...editeur } : {}) })}
+    ${windSectionHTML(r, { now, courses, sansClasses })}
     ${tracesSectionHTML(r, { local })}
     ${downloadHTML(r, { local, daysLocal, me, tipHtml })}
-    ${historySectionHTML(r)}</div>`;
+    ${historySectionHTML(r, { sansClasses })}</div>`;
 }

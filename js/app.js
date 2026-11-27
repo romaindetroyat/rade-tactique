@@ -4,18 +4,20 @@ import { report, note, setContext } from './journal.js';
 import { Terrain, toXY, toLL, NM, bearingXY, distXY, fromBearing, norm360, norm180, fmtBrg, fmtNm, fmtLat, fmtLon, cardinal, pointInPolygon } from './geo.js';
 import { WindField, speedColor } from './wind.js';
 import { VENUE, MARKS, COURSES, LINE_PRESETS, FORBIDDEN_ZONES, DANGERS, setVenue, venueBody } from './lieu.js';
-import { bootVenue, VENUES, venueOf, needsVenueRepair, venueAt, zonesXY } from './venues.js';
+import { bootVenue, VENUES, venueOf, needsVenueRepair, venueAt, zonesXY, merTexte } from './venues.js';
+import { ESPACE, setEspace, bootEspace, espaceDeLHote, espaceSur, appareilVierge, ESPACE_KEY } from './espaces.js';
 import { packStatus, downloadPack, prunePacks, fmtMo } from './pack.js';
 import { pdfText, parseIC, cleanText } from './events.js';
 import { IA_IC, iaOffer, iaErrorMessage, reviewFromParse, reviewFromRegatta, reviewFromApi, setValue, setKeep, setKeepRace, setKeepMark, setKeepCourse, courseReady, canValidate, checksFor, applyReview, reviewHTML, chipOf, validatedHTML } from './icread.js';
 import { stampState, markDirty, canon, legacyStamp } from './archmerge.js';
-import { migrate, seedNorm, seedGpen, KEY as REG_KEY, saveRegattas, createRegatta, upsertRegatta, removeRegatta, openRegatta, openAtBoot, openOnNewDay, regattaStatus, STATUS_LABEL, todayRegatta, icOf, groupByStatus, lockDates, daysOf, addRace, updateRace, removeRace, raceSettings, membre, saveMembre, backfillAuthor } from './regates.js';
+import { migrate, seedNorm, seedGpen, seedBaie, setCommuns, GPEN_SEED_KEY, BAIE_SEED_KEY, KEY as REG_KEY, saveRegattas, createRegatta, upsertRegatta, removeRegatta, openRegatta, openAtBoot, openOnNewDay, regattaStatus, STATUS_LABEL, todayRegatta, icOf, groupByStatus, lockDates, daysOf, addRace, updateRace, removeRace, raceSettings, membre, saveMembre, backfillAuthor } from './regates.js';
 import { THROTTLE_MS, slotKey, freezeAction, obsNeedsCopy, stratNeedsCopy, sliceDays, freezeSummary, strategySummary, compactStrategy, windSourceKind, frozenLabel, parisInstant, clockOf } from './gel.js';
 import { extremes, coefApproche, hauteur } from './maree.js';
 import { chargeAtlas, courantXY, profondeurOk } from './courant.js';
 import { putSlot, getSlot } from './regstore.js';
 import { listHTML, noRegattaHTML, newRegattaFormHTML, sheetHTML, venueCardHTML } from './regview.js';
-import { applyRegattaMarks, pendingMarks, confirmMark, moveMark, ignoreMark, allowedCourses, courseFallback, courseMismatch } from './regmarks.js';
+import { applyRegattaMarks, pendingMarks, confirmMark, moveMark, ignoreMark, allowedCourses, courseFallback, courseMismatch, fmtPos } from './regmarks.js';
+import { addHandMark, courseDraft, saveCourseDraft, removeCourse } from './regedit.js';
 import { trackDay, matchRegattas, raceOfTrack, sameTrack, attachTrace, detachTrace, traceSummary, setTraceSummary, setTraceReport } from './attach.js';
 import { breaksOf } from './segments.js';
 import { fetchAll, cached, snapshot, consensus, gridPoints, marineAt, fetchLive, coversDay, MODELS, WMO, CENTER, configureWeather } from './weather.js';
@@ -23,8 +25,9 @@ import { buildLegs, analyzeLeg, markAdvice, analyzeStart, trendOf, rankCourses, 
 import { BANANE_ID, BANANE, addBanane, banOf, banToState, cleanBan, courseMarkUse, legReached, banHorsEau, banHorsZone, courseBan, courseLaps } from './banane.js';
 import { optimalAngles, boatSpeed, trimAdvice, spiMinTwa, getPolar, setPolar, resetPolar, parsePolar } from './polar.js';
 import { renderJ80 } from './j80.js';
+import { appliquerPolaireEspace, choisirVoile, voileDe } from './bateau.js';
 import { modelPoints, modelAt, idwAt, scoreModels, renderObsCard } from './obs.js';
-import { initTips, maybeWelcome, openGuide, openShare, tip, SYNC_TIP, DL_TIP } from './help.js';
+import { initTips, maybeWelcome, openGuide, openShare, tip, SYNC_TIP, DL_TIP, setEspacesMembre } from './help.js';
 import { parseWind, listen, say } from './voice.js';
 import { Recorder, listTracks, getTrack, deleteTrack, saveTrack, analyzeTrack, exportGPX, fromGPX } from './track.js';
 import { shroudsFor } from './tuning.js';
@@ -57,15 +60,34 @@ const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(
 const addDays = (s, n) => { const d = new Date(s + 'T12:00:00'); d.setDate(d.getDate() + n); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 const dayName = (s) => new Date(s + 'T12:00:00').toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
 
-// Plan d’eau de la session (D-03, D-05) : lu dans rade.state (liste blanche, sinon Toulon) et fixé AVANT tout toXY et avant addBanane ;
-// changer de plan d’eau recharge l’app
-setVenue(bootVenue(store.get('rade.state', {})));
+// Espace de la session (phase 8, D-03, D-07) : fixé AVANT le plan d’eau, de façon synchrone et hors réseau (hôte connu → son espace ;
+// hôte inconnu → rade.espace.v1 ; sinon Naos). Naos ne lit qu’une clé absente et n’écrit rien de nouveau.
+setEspace(bootEspace(location.hostname, localStore()));
+// Garde de synchronisation (D-04) : sur un hôte connu, l’espace est sûr (le middleware refuse les codes d’un autre espace) : rien ne change
+// (v43). Sur un hôte inconnu (aperçu), aucun échange avec l’archive avant que /api/membre ait confirmé l’espace (refreshMembre).
+// espaceEtat : 'ok' | 'attendre' | 'bloque'
+const HOTE_CONNU = espaceDeLHote(location.hostname) != null;
+let espaceEtat = HOTE_CONNU ? 'ok' : 'attendre';
+const espaceOk = () => espaceEtat === 'ok';
+const AUTRE_ESPACE = 'Cet appareil contient les données d’un autre espace : synchronisation arrêtée.';
+// Plan d’eau de la session (D-03, D-05) : lu dans rade.state (liste blanche bornée aux plans d’eau de l’espace, sinon son plan d’eau par
+// défaut : Toulon pour Naos) et fixé AVANT tout toXY et avant addBanane ; changer de plan d’eau recharge l’app
+setVenue(bootVenue(store.get('rade.state', {}), ESPACE));
 configureWeather(VENUE.weather);                     // prévisions, cache et instantané du plan d’eau (Toulon : requêtes de la v42)
 
 // Banane construite (D-01) : ajoutée à la liste des parcours hors du cahier js/courses.js, AVANT toute lecture de S.courseId et avant
 // syncRegMarks (sinon un parcours choisi à 90 serait ramené au parcours 3) ; applyRegattaMarks ne retire que les parcours d’une régate
 addBanane(COURSES);
 
+// Réglages propres à un plan d’eau, rangés dans S.byVenue[<id>] quand on le quitte ; la polaire et les réglages du bateau sont communs
+const VENUE_KEYS = ['courseId', 'cls', 'laps', 'linePreset', 'lineLen', 'lineMode', 'lineBrg', 'lineOverride', 'obs', 'manual', 'src', 'modelSel'];
+// premier passage : défauts du plan d’eau (Brest : parcours 1 du GPEN, 91 ; ligne au centre de la zone A, vent d’ouest ; Bormes : la banane
+// n° 4 du Challenge de la Baie, ligne par défaut devant Le Lavandou, la banane partant du milieu de la baie, 08-08)
+const VENUE_DEF = {
+  brest: { courseId: 91, linePreset: 'zoneA', lineOverride: null, obs: [], manual: { dir: 270, spd: 12, gust: 17 } },
+  bormes: { courseId: 4, linePreset: 'lavandou', lineOverride: null, obs: [] },
+};
+const pickVenueKeys = (o) => Object.fromEntries(VENUE_KEYS.filter((k) => o && typeof o === 'object' && Object.hasOwn(o, k)).map((k) => [k, structuredClone(o[k])]));
 const DEF = {
   day: today(), hour: 11, src: 'forecast', manual: { dir: 315, spd: 15, gust: 20 }, calib: null, localFx: 1, obs: [], modelSel: 'auto', nowcast: true,
   courseId: 3, cls: 'G', laps: 2, wlNm: 0.8, startTime: 11, linePreset: 'vignettes', lineLen: 0.12, lineMode: 'wind', lineBrg: 0, lineOverride: null,
@@ -74,15 +96,20 @@ const DEF = {
   venue: 'toulon',                                                                     // plan d’eau (lu au démarrage par bootVenue)
   byVenue: {},                                                                         // réglages propres à chaque plan d’eau quitté (VENUE_KEYS), retrouvés au retour
 };
-const S = { ...DEF, ...store.get('rade.state', {}) };
+// Hors de Naos, premier démarrage (rade.state absent) : les défauts du plan d’eau par défaut de l’espace (Naos : DEF seul, comme en v43)
+const S = { ...DEF, ...(ESPACE.id !== 'naos' && store.get('rade.state', null) == null ? pickVenueKeys(VENUE_DEF[VENUE.id]) : {}), ...store.get('rade.state', {}) };
 S.venue = VENUE.id;                                   // valeur inconnue ou hostile ramenée au plan d’eau retenu par bootVenue
 if (!S.byVenue || typeof S.byVenue !== 'object' || Array.isArray(S.byVenue)) S.byVenue = {};
-// Régates : l’index (petit) se lit de façon synchrone au chargement ; IC garde la forme d’avant (icOf)
-let REG = migrate({ storage: localStore(), now: Date.now(), by: who() });
+// Régates : l’index (petit) se lit de façon synchrone au chargement ; IC garde la forme d’avant (icOf). Graines et valeurs communes du CVAT :
+// celles de l’espace (08-04, D-05) — Naos sème la Coupe SNPM et le GPEN comme en v43 ; Tofinou ne sème rien et n’a aucune valeur du CVAT
+setCommuns(ESPACE.id === 'naos');
+let REG = migrate({ storage: localStore(), now: Date.now(), by: who(), graines: ESPACE.graines });
 // la Coupe SNPM semée est la même fiche sur les trois téléphones (instant commun) : une graine d'avant ramenée à cet instant, index réécrit seulement si l'objet change
-{ const seeded = seedNorm(REG); if (seeded !== REG) { REG = seeded; saveRegattas(localStore(), REG); } }
+{ const seeded = seedNorm(REG, { graines: ESPACE.graines }); if (seeded !== REG) { REG = seeded; saveRegattas(localStore(), REG); } }
 // fiche « GPEN 2027 — J80 » semée une seule fois (07-09, D-08) : même fiche partout, jamais ressemée après une suppression (pierre tombale, marqueur)
-{ const g = seedGpen(REG, { storage: localStore() }); if (g !== REG) { REG = g; saveRegattas(localStore(), REG); } }
+{ const g = seedGpen(REG, { storage: localStore(), graines: ESPACE.graines }); if (g !== REG) { REG = g; saveRegattas(localStore(), REG); } }
+// fiche « Challenge de la Baie 2026-2027 » semée une seule fois dans l’espace Tofinou (08-08, D-13) ; sans effet chez Naos (ni fiche ni marqueur)
+{ const g = seedBaie(REG, { storage: localStore(), graines: ESPACE.graines }); if (g !== REG) { REG = g; saveRegattas(localStore(), REG); } }
 // D-A3, D-A4 : régate du jour, sinon entraînement libre ; jamais lue dans l’index, jamais écrite, jamais partagée. `OPEN` ne change que dans setOpen.
 // Plan d’eau d’une régate (D-05, D-06) : la régate du jour d’un autre plan d’eau n’est jamais ouverte ici en silence (bandeau « Régate du jour en … ») ;
 // après « Passer » sur une régate d’un autre plan d’eau, `rade.venue.reopen` (lue une seule fois, effacée tout de suite) la rouvre au rechargement.
@@ -131,6 +158,20 @@ const persist = () => store.set('rade.state', Object.fromEntries(Object.keys(DEF
 let T, F, scene, data = null, series = [], live = [], analysis = null, selLeg = null, gps = null, follow = false, nextIdx = 0;
 const forbidden = zonesXY(FORBIDDEN_ZONES, toXY);            // zones interdites du plan d’eau en mètres (Toulon : la zone de Saint-Mandrier de la v42)
 
+// Bateau de l’espace (08-05, D-09) : hors de Naos, ses pertes aux manœuvres dans chaque routage (ctx.bateau → routeOpts) ; Naos : contexte de la v43
+// voile d’avant nommée dans le type de chaque bord (js/tactics.js) : celle choisie dans l’onglet du bateau ; Naos : « Foc » de la v43
+const AVANT = { genois: 'Génois', foc: 'Foc' };
+const BATEAU = ESPACE.id === 'naos' ? {} : { bateau: ESPACE.bateau, voileAvant: AVANT[voileDe(ESPACE, localStore())] ?? 'Foc' };
+const CLASSE = ESPACE.bateau.classe;                        // « J80 » pour Naos : textes de la v43
+if (ESPACE.bateau.onglet) { const b = $('#tabs button[data-tab=j80]'); if (b) b.textContent = ESPACE.bateau.onglet; }      // Naos : « J80 » de index.html
+// Nom de l’espace (08-06, D-07) : titre de la page, nom proposé à l’installation sur iPhone, en-tête et écran de chargement ; Naos : balises d’index.html
+if (ESPACE.id !== 'naos') {
+  document.title = ESPACE.app;
+  $('meta[name=apple-mobile-web-app-title]')?.setAttribute('content', ESPACE.app);
+  $('meta[name=description]')?.setAttribute('content', 'Rade de Bormes – Le Lavandou en 3D : vent local, parcours du Challenge de la Baie, routage du Tofinou 9.5 et conseils tactiques.');
+  for (const el of document.querySelectorAll('.brand b, #splash b')) el.textContent = ESPACE.app;
+}
+appliquerPolaireEspace(ESPACE, localStore());              // polaire par défaut de l’espace (Naos : aucune, J80), avant la polaire personnelle
 if (S.polar) { try { setPolar(S.polar.tws, S.polar.twa, S.polar.bsp, S.polar.source); } catch (e) { S.polar = null; report('polaire', e); } }
 
 // ───────────────────────── démarrage
@@ -186,7 +227,7 @@ async function init() {
     if (document.hidden) saveRaceActivity();
     else { lastProbe = Date.now(); probeNet(); renderRaceBar(); if (!(Date.now() - SYNC.lastOkAt < 300000)) scheduleSync(2000); }   // retour au premier plan, dernier succès de plus de 5 min
   });
-  addEventListener('online', () => { note('reseau', 'en ligne'); probeNet(); scheduleSync(2000); if (!who()) refreshMembre(); });
+  addEventListener('online', () => { note('reseau', 'en ligne'); probeNet(); scheduleSync(2000); if (!who() || espaceEtat === 'attendre') refreshMembre(); });
   addEventListener('offline', () => { net.online = false; note('reseau', 'hors ligne'); renderRaceBar(); paintIa(); paintSync(); });
   // ── temps 2 : la carte et le vent
   await nextFrame();
@@ -584,7 +625,8 @@ async function runAnalysis() {
   const course = COURSES.find((c) => c.id === S.courseId);
   const cls = course.seq[S.cls] ? S.cls : 'G';
   computeField(S.day, S.startTime);
-  const preset = LINE_PRESETS[course.line && S.linePreset === 'vignettes' ? course.line : S.linePreset] || LINE_PRESETS.vignettes;
+  // ligne par défaut du plan d’eau gardée → ligne propre au parcours (Toulon : « Rade des Vignettes », v42 ; Bormes : « Devant Le Lavandou », 08-08)
+  const preset = LINE_PRESETS[course.line && S.linePreset === (VENUE.lineDefaut ?? 'vignettes') ? course.line : S.linePreset] || LINE_PRESETS.vignettes || Object.values(LINE_PRESETS)[0];
   const ctr = toXY(preset.lat, preset.lon);
   const wLine = F.sample(ctr.x, ctr.y);
   const ov = S.lineOverride ? { cb: toXY(S.lineOverride.cb.lat, S.lineOverride.cb.lon), pin: toXY(S.lineOverride.pin.lat, S.lineOverride.pin.lon) } : null;
@@ -595,7 +637,7 @@ async function runAnalysis() {
   // parcours du GPEN : bouées hors du cercle de la zone A (l’arrivée devant la chapelle en est dehors par construction)
   const horsZone = course.zone === 'A' && VENUE.zoneA ? banHorsZone(B, ((z) => (p) => distXY(p, z) <= VENUE.zoneA.rayonNm * NM)(toXY(VENUE.zoneA.lat, VENUE.zoneA.lon)), { finish: !course.arrivee }) : [];
   const trend = S.src === 'forecast' && data ? trendOf(series, Math.max(0, seriesIndex(S.day, S.startTime)), Math.max(0, seriesIndex(S.day, S.startTime + 4))) : 0;
-  const ctx = { terrain: T, forbidden, perf: S.perf, trend, memo: new Map() };          // memo : routes de cette analyse (routeOf), jamais recalculées
+  const ctx = { terrain: T, forbidden, perf: S.perf, trend, memo: new Map(), ...BATEAU };          // memo : routes de cette analyse (routeOf), jamais recalculées
   // Brest : courant de l’atlas et hauteur d’eau dans le routage, à l’heure de chaque bord (D-13, D-14c) ; Toulon : contexte de la v42
   const cur = VENUE.courant ? await courantCtx(S.day, S.startTime) : null;
   if (token !== anaToken) return;
@@ -676,7 +718,8 @@ function bindShell() {
   $('#shareBtn').addEventListener('click', () => {
     const base = location.origin + location.pathname;
     const c = COURSES.find((x) => x.id === S.courseId);
-    openShare({ base, courseLink: `${base}#p=${S.courseId}-${S.cls}-${S.laps}-${S.day}`, courseLabel: `${c.title}${c.laps ? ', ' + S.laps + (S.laps > 1 ? ' tours' : ' tour') : ''}, ${S.cls === 'P' ? 'P1–P2' : 'C–R3'}, ${dayName(S.day)}` });
+    // classes du CVAT nommées à Toulon et à Brest seulement (Bormes : parcours communs à tous les groupes du Challenge, 08-08)
+    openShare({ base, courseLink: `${base}#p=${S.courseId}-${S.cls}-${S.laps}-${S.day}`, courseLabel: `${c.title}${c.laps ? ', ' + courseLaps(c, S) + (courseLaps(c, S) > 1 ? ' tours' : ' tour') : ''}, ${VENUE.sansClasses ? '' : `${S.cls === 'P' ? 'P1–P2' : 'C–R3'}, `}${dayName(S.day)}` });
   });
   $('#tabs').addEventListener('click', (e) => {
     const b = e.target.closest('button'); if (!b) return;
@@ -752,7 +795,7 @@ function onPick(p, screen) {
     <div class="row"><span>Rafales</span><b>${w.gust.toFixed(0)} nd</b></div>
     <div class="row"><span>Dévent relief</span><b>${Math.round(w.shelter * 100)} %</b></div>
     <div class="row"><span>Oscillations</span><b>±${F.shiftAmplitude(w.spd, w.shelter)}°</b></div>${legInfo}`}
-    <div class="acts">${land ? '' : `<button class="btn small alt" data-a="cb">Comité ici</button><button class="btn small alt" data-a="pin">Bouée ici</button><button class="btn small alt" data-a="obs">Relevé de vent ici…</button>`}<button class="btn small" data-a="close">✕</button></div>`;
+    <div class="acts">${land ? '' : `<button class="btn small alt" data-a="cb">Comité ici</button><button class="btn small alt" data-a="pin">Bouée ici</button><button class="btn small alt" data-a="obs">Relevé de vent ici…</button>${ESPACE.editeurParcours && openReg() && !racing() ? '<button class="btn small alt" data-a="mkreg">Bouée de régate ici…</button>' : ''}`}<button class="btn small" data-a="close">✕</button></div>`;
   const vw = $('#stage').clientWidth;
   pop.style.left = Math.min(vw - 230, Math.max(8, screen.clientX + 12)) + 'px';
   pop.style.top = Math.max(8, screen.clientY - 20) + 'px';
@@ -762,6 +805,7 @@ function onPick(p, screen) {
     if (a === 'close') { pop.hidden = true; scene.clearPick(); return; }
     if (a === 'cb' || a === 'pin') setLineEnd(a, p);
     if (a === 'obs') { pop.hidden = true; obsPos = { lat: p.lat, lon: p.lon }; openTab('course'); renderObsAll(); $('.obs-card')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
+    if (a === 'mkreg') { pop.hidden = true; scene.clearPick(); openMarkAdd(fmtPos(p.lat, p.lon)); return; }       // éditeur de parcours (08-11)
     pop.hidden = true; scene.clearPick();
   };
 }
@@ -862,7 +906,7 @@ function renderBrief() {
         ? `Vos relevés tranchent pour <b>${esc(best.label)}</b> (écart moyen ${Math.round(best.ddir)}° et ${Math.abs(best.dspd).toFixed(1)} nd)${ranking[1] ? `, devant ${esc(ranking[1].label)} (${Math.round(ranking[1].ddir)}°)` : ''}.`
         : 'Faites un relevé dès l’arrivée sur zone (onglet Parcours) : l’app retiendra le modèle qui colle.'));
     }
-    tips.push(`${VENUE.id === 'toulon' ? `Parcours ${analysis.course.id}` : esc(analysis.course.title)} estimé à <b>${summarizeTime(analysis.total * 3600)}</b> pour un J80 (${(analysis.dist / NM).toFixed(1)} Nq route directe).`);
+    tips.push(`${VENUE.id === 'toulon' ? `Parcours ${analysis.course.id}` : esc(analysis.course.title)} estimé à <b>${summarizeTime(analysis.total * 3600)}</b> pour un ${esc(CLASSE)} (${(analysis.dist / NM).toFixed(1)} Nq route directe).`);
     if (analysis.courant) tips.push(analysis.courant.ok ? 'Temps de parcours avec le courant de marée (atlas du Shom).' : `<b>${esc(analysis.courant.raison)}</b>`);
     const c0 = analysis.legs[0]?.courant?.advice;           // Brest : ce que le courant change au premier bord (renverse : carte du courant)
     if (c0?.length) tips.push(`Premier bord : ${esc(c0.map(tipText).join(' · '))}`);
@@ -882,7 +926,7 @@ function renderBrief() {
   }
   // Toulon : conseils en chaînes, affichage de la v42 ; ailleurs { t, o } : origine en tête, hypothèse « à confirmer sur l’eau », ligne d’origine (D-14)
   if (reg) html += `<div class="card"><h3>Effets locaux — ${esc(reg.name)} <small>connaissance de la rade</small></h3><ul class="tips">${reg.tips.map((t) => `<li>${typeof t === 'string' ? '' : `<small class="muted">${esc(ORIGINES[t.o] ?? '')}</small> `}${esc(tipText(t))}</li>`).join('')}</ul>${VENUE.texts?.origine ? `<div class="small muted">${esc(VENUE.texts.origine)}</div>` : ''}</div>`;
-  if (w?.spd != null) { const ta = trimAdvice(w.spd, w.gust); html += `<div class="card"><h3>Réglages J80 — ${ta.mode}</h3><ul class="tips"><li><b>Gréement</b> : ${ta.rig} Haubans / intermédiaires / bas-haubans (North, jauge Loos B) : <b>${shroudsFor(w.gust ? (w.spd + w.gust) / 2 : w.spd)}</b>.</li><li><b>Voiles</b> : ${ta.sails}</li><li><b>Équipage</b> : ${ta.crew}</li><li><b>Tactique</b> : ${ta.tactic}</li></ul><div class="small muted">Valeurs chiffrées (haubans, points de tir) : onglet J80.</div></div>`; }
+  if (w?.spd != null && ESPACE.bateau.reglages !== false) { const ta = trimAdvice(w.spd, w.gust); html += `<div class="card"><h3>Réglages J80 — ${ta.mode}</h3><ul class="tips"><li><b>Gréement</b> : ${ta.rig} Haubans / intermédiaires / bas-haubans (North, jauge Loos B) : <b>${shroudsFor(w.gust ? (w.spd + w.gust) / 2 : w.spd)}</b>.</li><li><b>Voiles</b> : ${ta.sails}</li><li><b>Équipage</b> : ${ta.crew}</li><li><b>Tactique</b> : ${ta.tactic}</li></ul><div class="small muted">Valeurs chiffrées (haubans, points de tir) : onglet J80.</div></div>`; }
   // modèles à l'heure affichée
   const ih = seriesIndex(S.day, S.hour);
   if (ih >= 0) {
@@ -891,7 +935,8 @@ function renderBrief() {
     <div class="small muted" style="margin-top:4px">✔ = modèle utilisé pour la carte et l’analyse${S.modelSel === 'auto' ? (ranking.length ? ' (le plus proche de vos relevés)' : ' (AROME HD par défaut, en attendant un relevé)') : ' (choisi manuellement)'}.</div>
     <div class="small muted" style="margin-top:6px">${r.temp != null ? `${r.temp.toFixed(0)} °C · ` : ''}${WMO[r.code] ?? ''}${r.cloud != null ? ` · nuages ${r.cloud} %` : ''}${r.rain ? ` · pluie ${r.rain} mm` : ''}${r.pmsl ? ` · ${r.pmsl.toFixed(0)} hPa` : ''}</div></div>`;
     const m = marineAt(data, r.time);
-    if (m) html += `<div class="card"><h3>État de la mer <small>large de Cépet</small></h3><div class="kpis"><div class="kpi"><b>${m.hs?.toFixed(1) ?? '—'} m</b><span>houle+mer ${m.dir != null ? cardinal(m.dir) : ''}</span></div><div class="kpi"><b>${m.per?.toFixed(0) ?? '—'} s</b><span>période</span></div><div class="kpi"><b>${m.cur != null ? m.cur.toFixed(1) : '—'} nd</b><span>courant ${m.curDir != null ? '→ ' + fmtBrg(m.curDir) : ''}</span></div></div><div class="small muted" style="margin-top:6px">Eau ${m.sst?.toFixed(0) ?? '—'} °C. Courant de surface modélisé (Copernicus) : faible en rade, à vérifier sur les bouées.</div></div>`;
+    const mer = merTexte(VENUE);                        // lieu et note du plan d’eau ; Toulon : textes de la v43 (js/venues.js)
+    if (m) html += `<div class="card"><h3>État de la mer <small>${esc(mer.lieu)}</small></h3><div class="kpis"><div class="kpi"><b>${m.hs?.toFixed(1) ?? '—'} m</b><span>houle+mer ${m.dir != null ? cardinal(m.dir) : ''}</span></div><div class="kpi"><b>${m.per?.toFixed(0) ?? '—'} s</b><span>période</span></div><div class="kpi"><b>${m.cur != null ? m.cur.toFixed(1) : '—'} nd</b><span>courant ${m.curDir != null ? '→ ' + fmtBrg(m.curDir) : ''}</span></div></div><div class="small muted" style="margin-top:6px">Eau ${m.sst?.toFixed(0) ?? '—'} °C. ${esc(mer.note)}</div></div>`;
   }
   // parcours probables
   if (w?.dir != null) {
@@ -950,7 +995,7 @@ let preselect = null;
 // choisi qui n’est pas un parcours de la régate ouverte
 function pickHTML() {
   const r = openReg(), m = courseMismatch(COURSES, S.courseId, r?.id ?? null);
-  if (m) return `<div class="notice" id="courseMismatch" style="margin-top:8px"><b>Parcours choisi : ${esc(m.current || '—')}</b>, pas un parcours ${r ? `de ${esc(r.name)}` : 'du cahier CVAT'}. En course (chrono, mode départ, trace ou GPS allumé), l’app ne change jamais le parcours d’elle-même. Choisissez celui annoncé par le Comité parmi ${esc(m.allowed.join(', '))}.</div>`;
+  if (m) return `<div class="notice" id="courseMismatch" style="margin-top:8px"><b>Parcours choisi : ${esc(m.current || '—')}</b>, pas un parcours ${r ? `de ${esc(r.name)}` : ESPACE.id === 'naos' ? 'du cahier CVAT' : 'du plan d’eau'}. En course (chrono, mode départ, trace ou GPS allumé), l’app ne change jamais le parcours d’elle-même. Choisissez celui annoncé par le Comité parmi ${esc(m.allowed.join(', '))}.</div>`;
   if (!preselect || preselect.id !== S.courseId || !r || preselect.regId !== r.id) return '';
   const c = COURSES.find((x) => x.id === S.courseId);
   return `<div class="notice" id="coursePick" style="margin-top:8px"><b>${esc(c?.title || '—')} présélectionné</b>${preselect.n != null ? ` (parcours de la manche ${preselect.n})` : ''} — choisissez celui annoncé par le Comité.</div>`;
@@ -969,8 +1014,8 @@ function renderCourse() {
   const nObs = dayObs().length;
   let html = `<details class="card obsbox" ${S.obsOpen !== false ? 'open' : ''}><summary><span>🌬 Relevé de vent sur l’eau ${tip('Réglez la direction d’où vient le vent (compas) et sa force mesurée, puis Enregistrer. L’app compare votre relevé aux 6 modèles, garde celui qui colle le mieux et recale la prévision autour de cette heure. Plusieurs relevés dans la journée affinent le choix.')}</span><small>${S.src === 'manual' ? 'mode manuel' : `${nObs ? nObs + ' relevé(s) · ' : ''}modèle : ${esc(modelLabel(selectedModel()))}`}</small></summary><div class="obs-card"></div></details>
   <div class="card"><div class="row2"><div><label class="f">${openReg() ? `Parcours — ${esc(openReg().name)}` : VENUE.id === 'toulon' ? 'Parcours (cahier CVAT)' : `Parcours (${esc(VENUE.nom)})`}</label><select id="cSel">${(proposes().some((x) => x.id === S.courseId) ? proposes() : [...proposes(), c]).map((x) => `<option value="${x.id}" ${x.id === S.courseId ? 'selected' : ''}>${esc(x.title)}</option>`).join('')}</select></div>
-    <div><label class="f">Classes</label><select id="cCls"><option value="G" ${S.cls === 'G' ? 'selected' : ''}>C–D–L–R1-R3 (grand)</option><option value="P" ${S.cls === 'P' ? 'selected' : ''}>P1–P2 (petit)</option></select></div></div>
-    <div class="row3">${c.laps ? `<div><label class="f">Tours</label><input id="cLaps" type="number" min="1" max="5" value="${S.laps}"></div>` : ''}${c.built === 'WL' ? `<div><label class="f">Dist. B (Nq)</label><input id="cWl" type="number" min="0.3" max="2" step="0.1" value="${S.wlNm}"></div>` : ''}
+    ${VENUE.sansClasses ? '' : `<div><label class="f">Classes</label><select id="cCls"><option value="G" ${S.cls === 'G' ? 'selected' : ''}>C–D–L–R1-R3 (grand)</option><option value="P" ${S.cls === 'P' ? 'selected' : ''}>P1–P2 (petit)</option></select></div>`}</div>
+    <div class="row3">${c.laps && c.fixedLaps == null ? `<div><label class="f">Tours</label><input id="cLaps" type="number" min="1" max="5" value="${S.laps}"></div>` : ''}${c.built === 'WL' ? `<div><label class="f">Dist. B (Nq)</label><input id="cWl" type="number" min="0.3" max="2" step="0.1" value="${S.wlNm}"></div>` : ''}
     <div><label class="f">Heure de départ</label><input id="cStart" type="text" inputmode="numeric" value="${hhmm(S.startTime)}"></div></div>
     ${c.built === 'BAN' ? banPanel(c) : ''}
     <p class="small muted" style="margin:8px 0 0">${esc(c.text)}</p>${pickHTML()}</div>`;
@@ -980,7 +1025,7 @@ function renderCourse() {
     if (A.horsEau?.length) html += `<div class="card" id="banEau" style="border:2px solid var(--bad)"><b>⚠ ${esc(horsEauText(A.horsEau, distLabel(c)))}</b></div>`;
     if (A.horsZone?.length) html += `<div class="card" id="banZone" style="border:2px solid var(--bad)"><b>⚠ ${esc(horsZoneText(A.horsZone))}</b></div>`;
     if (A.horsFond?.length) html += `<div class="card" id="banFond" style="border:2px solid var(--bad)"><b>⚠ ${esc(horsFondText(A.horsFond, distLabel(c)))}</b></div>`;
-    html += `<div class="card"><div class="kpis"><div class="kpi"><b>${(A.dist / NM).toFixed(1)}</b><span>Nq route directe${c.nm ? ` (cahier : ${c.nm[A.cls]})` : c.lapNm ? ` (${c.lapNm} Nq/tour)` : ''}</span></div><div class="kpi"><b>${summarizeTime(A.total * 3600)}</b><span>temps J80 estimé</span></div><div class="kpi"><b>${man}</b><span>virements / empannages</span></div></div>
+    html += `<div class="card"><div class="kpis"><div class="kpi"><b>${(A.dist / NM).toFixed(1)}</b><span>Nq route directe${c.nm ? ` (cahier : ${c.nm[A.cls]})` : c.annonce ? ` (annoncée : ${esc(c.annonce)})` : c.lapNm ? ` (${c.lapNm} Nq/tour)` : ''}</span></div><div class="kpi"><b>${summarizeTime(A.total * 3600)}</b><span>temps ${esc(CLASSE)} estimé</span></div><div class="kpi"><b>${man}</b><span>virements / empannages</span></div></div>
       <div class="small muted" style="margin-top:6px">Arrivée estimée ≈ ${hhmm(S.startTime + A.total)}. Chaque bord est calculé avec le vent prévu à l’heure où vous le courez, depuis le meilleur point de la ligne de départ.</div><button class="btn acc" id="playCourse" style="width:100%;margin-top:8px">▶ Animer le parcours</button></div>`;
     html += `<div class="legs">` + A.legs.map((l, i) => {
       const chip = l.type.id === 'pres' ? 'pres' : l.type.sail.startsWith('Spi') ? 'spi' : 'reach';
@@ -994,13 +1039,14 @@ function renderCourse() {
         ${ma.length ? `<div class="mark">${ma.map(esc).join('<br>')}</div>` : ''}
       </div>`;
     }).join('') + '</div>';
-    html += `<div class="card small muted">Route optimale (pointillés bleus) : routage par isochrones sur le champ de vent local avec la polaire J80 (pénalité ~9 s par virement, ~6 s par empannage), évitement de la terre et de la zone interdite. Touchez un bord pour l’afficher seul avec ses lay-lines.</div>`;
+    html += `<div class="card small muted">Route optimale (pointillés bleus) : routage par isochrones sur le champ de vent local avec la polaire ${esc(CLASSE)} (pénalité ~${ESPACE.bateau.virement_s ?? 9} s par virement, ~${ESPACE.bateau.empannage_s ?? 6} s par empannage), évitement de la terre et de la zone interdite. Touchez un bord pour l’afficher seul avec ses lay-lines.</div>`;
   }
   el.innerHTML = html;
   renderObsAll();
   $('.obsbox', el).addEventListener('toggle', (e) => { S.obsOpen = e.target.open; persist(); });
   $('#cSel').onchange = (e) => { S.courseId = +e.target.value; preselect = null; selLeg = null; S.lineOverride = null; autoReplay = true; persist(); scheduleAnalysis(); renderCourse(); };
-  $('#cCls').onchange = (e) => { S.cls = e.target.value; autoReplay = true; persist(); scheduleAnalysis(); };
+  const cCls = $('#cCls');                                     // absent à Bormes (classes du cahier CVAT sans objet, 08-08)
+  if (cCls) cCls.onchange = (e) => { S.cls = e.target.value; autoReplay = true; persist(); scheduleAnalysis(); };
   $('#playCourse')?.addEventListener('click', () => startReplay());
   if ($('#cLaps')) $('#cLaps').onchange = (e) => { S.laps = Math.max(1, Math.min(5, +e.target.value || 1)); persist(); scheduleAnalysis(); };
   if ($('#cWl')) $('#cWl').onchange = (e) => { S.wlNm = +e.target.value || 0.8; persist(); scheduleAnalysis(); };
@@ -1041,7 +1087,10 @@ function raceTick() {
   if (active) syncCtl?.abort();
   if (wasRaceActive && !active) scheduleSync(60000);
   if (wasRaceActive && !active) reprise();         // le rattrapage reporté pendant la course repart à sa fin (D-03)
-  if (active !== wasRaceActive) { wasRaceActive = active; paintSync(); }
+  if (active !== wasRaceActive) {
+    wasRaceActive = active; paintSync();
+    if (ESPACE.editeurParcours && !(rgDraft || icDraft || raceDraft || markFix)) renderIC();      // éditeur de parcours (08-11) : inactif en course, Tofinou seulement
+  }
   const lk = raceLock(now), locked = lk.locked;
   const raison = locked ? (lk.reason === 'course' ? 'en course' : 'journée de régate') : 'libre';
   if (raison !== lockReason) { lockReason = raison; note('verrou', raison); }      // pourquoi une mise à jour attend : lisible au journal (aucune position, aucun secret)
@@ -1572,7 +1621,7 @@ async function planRest() {
   const pos = gps?.pos || (obsPos && toXY(obsPos.lat, obsPos.lon));
   if (!pos) { toast('Activez le GPS (ou touchez la carte → « Relevé de vent ici ») pour situer le bateau.'); return; }
   const t0 = S.day === today() ? nowHour() : analysis.legs[nextIdx].eta0;
-  const ctx = { terrain: T, forbidden, perf: S.perf, trend: analysis.trend, memo: new Map() };
+  const ctx = { terrain: T, forbidden, perf: S.perf, trend: analysis.trend, memo: new Map(), ...BATEAU };
   const cur = VENUE.courant ? await courantCtx(S.day, t0) : null;          // Brest : courant à l’heure de chaque bord ; Toulon : v42
   if (cur?.current) Object.assign(ctx, { current: cur.current, depth: cur.depth });
   const legs = []; let t = t0, lastH = -1;
@@ -1740,7 +1789,7 @@ function bananeOfTrace(tr, src) {
   const course = gpen ? { course: K } : {};
   if (Number(rec.id) === K.id && okLL && Number.isFinite(rec.axe) && recBan && JSON.stringify(recBan) === JSON.stringify(ban)) return { ban, cls, c: { lat: lig.lat, lon: lig.lon }, dir: norm360(rec.axe), fit: false, prefer: true, from, ...course };
   // ligne de l’app, comme runAnalysis pour la banane (ligne pinguée comprise)
-  const preset = LINE_PRESETS[K.line && S.linePreset === 'vignettes' ? K.line : S.linePreset] || LINE_PRESETS.vignettes;
+  const preset = LINE_PRESETS[K.line && S.linePreset === (VENUE.lineDefaut ?? 'vignettes') ? K.line : S.linePreset] || LINE_PRESETS.vignettes || Object.values(LINE_PRESETS)[0];
   const ov = S.lineOverride;
   let c = ov ? toLL(...(({ cb, pin }) => [(cb.x + pin.x) / 2, (cb.y + pin.y) / 2])({ cb: toXY(ov.cb.lat, ov.cb.lon), pin: toXY(ov.pin.lat, ov.pin.lon) })) : { lat: preset.lat, lon: preset.lon };
   // vent du moment : au signal de la manche s’il tombe ce jour-là, sinon au début de la trace
@@ -1762,7 +1811,7 @@ async function runDebrief(tr) {
   // parcours proposés : ceux de la régate de la trace quand c’est la régate ouverte (seuls ses parcours sont chargés), sinon le cahier CVAT
   const courses = allowedCourses(COURSES, reg && reg.id === openReg()?.id ? reg.id : null);
   const api = {
-    F, ctx: { terrain: T, forbidden, perf: S.perf ?? 1 }, localFx: S.localFx ?? 1, forecastAt: (t) => forecastIn(src.ser, t), toast, meta: T.meta, files: VENUE.files, eventName: reg?.name || IC?.event || '', courseHint: manche?.courseId ?? null, courses,
+    F, ctx: { terrain: T, forbidden, perf: S.perf ?? 1, ...BATEAU }, localFx: S.localFx ?? 1, forecastAt: (t) => forecastIn(src.ser, t), toast, meta: T.meta, files: VENUE.files, eventName: reg?.name || IC?.event || '', courseHint: manche?.courseId ?? null, courses,
     // relevé saisi ce jour-là le plus proche du départ (figé, si le jour l'est), sinon la prévision (figée de même)
     windGuess: (t) => {
       const near = src.obs.filter((o) => o.t && Math.abs(o.t - t) < 3 * 3600e3).sort((a, b) => Math.abs(a.t - t) - Math.abs(b.t - t))[0];
@@ -1928,7 +1977,7 @@ async function openTraceDebrief(id) {
 // Plan d’eau d’une trace (07-05) : celui qui contient la majorité de ses points (venueAt), sinon null (hors de tout plan d’eau connu)
 function traceVenue(tr) {
   const n = {}, pts = tr?.pts || [];
-  for (const p of pts) { const v = Array.isArray(p) ? venueAt(p[1], p[2]) : null; if (v) n[v] = (n[v] || 0) + 1; }
+  for (const p of pts) { const v = Array.isArray(p) ? venueAt(p[1], p[2], ESPACE.venues) : null; if (v) n[v] = (n[v] || 0) + 1; }      // plans d’eau de l’espace seulement
   const best = Object.keys(n).sort((a, b) => n[b] - n[a])[0];
   return best && n[best] * 2 > pts.length ? best : null;
 }
@@ -1972,7 +2021,7 @@ function planBananeTrace(ban, bo, day, src) {
   const cxy = toXY(bo.c.lat, bo.c.lon), spd = Math.max(3, trackWindAt(day, src)(cxy.x, cxy.y, ban.mc.hit[0].t).spd);
   const prev = F.base ? { base: F.base, fx: F.fx } : null;
   F.compute({ points: [{ x: 0, y: 0, dir: ban.dir, spd, gust: spd * 1.35 }] }, { localEffects: S.localFx ?? 1 });
-  try { return planBanane(ban.B, F, { terrain: T, forbidden, perf: S.perf ?? 1, trend: 0 }); }
+  try { return planBanane(ban.B, F, { terrain: T, forbidden, perf: S.perf ?? 1, trend: 0, ...BATEAU }); }
   finally { if (prev) F.compute(prev.base, { localEffects: prev.fx }); else fieldKey = null; }
 }
 function renderTraceDetail() {
@@ -1989,7 +2038,7 @@ function renderTraceDetail() {
     ${fits.map((f) => `<div style="margin-top:10px"><b>${esc(f.k)} ${esc(f.m.name)}</b> — position à confirmer</div>${f.c.map((c, i) => `<div class="small" style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin:6px 0"><span>virage de ${Math.round(Math.abs(c.turn.D))}° à ${hms(c.turn.t)} · à ${Math.round(c.d0)} m de la position actuelle · passage au plus près à ${Math.round(c.near.d)} m <span class="muted">(pour information)</span></span><button class="btn small acc" data-mkfit="${esc(f.k)}" data-i="${i}">Valider</button></div>`).join('')}`).join('')}</div>` : '';
   el.innerHTML = `<div class="card"><h3><span>${esc(tr.name)}</span><small>${new Date(tr.start).toLocaleTimeString('fr-FR', { timeStyle: 'short' })}</small></h3>
     <div class="kpis"><div class="kpi"><b>${(res.dist / NM).toFixed(1)}</b><span>Nq parcourus</span></div><div class="kpi"><b>${summarizeTime(res.dur)}</b><span>durée active ${tip('Durée d’enregistrement réel : les pauses (arrêt puis reprise, perte du GPS de plus de 2 minutes) ne sont comptées ni dans la durée ni dans la distance.')}</span></div><div class="kpi"><b>${res.vmean.toFixed(1)}</b><span>nd moyen (max ${res.vmax.toFixed(1)})</span></div></div>
-    <div class="kpis" style="margin-top:8px"><div class="kpi"><b>${nT}</b><span>virements</span></div><div class="kpi"><b>${nE}</b><span>empannages</span></div><div class="kpi"><b>${res.perf ? Math.round(res.perf * 100) + ' %' : '—'}</b><span>de la polaire ${tip('Vitesse mesurée ÷ vitesse cible de la polaire J80 pour le vent du modèle à cet endroit et cette heure. Indicatif : le vent réel peut différer du modèle.')}</span></div></div>
+    <div class="kpis" style="margin-top:8px"><div class="kpi"><b>${nT}</b><span>virements</span></div><div class="kpi"><b>${nE}</b><span>empannages</span></div><div class="kpi"><b>${res.perf ? Math.round(res.perf * 100) + ' %' : '—'}</b><span>de la polaire ${tip(`Vitesse mesurée ÷ vitesse cible de la polaire ${CLASSE} pour le vent du modèle à cet endroit et cette heure. Indicatif : le vent réel peut différer du modèle.`)}</span></div></div>
     <p class="small muted" id="trWind" style="margin:8px 0 0">Vent de l’analyse : ${esc(src.label)}.</p>
     <p class="small" id="trReg" style="margin:4px 0 0">${regOfTrace(tr.id) ? `Rangée dans <b>${esc(regOfTrace(tr.id).name)}</b> · <button type="button" class="btn small alt" id="trDetach">Détacher</button>` : 'Sans régate · <button type="button" class="btn small alt" id="trPlace">Ranger…</button>'}</p>
     <button class="btn acc" id="trDebrief" style="width:100%;margin-top:8px">📝 ${tr.report ? 'Refaire le débrief de course' : 'Débrief de course'}</button>${tr.report ? '<button class="btn" id="trReport" style="width:100%;margin-top:6px">📄 Voir le débrief</button>' : ''}
@@ -2081,6 +2130,15 @@ function renderJ80Tab() {
     perf: S.perf,
     onPerf: (v) => { S.perf = v; persist(); scheduleAnalysis(); },
     wind: analysis?.legs?.[0]?.wind,
+    bateau: ESPACE.bateau,
+    // voile d’avant (hors de Naos) : gardée dans rade.bateau.v1, nouvelle polaire par défaut, la polaire personnelle garde la priorité
+    ...(BATEAU.bateau ? { voile: voileDe(ESPACE, localStore()), onVoile: (v) => {
+      if (!choisirVoile(ESPACE, localStore(), v)) { toast('Choix de la voile d’avant non enregistré sur ce téléphone'); return; }
+      appliquerPolaireEspace(ESPACE, localStore());
+      BATEAU.voileAvant = AVANT[v] ?? 'Foc';
+      if (S.polar) { try { setPolar(S.polar.tws, S.polar.twa, S.polar.bsp, S.polar.source); } catch (e) { S.polar = null; report('polaire', e); } }
+      renderJ80Tab(); scheduleAnalysis();
+    } } : {}),
   });
 }
 
@@ -2165,17 +2223,50 @@ function bindMarksEdit(el) {
 // ───────────────────────── RÉGATES ET IC
 // D-05 : le prénom de l’équipier est donné par le middleware (GET /api/membre : jamais le code ni son empreinte), copié sur l’appareil pour le hors-réseau,
 // puis il complète les éléments créés sans auteur sur cet appareil. Jamais attendu avant l’interface utile ; un échec est consigné, sans message à l’équipier.
+let membreBusy = false;
 async function refreshMembre() {
+  if (membreBusy || espaceEtat === 'bloque') return;          // autre espace annoncé : ni prénom ni auteur complété sur ces données
+  membreBusy = true;
   const ctl = new AbortController(), to = setTimeout(() => ctl.abort(), 4000);
   try {
     const r = await fetch('/api/membre', { cache: 'no-store', signal: ctl.signal });
     if (!r.ok) throw new Error('HTTP ' + r.status);
-    const nom = (await r.json())?.membre;
+    const j = await r.json();
+    setEspacesMembre(j?.espaces);                        // « Changer d’espace » (aide) : membre de plusieurs espaces, gardé en mémoire seulement
+    const nom = j?.membre;
+    if (espaceEtat === 'attendre' && !(await confirmeEspace(j))) return;        // hôte inconnu : espace d’abord ; autre espace : rien n’est modifié
     if (!saveMembre(localStore(), nom)) throw new Error('prénom illisible');
     const { st, n } = backfillAuthor(REG, nom);
     if (n) saveReg(st);
     if (!icBusy()) renderIC();                           // « Vous : prénom » et les auteurs complétés
-  } catch (e) { note('membre', 'prénom indisponible : ' + (e?.message || e)); } finally { clearTimeout(to); }
+  } catch (e) { note('membre', 'prénom indisponible : ' + (e?.message || e)); } finally { clearTimeout(to); membreBusy = false; }
+}
+// Hôte inconnu (D-04) : l’espace annoncé par /api/membre (sans `espace` : serveur v43, Naos) décide. Même espace → synchronisation permise ;
+// autre espace et appareil vierge → l’espace du serveur est adopté (rade.espace.v1 écrite, ou retirée pour Naos ; index, marqueur de graine et
+// réglages retirés) puis l’app recharge ; sinon synchronisation arrêtée pour la session. Vrai seulement si l’espace est confirmé.
+async function confirmeEspace(j) {
+  const annonce = j && typeof j === 'object' && Object.hasOwn(j, 'espace') ? j.espace : null;
+  let d = espaceSur({ hoteConnu: HOTE_CONNU, attendu: ESPACE.id, annonce });
+  if (d === 'bloquer') {
+    let traces = NaN;
+    try { traces = (await listTracks()).length; } catch (e) { report('espace', e); /* base illisible : l’appareil n’est pas tenu pour vierge */ }
+    d = espaceSur({ hoteConnu: HOTE_CONNU, attendu: ESPACE.id, annonce, vierge: appareilVierge({ sync: SYNC, index: store.get(REG_KEY, null), graines: ESPACE.graines, traces }) });
+  }
+  if (d === 'ok') { espaceEtat = 'ok'; note('espace', 'espace confirmé : ' + ESPACE.id); if (syncReady) scheduleSync(2000); return true; }
+  if (d === 'adopter') {
+    const e = annonce ?? 'naos';
+    try {
+      if (e === 'naos') localStorage.removeItem(ESPACE_KEY); else localStorage.setItem(ESPACE_KEY, e);
+      for (const k of [REG_KEY, GPEN_SEED_KEY, BAIE_SEED_KEY, 'rade.state']) localStorage.removeItem(k);
+      note('espace', 'appareil vierge : espace du serveur adopté (' + e + '), rechargement');
+      location.reload();
+      return false;
+    } catch (err) { report('espace', err); /* stockage refusé : rien n’est adopté, la synchronisation reste arrêtée */ }
+  }
+  espaceEtat = 'bloque'; clearTimeout(syncTimer);
+  note('espace', AUTRE_ESPACE);
+  toast(AUTRE_ESPACE); paintSync();
+  return false;
 }
 // ───────────────────────── ARCHIVE PARTAGÉE (ARCH-01, D-03, D-04)
 // js/archsync.js n’est jamais importé statiquement : il est chargé à la première synchronisation, après la carte (l’ouverture ne l’attend pas).
@@ -2183,6 +2274,7 @@ async function refreshMembre() {
 let syncMod = null, syncTimer = null, syncBusy = false, syncCtl = null, syncReady = false;
 function scheduleSync(ms) { clearTimeout(syncTimer); syncTimer = setTimeout(() => syncNow('auto'), ms); }
 async function syncFetch(method, query, body, delai = 15000) {
+  if (!espaceOk()) throw new Error('espace non confirmé');          // dernier rempart de la garde d’espace (D-04) : jamais un appel à /api/archive
   const ctl = new AbortController(), to = setTimeout(() => ctl.abort(), delai);
   syncCtl = ctl;
   try {
@@ -2205,10 +2297,16 @@ function syncDeps() {
     // copie de secours de l'index avant la première fusion appliquée ; un échec est consigné, jamais bloquant
     backup: () => { try { const brut = localStore()?.getItem(REG_KEY); if (brut != null) localStore().setItem('rade.regates.v1.bak', brut); } catch (e) { note('archive', 'copie de secours non écrite : ' + (e?.name || 'erreur')); } },
     canApply: () => !icBusy() && !markEdit && !SYNC.off,
+    caps: ESPACE.caps?.archive,                                                    // plafonds de l’espace (Naos : ceux de js/archsync.js)
   };
 }
 async function syncNow(reason) {
   if (syncBusy || (!syncReady && reason !== 'manuel')) return;
+  if (!espaceOk()) {                                         // hôte inconnu : espace pas encore confirmé, ou celui d’un autre espace (D-04)
+    if (espaceEtat === 'attendre') refreshMembre();
+    if (reason === 'manuel') toast(espaceEtat === 'bloque' ? AUTRE_ESPACE : 'Vérification de l’espace de cet appareil : synchronisation ensuite');
+    paintSync(); return;
+  }
   clearTimeout(syncTimer);
   if (SYNC.off) { paintSync(); return; }                     // désactivée sur ce téléphone : aucun échange, le module n’est même pas chargé
   if (raceActive(Date.now())) { if (reason === 'manuel') toast('Course en cours : synchronisation après la course'); paintSync(); return; }
@@ -2230,6 +2328,7 @@ async function syncNow(reason) {
 }
 // Geste « Télécharger pour le hors réseau » : tout ce qui manque à CETTE régate, sans tenir compte de l'horizon de 180 jours ; la course et le verrou du jour passent avant
 async function telecharger(rid, btn) {
+  if (!espaceOk()) { toast(espaceEtat === 'bloque' ? AUTRE_ESPACE : 'Vérification de l’espace de cet appareil : réessayez dans un instant'); return; }
   if (SYNC.off) { toast('Synchronisation désactivée sur ce téléphone'); return; }
   if (!net.online) { toast('Hors réseau : à faire dès le retour du réseau'); return; }
   if (heavyBusy) { toast('Un échange est déjà en cours : patientez un instant'); return; }
@@ -2263,10 +2362,11 @@ function heavyDeps() {
     me: who, listTracks, getTrack, saveTrack, getSlot, putSlot, slotKey,
     estimate: () => navigator.storage?.estimate?.(),
     isActive: () => raceActive(Date.now()), isLocked: () => raceLock().locked, report,
+    caps: ESPACE.caps?.lourd,                                                      // plafonds de l’espace (Naos : ceux de js/archheavy.js)
   };
 }
 async function runHeavyNow({ only = null, manuel = false } = {}) {
-  if (heavyBusy || SYNC.off || SYNC.denied || SYNC.absent || SYNC.outdated) return null;
+  if (heavyBusy || SYNC.off || SYNC.denied || SYNC.absent || SYNC.outdated || !espaceOk()) return null;
   if (raceActive(Date.now())) { if (manuel) toast('Course en cours : téléchargement après la course'); return null; }
   if (raceLock().locked) { if (manuel) toast('Journée de régate : téléchargement au retour au port'); return null; }
   heavyBusy = true;
@@ -2316,9 +2416,10 @@ function toggleSync(btn) {
 function paintSync() {
   const el = $('#rgSync');
   if (!el) return;
+  if (espaceEtat === 'bloque') { el.textContent = AUTRE_ESPACE; el.dataset.level = 'warn'; el.hidden = false; return; }      // D-04 : textContent
   if (!syncMod && !SYNC.off) { el.hidden = true; return; }
   if (!syncMod) { el.textContent = 'Synchronisation désactivée'; el.dataset.level = 'off'; el.hidden = false; return; }      // désactivée avant tout chargement : le module reste dehors
-  const s = syncMod.syncStatus({ off: SYNC.off, active: raceActive(Date.now()), online: net.online, busy: syncBusy, dirty: Object.keys(SYNC.dirty || {}).length, lastOkAt: SYNC.lastOkAt, fails: SYNC.fails, absent: SYNC.absent, denied: SYNC.denied, outdated: SYNC.outdated, capped: syncMod.capped(SYNC, Date.now()) });
+  const s = syncMod.syncStatus({ off: SYNC.off, active: raceActive(Date.now()), online: net.online, busy: syncBusy, dirty: Object.keys(SYNC.dirty || {}).length, lastOkAt: SYNC.lastOkAt, fails: SYNC.fails, absent: SYNC.absent, denied: SYNC.denied, outdated: SYNC.outdated, capped: syncMod.capped(SYNC, Date.now(), ESPACE.caps?.archive) });
   el.textContent = s.text + (SYNC.env === 'preview' ? ' (essai)' : ''); el.dataset.level = s.level; el.hidden = false;
 }
 let icDraft = null;                          // relecture des IC en cours (import ou « Modifier »), en mémoire de la page seulement : rien n’est écrit avant « Valider les IC »
@@ -2335,7 +2436,9 @@ function iaState() {
 let rgDraft = null, rgErr = {};              // formulaire « Nouvelle régate » ouvert : sa saisie survit à un redessin
 let raceDraft = null, raceErr = {};          // formulaire « Nouvelle manche » ouvert ; `edit` (rang) et `id` : formulaire « Modifier la manche »
 let markFix = null;                          // correction de la position d’une bouée de régate en cours : { id, txt, err, ask }
-const icBusy = () => !!(rgDraft || icDraft || raceDraft || markFix);
+// éditeur de parcours (08-11, D-17, espace Tofinou seulement) : bouée en cours d’ajout { name, txt, from, origine, err } et brouillon de parcours
+let markAdd = null, courseEdit = null, courseErr = {};
+const icBusy = () => !!(rgDraft || icDraft || raceDraft || markFix || markAdd || courseEdit);
 const courseList = () => COURSES.map(({ id, title }) => ({ id, title }));
 // ── Régate ouverte (D-A1 à D-A4) : un état de la page, en mémoire. setOpen est le SEUL endroit où OPEN change après le chargement ; il n’écrit rien
 // (ni index, ni file d’envoi, ni synchronisation) : ouvrir ou fermer une régate n’échange rien et ne change rien chez les autres (D-03 phase 4).
@@ -2349,7 +2452,7 @@ function openGesture(id) {
   const autre = id != null ? openRegatta(REG.list, id) : null;
   if (autre && venueOf(autre) !== VENUE.id) { askVenue(autre); return; }        // régate d’un autre plan d’eau : jamais ouverte sur la mauvaise carte (D-05)
   iaCtl?.abort(); iaBusy = false; iaMsg = '';
-  icDraft = null; raceDraft = null; markFix = null;
+  icDraft = null; raceDraft = null; markFix = null; markAdd = null; courseEdit = null; courseErr = {};
   setOpen(id);
   const r = openReg();
   toast(r ? `Régate ouverte : ${r.name}` : 'Retour à l’entraînement libre');
@@ -2413,16 +2516,12 @@ function paintRegBar() {
 // Carte « Plan d’eau » en tête de l’onglet Régates. Le pack de Brest (data/brest.*, hors de la liste hors réseau) est téléchargé par la page,
 // vérifié par empreinte et rangé dans un cache rade-venue-brest-<pack> (js/pack.js) ; changer de plan d’eau enregistre le choix et recharge
 // l’app, jamais pendant une course. À Toulon, le démarrage ne lit ni le manifeste ni les caches : l’état est lu à l’ouverture de l’onglet.
-const PACK_ID = 'brest';                                   // plan d’eau téléchargeable (Toulon est dans le cache de l’app)
+const PACK_ID = ESPACE.pack;                               // plan d’eau téléchargeable de l’espace (Naos : Brest ; Toulon est dans le cache de l’app)
 const PACK = { man: null, status: null, busy: null, error: null };
 const cacheStore = () => (typeof caches === 'undefined' ? null : caches);
 const venueIn = (id) => VENUES[id].nom.replace(/^Rade /, 'rade ');      // « la rade de Brest »
-// réglages propres à un plan d’eau, rangés dans S.byVenue[<id>] quand on le quitte ; la polaire et les réglages du bateau sont communs
-const VENUE_KEYS = ['courseId', 'cls', 'laps', 'linePreset', 'lineLen', 'lineMode', 'lineBrg', 'lineOverride', 'obs', 'manual', 'src', 'modelSel'];
-// premier passage : défauts du plan d’eau (Brest : parcours 1 du GPEN, 91 ; ligne au centre de la zone A, vent d’ouest)
-const VENUE_DEF = { brest: { courseId: 91, linePreset: 'zoneA', lineOverride: null, obs: [], manual: { dir: 270, spd: 12, gust: 17 } } };
-const pickVenueKeys = (o) => Object.fromEntries(VENUE_KEYS.filter((k) => o && typeof o === 'object' && Object.hasOwn(o, k)).map((k) => [k, structuredClone(o[k])]));
-const packView = () => ({ venueId: VENUE.id, venues: VENUES, status: PACK.status, busy: PACK.busy, error: PACK.error, locked: raceActive(Date.now()), packId: PACK_ID });
+// VENUE_KEYS, VENUE_DEF et pickVenueKeys : en tête du module (défauts du premier démarrage hors de Naos)
+const packView = () => ({ venueId: VENUE.id, venues: VENUES, status: PACK.status, busy: PACK.busy, error: PACK.error, locked: raceActive(Date.now()), packId: PACK_ID, ids: ESPACE.venues });
 async function loadManifest() {
   if (PACK.man) return PACK.man;
   try { const r = await fetch('data/venues.json'); if (r.ok) PACK.man = await r.json(); } catch (e) { report('pack', e); }
@@ -2465,7 +2564,7 @@ async function packDownload() {
 // « Passer à la rade de Brest » télécharge d’abord le pack s’il n’est pas sur ce téléphone ; « Revenir à la rade de Toulon » bascule tout de suite
 // reopen / retrace : régate ou trace du plan d’eau visé à rouvrir après le rechargement (ouverture d’une régate ou d’une trace d’un autre plan d’eau, D-06)
 async function packGo(id, { reopen = null, retrace = null } = {}) {
-  if (!Object.hasOwn(VENUES, id) || id === VENUE.id) return;
+  if (!Object.hasOwn(VENUES, id) || id === VENUE.id || !ESPACE.venues.includes(id)) return;          // plans d’eau de l’espace seulement
   if (raceActive(Date.now())) { toast('Pas pendant une course : terminez-la d’abord'); paintPack(); return; }
   if (id !== 'toulon') {
     const st = (await refreshPack())?.state;
@@ -2477,7 +2576,7 @@ async function packGo(id, { reopen = null, retrace = null } = {}) {
 }
 // Change de plan d’eau : range les réglages du plan d’eau quitté, reprend ceux du nouveau (ou ses défauts), enregistre et recharge (D-05)
 function switchVenue(id) {
-  if (!Object.hasOwn(VENUES, id) || id === VENUE.id) return false;
+  if (!Object.hasOwn(VENUES, id) || id === VENUE.id || !ESPACE.venues.includes(id)) return false;
   if (raceActive(Date.now())) { toast('Pas pendant une course : terminez-la d’abord'); return false; }
   const by = { ...S.byVenue, [VENUE.id]: pickVenueKeys(S) };
   Object.assign(S, pickVenueKeys(DEF), pickVenueKeys(VENUE_DEF[id]), pickVenueKeys(S.byVenue[id]), { venue: id, byVenue: by });
@@ -2498,20 +2597,22 @@ async function venueReady() {
   if (!net.online) return false;
   return packDownload();
 }
-// Pas de pack et pas de réseau : la carte le dit, avec « Revenir à la rade de Toulon » ; onglets, chrono et mode départ restent utilisables
+// Pas de pack et pas de réseau : la carte le dit, avec « Revenir à la rade de Toulon » si Toulon est un plan d’eau de l’espace (Naos) ;
+// onglets, chrono et mode départ restent utilisables
 function venueMissing() {
+  const toulon = ESPACE.venues.includes('toulon');
   note('pack', 'plan d’eau absent de ce téléphone');
   const mk = (tag, txt, id) => { const e = document.createElement(tag); if (txt) e.textContent = txt; if (id) e.id = id; return e; };
   const box = mk('div', '', 'pkMissing'); box.className = 'card';
   box.style.cssText = 'position:absolute;left:12px;right:12px;top:72px;max-width:460px;margin:0 auto;z-index:5';
-  const p = mk('p', `La ${venueIn(VENUE.id)} n’est pas encore sur ce téléphone : connectez-vous pour la télécharger (${fmtMo(PACK.status?.bytes)}), ou revenez à Toulon.`);
+  const p = mk('p', `La ${venueIn(VENUE.id)} n’est pas encore sur ce téléphone : connectez-vous pour la télécharger (${fmtMo(PACK.status?.bytes)})${toulon ? ', ou revenez à Toulon' : ''}.`);
   p.className = 'small';
   const btns = mk('div'); btns.className = 'btns';
   const back = mk('button', 'Revenir à la rade de Toulon', 'pkBack'); back.type = 'button'; back.className = 'btn acc';
   back.addEventListener('click', () => packGo('toulon'));
   const retry = mk('button', 'Télécharger le plan d’eau', 'pkRetry'); retry.type = 'button'; retry.className = 'btn alt';
   retry.addEventListener('click', async () => { if (await packDownload()) location.reload(); });
-  btns.append(back, retry);
+  if (toulon) btns.append(back, retry); else { retry.className = 'btn acc'; btns.append(retry); }
   box.append(p, btns);
   $('#view').replaceChildren(box);
   status(`${VENUES[VENUE.id].nom} absente de ce téléphone`);
@@ -2551,7 +2652,7 @@ function repairVenues() {
   note('plan-eau', `${n} régate${n > 1 ? 's' : ''} : plan d’eau retrouvé par les bouées`);
 }
 // Après un changement de régate ouverte ou de ses données : tout ce qui lit IC ou le verrou est redessiné
-function afterRegChange() { markFix = null; paintRegBar(); refreshRegMarks(); renderIC(); renderDaySeg(); renderBrief(); renderLive(); }
+function afterRegChange() { markFix = null; markAdd = null; courseEdit = null; courseErr = {}; paintRegBar(); refreshRegMarks(); renderIC(); renderDaySeg(); renderBrief(); renderLive(); }
 // Bouées et parcours de la régate ouverte (D-04) : retire ceux de la précédente, ajoute les seules bouées CONFIRMÉES et les parcours dont toutes les bouées le sont.
 // Puis le parcours choisi doit être proposé (courseFallback) : sinon, AVANT tout calcul (Pitfall 7), celui de la manche choisie, le parcours 3 ou le
 // premier de la régate, présélectionné et dit. Jamais pendant une course (`active`) : l’avertissement #courseMismatch le dit ; un parcours qui
@@ -2608,8 +2709,11 @@ function renderIC() {
     <div class="small muted" id="rgSync" hidden></div>
     <div class="btns" style="margin:6px 0 0"><button type="button" class="btn small alt" id="rgSyncBtn"${SYNC.off ? ' disabled' : ''}>Synchroniser</button><button type="button" class="btn small alt" id="rgSyncOff">${SYNC.off ? 'Réactiver la synchronisation' : 'Désactiver la synchronisation'}</button>${tip(SYNC_TIP)}</div></div>`;
   if (rgDraft) html += newRegattaFormHTML(rgDraft, rgErr);
-  html += cur ? sheetHTML(cur, { now, courses: courseList(), choices: raceChoices(cur), raceDraft, raceErrors: raceErr, markFix, nmOf: fmtNm, local: LOCAL?.traces ?? null, daysLocal: LOCAL?.days ?? null, me: who(), tipHtml: tip(DL_TIP) }) : noRegattaHTML();
-  if (icDraft) html += reviewHTML(icDraft, icChecks(), { ia: iaState(), isLand: T ? (x, y) => T.isLand(x, y) : undefined });
+  // textes des IC de l’espace (08-11, D-16) et classes masquées à Bormes (WINDOWS n° 15) : options posées hors de Naos seulement (vues de la v43 sinon)
+  const propres = { ...(ESPACE.textesIC ? { semee: ESPACE.textesIC.notice } : {}), ...(cur && VENUES[venueOf(cur)].sansClasses ? { sansClasses: true } : {}),
+    ...(ESPACE.editeurParcours ? { editeur: { locked: racing(), markAdd, courseEdit, courseErr } } : {}) };          // éditeur de parcours (D-17) : Tofinou seulement
+  html += cur ? sheetHTML(cur, { now, courses: courseList(), choices: raceChoices(cur), raceDraft, raceErrors: raceErr, markFix, nmOf: fmtNm, local: LOCAL?.traces ?? null, daysLocal: LOCAL?.days ?? null, me: who(), tipHtml: tip(DL_TIP), ...propres }) : noRegattaHTML();
+  if (icDraft) html += reviewHTML(icDraft, icChecks(), { ia: iaState(), isLand: T ? (x, y) => T.isLand(x, y) : undefined, ...(ESPACE.textesIC ? { libelles: ESPACE.textesIC } : {}) });
   if (cur) html += `<div class="card"><h3>Instructions de course <small>${cur.ic ? 'validées' : 'à importer'}</small></h3>
     <div class="btns" style="margin:0 0 6px"><label class="btn acc small" for="icFile" style="cursor:pointer">＋ Importer des IC (PDF)</label><button class="btn alt small" id="evEdit">Modifier</button></div>
     <input type="file" id="icFile" accept="application/pdf,.pdf,.txt,text/plain" hidden>
@@ -2620,7 +2724,7 @@ function renderIC() {
     ${IC.firstWarning && IC.date ? `<button class="btn small alt" id="evUse">Caler le départ sur ces IC (${esc(dayName(IC.date))}, ${esc(IC.firstWarning)} + 5 min)</button>` : ''}</div>`;
   html += `<div class="card"><h3>Règles de course <small>RCV / RRS 2025-2028</small></h3><p class="small">Départs (P, I, U, Z, noir), priorités, bouées, arrivée et pénalités, en langage simple avec schémas et textes officiels FR / EN.</p>
     <div class="btns" style="margin:0"><a class="btn acc small" href="regles.html" target="_blank" rel="noopener">📘 Ouvrir les règles</a><a class="btn alt small" href="regles.html#depart" target="_blank" rel="noopener">Pavillons de départ</a><a class="btn alt small" href="regles.html#bouees" target="_blank" rel="noopener">Bouées</a><a class="btn alt small" href="regles.html#arbitre" target="_blank" rel="noopener">💬 Demander à l’arbitre</a></div></div>
-  <div class="card"><h3>Pavillons de classe${toulon ? ' <small>habituels CVAT</small>' : ''}</h3><table class="t">${IC.classes.map((c) => `<tr><td>${esc(c[0])}</td><td>${esc(c[1])}</td></tr>`).join('')}</table></div>`;
+  ${ESPACE.id !== 'naos' && !IC.classes.length ? '' : `<div class="card"><h3>Pavillons de classe${toulon ? ' <small>habituels CVAT</small>' : ''}</h3><table class="t">${IC.classes.map((c) => `<tr><td>${esc(c[0])}</td><td>${esc(c[1])}</td></tr>`).join('')}</table></div>`}`;
   if (cur) html += `<div class="card"><h3>Points clés</h3><ul class="tips small">${(IC.keyRules || []).map((r) => `<li>${esc(r)}</li>`).join('') || '<li>Aucun point clé enregistré.</li>'}</ul>
     ${IC.text ? `<details><summary class="small">Texte complet des IC</summary><pre class="ictext">${esc(IC.text)}</pre></details>` : ''}
     <button class="btn small alt" id="evDel" style="margin-top:8px">Supprimer cette régate</button></div>`;
@@ -2642,7 +2746,7 @@ function renderIC() {
     const sync = () => { rgDraft = { name: $('#rgName').value, dateStart: $('#rgStart').value, dateEnd: $('#rgEnd').value, club: $('#rgClub').value, venue: $('#rgVenue').value }; };
     const create = () => {
       sync();
-      const r = createRegatta(rgDraft, { now: Date.now(), by: who() });
+      const r = createRegatta({ ...rgDraft, venue: ESPACE.venues.includes(rgDraft.venue) ? rgDraft.venue : ESPACE.venueDefaut }, { now: Date.now(), by: who() });     // plans d’eau de l’espace seulement
       if (!r.ok) { rgErr = r.errors; renderIC(); return; }
       rgDraft = null; rgErr = {}; icDraft = null;
       saveReg(upsertRegatta(REG, r.regatta));
@@ -2665,8 +2769,8 @@ function renderIC() {
     renderIC(); $('#rcTime')?.focus();
   });
   if (raceDraft) {
-    const sync = () => { raceDraft = { ...raceDraft, date: $('#rcDate').value, time: $('#rcTime').value, courseId: $('#rcCourse').value, cls: $('#rcCls').value, laps: $('#rcLaps').value, note: $('#rcNote').value }; };
-    for (const id of ['#rcDate', '#rcTime', '#rcCourse', '#rcCls', '#rcLaps', '#rcNote']) { $(id).addEventListener('input', sync); $(id).addEventListener('change', sync); }
+    const sync = () => { raceDraft = { ...raceDraft, date: $('#rcDate').value, time: $('#rcTime').value, courseId: $('#rcCourse').value, cls: $('#rcCls')?.value ?? raceDraft.cls, laps: $('#rcLaps').value, note: $('#rcNote').value }; };
+    for (const id of ['#rcDate', '#rcTime', '#rcCourse', '#rcCls', '#rcLaps', '#rcNote']) { $(id)?.addEventListener('input', sync); $(id)?.addEventListener('change', sync); }
     if ($('#rcAdd')) $('#rcAdd').onclick = () => {
       sync();
       // une manche en banane garde les réglages de la banane de ce téléphone (D-04) : « Choisir cette manche » les rend sur les autres
@@ -2763,12 +2867,13 @@ function paintMarksReview() {
 // ───────────────────────── bouées d’une régate (autre club) : voir, confirmer, corriger, ignorer (D-04, REG-04)
 // Chaque geste range le résultat dans la régate (auteur et instant gardés), réinjecte les bouées confirmées et redessine la carte et le calcul.
 function commitRegMarks(next, msg) {
-  saveReg(upsertRegatta(REG, next)); markFix = null;
+  saveReg(upsertRegatta(REG, next)); markFix = null; markAdd = null; courseEdit = null; courseErr = {};
   if (msg) toast(msg);
   refreshRegMarks(); renderIC();                           // un parcours présélectionné (la régate a désormais ses parcours) : son message passe en dernier
 }
 function submitRegMark(cur) {
   const fx = markFix; if (!fx) return;
+  if (editLocked()) return;
   const mk = cur.marks.find((m) => m.id === fx.id); if (!mk) { markFix = null; renderIC(); return; }
   const same = fx.ask && fx.ask.txt === fx.txt;                                            // deuxième touche sur la même saisie : déplacement confirmé
   const r = moveMark(cur, fx.id, fx.txt, { by: who(), at: Date.now(), confirmFar: !!same });
@@ -2785,20 +2890,106 @@ function bindRegMarks(el, cur) {
     setSheet('min'); setTimeout(() => scene.focus([toXY(m.lat, m.lon)], 3), 320);       // le panneau se replie, puis la carte se centre sur la bouée
   }));
   $$('[data-mk-ok]', el).forEach((b) => b.addEventListener('click', () => {
+    if (editLocked()) return;
     const m = mark(b.dataset.mkOk), next = confirmMark(cur, b.dataset.mkOk, { by: who(), at: Date.now() });
     if (m && next !== cur) commitRegMarks(next, `Bouée ${m.id} ${m.name} confirmée`);
   }));
   $$('[data-mk-ign]', el).forEach((b) => b.addEventListener('click', () => {
+    if (editLocked()) return;
     if (b.dataset.c !== '1') { b.dataset.c = '1'; b.textContent = 'Ignorer ?'; return; }
     const m = mark(b.dataset.mkIgn);
     if (m) commitRegMarks(ignoreMark(cur, m.id, { by: who(), at: Date.now() }), `Bouée ${m.id} ${m.name} ignorée`);
   }));
-  $$('[data-mk-fix]', el).forEach((b) => b.addEventListener('click', () => { markFix = { id: b.dataset.mkFix, txt: '', err: '', ask: null }; renderIC(); $('#mkxTxt')?.focus(); }));
+  $$('[data-mk-fix]', el).forEach((b) => b.addEventListener('click', () => { if (editLocked()) return; markFix = { id: b.dataset.mkFix, txt: '', err: '', ask: null }; renderIC(); $('#mkxTxt')?.focus(); }));
+  if (ESPACE.editeurParcours) bindEditor(el, cur);
   if (!markFix || !$('#mkxTxt')) return;
   $('#mkxTxt').addEventListener('input', (e) => { markFix.txt = e.target.value; markFix.err = ''; if (markFix.ask) { markFix.ask = null; $('#mkxOk').textContent = 'Valider'; } $('#mkxErr').textContent = ''; });
   $('#mkxTxt').addEventListener('keydown', (e) => { if (e.key === 'Enter') submitRegMark(cur); });
   $('#mkxOk').addEventListener('click', () => submitRegMark(cur));
   $('#mkxNo').addEventListener('click', () => { markFix = null; renderIC(); });
+}
+
+// ───────────────────────── éditeur de parcours de la régate (08-11, D-17) : espace Tofinou seulement (ESPACE.editeurParcours)
+// Chaque geste est refusé pendant une course (racing() : chrono, mode départ, trace ou GPS ; la seule journée verrouillée ne bloque pas), comme
+// la modification d’une manche. Bouées et parcours enregistrés dans la régate (commitRegMarks → saveReg → archive de l’espace).
+const EDIT_LOCK_MSG = 'Course en cours : parcours et bouées modifiables après la course';
+// vrai (et message) si un geste de l’éditeur doit être refusé ; jamais chez Naos (gestes de la v43)
+function editLocked() {
+  if (!ESPACE.editeurParcours || !racing()) return false;
+  toast(EDIT_LOCK_MSG);
+  return true;
+}
+// « Bouée de régate ici… » (fenêtre « Point choisi ») ou « ＋ Ajouter une bouée » : formulaire d’ajout, prérempli par le point touché
+function openMarkAdd(txt = '') {
+  if (editLocked()) return;
+  markAdd = { name: '', txt, from: txt, origine: txt ? 'carte' : 'saisie', err: '' };
+  markFix = null;
+  openTab('ic'); renderIC();
+  $('#mkaForm')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  $('#mkaName')?.focus();
+}
+function submitMarkAdd(cur) {
+  if (!markAdd || editLocked()) return;
+  const origine = markAdd.txt.trim() === String(markAdd.from || '').trim() && markAdd.from ? 'carte' : 'saisie';     // retouchée : position saisie
+  const r = addHandMark(cur, { name: markAdd.name, txt: markAdd.txt, origine }, { by: who(), at: Date.now() });
+  if (!r.ok) { markAdd.err = r.error; const e = $('#mkaErr'); if (e) e.textContent = r.error; return; }
+  const m = r.regatta.marks.find((x) => x.id === r.id), q = toXY(m.lat, m.lon);
+  const terre = T && T.isLand(q.x, q.y) ? ' (position sur terre : vérifiez)' : '';
+  commitRegMarks(r.regatta, `Bouée ${m.id} ${m.name} ajoutée : à confirmer${terre}`);
+}
+// Brouillon du parcours relu depuis le formulaire, sans reconstruire la carte (le curseur reste dans le nom)
+function readCourseForm() {
+  if (!courseEdit || !$('#coForm')) return courseEdit;
+  const steps = courseEdit.steps.map((s, i) => {
+    const kind = $(`#coForm [data-st-kind="${i}"]`)?.value || s.kind, mark = $(`#coForm [data-st-mark="${i}"]`)?.value ?? s.mark ?? '';
+    return kind === 'gate' ? { kind, mark, gate: $(`#coForm [data-st-gate="${i}"]`)?.value ?? s.gate ?? '' } : { kind, mark, side: $(`#coForm [data-st-side="${i}"]`)?.value ?? s.side ?? '' };
+  });
+  const fk = $('#coFin')?.value || 'ligne', laps = Number($('#coLaps')?.value) || 1;
+  courseEdit = { ...courseEdit, name: $('#coName')?.value ?? courseEdit.name, steps, finish: { kind: fk, mark: fk === 'ligne' ? '' : $('#coFinMark')?.value ?? courseEdit.finish?.mark ?? '' }, laps, lapLine: $('#coLapLine') ? $('#coLapLine').value !== '0' : courseEdit.lapLine };
+  return courseEdit;
+}
+function bindEditor(el, cur) {
+  $('#mkNew')?.addEventListener('click', () => openMarkAdd(''));
+  $('#coNew')?.addEventListener('click', () => { if (editLocked()) return; courseEdit = courseDraft(cur, null); courseErr = {}; renderIC(); $('#coForm')?.scrollIntoView({ behavior: 'smooth', block: 'center' }); $('#coName')?.focus(); });
+  $$('[data-co-edit]', el).forEach((b) => b.addEventListener('click', () => {
+    if (editLocked()) return;
+    const d = courseDraft(cur, Number(b.dataset.coEdit));
+    if (!d) return;
+    courseEdit = d; courseErr = {}; renderIC(); $('#coForm')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }));
+  $$('[data-co-del]', el).forEach((b) => b.addEventListener('click', () => {
+    if (editLocked()) return;
+    if (b.dataset.c !== '1') { b.dataset.c = '1'; b.textContent = 'Supprimer ?'; return; }
+    const c = cur.courses.find((x) => x.id === Number(b.dataset.coDel));
+    if (c) commitRegMarks(removeCourse(cur, c.id), `Parcours ${c.name} supprimé`);
+  }));
+  if (markAdd && $('#mkaForm')) {
+    $('#mkaName').addEventListener('input', (e) => { markAdd.name = e.target.value; markAdd.err = ''; $('#mkaErr').textContent = ''; });
+    $('#mkaPos').addEventListener('input', (e) => { markAdd.txt = e.target.value; markAdd.err = ''; $('#mkaErr').textContent = ''; });
+    for (const id of ['#mkaName', '#mkaPos']) $(id).addEventListener('keydown', (e) => { if (e.key === 'Enter') submitMarkAdd(cur); });
+    $('#mkaOk').addEventListener('click', () => submitMarkAdd(cur));
+    $('#mkaNo').addEventListener('click', () => { markAdd = null; renderIC(); });
+  }
+  if (courseEdit && $('#coForm')) {
+    const redraw = () => { readCourseForm(); renderIC(); };
+    $('#coName').addEventListener('input', () => { readCourseForm(); });
+    for (const sel of ['[data-st-mark]', '[data-st-gate]', '[data-st-side]', '#coFinMark', '#coLapLine']) $$(`#coForm ${sel}`).forEach((x) => x.addEventListener('change', () => { readCourseForm(); }));
+    for (const sel of ['[data-st-kind]', '#coFin', '#coLaps']) $$(`#coForm ${sel}`).forEach((x) => x.addEventListener('change', redraw));       // la forme du formulaire change
+    const move = (i, j) => { readCourseForm(); const st = [...courseEdit.steps]; [st[i], st[j]] = [st[j], st[i]]; courseEdit = { ...courseEdit, steps: st }; renderIC(); };
+    $$('#coForm [data-st-up]').forEach((b) => b.addEventListener('click', () => { const i = +b.dataset.stUp; if (i > 0) move(i, i - 1); }));
+    $$('#coForm [data-st-down]').forEach((b) => b.addEventListener('click', () => { const i = +b.dataset.stDown; if (i < courseEdit.steps.length - 1) move(i, i + 1); }));
+    $$('#coForm [data-st-del]').forEach((b) => b.addEventListener('click', () => { readCourseForm(); courseEdit = { ...courseEdit, steps: courseEdit.steps.filter((_, k) => k !== +b.dataset.stDel) }; renderIC(); }));
+    $('#coStepAdd').addEventListener('click', () => { readCourseForm(); courseEdit = { ...courseEdit, steps: [...courseEdit.steps, { kind: 'mark', mark: '', side: '' }] }; renderIC(); });
+    $('#coCancel').addEventListener('click', () => { courseEdit = null; courseErr = {}; renderIC(); });
+    $('#coSave').addEventListener('click', () => {
+      if (editLocked()) return;
+      const d = readCourseForm();
+      const r = saveCourseDraft(cur, d, { by: who(), at: Date.now(), taken: COURSES.map((c) => c.id) });
+      if (!r.ok) { courseErr = r.errors; renderIC(); $('#coForm')?.scrollIntoView({ behavior: 'smooth', block: 'center' }); return; }
+      const nom = r.regatta.courses.find((c) => c.id === r.id)?.name || '';
+      commitRegMarks(r.regatta, `${nom} ${d.id != null ? 'modifié' : 'enregistré'} : proposé dans l’onglet Parcours`);
+    });
+  }
 }
 
 // Met à jour le bouton « Lire avec l’IA » et son message sans reconstruire la carte

@@ -168,3 +168,32 @@ test('garde : le choix du parcours du débrief exclut toujours les parcours cons
   assert.match(src, /export function matchCourse\(pass, courses = COURSES, marks = MARKS\)/);
   assert.match(src, /\(porte : bouée prise\)/);
 });
+
+// ───────────────────────── rapport par espace (08-06, D-07) : Naos identique à la v43, Tofinou avec sa classe et son nom
+import { execFileSync } from 'node:child_process';
+const rendu = (...espace) => JSON.parse(execFileSync(process.execPath, ['tests/helpers/debriefv43.mjs', '--rendu', ROOT, ...espace], { cwd: ROOT, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 }));
+
+test('rapport de Naos identique à la v43 : HTML de buildReport octet pour octet sur la trace de référence de la Coupe SNPM (tests/fixtures/debrief-v43.json, capturé sur 5e9b8a5)', () => {
+  const v43 = JSON.parse(readFileSync(ROOT + 'tests/fixtures/debrief-v43.json', 'utf8'));
+  const now = rendu();
+  assert.deepEqual(Object.keys(now), Object.keys(v43));
+  for (const k of Object.keys(v43)) {
+    assert.deepEqual(now[k].textes, v43[k].textes, `${k} : textes`);
+    assert.equal(now[k].sha256, v43[k].sha256, `${k} : HTML différent de la v43`);
+    assert.equal(now[k].octets, v43[k].octets);
+  }
+  assert.ok(v43['relevés de la référence'].textes.includes('Débrief · J80 · Rade Tactique'), 'fixture lue : en-tête de la v43');
+});
+
+test('rapport de l’espace Tofinou : « Débrief · Tofinou 9.5 · Tofinou Bormes », polaire du Tofinou 9.5, nom de l’app, aucun « J80 » ni « Rade Tactique »', () => {
+  const t = rendu('--espace', 'tofinou');
+  for (const [k, r] of Object.entries(t)) {
+    const x = r.textes;
+    assert.equal(x[0], 'Débrief · Tofinou 9.5 · Tofinou Bormes', k);
+    assert.ok(x.includes('5 · Vitesse face à la polaire Tofinou 9.5'), k);
+    assert.ok(x.some((s) => s.startsWith('Vitesse fond GPS comparée à la polaire ORC du Tofinou 9.5, médiane')), k);
+    assert.ok(x.some((s) => s.includes('la force de votre vitesse comparée à la polaire Tofinou 9.5.')), k);
+    assert.ok(x.includes('Rapport généré par Tofinou Bormes le .'), k);
+    assert.ok(!x.some((s) => /J80|Rade Tactique/.test(s)), `${k} : ${x.filter((s) => /J80|Rade Tactique/.test(s)).join(' | ')}`);
+  }
+});
